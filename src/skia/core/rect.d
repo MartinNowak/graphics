@@ -2,8 +2,8 @@ module skia.core.rect;
 
 import std.algorithm;
 
-alias Size!(uint) ISize;
-alias Rect!(uint) IRect;
+alias Size!(int) ISize;
+alias Rect!(int) IRect;
 
 ////////////////////////////////////////////////////////////////////////////////
 //

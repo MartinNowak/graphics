@@ -8,7 +8,7 @@ debug import std.stdio : writeln, printf;
 
     SkIPoint holds two 32 bit integer coordinates
 */
-alias Point!(uint) IPoint;
+alias Point!(int) IPoint;
 
 struct Point (T)
 {
