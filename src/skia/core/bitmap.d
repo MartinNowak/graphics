@@ -1,5 +1,16 @@
 module skia.core.bitmap;
 
+import skia.core.rect : IRect;
+import skia.core.color;
+
+
+debug=PRINTF;
+debug(PRINTF) import std.stdio : writeln, printf;
+
+////////////////////////////////////////////////////////////////////////////////
+//
+////////////////////////////////////////////////////////////////////////////////
+
 enum Config {
   kNo_Config,         //!< bitmap has not been configured
   kA1_Config,         //!< 1-bit per pixel, (0 is transparent, 1 is opaque)
@@ -11,18 +22,21 @@ enum Config {
   kRLE_Index8_Config,
 };
 
+/**
+   Bitmap
+ */
 class Bitmap {
   @property uint width;
   @property uint height;
   Config config;
   ubyte flags;
-  void[] buffer;
+  Color[] buffer;
 
   void SetConfig(Config config, uint width, uint height) {
     this.width = width;
     this.height = height;
     this.config = config;
-    buffer.reserve(RowBytes(config, width) * height);
+    buffer.length = RowBytes(config, width) * height;
   }
 
   void* GetPixels() {
