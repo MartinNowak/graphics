@@ -119,17 +119,17 @@ Win.HWND MakeWindow(Win.HINSTANCE hInstance)
   wcex.lpfnWndProc = &WindowProc;
   wcex.lpszClassName = KWindowClassName;
   wcex.lpszMenuName = null;
-  wcex.style = Win.CS_HREDRAW | Win.CS_VREDRAW;
+  wcex.style = 0;
 
   auto a = Win.RegisterClassExA(&wcex);
   assert(a);
 
   auto hWnd = Win.CreateWindowA(KWindowClassName, KWindowTitle,
-			  Win.WS_OVERLAPPEDWINDOW,
-			  Win.CW_USEDEFAULT, 0,
-			  Win.CW_USEDEFAULT, 0,
-			  null, null, // Parent, Menu
-			  hInstance, null);
+				Win.WS_OVERLAPPEDWINDOW,
+				Win.CW_USEDEFAULT, 0,
+				Win.CW_USEDEFAULT, 0,
+				null, null, // Parent, Menu
+				hInstance, null);
   assert(hWnd);
   return hWnd;
 }
