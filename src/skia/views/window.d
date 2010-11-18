@@ -1,24 +1,61 @@
 module skia.views.window;
 
 import skia.core.bitmap;
+import skia.core.draw;
+import skia.core.paint : Paint;
+import skia.core.color : WarmGray;
 import skia.core.rect;
 
-class Window{
+//debug=PRINTF;
+debug(PRINTF) import std.stdio : writeln, printf;
+
+////////////////////////////////////////////////////////////////////////////////
+//
+////////////////////////////////////////////////////////////////////////////////
+
+class Window
+{
 public:
   this() {
     mConfig = Config.kARGB_8888_Config;
     mBitmap = new Bitmap();
   }
 
-  const(Bitmap) getBitmap() const
+  Bitmap GetBitmap()
   { return mBitmap; }
-  
-  bool Update(IRect updateArea = IRect())
-  { return false; }
+
+  bool Update(IRect* updateArea = null)
+  {
+    if (!mDirtyRegion.isEmpty())
+    {
+      Bitmap bm = this.GetBitmap();
+      Draw draw = Draw(bm);
+      debug(PRINTF) printf("OnDraw w: %u h: %u", bm.width, bm.height);
+      this.OnDraw(draw);
+      /++
+      Canvas canvas(bm);
+      canvas.ClipRegion(mDirtyRegion);
+
+      if (updateArea)
+	*updateArea = mDirtyRegion;
+      mDirtyRegion.SetEmpty();
+
+      this.Draw(canvas);
+      +/
+
+      return true;
+    }
+    return false;
+  }
+
+  void OnDraw(ref Draw draw) {
+    draw.drawPaint(Paint(WarmGray));
+  }
 
   void Resize(uint width, uint height)
   {
     mBitmap.SetConfig(mConfig, width, height);
+    mDirtyRegion.set(0, 0, width, height);
   }
 
   void Resize(uint width, uint height, Config config)
@@ -28,12 +65,14 @@ public:
   }
 
   void SetConfig(Config config)
-  { 
+  {
     this.Resize(mBitmap.width, mBitmap.height, config);
   }
 
+private:
   Config mConfig;
   Bitmap mBitmap;
+  IRect mDirtyRegion;
 };
 
 version(Windows)
@@ -50,7 +89,7 @@ version(Windows)
       mWParam = wParam;
       mLParam = lParam;
     }
-    
+
     Win.HWND mhWindow;
     uint mMsg;
     Win.WPARAM mWParam;

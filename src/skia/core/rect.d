@@ -23,6 +23,9 @@ struct Size(T)
 //
 ////////////////////////////////////////////////////////////////////////////////
 
+/** Rectangle template
+    IRect Integer variant.
+*/
 struct Rect(T)
 {
   T mLeft, mTop, mRight, mBottom;
