@@ -5,9 +5,19 @@ DMD := dmd
 LIBTOOL := lib
 IMPORTDIR := import
 DOCDIR := doc
-DFLAGS := -w -g # -O2
+DFLAGS := -w
+
+ifdef DEBUG
+	DFLAGS += -debug -unittest
+	OUTDIR := debug
+else
+	DFLAGS += -release -O -inline
+	OUTDIR := release
+endif
+
 LIBNAME := skia.lib
-LIBFILE := out/$(LIBNAME)
+LIBFILE := $(OUTDIR)/$(LIBNAME)
+
 #CFLAGS_SSE2 = $(CFLAGS) -msse2
 #LINKER_OPTS := -lpthread
 #DEFINES :=
@@ -20,7 +30,7 @@ SRC_LIST := $(addprefix skia/core/, $(SOURCE))
 include src/skia/views/views_files.mk
 SRC_LIST += $(addprefix skia/views/, $(SOURCE))
 
-out/%.o : src/%.d
+$(OUTDIR)/%.o : src/%.d
 	@echo $*
 	@mkdir -p $(dir $@)
 	$(HIDE)$(DMD) $(DFLAGS) -I$(IMPORTDIR) -c $< -of$@ -Hf$(IMPORTDIR)/$*.di -Df$(DOCDIR)/$*.html
@@ -28,7 +38,7 @@ out/%.o : src/%.d
 
 # now build out objects
 OBJ_LIST := $(SRC_LIST:.d=.o)
-OBJ_LIST := $(addprefix out/, $(OBJ_LIST))
+OBJ_LIST := $(addprefix $(OUTDIR)/, $(OBJ_LIST))
 
 ##############################################################################
 
@@ -41,17 +51,17 @@ $(LIBFILE): Makefile $(OBJ_LIST)
 .PHONY: lib
 lib: $(LIBFILE)
 
-out/WinMain.exe:
-	$(DMD) SampleApp/WinMain.d $(LIBFILE) gdi32.lib -I$(IMPORTDIR) -w
-	$(HIDE) mv WinMain.exe out/WinMain.exe
+$(OUTDIR)/WinMain.exe: Makefile $(LIBFILE) SampleApp/WinMain.d
+	$(DMD) SampleApp/WinMain.d $(LIBFILE) gdi32.lib -I$(IMPORTDIR) $(DFLAGS)
+	$(HIDE) mv WinMain.exe $@
 	$(HIDE) rm WinMain.*
 
 .PHONY: sampleapp
-sampleapp: lib out/WinMain.exe
+sampleapp: $(OUTDIR)/WinMain.exe
 
 .PHONY: clean
 clean:
-	$(HIDE)rm -rf out
+	$(HIDE)rm -rf debug release
 	$(HIDE)rm -rf $(IMPORTDIR)
 	$(HIDE)rm -rf $(DOCDIR)
 

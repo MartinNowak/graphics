@@ -11,6 +11,7 @@ extern (C) void gc_init();
 extern (C) void gc_term();
 extern (C) void _minit();
 extern (C) void _moduleCtor();
+extern (C) bool runModuleUnitTests();
 debug(UnitTest) extern (C) void _moduleUnitTests();
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -35,7 +36,7 @@ int WinMain(Win.HINSTANCE hInstance, Win.HINSTANCE hPrevInstance,
   try
   {
     _moduleCtor();
-    debug(UnitTest) _moduleUnitTests();
+    runModuleUnitTests();
     InitWindow(hInstance, nCmdShow);
     result = RunMainLoop();
   }
