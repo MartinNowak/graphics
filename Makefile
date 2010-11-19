@@ -51,8 +51,8 @@ $(LIBFILE): Makefile $(OBJ_LIST)
 .PHONY: lib
 lib: $(LIBFILE)
 
-$(OUTDIR)/WinMain.exe: Makefile $(LIBFILE) SampleApp/WinMain.d
-	$(DMD) SampleApp/WinMain.d $(LIBFILE) gdi32.lib -I$(IMPORTDIR) $(DFLAGS)
+$(OUTDIR)/WinMain.exe: Makefile $(LIBFILE) SampleApp/WinMain.d SampleApp/RectView.d
+	$(DMD) SampleApp/WinMain.d SampleApp/RectView.d $(LIBFILE) gdi32.lib -I$(IMPORTDIR) $(DFLAGS)
 	$(HIDE) mv WinMain.exe $@
 	$(HIDE) rm WinMain.*
 
