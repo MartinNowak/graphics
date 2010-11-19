@@ -1,1 +1,4 @@
-SOURCE := window.d
+SOURCE :=\
+	view.d \
+	window.d \
+

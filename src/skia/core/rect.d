@@ -1,6 +1,8 @@
 module skia.core.rect;
 
 import std.algorithm;
+import std.conv : to;
+import std.traits : isIntegral, Unsigned;
 
 alias Size!(int) ISize;
 alias Rect!(int) IRect;
@@ -11,10 +13,10 @@ alias Rect!(int) IRect;
 
 struct Size(T)
 {
-  T mWidth, mHeight;
+  T width, height;
   this (T width, T height) {
-    mWidth = width;
-    mHeight = height;
+    this.width = width;
+    this.height = height;
   }
 }
 
@@ -28,8 +30,21 @@ struct Size(T)
 */
 struct Rect(T)
 {
-  T mLeft, mTop, mRight, mBottom;
-  
+  enum Corner
+  {
+    Left,
+    Top,
+    Right,
+    Bottom,
+  }
+  alias Corner.Left Left;
+  alias Corner.Top Top;
+  alias Corner.Right Right;
+  alias Corner.Bottom Bottom;
+  T left, top, right, bottom;
+  alias left x;
+  alias top  y;
+
   this(T w, T h) {
     this.set(0, 0, w, h);
   }
@@ -38,46 +53,79 @@ struct Rect(T)
     this.set(left, top, right, bottom);
   }
 
+  string toString() {
+    return "Rect!"~to!string(typeid(T))
+      ~" left: "~to!string(this.left)
+      ~" top: "~to!string(this.top)
+      ~" right: "~to!string(this.right)
+      ~" bottom: "~to!string(this.bottom);
+  }
+
   /** Returns the rectangle's width. This does not check for a valid rectangle (i.e. left <= right)
       so the result may be negative.
   */
-  int width() const { return mRight - mLeft; }
+  @property T width() const { return right - left; }
+  @property void width(T width) {
+    this.right = this.left + width;
+  }
   
   /** Returns the rectangle's height. This does not check for a valid rectangle (i.e. top <= bottom)
       so the result may be negative.
   */
-  int height() const { return mBottom - mTop; }
+  @property T height() const { return bottom - top; }
+  @property void height(T height) {
+    this.bottom = this.top + height;
+  }
   
   void set(T left, T top, T right, T bottom) {
-    mLeft   = left;
-    mTop    = top;
-    mRight  = right;
-    mBottom = bottom;
+    this.left   = left;
+    this.top    = top;
+    this.right  = right;
+    this.bottom = bottom;
   }
 
-  void setXYWH(T x, T y, T w, T h) {
-    set(x, y, x + w, y + h);
+  void setXYWH(T x, T y, T width, T height) {
+    this.setPos(x, y);
+    this.setSize(width, height);
+  }
+
+  void setPos(T left, T top) {
+    this.right = left + this.width;
+    this.left = left;
+    this.bottom = top + this.height;
+    this.top = top;
+  }
+
+  void setSize(T width, T height) {
+    this.width = width;
+    this.height = height;
+  }
+
+  void setSize(Size!T size) {
+    this.setSize(size.width, size.height);
   }
 
   /** Set the rectangle to (0,0,0,0)
    */
-  void setEmpty() { this = Rect.init; }
+  void setEmpty() {
+    this = Rect.init;
+  }
 
 
   /** Return true if the rectangle's width or height are <= 0
    */
-  bool isEmpty() const {
-    return mLeft >= mRight || mTop >= mBottom;
+  @property bool empty() const {
+    return left >= right || top >= bottom;
   }
 
   /** Offset set the rectangle by adding dx to its left and right,
       and adding dy to its top and bottom.
   */
   void offset(T dx, T dy) {
-    mLeft   += dx;
-    mTop    += dy;
-    mRight  += dx;
-    mBottom += dy;
+    this.left   += dx;
+    this.top    += dy;
+    this.right  += dx;
+    this.bottom += dy;
   }
 
   /*
@@ -91,10 +139,10 @@ struct Rect(T)
       making the rectangle wider. The same hods true for dy and the top and bottom.
   */
   void inset(T dx, T dy) {
-    mLeft   += dx;
-    mTop    += dy;
-    mRight  -= dx;
-    mBottom -= dy;
+    this.left   += dx;
+    this.top    += dy;
+    this.right  -= dx;
+    this.bottom -= dy;
   }
 
   /** Returns true if (x,y) is inside the rectangle and the rectangle is not
@@ -102,87 +150,52 @@ struct Rect(T)
       and bottom are not. Thus for the rectangle (0, 0, 5, 10), the
       points (0,0) and (0,9) are inside, while (-1,0) and (5,9) are not.
   */
-  bool contains(T x, T y) const {
-    return (x - mLeft) < (mRight - mLeft) &&
-      (y - mTop) < (mBottom - mTop);
+  bool contains(bool check=true)(T x, T y) const
+    if (isIntegral!T)
+  {  
+    return (cast(Unsigned!T)(x - left)) <= (right - left) &&
+      (cast(Unsigned!T)(y - top)) <= (bottom - top);
+  }
+
+  bool contains(bool check=true)(T x, T y) const
+    if (!isIntegral!T)
+  {  
+    return this.left <= x && this.right >= x 
+      && this.top <= y && this.bottom >= y;
   }
 
   /** Returns true if the 4 specified sides of a rectangle are inside or equal to this rectangle.
       If either rectangle is empty, contains() returns false.
   */
-  bool contains(T left, T top, T right, T bottom) const {
-    return  left < right && top < bottom && !this.isEmpty() && // check for empties
-      mLeft <= left && mTop <= top &&
-      mRight >= right && mBottom >= bottom;
+  bool contains(bool check=true)(T left, T top, T right, T bottom) const {
+    return this.contains!check(Rect(left, top, right, bottom));
   }
 
   /** Returns true if the specified rectangle r is inside or equal to this rectangle.
    */
-  bool contains(const ref Rect r) const {
-    return  !r.isEmpty() && !this.isEmpty() &&     // check for empties
-      mLeft <= r.mLeft && mTop <= r.mTop &&
-      mRight >= r.mRight && mBottom >= r.mBottom;
-  }
+  bool contains(bool check=true)(in Rect b) const {
+    static if(check == true) {
+      if (b.empty || this.empty)
+	return false;
+    }
+    else
+      assert(b.empty || this.empty);
 
-  /** Return true if this rectangle contains the specified rectangle.
-      For speed, this method does not check if either this or the specified
-      rectangles are empty, and if either is, its return value is undefined.
-      In the debugging build however, we assert that both this and the
-      specified rectangles are non-empty.
-    */
-  bool containsNoEmptyCheck(T left, T top,
-			    T right, T bottom) const {
-    assert(mLeft < mRight && mTop < mBottom);
-    assert(left < right && top < bottom);
-    
-    return mLeft <= left && mTop <= top &&
-      mRight >= right && mBottom >= bottom;
+    return
+      this.left <= b.left && this.top <= b.top &&
+      this.right >= b.right && this.bottom >= b.bottom;
   }
     
   /** If r intersects this rectangle, return true and set this rectangle to that
       intersection, otherwise return false and do not change this rectangle.
       If either rectangle is empty, do nothing and return false.
   */
-  bool intersect(const ref Rect r) {
-    assert(&r);
-    return this.intersect(r.mLeft, r.mTop, r.mRight, r.mBottom);
-  }
-
-    /** If rectangles a and b intersect, return true and set this rectangle to
-        that intersection, otherwise return false and do not change this
-        rectangle. If either rectangle is empty, do nothing and return false.
-    */
-  bool intersect(const ref Rect a, const ref Rect b) {
-    assert(&a && &b);
-    
-    if (!a.isEmpty() && !b.isEmpty() &&
-	a.mLeft < b.mRight && b.mLeft < a.mRight &&
-	a.mTop < b.mBottom && b.mTop < a.mBottom) {
-      mLeft   = max(a.mLeft,   b.mLeft);
-      mTop    = max(a.mTop,    b.mTop);
-      mRight  = max(a.mRight,  b.mRight);
-      mBottom = max(a.mBottom, b.mBottom);
-      return true;
-    }
-    return false;
-  }
-  
-  /** If rectangles a and b intersect, return true and set this rectangle to
-      that intersection, otherwise return false and do not change this
-      rectangle. For speed, no check to see if a or b are empty is performed.
-      If either is, then the return result is undefined. In the debug build,
-      we assert that both rectangles are non-empty.
-  */
-  bool intersectNoEmptyCheck(const ref Rect a, const ref Rect b) {
-    assert(&a && &b);
-    assert(!a.isEmpty() && !b.isEmpty());
-    
-    if (a.mLeft < b.mRight && b.mLeft < a.mRight &&
-	a.mTop < b.mBottom && b.mTop < a.mBottom) {
-      mLeft   = max(a.mLeft,   b.mLeft);
-      mTop    = max(a.mTop,    b.mTop);
-      mRight  = min(a.mRight,  b.mRight);
-      mBottom = min(a.mBottom, b.mBottom);
+  bool intersect(bool check=true)(in Rect b) {
+    if (this.intersects!check(b)) {
+      this.left   = getSmaller!Left(this, b);
+      this.top    = getSmaller!Top(this, b);
+      this.right  = getSmaller!Right(this, b);
+      this.bottom = getSmaller!Bottom(this, b);
       return true;
     }
     return false;
@@ -193,24 +206,43 @@ struct Rect(T)
       otherwise return false and do not change this rectangle.
       If either rectangle is empty, do nothing and return false.
   */
-  bool intersect(T left, T top, T right, T bottom) {
-    if (left < right && top < bottom && !this.isEmpty() &&
-	mLeft < right && left < mRight && mTop < bottom && top < mBottom) {
-      if (mLeft < left) mLeft = left;
-      if (mTop < top) mTop = top;
-      if (mRight > right) mRight = right;
-      if (mBottom > bottom) mBottom = bottom;
+  bool intersect(bool check=true)(T left, T top, T right, T bottom) {
+    auto b = Rect(left, top, right, bottom);
+    return this.intersect!check(b);
+  }
+
+  /** If rectangles a and b intersect, return true and set this rectangle to
+      that intersection, otherwise return false and do not change this
+      rectangle. If either rectangle is empty, do nothing and return false.
+  */
+  bool intersect(bool check=true)(in Rect a, in Rect b) {
+    Rect copy = a;
+    if (copy.intersect!check(b)) {
+      this = copy;
       return true;
     }
     return false;
-    }
-  
+  }
+ 
   /** Returns true if a and b are not empty, and they intersect
    */
-  static bool Intersects(const Rect a, const ref Rect b) {
-    return  !a.isEmpty() && !b.isEmpty() &&
-      a.mLeft < b.mRight && b.mLeft < a.mRight &&
-      a.mTop < b.mBottom && b.mTop < a.mBottom;
+  bool intersects(bool check=true)(in Rect b) const {
+    static if(check == true) {
+      if (b.empty || this.empty)
+	return false;
+    }
+    else
+      assert(b.empty || this.empty);
+
+    return
+      this.left < b.right && b.left < this.right &&
+      this.top < b.bottom && b.top < this.bottom;
+  }
+
+  /** Returns true if a and b are not empty, and they intersect
+   */
+  static bool intersects(bool check=true)(in Rect a, in Rect b) {
+    return a.intersects!check(b);
   }
   
   /** Update this rectangle to enclose itself and the specified rectangle.
@@ -225,18 +257,18 @@ struct Rect(T)
       If this rectangle is empty, just set it to the specified rectangle. If the specified
       rectangle is empty, do nothing.
   */
-  void join(const Rect r) {
-    if (r.isEmpty())
+  void join(in Rect b) {
+    if (b.empty)
       return;
     
-    if (this.isEmpty())
-      this = r;
+    if (this.empty)
+      this = b;
     else
     {
-      if (r.mLeft < mLeft) mLeft = r.mLeft;
-      if (r.mTop < mTop) mTop = r.mTop;
-      if (r.mRight > mRight) mRight = r.mRight;
-      if (r.mBottom > mBottom) mBottom = r.mBottom;
+      this.left   = getBigger!Left(this, b);
+      this.top    = getBigger!Top(this, b);
+      this.right  = getBigger!Right(this, b);
+      this.bottom = getBigger!Bottom(this, b);
     }
   }
   
@@ -247,10 +279,32 @@ struct Rect(T)
   */
   void sort()
   {
-    if (mLeft > mRight)
-        swap(mLeft, mRight);
-    if (mTop > mBottom)
-        swap(mLeft, mRight);
+    if (left > right)
+        swap(left, right);
+    if (top > bottom)
+        swap(left, right);
+  }
+
+  private static T getBigger(Corner c)(in Rect a, in Rect b) {
+    static if (c == Left)
+      return min(a.left, b.left);
+    else if (c == Right)
+      return max(a.right, b.right);
+    else if (c == Top)
+      return min(a.top, b.top);
+    else if (c == Bottom)
+      return max(a.bottom, b.bottom);
+  }
+  
+  private static T getSmaller(Corner c)(in Rect a, in Rect b) {
+    static if (c == Left)
+      return max(a.left, b.left);
+    else if (c == Right)
+      return min(a.right, b.right);
+    else if (c == Top)
+      return max(a.top, b.top);
+    else if (c == Bottom)
+      return min(a.bottom, b.bottom);
   }
   
 version(NULL)
@@ -259,8 +313,8 @@ version(NULL)
         to their nearest integer values.
     */
     void round(Rect* dst) const {
-        assert(dst);
-        dst.set(SkScalarRound(mLeft), SkScalarRound(mTop), SkScalarRound(mRight), SkScalarRound(mBottom));
+      assert(dst);
+      dst.set(SkScalarRound(left), SkScalarRound(top), SkScalarRound(right), SkScalarRound(bottom));
     }
 
     /** Set the dst integer rectangle by rounding "out" this rectangle, choosing the floor of top and left,
@@ -268,12 +322,46 @@ version(NULL)
     */
     void roundOut(Rect* dst) const {
         assert(dst);
-        dst.set(SkScalarFloor(mLeft), SkScalarFloor(mTop), SkScalarCeil(mRight), SkScalarCeil(mBottom));
+        dst.set(SkScalarFloor(left), SkScalarFloor(top), SkScalarCeil(right), SkScalarCeil(bottom));
     }
 }
 };
 
+version(unittest) import std.stdio : writeln;
 unittest
 {
-  IRect r = IRect(0,1,2,3);  
+  IRect r1 = IRect(0,1,2,3);
+  assert(r1.width == 2);
+  assert(r1.height == 2);
+
+  r1.setSize(20, 20);
+  assert(r1.width == 20);
+  assert(r1.height == 20);
+  assert(r1.left == 0);
+  assert(r1.top == 1);
+  assert(r1.right == 20);
+  assert(r1.bottom == 21);
+  r1.setPos(0, 0);
+  assert(r1.width == 20);
+  assert(r1.height == 20);
+
+  IRect r2 = IRect(20, 20);
+  assert(r1 == r2);
+  assert(r1.intersects(r2));
+  assert(r1.intersect(r2));
+  assert(r1 == r2);
+
+  r2.setPos(10, 0);
+  r2.setSize(10, 20);
+  assert(r1.intersects(r2));
+  assert(r1.intersect(r2));
+  assert(r1 == r2);
+  assert(r1 == IRect(10, 0, 20, 20));
+
+  r2.setSize(20, 40);
+  r2.setPos(-10, 10);
+  r1.join(r2);
+  assert(r1 == IRect(-10, 0, 20, 50));
+  assert(r1.contains(-10, 50));
+  assert(r1.contains(0, 0));
 }

@@ -2,9 +2,12 @@ module WinMain;
 import Win = std.c.windows.windows;
 import std.c.stdio;
 
+import RectView;
+import skia.core.color;
 //import SkOsWindow;
 private import std.conv;
 private import skia.views.window;
+private import skia.views.view;
 private import core.runtime;
 private import std.string : rjustify;
 private import std.algorithm : max;
@@ -99,7 +102,7 @@ int WindowProc(Win.HWND hWindow, uint msg,
     Win.PostQuitMessage(0);
     break;
   default:
-    if (gWindow && gWindow.WindowProc(MsgParameter(hWindow, msg, wParam, lParam))) {
+    if (gWindow && gWindow.windowProc(MsgParameter(hWindow, msg, wParam, lParam))) {
       return 0;
     } else {
       return Win.DefWindowProcA(hWindow, msg, wParam, lParam);
@@ -134,6 +137,8 @@ void InitWindow(Win.HINSTANCE hInstance, int nCmdShow)
 {
   auto hWindow = MakeWindow(hInstance);
   gWindow = new OsWindow(hWindow);
+  gWindow.attachChildTo!FrontPos(new RectView(200, 200, DarkGray));
+  gWindow.attachChildTo!FrontPos(new RectView(200, 200, Magenta));
 
   Win.ShowWindow(hWindow, nCmdShow);
   Win.UpdateWindow(hWindow);

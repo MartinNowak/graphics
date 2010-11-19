@@ -1,8 +1,11 @@
 SOURCE :=\
 	point.d \
 	rect.d \
+	region.d \
 	color.d \
 	bitmap.d \
 	paint.d \
 	draw.d \
-#	canvas.d
+	device.d \
+	canvas.d \
+

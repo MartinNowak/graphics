@@ -1,5 +1,30 @@
 module skia.core.canvas;
 
+import skia.core.bitmap : Bitmap;
+import skia.core.color;
+import skia.core.device;
+import skia.core.draw;
+import skia.core.paint;
+import skia.core.rect;
+import skia.core.region;
+
+//debug=WHITEBOX;
+debug private import std.stdio : writeln, printf;
+
+enum EdgeType
+{
+  kBW, /// Treat the edges as B&W (not antialiased) for the purposes
+       /// of testing against the current clip.
+  kAA, /// Treat the edges as antialiased for the purposes of
+       /// testing against the current clip.
+}
+enum PointMode
+{
+  kPoints,
+  kLines,
+  kPolygon,
+}
+
 /** \class SkCanvas
 
     A Canvas encapsulates all of the state about drawing into a device (bitmap).
@@ -15,16 +40,97 @@ module skia.core.canvas;
     color, typeface, textSize, strokeWidth, shader (e.g. gradients, patterns),
     etc.
 */
-class SkCanvas : public SkRefCnt {
+class Canvas {
+  DeviceFactory deviceFactory;
+  Device device;
+  int savecount;
 public:
-    /** Construct a canvas with the specified device to draw into.  The device
-        factory will be retrieved from the passed device.
-        @param device   Specifies a device for the canvas to draw into.
-    */
-  this(SkDevice* device) {
+  /** Construct a canvas with the specified device to draw into.  The device
+    * factory will be retrieved from the passed device.
+    * Params:
+    *     device   Specifies a device for the canvas to draw into.
+  */
+  this(Bitmap bitmap) {
+    auto device = new Device(bitmap);
+    this(device);
+  }
+
+  this(Device device) {
+    this.deviceFactory = device.getDeviceFactory();
+    this.device = device;
+    this(deviceFactory);
+  }
+
+  this(DeviceFactory deviceFactory) {
+    this.deviceFactory = deviceFactory;
+    // this.device = deviceFactory.newDevice();
   }
 
   ~this() {
+  }
+
+  /****************************************
+   * Params:
+   *     paint =
+   */
+  void drawPaint(in Paint paint) {
+    /*
+    AutoDrawLooper looper(this, paint, Draw.Filter.kPaint_Type);
+    while (looper.next()) {
+      AutoBounderCommit ac(fBounder);
+      DrawIter          iter(this);
+      while (iter.next()) {
+        iter.fDevice->drawPaint(iter, paint);
+      }
+    }
+    */
+    auto draw = Draw(this.device.bitmap);
+    draw.drawPaint(paint);
+  }
+
+  void drawColor(in Color c) {
+    auto draw = Draw(this.device.bitmap);
+    draw.drawColor(c);
+  }
+
+  /****************************************
+   * Stub
+   */
+  bool quickReject(in IRect, EdgeType t) const {
+    return false;
+  }
+
+  bool clipRegion(in Region rgn, Region.Op op=Region.Op.kIntersect) {
+    /++
+    this.deviceCMDirty = true;
+    this.localBoundsCompareTypeDirty = true;
+    this.localBoundsCompareTypeDirtyBW = true;
+    
+    return fMCRec->fRegion->op(rgn, op);
+    +/
+    return true;
+  }
+
+  bool clipRect(in IRect rgn, Region.Op op=Region.Op.kIntersect) {
+    return true;
+  }
+
+  bool translate(int dx, int dy) {
+    return true;
+  }
+
+  /****************************************
+   * Stub
+   */
+  int save() {
+    return this.savecount++;
+  }
+  void restoreCount(int sc) {
+    this.savecount = sc;
+  }
+
+  debug(WHITEBOX) auto opDispatch(string m, Args...)(Args a) {
+    throw new Exception("Unimplemented method "~m);
   }
 
   /++
@@ -304,9 +410,6 @@ public:
         specified paint.
         @param paint    The paint used to fill the canvas
     */
-
-  void drawPaint(const SkPaint& paint) {
-  }
 
     /++
     enum PointMode {
@@ -769,3 +872,66 @@ private:
     void computeLocalClipBoundsCompareType(EdgeType et) const;
     +/
 };
+
+/*
+struct AutoDrawLooper {
+  DrawLooper* looper;
+  DrawFilter* filter;
+  Canvas      canvas;
+  Paint       paint;
+  Draw.Filter.Type type;
+  bool        once;
+  bool        needFilterRestore;
+
+public:
+  this(Canvas canvas, in Paint paint, Draw.Filter.Type type) {
+    this.canvas = canvas;
+    this.paint = paint;
+    this.type = type;
+    this.looper = paint.getLooper();
+    if (this.looper)
+      this.looper->init(canvas, (SkPaint*)&paint);
+    else
+      this.once = true;
+    this.filter = canvas.drawFilter;
+    this.needFilterRestore = false;
+  }
+
+  ~this() {
+    if (this.needFilterRestore) {
+      SkASSERT(fFilter);
+      fFilter->restore(fCanvas, fPaint, fType);
+    }
+    if (NULL != fLooper) {
+      fLooper->restore();
+    }
+  }
+    
+  bool next() {
+    SkDrawFilter* filter = fFilter;
+
+    // if we drew earlier with a filter, then we need to restore first
+    if (fNeedFilterRestore) {
+      SkASSERT(filter);
+      filter->restore(fCanvas, fPaint, fType);
+      fNeedFilterRestore = false;
+    }
+            
+    bool result;
+    
+    if (NULL != fLooper) {
+      result = fLooper->next();
+    } else {
+      result = fOnce;
+      fOnce = false;
+    }
+
+    // if we're gonna draw, give the filter a chance to do its work
+    if (result && NULL != filter) {
+      fNeedFilterRestore = result = filter->filter(fCanvas, fPaint,
+						   fType);
+    }
+    return result;
+  }   
+};
+*/

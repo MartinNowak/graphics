@@ -1,78 +1,73 @@
 module skia.views.window;
 
 import skia.core.bitmap;
+import skia.core.canvas;
+import skia.core.color : WarmGray;
 import skia.core.draw;
 import skia.core.paint : Paint;
-import skia.core.color : WarmGray;
 import skia.core.rect;
+import skia.core.region;
+import skia.views.view;
 
 //debug=PRINTF;
-debug(PRINTF) import std.stdio : writeln, printf;
+debug private import std.stdio : writeln, printf;
 
 ////////////////////////////////////////////////////////////////////////////////
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-class Window
+class Window : View
 {
+  @property Bitmap bitmap;
+  Config config;
+  Region dirtyRegion;
 public:
   this() {
-    mConfig = Config.kARGB_8888_Config;
-    mBitmap = new Bitmap();
+    this.config = Config.kARGB_8888_Config;
+    this.bitmap = new Bitmap();
+    this._flags.visible = true;
+    this._flags.enabled = true;
   }
 
-  Bitmap GetBitmap()
-  { return mBitmap; }
-
-  bool Update(IRect* updateArea = null)
+  bool update(IRect* updateArea = null)
   {
-    if (!mDirtyRegion.isEmpty())
+    if (!this.dirtyRegion.empty)
     {
-      Bitmap bm = this.GetBitmap();
-      Draw draw = Draw(bm);
-      debug(PRINTF) printf("OnDraw w: %u h: %u", bm.width, bm.height);
-      this.OnDraw(draw);
-      /++
-      Canvas canvas(bm);
-      canvas.ClipRegion(mDirtyRegion);
+      Canvas canvas = new Canvas(this.bitmap);
+      canvas.clipRegion(this.dirtyRegion);
 
       if (updateArea)
-	*updateArea = mDirtyRegion;
-      mDirtyRegion.SetEmpty();
+	*updateArea = this.dirtyRegion;
+      this.dirtyRegion.setEmpty();
 
-      this.Draw(canvas);
-      +/
+      this.draw(canvas);
 
       return true;
     }
     return false;
   }
 
-  void OnDraw(ref Draw draw) {
-    draw.drawPaint(Paint(WarmGray));
+  override void onDraw(Canvas canvas) {
+    canvas.drawPaint(Paint(WarmGray));
   }
 
-  void Resize(uint width, uint height)
+  void resize(uint width, uint height)
   {
-    mBitmap.SetConfig(mConfig, width, height);
-    mDirtyRegion.set(0, 0, width, height);
+    this.bitmap.setConfig(this.config, width, height);
+    this.setSize(width, height);
+    this.dirtyRegion.set(0, 0, width, height);
   }
 
-  void Resize(uint width, uint height, Config config)
+  void resize(uint width, uint height, Config config)
   {
-    mConfig = config;
-    this.Resize(width, height);
+    this.config = config;
+    this.resize(width, height);
   }
 
-  void SetConfig(Config config)
+  void setConfig(Config config)
   {
-    this.Resize(mBitmap.width, mBitmap.height, config);
+    this.resize(this.bitmap.width, this.bitmap.height, this.config);
   }
-
-private:
-  Config mConfig;
-  Bitmap mBitmap;
-  IRect mDirtyRegion;
 };
 
 version(Windows)
@@ -97,25 +92,25 @@ version(Windows)
   };
 
   class OsWindow : Window {
-    Win.HWND mhWindow;
+    Win.HWND hWindow;
 
     this (Win.HWND hWindow) {
-      mhWindow = hWindow;
+      this.hWindow = hWindow;
     }
 
-    Win.HWND getHWND() const { return mhWindow; }
+    Win.HWND getHWND() const { return this.hWindow; }
 
-    bool WindowProc(const ref MsgParameter m)
+    bool windowProc(const ref MsgParameter m)
     {
       switch(m.mMsg) {
       case Win.WM_SIZE:
-	this.Resize(m.mLParam & 0xFFFF, m.mLParam >> 16);
+	this.resize(m.mLParam & 0xFFFF, m.mLParam >> 16);
 	break;
       case Win.WM_PAINT: {
 	Win.PAINTSTRUCT ps;
-	Win.HDC hdc = Win.BeginPaint(mhWindow, &ps);
-	this.DoPaint(hdc);
-	Win.EndPaint(mhWindow, &ps);
+	Win.HDC hdc = Win.BeginPaint(this.hWindow, &ps);
+	this.doPaint(hdc);
+	Win.EndPaint(this.hWindow, &ps);
 	return true;
       }
       default:
@@ -124,13 +119,13 @@ version(Windows)
       return false;
     }
 
-    void DoPaint(Win.HDC hdc) {
-      this.Update();
-      BlitBitmap(mBitmap, hdc);
+    void doPaint(Win.HDC hdc) {
+      this.update();
+      blitBitmap(this.bitmap, hdc);
     }
   }
 
-  Win.BITMAPINFO BitmapInfo(const ref Bitmap bitmap) {
+  Win.BITMAPINFO BitmapInfo(in Bitmap bitmap) {
     Win.BITMAPINFO bmi;
     bmi.bmiHeader.biSize        = Win.BITMAPINFOHEADER.sizeof;
     bmi.bmiHeader.biWidth       = bitmap.width;
@@ -142,7 +137,7 @@ version(Windows)
     return bmi;
   }
 
-  void BlitBitmap(ref Bitmap bitmap, Win.HDC hdc) {
+  void blitBitmap(ref Bitmap bitmap, Win.HDC hdc) {
     auto bmi = BitmapInfo(bitmap);
     Win.SetDIBitsToDevice(
       hdc,
@@ -150,7 +145,7 @@ version(Windows)
       bitmap.width, bitmap.height,
       0, 0,
       0, bitmap.height,
-      bitmap.GetPixels(),
+      bitmap.getPixels(),
       &bmi,
       Win.DIB_RGB_COLORS);
   }
