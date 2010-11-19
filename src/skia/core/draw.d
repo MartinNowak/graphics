@@ -1,5 +1,7 @@
 module skia.core.draw;
+
 import skia.core.bitmap;
+import skia.core.color;
 import skia.core.paint;
 
 // debug=PRINTF;
@@ -13,9 +15,25 @@ public:
     this.bitmap = bitmap;
   }
 
-  void drawPaint(ref const Paint p) {
-    foreach (ref pix; this.bitmap.buffer) {
-      pix = p.color;
+  void drawPaint(in Paint p) {
+    this.bitmap.eraseColor(p.color);
+  }
+
+  void drawColor(in Color c) {
+    this.bitmap.eraseColor(c);
+  }
+
+  struct Filter
+  {
+    enum Type
+    {
+      kPaint,
+      kPoint,
+      kLine,
+      kBitmap,
+      kRect,
+      kPath,
+      kText,
     }
   }
 
@@ -43,11 +61,11 @@ public:
 		       const SkColor colors[], SkXfermode* xmode,
 		       const uint16_t indices[], int ptCount,
 		       const SkPaint& paint) const;
-  
+
   void drawPath(const SkPath& src, const SkPaint& paint) const {
     this->drawPath(src, paint, NULL, false);
   }
-  
+
   /** Helper function that creates a mask from a path and an optional maskfilter.
       Note however, that the resulting mask will not have been actually filtered,
       that must be done afterwards (by calling filterMask). The maskfilter is provided
@@ -56,13 +74,13 @@ public:
   static bool DrawToMask(const SkPath& devPath, const SkIRect* clipBounds,
 			 SkMaskFilter* filter, const SkMatrix* filterMatrix,
 			 SkMask* mask, SkMask::CreateMode mode);
-  
+
 private:
   void    drawText_asPaths(const char text[], size_t byteLength,
 			   SkScalar x, SkScalar y, const SkPaint&) const;
   void    drawDevMask(const SkMask& mask, const SkPaint&) const;
   void    drawBitmapAsMask(const SkBitmap&, const SkPaint&) const;
-  
+
 public:
   const Bitmap mBitmap;        // required
   const Matrix mMatrix;        // required
@@ -70,7 +88,7 @@ public:
   Device       mDevice;        // optional
   Bounder      mBounder;       // optional
   DrawProcs    mProcs;         // optional
-  
+
 #ifdef SK_DEBUG
     void    validate(int width, int height) const;
 #endif
