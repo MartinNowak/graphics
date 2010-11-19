@@ -182,27 +182,16 @@ T CrossProduct(T)(Point!T a, Point!T b) {
 
 unittest
 {
-  writeln("Running skia.core.point unit tests");
-  writeln("for uint");
-
   testPointCoordinates!uint();
   testVectorLength!uint();
-
-  writeln("for int");
 
   testPointCoordinates!int();
   testVectorLength!int();
   testVectorDirection!int();
   testVectorOps!int();
-
-  writeln("Finished unit tests.");
 }
 
 void testPointCoordinates(T)() {
-  scope(success)
-    debug writeln("Succeeded testPointCoordinates!"
-		  ~to!string(typeid(T)));
-
   auto p1 = Point!T(10, 20);
   assert(p1.x == 10);
   assert(p1.y == 20);
@@ -226,10 +215,6 @@ void testPointCoordinates(T)() {
 }
 
 void testVectorLength(T)() {  
-  scope(success)
-    debug writeln("Succeeded testVectorLength!"
-		  ~to!string(typeid(T)));
-
   auto p1 = Point!T(3, 4);
   auto p2 = p1;
   assert(p1.length() == 5);
@@ -259,10 +244,6 @@ void testVectorLength(T)() {
 }
 
 void testVectorDirection(T)() {
-  scope(success)
-    debug writeln("Succeeded testVectorDirection!"
-		  ~to!string(typeid(T)));
-
   // Rotation works on an y-axis inverted space
   auto p1 = Point!T(2, 1);
   auto p2 = p1;
@@ -288,10 +269,6 @@ void testVectorDirection(T)() {
 
 void testVectorOps(T)()
 {
-  scope(success)
-    debug writeln("Succeeded testVectorOps!"
-		  ~to!string(typeid(T)));
-
   auto p1 = Point!T(2, 1);
   auto p2 = -p1;
   assert(DotProduct(p1, p2) == -5);
