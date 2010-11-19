@@ -1,8 +1,13 @@
+module WinMain;
 import Win = std.c.windows.windows;
 import std.c.stdio;
+
 //import SkOsWindow;
 private import std.conv;
 private import skia.views.window;
+private import core.runtime;
+private import std.string : rjustify;
+private import std.algorithm : max;
 
 private const auto KWindowClassName = "DawgWndClass";
 private const auto KWindowTitle = "DawgWindow";
@@ -12,7 +17,6 @@ extern (C) void gc_term();
 extern (C) void _minit();
 extern (C) void _moduleCtor();
 extern (C) bool runModuleUnitTests();
-debug(UnitTest) extern (C) void _moduleUnitTests();
 
 ////////////////////////////////////////////////////////////////////////////////
 // global window class instance
@@ -36,6 +40,7 @@ int WinMain(Win.HINSTANCE hInstance, Win.HINSTANCE hPrevInstance,
   try
   {
     _moduleCtor();
+    core.runtime.Runtime.moduleUnitTester = &unittestrunner;
     runModuleUnitTests();
     InitWindow(hInstance, nCmdShow);
     result = RunMainLoop();
@@ -49,6 +54,36 @@ int WinMain(Win.HINSTANCE hInstance, Win.HINSTANCE hPrevInstance,
 
   gc_term();
   return result;
+}
+
+
+bool unittestrunner()
+{
+  size_t failed = 0;
+  foreach( m; ModuleInfo )
+  {
+    if( m )
+    {
+      auto fp = m.unitTest;
+      if( fp )
+      {
+	auto msg = "Unittest: "~m.name;
+	try
+	{
+	  fp();
+	  msg ~= " OK".rjustify(max(0, 79 - msg.length));
+	}
+	catch( Throwable e )
+	{
+	  msg ~= " FAILED".rjustify(max(0, 79 - msg.length))
+	    ~ "\n" ~ e.toString;
+	  failed++;
+	}
+	debug writeln(msg);
+      }
+    }
+  }
+  return failed == 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
