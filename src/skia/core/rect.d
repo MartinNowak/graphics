@@ -18,6 +18,10 @@ struct Size(T)
     this.width = width;
     this.height = height;
   }
+
+  @property bool empty() const {
+    return this.width > 0 && this.height > 0;
+  }
 }
 
 
@@ -46,7 +50,11 @@ struct Rect(T)
   alias top  y;
 
   this(T w, T h) {
-    this.set(0, 0, w, h);
+    this(Size!T(w, h));
+  }
+
+  this(Size!T size) {
+    this.size = size;
   }
 
   this(T left, T top, T right, T bottom) {
@@ -101,7 +109,11 @@ struct Rect(T)
     this.height = height;
   }
 
-  void setSize(Size!T size) {
+  @property Size!T size() const {
+    return Size!T(this.width, this.height);
+  }
+
+  @property void size(Size!T size) {
     this.setSize(size.width, size.height);
   }
 
@@ -115,7 +127,7 @@ struct Rect(T)
   /** Return true if the rectangle's width or height are <= 0
    */
   @property bool empty() const {
-    return left >= right || top >= bottom;
+    return this.left >= this.right || this.top >= this.bottom;
   }
 
   /** Offset set the rectangle by adding dx to its left and right,
