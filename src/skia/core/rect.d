@@ -1,5 +1,6 @@
 module skia.core.rect;
 
+import skia.core.point;
 import std.algorithm;
 import std.conv : to;
 import std.traits : isIntegral, Unsigned;
@@ -61,7 +62,7 @@ struct Rect(T)
     this.set(left, top, right, bottom);
   }
 
-  string toString() {
+  @property string toString() {
     return "Rect!"~to!string(typeid(T))
       ~" left: "~to!string(this.left)
       ~" top: "~to!string(this.top)
@@ -102,6 +103,10 @@ struct Rect(T)
     this.left = left;
     this.bottom = top + this.height;
     this.top = top;
+  }
+
+  @property Point!T position() const {
+    return Point!T(this.x, this.y);
   }
 
   void setSize(T width, T height) {

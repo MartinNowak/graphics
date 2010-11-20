@@ -3,6 +3,7 @@ module skia.core.draw;
 import skia.core.bitmap;
 import skia.core.color;
 import skia.core.paint;
+import skia.core.region;
 
 // debug=PRINTF;
 debug(PRINTF) private import std.stdio : printf;
@@ -10,6 +11,8 @@ debug(PRINTF) private import std.stdio : printf;
 struct Draw {
 public:
   Bitmap bitmap;
+  //  Matrix matrix;
+  Region region;
 
   this(Bitmap bitmap) {
     this.bitmap = bitmap;

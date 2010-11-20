@@ -1,5 +1,6 @@
 module skia.views.window;
 
+import Win = std.c.windows.windows;
 import skia.core.bitmap;
 import skia.core.canvas;
 import skia.core.color : WarmGray;
@@ -37,7 +38,7 @@ public:
       canvas.clipRegion(this.dirtyRegion);
 
       if (updateArea)
-	*updateArea = this.dirtyRegion;
+	*updateArea = this.dirtyRegion.getBounds();
       this.dirtyRegion.setEmpty();
 
       this.draw(canvas);
@@ -55,7 +56,7 @@ public:
   {
     this.bitmap.setConfig(this.config, width, height);
     this.setSize(width, height);
-    this.dirtyRegion.set(0, 0, width, height);
+    this.dirtyRegion = IRect(width, height);
   }
 
   void resize(uint width, uint height, Config config)
