@@ -1,68 +1,43 @@
-# Simple makefile for skia library and test apps
-
-# setup our defaults
 DMD := dmd
 LIBTOOL := lib
-IMPORTDIR := import
+IMPDIR := import
+SRCDIR := src
 DOCDIR := doc
 DFLAGS := -w
+IFLAGS := -I$(SRCDIR) -I$(IMPDIR)
+HIDE := @
 
-ifdef DEBUG
-	DFLAGS += -debug -unittest
-	OUTDIR := debug
+ifeq ($(DEBUG),1)
+	DFLAGS+=-debug -unittest -gc
+	OUTDIR:=debug
 else
-	DFLAGS += -release -O -inline
-	OUTDIR := release
+	DFLAGS+=-release -O -inline
+	OUTDIR:=release
 endif
 
-LIBNAME := skia.lib
-LIBFILE := $(OUTDIR)/$(LIBNAME)
+LIBFILE := $(OUTDIR)/skia.lib
+SAMPLEAPP := $(OUTDIR)/SampleApp.exe
+SAMPLEAPP_W := $(subst /,\\,$(SAMPLEAPP))
 
-#CFLAGS_SSE2 = $(CFLAGS) -msse2
-#LINKER_OPTS := -lpthread
-#DEFINES :=
-#HIDE = @
-# start with the core (required)
-include src/skia/core/core_files.mk
-SRC_LIST := $(addprefix skia/core/, $(SOURCE))
-
-# start with the core (required)
-include src/skia/views/views_files.mk
-SRC_LIST += $(addprefix skia/views/, $(SOURCE))
-
-$(OUTDIR)/%.o : src/%.d
-	@echo $*
-	@mkdir -p $(dir $@)
-	$(HIDE)$(DMD) $(DFLAGS) -I$(IMPORTDIR) -c $< -of$@ -Hf$(IMPORTDIR)/$*.di -Df$(DOCDIR)/$*.html
-	@echo "compiling $@"
-
-# now build out objects
-OBJ_LIST := $(SRC_LIST:.d=.o)
-OBJ_LIST := $(addprefix $(OUTDIR)/, $(OBJ_LIST))
-
+##############################################################################
+# Private part
 ##############################################################################
 
 .PHONY: all
-all: lib sampleapp
+all: skia sampleapp
 
-$(LIBFILE): Makefile $(OBJ_LIST)
-	$(HIDE)$(LIBTOOL) -c $(LIBFILE) $(OBJ_LIST)
+.PHONY: debug
+debug:
+	$(HIDE)$(MAKE) -f Makefile DEBUG=1 all
 
-.PHONY: lib
-lib: $(LIBFILE)
-
-$(OUTDIR)/WinMain.exe: Makefile $(LIBFILE) SampleApp/WinMain.d SampleApp/RectView.d
-	$(DMD) SampleApp/WinMain.d SampleApp/RectView.d $(LIBFILE) gdi32.lib -I$(IMPORTDIR) $(DFLAGS)
-	$(HIDE) mv WinMain.exe $@
-	$(HIDE) rm WinMain.*
-
-.PHONY: sampleapp
-sampleapp: $(OUTDIR)/WinMain.exe
+.PHONY: release
+release:
+	$(HIDE)$(MAKE) -f Makefile DEBUG=0 all
 
 .PHONY: clean
 clean:
 	$(HIDE)rm -rf debug release
-	$(HIDE)rm -rf $(IMPORTDIR)
+	$(HIDE)rm -rf $(IMPDIR)
 	$(HIDE)rm -rf $(DOCDIR)
 
 .PHONY: help
@@ -77,3 +52,60 @@ help:
 	@echo "    SKIA_BUILD_FOR=mac for mac build (e.g. CG for image decoding)"
 	@echo "    SKIA_PDF_SUPPORT=true to enable the pdf generation backend"
 	@echo ""
+
+##############################################################################
+
+ALL_LIBS :=
+
+LIB_PREFIX :=
+LIB_POSTFIX := lib
+
+PACKAGES = core views
+
+##############################
+# Dependencies
+##############################
+
+RET:=$(shell python deps.py)
+ifneq ($(RET),)
+  $(error $(RET))
+endif
+DEP_FILE := deps.mk
+
+include $(DEP_FILE)
+
+define PACKAGE_TEMPLATE
+include src/skia/$(1)/files.mk
+$(1)_SRCS = $$(addprefix $$(SRCDIR)/skia/$(1)/, $$($(1)_SOURCE))
+$(1)_LIB = $(OUTDIR)/$(LIB_PREFIX)$(1).$(LIB_POSTFIX)
+$(1)_IMPDOC = -Dd$(DOCDIR)/skia/$(1) -Hd$(IMPDIR)/skia/$(1)
+ALL_LIBS += $$($(1)_LIB)
+
+.PHONY: $(1)
+$(1): $$($(1)_LIB)
+
+$$($(1)_LIB): $$($(1)_SRCS) $(DEP_FILE) $($(1)_DEP)
+	@echo "L" $(1)
+	$(HIDE)$(DMD) -lib -of$$@ $(DFLAGS) $(IFLAGS) $$($(1)_IMPDOC) $$($(1)_SRCS)
+endef
+
+$(foreach n,$(PACKAGES),$(eval $(call PACKAGE_TEMPLATE,$(n))))
+
+
+################################################################################
+
+.PHONY: skia
+skia: $(LIBFILE)
+
+$(LIBFILE): Makefile $(ALL_LIBS)
+	@echo "L " $@
+	$(HIDE)$(LIBTOOL) -c $@ $(ALL_LIBS) 1>/dev/null
+
+################################################################################
+
+.PHONY: sampleapp
+sampleapp: skia $(SAMPLEAPP)
+
+$(SAMPLEAPP): Makefile $(LIBFILE) SampleApp/WinMain.d SampleApp/RectView.d
+	@echo "L " $@
+	$(HIDE)$(DMD) -of$(SAMPLEAPP_W) $(DFLAGS) -I$(IMPDIR) $(LIBFILE) gdi32.lib SampleApp/*.d
