@@ -8,11 +8,13 @@ IFLAGS := -I$(SRCDIR) -I$(IMPDIR)
 HIDE := @
 
 ifeq ($(DEBUG),1)
-	DFLAGS+=-debug -unittest -gc
-	OUTDIR:=debug
+  DFLAGS+=-debug -unittest -gc
+  OUTDIR:=debug
+  SEQ_BUILD := 0
 else
-	DFLAGS+=-release -O -inline
-	OUTDIR:=release
+  DFLAGS+=-release -O -inline
+  OUTDIR:=release
+  SEQ_BUILD := 1
 endif
 
 LIBFILE := $(OUTDIR)/skia.lib
@@ -66,30 +68,47 @@ PACKAGES = core views
 # Dependencies
 ##############################
 
-RET:=$(shell python deps.py)
+RET:=$(shell python deps.py $(SEQ_BUILD))
+
 ifneq ($(RET),)
   $(error $(RET))
 endif
+
 DEP_FILE := deps.mk
 
 include $(DEP_FILE)
 
+define BUNDLE_TARGET
+$(2)_SKSRCS := $(addprefix $(SRCDIR)/skia/$(1)/, $($(2)_SRCS))
+$(1)_OBJS += $(patsubst %.d,%.obj, $(addprefix $(OUTDIR)/skia/$(1)/, $($(2)_SRCS)))
+
+
+$(2): $$($(2)_SKSRCS) $($(1)_OBJS)
+	@echo "D" $(2)
+	$(HIDE)$(DMD) -c -od$(OUTDIR)/skia/$(1) $(DFLAGS) $(IFLAGS) $$($(1)_IMPDOC) $$($(2)_SKSRCS)
+
+endef
+
 define PACKAGE_TEMPLATE
 include src/skia/$(1)/files.mk
-$(1)_SRCS = $$(addprefix $$(SRCDIR)/skia/$(1)/, $$($(1)_SOURCE))
 $(1)_LIB = $(OUTDIR)/$(LIB_PREFIX)$(1).$(LIB_POSTFIX)
 $(1)_IMPDOC = -Dd$(DOCDIR)/skia/$(1) -Hd$(IMPDIR)/skia/$(1)
 ALL_LIBS += $$($(1)_LIB)
+$(1)_OBJS :=
+$$(foreach n,$$($(1)_BUNDLES),$$(eval $$(call BUNDLE_TARGET,$(1),$$(n))))
+endef
 
+define LIB_TARGET
 .PHONY: $(1)
 $(1): $$($(1)_LIB)
 
-$$($(1)_LIB): $$($(1)_SRCS) $(DEP_FILE) $($(1)_DEP)
+$$($(1)_LIB): $$($(1)_BUNDLES) $(DEP_FILE) $($(1)_DEP)
 	@echo "L" $(1)
-	$(HIDE)$(DMD) -lib -of$$@ $(DFLAGS) $(IFLAGS) $$($(1)_IMPDOC) $$($(1)_SRCS)
+	$(HIDE)$(LIBTOOL) -c $$@ $$($(1)_OBJS) 1>/dev/null
 endef
 
 $(foreach n,$(PACKAGES),$(eval $(call PACKAGE_TEMPLATE,$(n))))
+$(foreach n,$(PACKAGES),$(eval $(call LIB_TARGET,$(n))))
 
 
 ################################################################################
