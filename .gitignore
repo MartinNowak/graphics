@@ -7,7 +7,5 @@
 *~
 
 # build dirs
-debug/
-release/
-doc/
-import/
+build/
+.sconsign.dblite
