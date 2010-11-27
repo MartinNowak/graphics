@@ -1,0 +1,9 @@
+Import('env skia_lib')
+
+sample_srcs = Glob('*.d')
+app = env.Program('SampleApp',
+                  sample_srcs,
+                  LINKCOM=env['DLINKCOM'],
+                  LIBS=['#/gdi32', skia_lib],
+                  DPATH=['#/src', '.'])
+Return('app')
