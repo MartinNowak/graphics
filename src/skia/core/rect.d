@@ -62,7 +62,7 @@ struct Rect(T)
     this.set(left, top, right, bottom);
   }
 
-  @property string toString() {
+  @property string toString() const {
     return "Rect!"~to!string(typeid(T))
       ~" left: "~to!string(this.left)
       ~" top: "~to!string(this.top)
@@ -77,7 +77,7 @@ struct Rect(T)
   @property void width(T width) {
     this.right = this.left + width;
   }
-  
+
   /** Returns the rectangle's height. This does not check for a valid rectangle (i.e. top <= bottom)
       so the result may be negative.
   */
@@ -85,7 +85,7 @@ struct Rect(T)
   @property void height(T height) {
     this.bottom = this.top + height;
   }
-  
+
   void set(T left, T top, T right, T bottom) {
     this.left   = left;
     this.top    = top;
@@ -99,14 +99,17 @@ struct Rect(T)
   }
 
   void setPos(T left, T top) {
-    this.right = left + this.width;
+    auto sz = this.size();
     this.left = left;
-    this.bottom = top + this.height;
     this.top = top;
+    this.size = sz;
   }
 
   @property Point!T position() const {
     return Point!T(this.x, this.y);
+  }
+  @property void position(Point!T pos) {
+    this.setPos(pos.x, pos.y);
   }
 
   void setSize(T width, T height) {
@@ -150,7 +153,7 @@ struct Rect(T)
     this->offset(delta.fX, delta.fY);
   }
   */
-  
+
   /** Inset the rectangle by (dx,dy). If dx is positive, then the sides are moved inwards,
       making the rectangle narrower. If dx is negative, then the sides are moved outwards,
       making the rectangle wider. The same hods true for dy and the top and bottom.
@@ -169,15 +172,15 @@ struct Rect(T)
   */
   bool contains(bool check=true)(T x, T y) const
     if (isIntegral!T)
-  {  
+  {
     return (cast(Unsigned!T)(x - left)) <= (right - left) &&
       (cast(Unsigned!T)(y - top)) <= (bottom - top);
   }
 
   bool contains(bool check=true)(T x, T y) const
     if (!isIntegral!T)
-  {  
-    return this.left <= x && this.right >= x 
+  {
+    return this.left <= x && this.right >= x
       && this.top <= y && this.bottom >= y;
   }
 
@@ -202,7 +205,7 @@ struct Rect(T)
       this.left <= b.left && this.top <= b.top &&
       this.right >= b.right && this.bottom >= b.bottom;
   }
-    
+
   /** If r intersects this rectangle, return true and set this rectangle to that
       intersection, otherwise return false and do not change this rectangle.
       If either rectangle is empty, do nothing and return false.
@@ -240,7 +243,7 @@ struct Rect(T)
     }
     return false;
   }
- 
+
   /** Returns true if a and b are not empty, and they intersect
    */
   bool intersects(bool check=true)(in Rect b) const {
@@ -261,7 +264,7 @@ struct Rect(T)
   static bool intersects(bool check=true)(in Rect a, in Rect b) {
     return a.intersects!check(b);
   }
-  
+
   /** Update this rectangle to enclose itself and the specified rectangle.
       If this rectangle is empty, just set it to the specified rectangle. If the specified
       rectangle is empty, do nothing.
@@ -277,7 +280,7 @@ struct Rect(T)
   void join(in Rect b) {
     if (b.empty)
       return;
-    
+
     if (this.empty)
       this = b;
     else
@@ -288,7 +291,7 @@ struct Rect(T)
       this.bottom = getBigger!Bottom(this, b);
     }
   }
-  
+
   /** Swap top/bottom or left/right if there are flipped.
       This can be called if the edges are computed separately,
       and may have crossed over each other.
@@ -302,6 +305,34 @@ struct Rect(T)
         swap(left, right);
   }
 
+
+  static Rect!T calcBounds(in Point!T[] pts) {
+    Rect!T res;
+    if (pts.length == 0) {
+      return Rect!T();
+    }
+    else {
+      foreach(pt; pts) {
+        res.left = getBigger!Left(res, pt.x);
+        res.top = getBigger!Top(res, pt.y);
+        res.right = getBigger!Right(res, pt.x);
+        res.bottom = getBigger!Bottom(res, pt.y);
+      }
+      return res;
+    }
+  }
+
+  private static T getBigger(Corner c)(in Rect a, T v) {
+    static if (c == Left)
+      return min(a.left, v);
+    else if (c == Right)
+      return max(a.right, v);
+    else if (c == Top)
+      return min(a.top, v);
+    else if (c == Bottom)
+      return max(a.bottom, v);
+  }
+
   private static T getBigger(Corner c)(in Rect a, in Rect b) {
     static if (c == Left)
       return min(a.left, b.left);
@@ -312,7 +343,7 @@ struct Rect(T)
     else if (c == Bottom)
       return max(a.bottom, b.bottom);
   }
-  
+
   private static T getSmaller(Corner c)(in Rect a, in Rect b) {
     static if (c == Left)
       return max(a.left, b.left);
@@ -323,7 +354,7 @@ struct Rect(T)
     else if (c == Bottom)
       return min(a.bottom, b.bottom);
   }
-  
+
 version(NULL)
 {
     /* Set the dst integer rectangle by rounding this rectangle's coordinates
@@ -381,4 +412,8 @@ unittest
   assert(r1 == IRect(-10, 0, 20, 50));
   assert(r1.contains(-10, 50));
   assert(r1.contains(0, 0));
+
+  IPoint[] pts = [IPoint(-1,1), IPoint(2,-2), IPoint(6,3), IPoint(4,7), IPoint(5,5)];
+  r1 = IRect.calcBounds(pts);
+  assert(r1 == IRect(-1, -2, 6, 7));
 }
