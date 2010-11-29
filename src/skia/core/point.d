@@ -51,7 +51,7 @@ struct Point (T)
   void normalize() {
     this.setLength(1);
   }
-  
+
   /** Set the point (vector) to be unit-length in the same direction as the
       x,y params. If the vector (x,y) has a degenerate length (i.e. nearly 0)
       then return false and do nothing, otherwise return true.
@@ -60,7 +60,7 @@ struct Point (T)
     this.set(x, y);
     this.normalize();
   }
-    
+
   /** Scale the point (vector) to have the specified length, and return that
       length. If the original length is degenerately small (nearly zero),
       do nothing and return false, otherwise return true.
@@ -68,7 +68,7 @@ struct Point (T)
   void setLength(T length) {
     this.setLength(this.x, this.y, length);
   }
-  
+
   /** Set the point (vector) to have the specified length in the same
       direction as (x,y). If the vector (x,y) has a degenerate length
       (i.e. nearly 0) then return false and do nothing, otherwise return true.
@@ -88,7 +88,7 @@ struct Point (T)
   {
     dst.set(to!T(this.x * scale), to!T(this.y * scale));
   }
-    
+
   /** Scale the point's coordinates by scale, writing the answer back into
       the point.
   */
@@ -105,24 +105,24 @@ struct Point (T)
   void rotateCW(ref Point dst) const {
     dst = Point(-this.y, this.x);
   }
-    
+
   /** Rotate the point clockwise by 90 degrees, writing the answer back into
       the point.
   */
   void rotateCW() { this.rotateCW(this); }
-    
+
   /** Rotate the point counter-clockwise by 90 degrees, writing the answer
       into dst. It is legal for dst == this.
   */
   void rotateCCW(ref Point dst) const {
     dst = Point(this.y, -this.x);
   }
-    
+
   /** Rotate the point counter-clockwise by 90 degrees, writing the answer
       back into the point.
   */
   void rotateCCW() { this.rotateCCW(this); }
-    
+
   /** Negate the point's coordinates
    */
   void negate() {
@@ -149,11 +149,12 @@ struct Point (T)
 
   /** Add/Subtract v's coordinates to the point's
    */
-  ref Point opOpAssign(string op)(Point v)
-    if (op == "-=" || op == "+=")
+  ref Point opOpAssign(string op)(Point rhs)
+  //if (op == "-" || op == "+")
  {
-    mixin("this.x" ~ s ~ "v.x");
-    mixin("this.y" ~ s ~ "v.y");
+    mixin("this.x" ~ op ~ "=rhs.x;");
+    mixin("this.y" ~ op ~ "=rhs.y;");
+    return this;
   }
 
   /** Returns true if the point's coordinates equal (x,y)
@@ -218,9 +219,16 @@ void testPointCoordinates(T)() {
   p1 = p2;
   assert(p1.x == 5);
   assert(p1.y == 5);
+
+  auto p3 = p1 + p2;
+  assert(p3.x == 10);
+  assert(p3.y == 10);
+  p3 += p1;
+  assert(p3.x == 15);
+  assert(p3.y == 15);
 }
 
-void testVectorLength(T)() {  
+void testVectorLength(T)() {
   auto p1 = Point!T(3, 4);
   auto p2 = p1;
   assert(p1.length() == 5);
@@ -238,11 +246,11 @@ void testVectorLength(T)() {
   p1.set(1, 1);
   p1.setLength(4);
   assert(p1.x == 2);
-  assert(p1.y == 2);  
+  assert(p1.y == 2);
 
   p1.scale(2, p2);
   assert(p2.x == 4);
-  assert(p2.y == 4);   
+  assert(p2.y == 4);
 
   p2.scale(0.5, p2);
   assert(p2.x == 2);
