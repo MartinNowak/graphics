@@ -31,6 +31,21 @@ public:
     this = rect;
   }
 
+  string toString() const {
+    string res;
+    res ~= "Region, bounds: " ~ to!string(this.bounds) ~ "\n";
+    res ~= "\tType: " ~ typeToString(this.type) ~ "\n";
+    res ~= "\tnum runs: " ~ to!string(this.runs.length) ~ "\n";
+    return res;
+  }
+  static string typeToString(Type type) {
+    final switch(type) {
+    case Type.Empty: return "Empty";
+    case Type.Rect: return "Rect";
+    case Type.Complex: return "Complex";
+    }
+  }
+
   enum Op {
     kDifference, /// subtract the op region from the first region
     kIntersect,  /// intersect the two regions
