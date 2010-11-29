@@ -19,9 +19,15 @@ struct Point (T)
     this.x = x;
     this.y = y;
   }
+
+  @property string toString() const {
+    return "Point!"~to!string(typeid(T))
+      ~" x: "~to!string(this.x)
+      ~" y: "~to!string(this.y);
+  }
   /** Set the point's X and Y coordinates */
   void set(T x, T y) { this.x = x; this.y = y; }
-    
+
   /** Set the point's X and Y coordinates by automatically promoting (x,y) to
       SkScalar values.
   */
@@ -29,7 +35,7 @@ struct Point (T)
     this.x = to!T(x);
     this.y = to!T(y);
   }
-  
+
   /** Return the euclidian distance from (0,0) to the point
    */
   T length()
