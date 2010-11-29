@@ -1,13 +1,21 @@
 module skia.core.region;
 
-import skia.core.rect;
-import skia.core.point;
-import skia.core.path;
-import std.conv : to;
-import std.array;
-import std.range : isRandomAccessRange, isInputRange;
-import std.algorithm : min, max;
-debug import std.stdio : writeln;
+private {
+  import Scan = skia.core.scan;
+  import skia.core.path;
+  import skia.core.point;
+  import skia.core.rect;
+  import skia.core.regionpath;
+  import std.algorithm : min, max;
+  import std.array;
+  import std.conv : to;
+  import std.range : isForwardRange, isInputRange;
+  debug import std.stdio : writeln, writefln;
+}
+
+/*
+ */
+package alias int RunType;
 
 /** \class SkRegion
 
@@ -18,10 +26,11 @@ struct Region {
   IRect bounds;
   RunType[] runs;
   Type type;
-  alias int RunType;
+
   enum Type {
-    Empty,
+    Empty = 0,
     Rect,
+    Complex,
   }
   enum RunType RunTypeSentinel = 0x7FFFFFFF;
   enum RectRegionRuns = 6;
@@ -62,6 +71,12 @@ public:
     this.type = region.type;
   }
 
+  void opAssign(in RunType[] runs) {
+    this.runs = runs.dup;
+    Region.computeRunBounds(this.runs, this.bounds);
+    this.type = Type.Complex;
+  }
+
   void opAssign(in IRect rect) {
     if (rect.empty) {
       this.setEmpty();
@@ -74,6 +89,7 @@ public:
   }
 
   void opAssign(in Path path) {
+    this.setPath(path, Region(path.bounds));
   }
 
   alias empty isEmpty;
@@ -95,12 +111,12 @@ public:
   }
 
   /** Return true if this region consists of more than 1 rectangular area */
-  bool isComplex() const { return !this.isEmpty() && !this.isRect(); }
+  bool isComplex() const { return this.type == Type.Complex; }
 
   /** Return the bounds of this region. If the region is empty, returns an
       empty rectangle.
   */
-  IRect getBounds() {
+  IRect getBounds() const {
     return this.bounds;
   }
 
@@ -113,6 +129,9 @@ public:
     return true;
   }
 
+  /** Sets the region to the clipped path and returns if the resulting
+   *  region is empty.
+   */
   bool setPath(in Path path, in Region clip) {
     if (clip.empty)
       return this.setEmpty();
@@ -130,14 +149,71 @@ public:
     int clipTop, clipBottom;
     int clipTransitions =
       clip.countRunTypeValues(clipTop, clipBottom);
-    int top = max(pathTop, clipTop);
-    int botttom = min(pathBottom, clipBottom);
 
-    if (top > botttom)
+    int top = max(pathTop, clipTop);
+    int bottom = min(pathBottom, clipBottom);
+
+    if (top >= bottom)
       return this.setEmpty();
 
-    
-    assert(false);
+    auto maxHeight = bottom - top;
+    auto maxTransitions = max(pathTransitions, clipTransitions);
+    assert(maxHeight > 0);
+    //    scope auto builder = new RgnBuilder(maxHeight, maxTransitions);
+    scope auto builder = new RgnBuilder();
+
+    Scan.fillPath(path, clip, builder);
+    builder.done();
+
+    int count = builder.computeRunCount();
+    if (count == 0) {
+      this.setEmpty();
+    }
+    else if (count == RectRegionRuns) {
+      this = builder.getRect();
+    }
+    else {
+      this = builder.getRuns();
+    }
+    return false;
+  }
+
+  alias void delegate(in IRect rect) IterDg;
+  void forEach(IterDg dg) const {
+    if (this.empty) {
+      return;
+    }
+
+    if (this.isRect()) {
+      dg(this.bounds);
+      return;
+    }
+    else {
+      auto r = this.runs.save();
+      IRect ir;
+      ir.top    = r.front; r.popFront;
+      ir.bottom = r.front; r.popFront;
+      ir.left   = r.front; r.popFront;
+      ir.right  = r.front; r.popFront;
+
+      while (r.front < RunTypeSentinel) {
+        dg(ir);
+        auto prevFront = r.front; r.popFront;
+
+        if (r.front != RunTypeSentinel) {
+          ir.bottom = prevFront;
+        }
+        else { // empty line
+          ir.top = prevFront;
+          r.popFront;
+          ir.bottom = r.front;
+        }
+
+        assert(r.front < RunTypeSentinel);
+        ir.left = r.front; r.popFront;
+        ir.right = r.front; r.popFront;
+      }
+    }
   }
 
   invariant() {
@@ -150,7 +226,7 @@ public:
 	assert(this.runs.length >= RectRegionRuns);
 	{
 	  IRect bounds;
-	  bool isRect = computeRunBounds(this.runs, bounds);
+	  bool isRect = Region.computeRunBounds(this.runs, bounds);
 	  assert(!isRect);
 	  assert(bounds == this.bounds);
 	}
@@ -162,12 +238,12 @@ public:
 	  validate_line(r, this.bounds);
 	} while (r.front < RunTypeSentinel);
 	r.popFront();
-	assert(r.length == 0);	
-      }      
+	assert(r.length == 0);
+      }
     }
   }
 
-  
+
 private:
 
   static void BuildRectRuns(in IRect bounds,
@@ -177,9 +253,9 @@ private:
 	      bounds.left, bounds.right,
 	      RunTypeSentinel, RunTypeSentinel];
   }
-  
+
   static bool computeRunBounds(R)(in R range, out IRect bounds)
-    if (isRandomAccessRange!R)
+    if (isForwardRange!R)
   {
     auto r = range.save();
     assert(r.length > 0);
@@ -190,7 +266,7 @@ private:
       IRect rect;
       rect.top = r.front; r.popFront();
       assert(rect.top != RunTypeSentinel);
-      
+
       rect.bottom = r.front; r.popFront();
       assert(rect.bottom != RunTypeSentinel);
 
@@ -220,6 +296,7 @@ private:
       {
 	left = min(left, r.front);
 	skipScanline(r);
+        // FIXME array access must be unsigned
 	right = max(right, r[-2]);
       }
       else
@@ -234,15 +311,17 @@ private:
   /*  Pass in a scanline, beginning with the Left value of the pair
       (i.e. not the Y beginning)
   */
-  static void skipScanline(R)(ref R r)
+  static uint skipScanline(R)(ref R r)
   if (isInputRange!R)
   {
+    uint res = 0;
     while (r.front != RunTypeSentinel)
     {
       auto tmp = r.front; r.popFront();
       assert(tmp < r.front); r.popFront();
     }
     r.popFront(); // set past sentinel
+    return res;
   }
 
   static validate_line(R)(ref R r, in IRect bounds)
@@ -269,39 +348,45 @@ private:
 // Region Path helpers should go into an own module
 ////////////////////////////////////////////////////////////////////////////////
 
-  static int countRunTypeValues(out int top, out int bottom) {
-    return 0;
-  }
-  static int countPathRunTypeValues(in Path path, out int top, out int bottom) {
-    static const ubyte gPathVerbToInitialLastIndex[] = [
-        0,  //  kMove_Verb
-        1,  //  kLine_Verb
-        2,  //  kQuad_Verb
-        3,  //  kCubic_Verb
-        0,  //  kClose_Verb
-        0   //  kDone_Verb
-    ];
+  int countRunTypeValues(out int top, out int bottom) const {
+    int maxT;
 
-    static const ubyte gPathVerbToMaxEdges[] = [
-        0,  //  kMove_Verb
-        1,  //  kLine_Verb
-        2,  //  kQuad_VerbB
-        3,  //  kCubic_Verb
-        0,  //  kClose_Verb
-        0   //  kDone_Verb
-    ];
-
-    IPoint pts[4];
-    auto iter = Path.Iter(pts);
-    Path.Verb verb;
-    int maxEdges;
-    top = int.max;
-    bottom = int.min;
-
-    while ((verb = iter.next(pts)) != Path.Verb.Done) {
-      
+    if (this.isRect())
+      maxT = 2;
+    else {
+      auto runs = this.runs.save();
+      runs.popFront();
+      do {
+        runs.popFront();
+        maxT = max(maxT, skipScanline(runs));
+      } while(runs.front < RunTypeSentinel);
     }
+    top = this.bounds.top;
+    bottom = this.bounds.bottom;
+    return maxT;
+  }
 
+  static int countPathRunTypeValues(
+    in Path path,
+    out int top,
+    out int bottom) {
+    uint maxEdges;
+    int locTop = int.max;
+    int locBottom = int.min;
+
+    void findBounds(const Path.Verb verb, const IPoint[] pts) {
+      maxEdges += Path.verbToMaxEdges(verb);
+      foreach(pt; pts) {
+        locTop = min(locTop, pt.y);
+        locBottom = max(locBottom, pt.y);
+      }
+    }
+    path.forEach(&findBounds);
+
+    assert(top <= bottom);
+    top = locTop;
+    bottom = locBottom;
+    return maxEdges;
   }
 }
 
@@ -317,4 +402,27 @@ unittest
   r.setEmpty();
   assert(r.isEmpty());
   assert(r.getBounds() == IRect(0, 0));
+
+  auto path = Path();
+  path.toggleInverseFillType();
+  auto clip = Region(IRect(100, 100));
+
+  // some copy paster code as opAssign(Path) is
+  // not fully working now.
+  scope auto blitter = new RgnBuilder();
+
+  Scan.fillPath(path, clip, blitter);
+  blitter.done();
+  int count = blitter.computeRunCount();
+  if (count == 0) {
+    r.setEmpty();
+  }
+  else if (count == Region.RectRegionRuns) {
+    r = blitter.getRect();
+  }
+  else {
+    r = blitter.getRuns();
+  }
+  assert(r.isRect());
+  assert(r.getBounds() == IRect(100, 100));
 }
