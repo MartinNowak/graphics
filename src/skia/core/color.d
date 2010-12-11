@@ -1,5 +1,12 @@
 module skia.core.color;
-import std.stdio;
+
+private {
+  debug import std.stdio;
+  import std.conv : to;
+
+}
+
+
 private uint getShift(string m) {
   final switch (m) {
   case "a": return 24;
@@ -14,6 +21,12 @@ struct Color
 {
   uint argb;
 
+  @property string toString() const {
+    return "Color a: " ~ to!string(this.a) ~
+      " r: " ~ to!string(this.r) ~
+      " g: " ~ to!string(this.g) ~
+      " b: " ~ to!string(this.b);
+  }
   this(uint argb) {
     this.argb = argb;
   }
@@ -21,6 +34,31 @@ struct Color
   this(ubyte a, ubyte r, ubyte g, ubyte b) {
     this.a = a;
     this.r = r;
+    this.g = g;
+    this.b = b;
+  }
+
+  static uint getAlphaFactor(uint alpha) {
+    assert(alpha <= 255);
+    // This allows to shiftR 8 instead of divide by 255.
+    return alpha + 1;
+  }
+  static uint getInvAlphaFactor(uint alpha) {
+    assert(alpha <= 255);
+    return 256 - getAlphaFactor(alpha);
+  }
+  Color mulAlpha(uint scale) {
+    assert(scale <= 256);
+    enum mask = 0x00ff00ff;
+
+    auto c = this.argb;
+    auto rb = ((c & mask) * scale) >> 8;
+    auto ag = ((c >> 8) & mask) * scale;
+    return Color((rb & mask) | (ag & ~mask));
+  }
+  Color opBinary(string op)(Color rhs)
+    if (op == "+") {
+      return Color(this.argb + rhs.argb);
   }
 
   mixin SetGet!("a");
@@ -31,7 +69,7 @@ struct Color
 private:
   mixin template SetGet(string s)
   {
-    mixin("@property ubyte "~s~"() { return get!(\""~s~"\"); }");
+    mixin("@property ubyte "~s~"() const { return get!(\""~s~"\"); }");
     mixin("@property ref Color "~s~"(ubyte v) { return set!(\""~s~"\")(v); }");
   }
 
