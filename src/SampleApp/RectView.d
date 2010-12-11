@@ -19,6 +19,8 @@ class RectView : View
   Paint paint;
   this(IPoint loc, ISize size, Color color) {
     this.paint = new Paint(color);
+    this.paint.fillStyle = Paint.Fill.Stroke;
+    this.paint.antiAlias = true;
     this.setLoc(loc);
     this.setSize(size);
     this._flags.visible = true;
@@ -29,8 +31,8 @@ class RectView : View
     auto gray = DarkGray;
     gray.a = 50;
     scope auto paint2 = new Paint(gray);
+    paint2.antiAlias = true;
     canvas.drawRoundRect(this.bounds, 30, 30, paint2);
-
     canvas.drawCircle(this.bounds.center, 80, paint);
   }
 }
