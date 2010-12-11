@@ -1,9 +1,18 @@
 module skia.core.draw;
 
-import skia.core.bitmap;
-import skia.core.color;
-import skia.core.paint;
-import skia.core.region;
+private {
+  import skia.core.bitmap;
+  import skia.core.bounder;
+  import skia.core.blitter;
+  import skia.core.color;
+  import skia.core.device;
+  import skia.core.matrix;
+  import skia.core.paint;
+  import skia.core.path;
+  import skia.core.region;
+  import skia.core.rect;
+  import Scan = skia.core.scan;
+}
 
 // debug=PRINTF;
 debug(PRINTF) private import std.stdio : printf;
@@ -11,34 +20,80 @@ debug(PRINTF) private import std.stdio : printf;
 struct Draw {
 public:
   Bitmap bitmap;
-  //  Matrix matrix;
-  Region region;
+  Matrix matrix;
+  Region clip;
+  Device device;
+  Bounder bounder;
+  // DrawProcs drawProcs;
 
   this(Bitmap bitmap) {
+    assert(bitmap);
     this.bitmap = bitmap;
   }
 
-  void drawPaint(in Paint p) {
-    this.bitmap.eraseColor(p.color);
+  this(Bitmap bitmap, in Matrix matrix, in Region clip) {
+    this(bitmap);
+    this.matrix = matrix;
+    this.clip = clip;
+  }
+
+  void drawPaint(Paint paint) {
+    if (this.clip.empty
+        || this.bounder && !this.bounder.doIRect(this.bitmap.bounds))
+      return;
+
+    /**
+     *  If we don't have a shader (i.e. we're just a solid color) we
+     *  may be faster to operate directly on the device bitmap, rather
+     *  than invoking a blitter. Esp. true for xfermodes, which
+     *  require a colorshader to be present, which is just redundant
+     *  work. Since we're drawing everywhere in the clip, we don't
+     *  have to worry about antialiasing.
+     */
+    /*
+    uint32_t procData = 0;  // to avoid the warning
+    BitmapXferProc proc = ChooseBitmapXferProc(*fBitmap, paint, &procData);
+    if (proc) {
+        if (D_Dst_BitmapXferProc == proc)// nothing to do
+            return;
+
+        SkRegion::Iterator iter(*fClip);
+        while (!iter.done()) {
+            CallBitmapXferProc(*fBitmap, iter.rect(), proc, procData);
+            iter.next();
+        }
+    } else {
+    */
+    Scan.fillIRect(this.bitmap.bounds, this.clip, this.getBlitter(paint));
+  }
+
+  private Blitter getBlitter(Paint paint) {
+    return Blitter.Choose(this.bitmap, this.matrix, paint);
   }
 
   void drawColor(in Color c) {
-    this.bitmap.eraseColor(c);
+    this.bitmap.eraseColor(PMColor(c));
   }
 
-  struct Filter
-  {
-    enum Type
-    {
-      kPaint,
-      kPoint,
-      kLine,
-      kBitmap,
-      kRect,
-      kPath,
-      kText,
-    }
+  void drawPath(in Path path, Paint paint) {
+    if (this.clip.empty
+        || this.bounder && !this.bounder.doIRect(this.bitmap.bounds))
+      return;
+
+    auto transPath = path.transformed(this.matrix);
+    Scan.fillPath(transPath, this.clip, this.getBlitter(paint));
   }
+
+  void drawRect(in IRect rect, Paint paint) {
+    if (this.clip.empty
+        || this.bounder && !this.bounder.doIRect(this.bitmap.bounds))
+      return;
+
+    Scan.fillIRect(rect, this.clip, this.getBlitter(paint));
+  }
+  //  void drawPath(in Path path, in Paint paint, in Matrix matrix, bool pathMutable) {
+  //  }
+
 
   /++
 
