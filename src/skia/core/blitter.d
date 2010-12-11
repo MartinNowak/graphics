@@ -5,7 +5,7 @@ debug import std.stdio : writefln, writef;
 
 private {
   import std.conv : to;
-  import std.math : lrint;
+  import std.math : lrint, round, nearbyint;
   import std.array;
 
   import skia.core.bitmap;
@@ -31,11 +31,15 @@ class Blitter
       this.blitH(x, y++, width);
   }
   abstract void blitH(int x, int y, uint width);
-  void blitFH(float x, int y, float width) {
+  void blitFH(float x, float y, float width) {
     // assert(width > 0); // already asserted by conv
-    this.blitH(to!int(lrint(x)), y, to!uint(lrint(width)));
+    // TODO: review rounding functions, find out why lrint doesn't work.
+    this.blitH(to!int(round(x)), to!int(round(y)),
+               to!uint(round(width)));
+    // this.blitH(to!int(lrint(x)), to!int(lrint(y)), to!uint(lrint(width)));
   }
 
+  void scaleAlpha(float fScale) {}
   static Blitter Choose(Bitmap bitmap, in Matrix matrix, Paint paint)
   {
     switch(bitmap.config) {
@@ -80,6 +84,11 @@ class ARGB32Blitter : RasterBlitter {
   }
   override void blitH(int x, int y, uint width) {
     BlitRow.Color32(this.bitmap.getRange(x, y), width, pmColor);
+  }
+  // used when drawing anti-aliased and the y step is not 1
+  override void scaleAlpha(float fScale) {
+    auto scale = Color.getAlphaFactor(to!int((255 * fScale)));
+    this.pmColor = this.pmColor.mulAlpha(scale);
   }
 }
 
