@@ -9,7 +9,7 @@ if ARGUMENTS.get('release', ''):
     env.Append(DFLAGS=['-O', '-release', '-inline'])
 else:
     _build_style='debug'
-    env.Append(DFLAGS=['-debug', '-unittest'])
+    env.Append(DFLAGS=['-debug', '-unittest', '-gc'])
 
 env.Append(BUILD_STYLE=_build_style)
 
