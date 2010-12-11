@@ -1,22 +1,29 @@
 module skia.core.canvas;
 
-import skia.core.bitmap : Bitmap;
-import skia.core.color;
-import skia.core.device;
-import skia.core.draw;
-import skia.core.paint;
-import skia.core.rect;
-import skia.core.region;
-
+private {
+  import skia.core.bitmap;
+  import skia.core.bounder;
+  import skia.core.color;
+  import skia.core.device;
+  import skia.core.draw;
+  import skia.core.drawfilter;
+  import skia.core.drawlooper;
+  import skia.core.matrix;
+  import skia.core.paint;
+  import skia.core.path;
+  import skia.core.point;
+  import skia.core.rect;
+  import skia.core.region;
+}
 //debug=WHITEBOX;
 debug private import std.stdio : writeln, printf;
 
 enum EdgeType
 {
-  kBW, /// Treat the edges as B&W (not antialiased) for the purposes
-       /// of testing against the current clip.
-  kAA, /// Treat the edges as antialiased for the purposes of
-       /// testing against the current clip.
+  BW, /// Treat the edges as B&W (not antialiased) for the purposes
+    /// of testing against the current clip.
+  AA, /// Treat the edges as antialiased for the purposes of
+    /// testing against the current clip.
 }
 enum PointMode
 {
@@ -43,7 +50,22 @@ enum PointMode
 class Canvas {
   DeviceFactory deviceFactory;
   Device device;
-  int savecount;
+  DrawFilter drawFilter;
+  Bounder bounder;
+  MCRec[] mcRecs;
+  bool deviceCMClean;
+
+  enum SaveFlags {
+    Matrix = (1<<0),
+    Clip = (1<<1),
+    HasAlphaLayer = (1<<2),
+    FullColorLayer = (1<<3),
+    ClipToLayer = (1<<4),
+    MatrixClip = Matrix | Clip,
+    ARGB_NoClipLayer = 0x0F,
+    ARGB_ClipLayer = 0x1F,
+  }
+
 public:
   /** Construct a canvas with the specified device to draw into.  The device
     * factory will be retrieved from the passed device.
@@ -51,82 +73,179 @@ public:
     *     device   Specifies a device for the canvas to draw into.
   */
   this(Bitmap bitmap) {
-    auto device = new Device(bitmap);
-    this(device);
+    this(new Device(bitmap));
   }
 
   this(Device device) {
-    this.deviceFactory = device.getDeviceFactory();
+    this.mcRecs ~= MCRec();
+    this.resetMatrix();
+    this.setDevice(device);
+  }
+
+  void setDevice(Device device) {
     this.device = device;
-    this(deviceFactory);
+    auto bounds = device ? device.bounds : IRect();
+    foreach(ref mcRec; this.mcRecs) {
+      // TODO: should use clip.op(intersect);
+      auto clipBounds = mcRec.clip.bounds;
+      clipBounds.intersect(bounds);
+      mcRec.clip.setRect(clipBounds);
+    }
+    this.curMCRec.clip.setRect(bounds);
   }
 
-  this(DeviceFactory deviceFactory) {
-    this.deviceFactory = deviceFactory;
-    // this.device = deviceFactory.newDevice();
+  void setMatrix(in Matrix matrix) {
+    this.curMCRec.matrix = matrix;
+  }
+  void resetMatrix() {
+    this.setMatrix(Matrix.identityMatrix());
   }
 
-  ~this() {
+  void setDrawFilter(DrawFilter filter) {
+    this.drawFilter = filter;
   }
 
   /****************************************
-   * Params:
-   *     paint =
+   * Draw functions
    */
-  void drawPaint(in Paint paint) {
-    /*
-    AutoDrawLooper looper(this, paint, Draw.Filter.kPaint_Type);
-    while (looper.next()) {
-      AutoBounderCommit ac(fBounder);
-      DrawIter          iter(this);
-      while (iter.next()) {
-        iter.fDevice->drawPaint(iter, paint);
-      }
+  void drawPaint(Paint paint) {
+    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Paint);
+    foreach(ref draw; cycle) {
+      draw.drawPaint(paint);
     }
-    */
-    auto draw = Draw(this.device.bitmap);
-    draw.drawPaint(paint);
   }
 
   void drawColor(in Color c) {
-    auto draw = Draw(this.device.bitmap);
-    draw.drawColor(c);
+    scope auto paint = new Paint(c);
+    // TODO: TransferMode.SrcOver
+    this.drawPaint(paint);
+  }
+
+  void drawARGB(ubyte a, ubyte r, ubyte g, ubyte b) {
+    this.drawColor(Color(a, r, g, b));
+  }
+
+  void drawPath(in Path path, Paint paint) {
+    // TODO: quickReject
+    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Path);
+    foreach(ref draw; cycle) {
+      draw.drawPath(path, paint);
+    }
+  }
+
+  void drawRect(in IRect rect, Paint paint) {
+    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Path);
+    foreach(ref draw; cycle) {
+      draw.drawRect(rect, paint);
+    }
+  }
+  void drawRoundRect(in IRect rect, int rx, int ry, Paint paint) {
+    if (rx > 0 && ry > 0) {
+      Path path;
+      path.addRoundRect(fRect(rect), rx, ry, Path.Direction.CW);
+      this.drawPath(path, paint);
+    } else {
+      this.drawRect(rect, paint);
+    }
+  }
+
+  void drawOval(in IRect rect, Paint paint) {
+    Path path;
+    path.addOval(fRect(rect));
+    this.drawPath(path, paint);
+  }
+  void drawCircle(IPoint c, float radius, Paint paint) {
+    return this.drawCircle(fPoint(c), radius, paint);
+  }
+  void drawCircle(FPoint c, float radius, Paint paint) {
+    auto rect = FRect(c.x, c.y, 0, 0);
+    rect.inset(-radius, -radius);
+
+    Path path;
+    path.addOval(rect);
+    this.drawPath(path, paint);
   }
 
   /****************************************
    * Stub
    */
-  bool quickReject(in IRect, EdgeType t) const {
-    return false;
+  bool quickReject(in IRect rect, EdgeType et) const {
+    if (this.curMCRec.clip.empty)
+      return true;
+
+    auto clipRect = this.curMCRec.clip.bounds;
+
+    if (!this.curMCRec.matrix.perspective) {
+      return rect.top >= clipRect.bottom
+              || rect.bottom <= clipRect.top
+              || rect.left >= clipRect.right
+              || rect.right <= clipRect.left;
+    } else {
+      FRect mapped;
+      this.curMCRec.matrix.mapRect(fRect(rect), mapped);
+      auto ir = mapped.roundOut();
+      return !ir.intersects(clipRect);
+    }
   }
 
-  bool clipRegion(in Region rgn, Region.Op op=Region.Op.kIntersect) {
+  bool quickReject(in Path path, EdgeType et) const {
+    return path.empty || this.quickReject(path.bounds.roundOut(), et);
+  }
+
+  bool clipRegion(in Region rgn, Region.Op op=Region.Op.Intersect) {
     /++
     this.deviceCMDirty = true;
     this.localBoundsCompareTypeDirty = true;
     this.localBoundsCompareTypeDirtyBW = true;
-    
+
     return fMCRec->fRegion->op(rgn, op);
     +/
     return true;
   }
 
-  bool clipRect(in IRect rgn, Region.Op op=Region.Op.kIntersect) {
+  bool clipRect(in IRect rect, Region.Op op=Region.Op.Intersect) {
+    auto clipBounds = this.curMCRec.clip.bounds;
+    clipBounds.intersect(rect);
+    this.curMCRec.clip.setRect(clipBounds);
     return true;
   }
 
-  bool translate(int dx, int dy) {
-    return true;
+  void translate(float dx, float dy) {
+    this.curMCRec.matrix.translate(dx, dy);
+  }
+  void scale(float xs, float ys) {
+    this.curMCRec.matrix.scale(xs, ys);
+  }
+  void rotate(float deg) {
+    this.curMCRec.matrix.preRotate(deg);
   }
 
   /****************************************
    * Stub
    */
-  int save() {
-    return this.savecount++;
+  int save(SaveFlags flags = SaveFlags.MatrixClip) {
+    return this.internalSave(flags);
   }
-  void restoreCount(int sc) {
-    this.savecount = sc;
+  private final int internalSave(SaveFlags flags) {
+    this.mcRecs ~= this.curMCRec;
+    return this.mcRecs.length;
+  }
+  @property private ref MCRec curMCRec() {
+    assert(this.mcRecs.length > 0);
+    return this.mcRecs[$ - 1];
+  }
+  @property private ref const(MCRec) curMCRec() const {
+    assert(this.mcRecs.length > 0);
+    return this.mcRecs[$ - 1];
+  }
+
+  void restore() {
+    assert(this.mcRecs.length > 0);
+    this.mcRecs = this.mcRecs[0 .. $-1];
+  }
+  void restoreCount(uint sc) {
+    assert(sc <= this.mcRecs.length);
+    this.mcRecs = this.mcRecs[0 .. sc];
   }
 
   debug(WHITEBOX) auto opDispatch(string m, Args...)(Args a) {
@@ -279,32 +398,60 @@ public:
         @return true if the operation succeeded (e.g. did not overflow)
     */
     virtual bool concat(const SkMatrix& matrix);
-    
+
     /** Replace the current matrix with a copy of the specified matrix.
         @param matrix The matrix that will be copied into the current matrix.
     */
     virtual void setMatrix(const SkMatrix& matrix);
-    
+
     /** Helper for setMatrix(identity). Sets the current matrix to identity.
     */
     void resetMatrix();
 
-    /** Modify the current clip with the specified rectangle.
-        @param rect The rect to intersect with the current clip
-        @param op The region op to apply to the current clip
-        @return true if the canvas' clip is non-empty
-    */
-    virtual bool clipRect(const SkRect& rect,
-                          SkRegion::Op op = SkRegion::kIntersect_Op);
++/
+  /** Modify the current clip with the specified rectangle.
+      @param rect The rect to intersect with the current clip
+      @param op The region op to apply to the current clip
+      @return true if the canvas' clip is non-empty
+  */
+  bool clipRect(in FRect rect, Region.Op op = Region.Op.Intersect) {
+    this.deviceCMClean = false;
+    if (this.curMCRec.matrix.rectStaysRect()) {
+      FRect r;
+      this.curMCRec.matrix.mapRect(rect, r);
+      Region ir = r.round();
+      return this.curMCRec.clip.op(ir, op);
+    } else {
+      Path path;
+      path.addRect(rect);
+      return this.clipPath(path, op);
+    }
+  }
 
-    /** Modify the current clip with the specified path.
-        @param path The path to apply to the current clip
-        @param op The region op to apply to the current clip
-        @return true if the canvas' new clip is non-empty
-    */
-    virtual bool clipPath(const SkPath& path,
-                          SkRegion::Op op = SkRegion::kIntersect_Op);
+  /** Modify the current clip with the specified path.
+      @param path The path to apply to the current clip
+      @param op The region op to apply to the current clip
+      @return true if the canvas' new clip is non-empty
+  */
+  bool clipPath(in Path path, Region.Op op = Region.Op.Intersect) {
+    this.deviceCMClean = false;
+    Path devPath = path.transformed(this.curMCRec.matrix);
 
+    switch (op) {
+    case Region.Op.Intersect:
+      return this.curMCRec.clip.setPath(devPath, this.curMCRec.clip);
+    case Region.Op.Replace:
+      return this.curMCRec.clip.setPath(devPath, Region(this.device.bounds));
+    default:
+      {
+        auto rgn = Region(devPath, Region(this.device.bounds));
+        return this.curMCRec.clip.op(rgn, op);
+      }
+    }
+  }
+
+
+/++
     /** Modify the current clip with the specified region. Note that unlike
         clipRect() and clipPath() which transform their arguments by the current
         matrix, clipRegion() assumes its argument is already in device
@@ -449,7 +596,7 @@ public:
         details.
     */
     void drawPoint(SkScalar x, SkScalar y, const SkPaint& paint);
-    
+
     /** Draws a single pixel in the specified color.
         @param x        The X coordinate of which pixel to draw
         @param y        The Y coordiante of which pixel to draw
@@ -487,7 +634,7 @@ public:
         r.set(rect);    // promotes the ints to scalars
         this->drawRect(r, paint);
     }
-    
+
     /** Draw the specified rectangle using the specified paint. The rectangle
         will be filled or framed based on the Style in the paint.
         @param left     The left side of the rectangle to be drawn
@@ -575,7 +722,7 @@ public:
 
     virtual void drawBitmapMatrix(const SkBitmap& bitmap, const SkMatrix& m,
                                   const SkPaint* paint = NULL);
-    
+
     /** Draw the specified bitmap, with its top/left corner at (x,y),
         NOT transformed by the current matrix. Note: if the paint
         contains a maskfilter that generates a mask which extends beyond the
@@ -602,7 +749,7 @@ public:
                           SkScalar y, const SkPaint& paint);
 
     /** Draw the text, with each character/glyph origin specified by the pos[]
-        array. The origin is interpreted by the Align setting in the paint. 
+        array. The origin is interpreted by the Align setting in the paint.
         @param text The text to be drawn
         @param byteLength   The number of bytes to read from the text parameter
         @param pos      Array of positions, used to position each character
@@ -610,10 +757,10 @@ public:
         */
     virtual void drawPosText(const void* text, size_t byteLength,
                              const SkPoint pos[], const SkPaint& paint);
-    
+
     /** Draw the text, with each character/glyph origin specified by the x
         coordinate taken from the xpos[] array, and the y from the constY param.
-        The origin is interpreted by the Align setting in the paint. 
+        The origin is interpreted by the Align setting in the paint.
         @param text The text to be drawn
         @param byteLength   The number of bytes to read from the text parameter
         @param xpos     Array of x-positions, used to position each character
@@ -623,7 +770,7 @@ public:
     virtual void drawPosTextH(const void* text, size_t byteLength,
                               const SkScalar xpos[], SkScalar constY,
                               const SkPaint& paint);
-    
+
     /** Draw the text, with origin at (x,y), using the specified paint, along
         the specified path. The paint's Align setting determins where along the
         path to start the text.
@@ -664,7 +811,7 @@ public:
                        canvas.
     */
     virtual void drawPicture(SkPicture& picture);
-    
+
     /** Draws the specified shape
      */
     virtual void drawShape(SkShape*);
@@ -674,7 +821,7 @@ public:
         kTriangleStrip_VertexMode,
         kTriangleFan_VertexMode
     };
-    
+
     /** Draw the array of vertices, interpreted as triangles (based on mode).
         @param vmode How to interpret the array of vertices
         @param vertexCount The number of points in the vertices array (and
@@ -691,7 +838,7 @@ public:
         @param indices If not null, array of indices to reference into the
                     vertex (texs, colors) array.
         @param indexCount number of entries in the indices array (if not null)
-        @param paint Specifies the shader/texture if present. 
+        @param paint Specifies the shader/texture if present.
     */
     virtual void drawVertices(VertexMode vmode, int vertexCount,
                               const SkPoint vertices[], const SkPoint texs[],
@@ -708,7 +855,7 @@ public:
     virtual void drawData(const void* data, size_t length);
 
     //////////////////////////////////////////////////////////////////////////
-    
+
     /** Get the current bounder object.
         The bounder's reference count is unchaged.
         @return the canva's bounder (or NULL).
@@ -724,13 +871,13 @@ public:
         @return the set bounder object
     */
     virtual SkBounder* setBounder(SkBounder* bounder);
- 
+
     /** Get the current filter object. The filter's reference count is not
         affected. The filter is saved/restored, just like the matrix and clip.
         @return the canvas' filter (or NULL).
     */
     SkDrawFilter* getDrawFilter() const;
-    
+
     /** Set the new filter (or NULL). Pass NULL to clear any existing filter.
         As a convenience, the parameter is returned. If an existing filter
         exists, its refcnt is decrement. If the new filter is not null, its
@@ -779,12 +926,12 @@ public:
         /** Initialize iterator with canvas, and set values for 1st device */
         LayerIter(SkCanvas*, bool skipEmptyClips);
         ~LayerIter();
-        
+
         /** Return true if the iterator is done */
         bool done() const { return fDone; }
         /** Cycle to the next device */
         void next();
-        
+
         // These reflect the current device in the iterator
 
         SkDevice*       device() const;
@@ -793,7 +940,7 @@ public:
         const SkPaint&  paint() const;
         int             x() const;
         int             y() const;
-        
+
     private:
         // used to embed the SkDrawIter object directly in our instance, w/o
         // having to expose that class def to the public. There is an assert
@@ -810,7 +957,7 @@ protected:
     // all of the drawBitmap variants call this guy
     virtual void commonDrawBitmap(const SkBitmap&, const SkMatrix& m,
                                   const SkPaint& paint);
-    
+
 private:
     class MCRec;
 
@@ -825,7 +972,7 @@ private:
     SkDeviceFactory* fDeviceFactory;
 
     void prepareForDeviceDraw(SkDevice*);
-    
+
     bool fDeviceCMDirty;            // cleared by updateDeviceCMCache()
     void updateDeviceCMCache();
 
@@ -838,7 +985,7 @@ private:
     // shared by save() and saveLayer()
     int internalSave(SaveFlags flags);
     void internalRestore();
-    
+
     /*  These maintain a cache of the clip bounds in local coordinates,
         (converted to 2s-compliment if floats are slow).
      */
@@ -871,26 +1018,99 @@ private:
     }
     void computeLocalClipBoundsCompareType(EdgeType et) const;
     +/
+
+  private class DrawCycle {
+    Paint paint;
+    DrawLooper drawLooper;
+    DrawFilter.Type type;
+    bool needFilterRestore;
+
+    this(Paint paint, DrawFilter.Type type) {
+      this.type = type;
+      this.paint = paint;
+      if (paint.drawLooper) {
+        this.drawLooper = paint.drawLooper;
+        this.drawLooper.init(this.outer, paint);
+      }
+    }
+
+    ~this() {
+      this.restoreFilter();
+      if (this.drawLooper) {
+        this.drawLooper.restore();
+      }
+    }
+
+    alias int delegate(ref Draw) DrawIterDg;
+    int opApply(DrawIterDg dg) {
+      int res = 0;
+      do {
+        auto draw = Draw(this.outer.device.accessBitmap(),
+          this.outer.curMCRec.matrix, this.outer.curMCRec.clip);
+        // TODO: implement DrawIter here
+        res = dg(draw);
+      } while (res == 0 && this.drawAgain());
+      return res;
+    }
+
+  private:
+
+    bool drawAgain() {
+      this.restoreFilter();
+
+      return this.drawLooper !is null
+        && this.drawLooper.drawAgain()
+        && this.doFilter();
+    }
+
+    bool doFilter() {
+      bool repeatDraw;
+      if (this.outer.drawFilter) {
+        repeatDraw = this.outer.drawFilter.filter(
+          this.outer, this.paint, this.type);
+        this.needFilterRestore = repeatDraw;
+      }
+      return repeatDraw;
+    }
+    void restoreFilter() {
+      if (this.needFilterRestore) {
+        assert(this.outer.drawFilter);
+        this.outer.drawFilter.restore(
+          this.outer, this.paint, this.type);
+        this.needFilterRestore = false;
+      }
+    }
+  }
 };
 
-/*
+struct MCRec {
+  this(in Matrix matrix, in Region clip, DrawFilter filter = null) {
+    this.matrix = matrix;
+    this.clip = clip;
+    this.filter = filter;
+  }
+  Matrix matrix;
+  Region clip;
+  DrawFilter filter;
+}
+
 struct AutoDrawLooper {
-  DrawLooper* looper;
-  DrawFilter* filter;
-  Canvas      canvas;
-  Paint       paint;
-  Draw.Filter.Type type;
+  DrawFilter filter;
+  DrawLooper drawLooper;
+  Canvas     canvas;
+  Paint      paint;
+  DrawFilter.Type type;
   bool        once;
   bool        needFilterRestore;
 
 public:
-  this(Canvas canvas, in Paint paint, Draw.Filter.Type type) {
+  this(Canvas canvas, Paint paint, DrawFilter.Type type) {
     this.canvas = canvas;
     this.paint = paint;
     this.type = type;
-    this.looper = paint.getLooper();
-    if (this.looper)
-      this.looper->init(canvas, (SkPaint*)&paint);
+    this.drawLooper = paint.drawLooper;
+    if (this.drawLooper)
+      paint.drawLooper.init(canvas, paint);
     else
       this.once = true;
     this.filter = canvas.drawFilter;
@@ -898,40 +1118,41 @@ public:
   }
 
   ~this() {
-    if (this.needFilterRestore) {
-      SkASSERT(fFilter);
-      fFilter->restore(fCanvas, fPaint, fType);
-    }
-    if (NULL != fLooper) {
-      fLooper->restore();
+    this.restoreFilter();
+    if (this.drawLooper) {
+      this.drawLooper.restore();
     }
   }
-    
-  bool next() {
-    SkDrawFilter* filter = fFilter;
 
+  bool drawAgain() {
     // if we drew earlier with a filter, then we need to restore first
-    if (fNeedFilterRestore) {
-      SkASSERT(filter);
-      filter->restore(fCanvas, fPaint, fType);
-      fNeedFilterRestore = false;
-    }
-            
+    this.restoreFilter();
+
     bool result;
-    
-    if (NULL != fLooper) {
-      result = fLooper->next();
+
+    if (this.drawLooper) {
+      result = this.drawLooper.drawAgain();
     } else {
-      result = fOnce;
-      fOnce = false;
+      result = this.once;
+      this.once = false;
     }
 
     // if we're gonna draw, give the filter a chance to do its work
-    if (result && NULL != filter) {
-      fNeedFilterRestore = result = filter->filter(fCanvas, fPaint,
-						   fType);
+    if (result && this.filter) {
+      auto continueDrawing = this.filter.filter(
+        this.canvas, this.paint, this.type);
+      this.needFilterRestore = result = continueDrawing;
     }
     return result;
-  }   
+  }
+
+private:
+
+  void restoreFilter() {
+    if (this.needFilterRestore) {
+      assert(this.filter);
+      this.filter.restore(this.canvas, this.paint, this.type);
+      this.needFilterRestore = false;
+    }
+  }
 };
-*/
