@@ -84,10 +84,17 @@ private:
     static const KShift = getShift(m);
     return this.argb >> KShift & 0xff;
   }
+}
 
-  ref Color setByte(uint i)(ubyte v)
-  {
-    rgba = rgba & ~(0xff << 16) | (v << 16); return this;
+// Premultiplied color
+struct PMColor
+{
+  Color _color;
+  alias _color this;
+
+  this(Color color) {
+    this._color = color.mulAlpha(Color.getAlphaFactor(color.a));
+    this.a = color.a;
   }
 }
 
