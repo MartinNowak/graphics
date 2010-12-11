@@ -27,10 +27,16 @@ void fillIRect(Blitter)(IRect rect, in Region clip, Blitter blitter) {
 }
 
 void antiFillPath(Blitter)(in Path path, in Region clip,
-                                  Blitter blitter) {
-  return fillPath(path, clip, blitter);
+                           Blitter blitter) {
+  blitter.scaleAlpha(0.25f);
+  return fillPathImpl(path, clip, blitter, 0.25f);
 }
-void fillPath(Blitter)(in Path path, in Region clip, Blitter blitter) {
+void fillPath(Blitter)(in Path path, in Region clip,
+                       Blitter blitter) {
+  return fillPathImpl(path, clip, blitter, 1.0f);
+}
+void fillPathImpl(Blitter, T)(in Path path, in Region clip,
+                              Blitter blitter, T step) {
   if (clip.empty) {
     return;
   }
@@ -52,15 +58,16 @@ void fillPath(Blitter)(in Path path, in Region clip, Blitter blitter) {
     blitAboveAndBelow(blitter, ir, clip);
   }
   else {
-    fillPathEdges(path, clip.bounds, blitter, ir.top, ir.bottom, 0, clip);
+    blitEdges!(fillLine)(path, clip.bounds, blitter,
+                         ir.top, ir.bottom, step, clip);
   }
 }
 
-private void fillPathEdges(Blitter)(
+private void blitEdges(alias blitLineFunc, Blitter)(
   in Path path, in IRect clipRect,
   Blitter blitter,
-  int yStart, int yEnd,
-  int shiftEdgesUp, in Region clip) {
+  float yStart, float yEnd,
+  float step, in Region clip) {
 
   // TODO: give clipper to buildEdges
   auto edges = buildEdges(path);
@@ -68,10 +75,10 @@ private void fillPathEdges(Blitter)(
   yEnd = min(yEnd, clipRect.bottom);
 
   // TODO: handle inverseFillType, path.FillType
-  walkEdges(edges, path.fillType, blitter, yStart, yEnd);
+  walkEdges!(blitLineFunc)(edges, path.fillType, blitter, step, yStart, yEnd);
 }
 
-Range truncateOutOfRange(Range)(Range edges, int yStart, int yEnd) {
+Range truncateOutOfRange(Range, T)(Range edges, T yStart, T yEnd) {
   auto leftTrunc = find!("a.lastY > b")(edges, yStart);
   auto rightTrunc = find!("a.firstY <= b")(retro(leftTrunc), yEnd);
   return retro(rightTrunc);
@@ -104,13 +111,12 @@ unittest {
   assert(trunc[0] == exp[0]);
 }
 
-private enum yInc = 1;
-
-static void walkEdges(Blitter, Range)(
+private void walkEdges(alias blitLineFunc, Blitter, Range)(
   Range edges,
   Path.FillType fillType,
   ref Blitter blitter,
-  int yStart, int yEnd)
+  float step,
+  float yStart, float yEnd)
 {
   auto sortedEdges = truncateOutOfRange(
     sort!("a.firstY < b.firstY")(edges),
@@ -124,14 +130,14 @@ static void walkEdges(Blitter, Range)(
     debug(WALK_EDGES) writeln("curY:", curY, "WS: ",workingSet);
 
     workingSet ~= takeNextEdges(curY, sortedEdges);
-    workingSet = updateWorkingSet(curY, workingSet);
+    workingSet = updateWorkingSet(workingSet, curY, step);
 
 
     debug(WALK_EDGES) writeln("WSB: ", workingSet);
 
-    blitLine(curY, blitter, workingSet, windingMask);
+    blitLineFunc(curY, blitter, workingSet, windingMask);
 
-    curY += yInc;
+    curY += step;
   }
 
 }
@@ -139,26 +145,26 @@ static void walkEdges(Blitter, Range)(
 // TODO: handle the case where line end and another's line begin would
 // join at e.g. (10.0, 10.0). Currently these are closed intervals in
 // both directions and leeds to cancelation.
-static auto takeNextEdges(Range)(int curY, ref Range sortedEdges) {
+static auto takeNextEdges(T, Range)(T curY, ref Range sortedEdges) {
   auto newEdges = sortedEdges.lowerBoundPred!("a.firstY <= b")(curY);
   sortedEdges = sortedEdges[newEdges.length .. sortedEdges.length];
   return newEdges.release;
 }
 
-static R1 updateWorkingSet(R1)(int curY, R1 curWorkingSet)
+static R1 updateWorkingSet(R1, T)(R1 curWorkingSet, T curY, T step)
 {
   curWorkingSet = remove!((edg){return edg.lastY <= curY;})(curWorkingSet);
 
   foreach(ref edge; curWorkingSet) {
-    edge.updateEdge(curY, yInc);
+    edge.updateEdge(curY, step);
   }
   sort!("a.curX < b.curX")(curWorkingSet);
   return curWorkingSet;
 }
 
 
-static void blitLine(Blitter, Range)(
-  int curY,
+static void fillLine(Blitter, Range, T)(
+  T curY,
   Blitter blitter,
   Range edges,
   int windingMask)
@@ -180,6 +186,17 @@ static void blitLine(Blitter, Range)(
       left = edge.curX;
       inInterval = true;
     }
+  }
+}
+
+static void dotLine(Blitter, Range, T)(
+  T curY,
+  Blitter blitter,
+  Range edges,
+  int windingMask)
+{
+  foreach(ref edge; edges) {
+    blitter.blitFH(edge.curX, curY, 1.0f);
   }
 }
 
@@ -218,8 +235,41 @@ unittest
 
 
 void antiHairPath(Blitter)(in Path path, in Region clip,
-                                  Blitter blitter) {
-  return hairPath(path, clip, blitter);
+                           Blitter blitter) {
+  blitter.scaleAlpha(0.1f);
+  return hairPathImpl(path, clip, blitter, 0.1f);
 }
-void hairPath(Blitter)(in Path path, in Region clip, Blitter blitter) {
+void hairPath(Blitter)(in Path path, in Region clip,
+                           Blitter blitter) {
+  return hairPathImpl(path, clip, blitter, 1.0f);
+}
+
+void hairPathImpl(Blitter, T)(in Path path, in Region clip,
+                              Blitter blitter, T step) {
+  if (clip.empty) {
+    return;
+  }
+
+  auto ir = path.ibounds;
+
+  if (ir.empty) {
+    if (path.inverseFillType) {
+      // inverse and stroke ?
+      // blitter.blitRegion(clip);
+    }
+    return;
+  }
+
+  if (!clip.bounds.intersects(ir))
+    return;
+
+  // TODO chose SkRgnBlitter, SkRectBlitter
+  if (path.inverseFillType) {
+    // inverse and stroke ?
+    // blitAboveAndBelow(blitter, ir, clip);
+  }
+  else {
+    blitEdges!(dotLine)(path, clip.bounds, blitter,
+                        ir.top, ir.bottom, step, clip);
+  }
 }
