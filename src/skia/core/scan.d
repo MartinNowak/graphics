@@ -14,7 +14,7 @@ private {
 
 // debug=WALK_EDGES; // verbose tracing for walk_edges
 
-static void fillIRect(Blitter)(IRect rect, in Region clip, Blitter blitter) {
+void fillIRect(Blitter)(IRect rect, in Region clip, Blitter blitter) {
   if (rect.empty)
     return;
 
@@ -26,7 +26,11 @@ static void fillIRect(Blitter)(IRect rect, in Region clip, Blitter blitter) {
   }
 }
 
-static void fillPath(Blitter)(in Path path, in Region clip, Blitter blitter) {
+void antiFillPath(Blitter)(in Path path, in Region clip,
+                                  Blitter blitter) {
+  return fillPath(path, clip, blitter);
+}
+void fillPath(Blitter)(in Path path, in Region clip, Blitter blitter) {
   if (clip.empty) {
     return;
   }
@@ -52,7 +56,7 @@ static void fillPath(Blitter)(in Path path, in Region clip, Blitter blitter) {
   }
 }
 
-static void fillPathEdges(Blitter)(
+private void fillPathEdges(Blitter)(
   in Path path, in IRect clipRect,
   Blitter blitter,
   int yStart, int yEnd,
@@ -65,13 +69,6 @@ static void fillPathEdges(Blitter)(
 
   // TODO: handle inverseFillType, path.FillType
   walkEdges(edges, path.fillType, blitter, yStart, yEnd);
-}
-
-static auto upperBoundY(R)(in R edges, int y) {
-  for (i=0; i < edges.length; ++i) {
-    if (edges[i].firstY > y)
-      return i;
-  }
 }
 
 Range truncateOutOfRange(Range)(Range edges, int yStart, int yEnd) {
@@ -217,4 +214,12 @@ unittest
   blitter.done();
 
   assert(blitter.scanLines.bounds == IRect(0, 0, 53, 14));
+}
+
+
+void antiHairPath(Blitter)(in Path path, in Region clip,
+                                  Blitter blitter) {
+  return hairPath(path, clip, blitter);
+}
+void hairPath(Blitter)(in Path path, in Region clip, Blitter blitter) {
 }
