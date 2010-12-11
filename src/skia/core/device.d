@@ -1,4 +1,6 @@
-import skia.core.bitmap;
+module skia.core.device;
+
+private import skia.core.bitmap;
 // import skia.core.canvas; // circular dependency
 import skia.core.color;
 import skia.core.draw;
@@ -29,7 +31,7 @@ public:
     bitmap.setConfig(config, width, height);
 
     // buffer is already initialized
-    /* 
+    /*
     if (!bitmap.opaque)
       bitmap.eraseARGB(0, 0, 0, 0);
     */
@@ -45,7 +47,7 @@ public:
 
   /****************************************
    * Construct a new device, extracting the
-   * width/height/config/isOpaque values from the bitmap. 
+   * width/height/config/isOpaque values from the bitmap.
    * Params:
    *      bitmap = A copy of this bitmap is made and stored in the device
    */
@@ -62,7 +64,7 @@ public:
     kVector_Capability = 0x2,  /// mask indicating a vector representation
     kAll_Capabilities  = 0x3
   };
-  
+
   uint getDeviceCapabilities() { return 0; }
 
   /** Return the width of the device (in pixels).
@@ -78,25 +80,19 @@ public:
       implicitly opaque.
   */
   @property bool opaque() const { return this.bitmap.opaque; }
-    
+
   /** Return the bounds of the device
    */
-  IRect getBounds() const {
-    return IRect(0, 0, this.bitmap.width, this.bitmap.height);
+  @property IRect bounds() const {
+    return this.bitmap.bounds;
   }
-  
+
   /** Return true if the specified rectangle intersects the bounds of the
       device. If sect is not NULL and there is an intersection, sect returns
       the intersection.
   */
   bool intersects(in IRect r) const {
-    IRect bounds = this.getBounds();
-    return bounds.intersects(r);
-  }
-
-  bool intersects(in IRect r, out IRect sect) const {
-    IRect bounds = this.getBounds();
-    return bounds.intersect(r, sect);
+    return this.bounds.intersects(r);
   }
 
   /** Return the bitmap associated with this device. Call this each time you need
@@ -114,8 +110,8 @@ public:
   /** Helper to erase the entire device to the specified color (including
       alpha).
   */
-  void eraseColor(Color eraseColor) { 
-    this.bitmap.eraseColor(eraseColor);
+  void eraseColor(Color eraseColor) {
+    this.bitmap.eraseColor(PMColor(eraseColor));
   }
 
   /** Called when this device is installed into a Canvas. Balanaced by a call
