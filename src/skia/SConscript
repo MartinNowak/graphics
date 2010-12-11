@@ -1,6 +1,6 @@
 Import('env')
 
 skia_srcs = Glob('*/*.d')
-skia_lib = env.Library('skia', skia_srcs, DPATH=['#/src'])
+skia_lib = env.Library('skia', skia_srcs, DPATH=['#/src'], DLIBFLAGS='-p32')
 
 Return('skia_lib')
