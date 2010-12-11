@@ -1,11 +1,16 @@
 module skia.core.paint;
-import skia.core.color;
 
-struct Paint
+private {
+  import skia.core.color;
+  import skia.core.drawlooper;
+}
+
+class Paint
 {
+  Color color;
+  DrawLooper drawLooper;
+
   this(Color color) {
     this.color = color;
   }
-
-  Color color;
 }
