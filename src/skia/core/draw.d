@@ -80,8 +80,26 @@ public:
         || this.bounder && !this.bounder.doIRect(this.bitmap.bounds))
       return;
 
+    // TODO: query the paint
+    auto doFill = paint.fillStyle == Paint.Fill.Fill
+      || paint.fillStyle == Paint.Fill.FillAndStroke;
+
     auto transPath = path.transformed(this.matrix);
-    Scan.fillPath(transPath, this.clip, this.getBlitter(paint));
+    if (this.bounder
+        && !this.bounder.doPath(transPath, paint, doFill))
+        return;
+
+    Blitter blitter = this.getBlitter(paint);
+
+    if (doFill) {
+      return paint.antiAlias ?
+        Scan.antiFillPath(transPath, this.clip, blitter)
+        : Scan.fillPath(transPath, this.clip, blitter);
+    } else {
+      return paint.antiAlias ?
+        Scan.antiHairPath(transPath, this.clip, blitter)
+        : Scan.hairPath(transPath, this.clip, blitter);
+    }
   }
 
   void drawRect(in IRect rect, Paint paint) {
