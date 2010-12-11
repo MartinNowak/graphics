@@ -1,30 +1,17 @@
 module skia.core.rect;
 
-import skia.core.point;
-import std.algorithm;
-import std.conv : to;
-import std.traits : isIntegral, Unsigned;
+private {
+  import std.algorithm;
+  import std.conv : to;
+  import std.math : nearbyint, ceil, floor;
+  import std.traits : isIntegral, isFloatingPoint, Unsigned;
 
-alias Size!(int) ISize;
-alias Rect!(int) IRect;
-
-////////////////////////////////////////////////////////////////////////////////
-//
-////////////////////////////////////////////////////////////////////////////////
-
-struct Size(T)
-{
-  T width, height;
-  this (T width, T height) {
-    this.width = width;
-    this.height = height;
-  }
-
-  @property bool empty() const {
-    return this.width > 0 && this.height > 0;
-  }
+  import skia.core.point;
+  import skia.core.size;
 }
 
+alias Rect!(int) IRect;
+alias Rect!(float) FRect;
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -50,12 +37,20 @@ struct Rect(T)
   alias left x;
   alias top  y;
 
+  static Rect!T emptyRect() {
+    return Rect!T(0, 0);
+  }
+
   this(T w, T h) {
-    this(Size!T(w, h));
+    this.set(0, 0, w, h);
   }
 
   this(Size!T size) {
-    this.size = size;
+    this(size.width, size.height);
+  }
+
+  this(Point!T topL, Point!T botR) {
+    this(topL.x, topL.y, botR.x, botR.y);
   }
 
   this(T left, T top, T right, T bottom) {
@@ -84,6 +79,27 @@ struct Rect(T)
   @property T height() const { return bottom - top; }
   @property void height(T height) {
     this.bottom = this.top + height;
+  }
+
+  @property Point!T center() const {
+    return Point!T(this.centerX(), this.centerY());
+  }
+  T centerX()() const
+  if (isFloatingPoint!T) {
+    return 0.5 * (this.left + this.right);
+  }
+  T centerY()() const
+  if (isFloatingPoint!T) {
+    return 0.5 * (this.top + this.bottom);
+  }
+
+  @property T centerX()() const
+  if (isIntegral!T) {
+    return (this.left + this.right) >> 1;
+  }
+  @property T centerY()() const
+  if (isIntegral!T) {
+    return (this.top + this.bottom) >> 1;
   }
 
   void set(T left, T top, T right, T bottom) {
@@ -125,10 +141,22 @@ struct Rect(T)
     this.setSize(size.width, size.height);
   }
 
+  Point!T[4] toQuad() const {
+    Point!T[4] res;
+    res[0].set(this.left, this.top);
+    res[1].set(this.right, this.top);
+    res[2].set(this.right, this.bottom);
+    res[3].set(this.left, this.bottom);
+    return res;
+  }
+
+  @property Point!T[2] corners() const {
+    return [this.position, this.position + this.size];
+  }
   /** Set the rectangle to (0,0,0,0)
    */
   void setEmpty() {
-    this = Rect.init;
+    this = Rect.emptyRect();
   }
 
 
@@ -299,27 +327,22 @@ struct Rect(T)
   */
   void sort()
   {
-    if (left > right)
-        swap(left, right);
-    if (top > bottom)
-        swap(left, right);
+    if (this.left > this.right)
+        swap(this.left, this.right);
+    if (this.top > this.bottom)
+        swap(this.left, this.right);
   }
 
 
   static Rect!T calcBounds(in Point!T[] pts) {
-    Rect!T res;
-    if (pts.length == 0) {
-      return Rect!T();
+    Rect!T res = Rect!T.emptyRect();
+    foreach(pt; pts) {
+      res.left = getBigger!Left(res, pt.x);
+      res.top = getBigger!Top(res, pt.y);
+      res.right = getBigger!Right(res, pt.x);
+      res.bottom = getBigger!Bottom(res, pt.y);
     }
-    else {
-      foreach(pt; pts) {
-        res.left = getBigger!Left(res, pt.x);
-        res.top = getBigger!Top(res, pt.y);
-        res.right = getBigger!Right(res, pt.x);
-        res.bottom = getBigger!Bottom(res, pt.y);
-      }
-      return res;
-    }
+    return res;
   }
 
   private static T getBigger(Corner c)(in Rect a, T v) {
@@ -355,26 +378,31 @@ struct Rect(T)
       return min(a.bottom, b.bottom);
   }
 
-version(NULL)
-{
-    /* Set the dst integer rectangle by rounding this rectangle's coordinates
-        to their nearest integer values.
-    */
-    void round(Rect* dst) const {
-      assert(dst);
-      dst.set(SkScalarRound(left), SkScalarRound(top), SkScalarRound(right), SkScalarRound(bottom));
-    }
+  /** Set the dst integer rectangle by rounding this rectangle's
+   *  coordinates to their nearest integer values.
+   */
+  IRect round()() const
+    if (isFloatingPoint!T)
+  {
+    return IRect(to!int(nearbyint(this.left)), to!int(nearbyint(this.top)),
+                 to!int(nearbyint(this.right)), to!int(nearbyint(this.bottom)));
+  }
 
-    /** Set the dst integer rectangle by rounding "out" this rectangle, choosing the floor of top and left,
-        and the ceiling of right and bototm.
-    */
-    void roundOut(Rect* dst) const {
-        assert(dst);
-        dst.set(SkScalarFloor(left), SkScalarFloor(top), SkScalarCeil(right), SkScalarCeil(bottom));
-    }
-}
+  /** Set the dst integer rectangle by rounding "out" this rectangle,
+   *  choosing the floor of top and left, and the ceiling of right and
+   *  bototm.
+   */
+  IRect roundOut()() const
+    if (isFloatingPoint!T)
+  {
+    return IRect(to!int(floor(this.left)), to!int(floor(this.top)),
+                 to!int(ceil(this.right)), to!int(ceil(this.bottom)));
+  }
 };
 
+static FRect fRect(T)(in Rect!T rect) {
+  return FRect(rect.left, rect.top, rect.right, rect.bottom);
+}
 version(unittest) import std.stdio : writeln;
 unittest
 {
@@ -416,4 +444,11 @@ unittest
   IPoint[] pts = [IPoint(-1,1), IPoint(2,-2), IPoint(6,3), IPoint(4,7), IPoint(5,5)];
   r1 = IRect.calcBounds(pts);
   assert(r1 == IRect(-1, -2, 6, 7));
+}
+
+unittest
+{
+  auto fr = FRect(2.6, 4.2, 19.4, 11.1);
+  assert(fr.round() == IRect(3, 4, 19, 11));
+  assert(fr.roundOut() == IRect(2, 4, 20, 12));
 }
