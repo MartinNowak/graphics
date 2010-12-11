@@ -2,15 +2,20 @@ module WinMain;
 import Win = std.c.windows.windows;
 import std.c.stdio;
 
-import RectView;
-import skia.core.color;
 //import SkOsWindow;
-private import std.conv;
-private import skia.views.window;
-private import skia.views.view;
-private import core.runtime;
-private import std.string : rjustify;
-private import std.algorithm : max;
+private {
+  import core.runtime;
+  import std.string : rjustify;
+  import std.algorithm : max;
+  import std.conv;
+
+  import skia.core.color;
+  import skia.core.point;
+  import skia.core.size;
+  import skia.views.window;
+  import skia.views.view;
+  import RectView;
+}
 
 private const auto KWindowClassName = "DawgWndClass";
 private const auto KWindowTitle = "DawgWindow";
@@ -36,7 +41,7 @@ int WinMain(Win.HINSTANCE hInstance, Win.HINSTANCE hPrevInstance,
 	    Win.LPSTR lpCmdLine, int nCmdShow)
 {
   int result;
-  
+
   gc_init();
   _minit();
 
@@ -63,14 +68,14 @@ int WinMain(Win.HINSTANCE hInstance, Win.HINSTANCE hPrevInstance,
 bool unittestrunner()
 {
   size_t failed = 0;
-  foreach( m; ModuleInfo )
+  foreach(ref m; ModuleInfo )
   {
     if( m )
     {
       auto fp = m.unitTest;
       if( fp )
       {
-	auto msg = "Unittest: "~m.name;
+	auto msg = "TEST: "~m.name;
 	try
 	{
 	  fp();
@@ -125,7 +130,7 @@ int RunMainLoop()
     Win.TranslateMessage(&msg);
     Win.DispatchMessageA(&msg);
   }
-  
+
   return cast(int)msg.wParam;;
 }
 
@@ -137,8 +142,9 @@ void InitWindow(Win.HINSTANCE hInstance, int nCmdShow)
 {
   auto hWindow = MakeWindow(hInstance);
   gWindow = new OsWindow(hWindow);
-  gWindow.attachChildTo!FrontPos(new RectView(200, 200, DarkGray));
-  gWindow.attachChildTo!FrontPos(new RectView(200, 200, Magenta));
+  gWindow.attachChildTo!FrontPos(
+    new RectView(IPoint(100, 100), ISize(200, 200), Orange));
+  //  gWindow.attachChildTo!FrontPos(new RectView(200, 200, Magenta));
 
   Win.ShowWindow(hWindow, nCmdShow);
   Win.UpdateWindow(hWindow);

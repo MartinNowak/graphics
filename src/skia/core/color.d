@@ -114,6 +114,7 @@ enum : Color
   Yellow    = Color(0xffffff00),
   Cyan      = Color(0xff00ffff),
   Magenta   = Color(0xffff00ff),
+  Orange    = Color(0xffffa500),
 }
 
 unittest

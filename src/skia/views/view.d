@@ -1,12 +1,16 @@
 module skia.views.view;
 
-import skia.core.canvas;
-import skia.core.rect;
-import std.bitmanip : bitfields;
-import std.algorithm : remove;
-import std.functional : unaryFun;
+private {
+  import std.bitmanip : bitfields;
+  import std.algorithm : remove;
+  import std.functional : unaryFun;
+  debug import std.stdio : writeln, printf;
 
-debug private import std.stdio : writeln, printf;
+  import skia.core.canvas;
+  import skia.core.rect;
+  import skia.core.size;
+  import skia.core.point;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -58,14 +62,22 @@ class View
 	    bool, "flexibleV", 1,
 	    uint, "", 3)); // padding
   }
-	    
+
   View parent;
   View[] children;
   Layout _layout;
   IRect _bounds;
   Flags _flags;
+  ViewID id;
+
+  alias size_t ViewID;
+  private static final obtainID() {
+    static ViewID sViewID;
+    return sViewID++;
+  }
 public:
   this(Flags flags = Flags.init) {
+    this.id = obtainID();
     this.flags = flags;
   }
 
@@ -83,6 +95,9 @@ public:
       this.inval();
   }
 
+  void setSize(ISize size) {
+    this.setSize(size.width, size.height);
+  }
   void setSize(uint width, uint height) {
     if (this.width != width || this.height != height) {
       this.inval();
@@ -103,6 +118,9 @@ public:
    *     x = new x position
    *     y = new y position
    */
+  void setLoc(IPoint pt) {
+    this.setLoc(pt.x, pt.y);
+  }
   void setLoc(uint x, uint y) {
     if (this.x != x || this.y != y) {
       this.inval();
@@ -141,7 +159,7 @@ public:
   final package void draw(ref Canvas canvas) {
     if (!this.empty && this._flags.visible)
     {
-      if (canvas.quickReject(this._bounds, EdgeType.kBW))
+      if (canvas.quickReject(this._bounds, EdgeType.BW))
 	return;
 
       auto count = canvas.save();
@@ -152,7 +170,7 @@ public:
 
       /// drawSelf
       this.drawSelf(canvas);
-      
+
       /// drawChildren
       this.drawChildren(canvas);
     }
@@ -244,7 +262,7 @@ public:
     if (!this._flags.visible)
       return area;
 
-    IRect inval = this.localBounds;
+    IRect inval = this.bounds;
 
     if (area.empty || !inval.intersect(area))
       return area;
@@ -259,7 +277,7 @@ public:
       if (!view.parent || !view.parent._flags.visible)
 	break;
       inval.offset(this.x, this.y);
-      if (!inval.intersect(view.parent.localBounds))
+      if (!inval.intersect(view.parent.bounds))
 	break;
       view = view.parent;
     }
@@ -320,6 +338,10 @@ public:
     }
   }
 
+  private void removeChild(View child) {
+    this.children = remove!((View a){ return a == child; })(this.children);
+  }
+
   void detachFromParent_NoLayout() {
     if (!this.parent)
       return;
@@ -329,10 +351,9 @@ public:
     */
     this.inval();
     assert(this.parent);
-    this.parent.children =
-      remove!((View a){ return a == this; })(this.parent.children);
+    this.parent.removeChild(this);
   }
-  
+
   /****************************************
    * Configuration point called when size changed.
    */
@@ -348,7 +369,10 @@ public:
     throw new Exception("Unimplemented method "~m);
   }
 
-private:
+  @property IRect bounds() const
+  { return IRect(0, 0, this.width, this.height); }
+
+protected:
   @property int x() const { return this._bounds.x; }
   @property void x(int x) { this._bounds.x = x; }
   @property int y() const { return this._bounds.y; }
@@ -360,8 +384,6 @@ private:
   @property void height(int height) { this._bounds.height = height; }
 
   @property bool empty() const { return this._bounds.empty; }
-  @property IRect localBounds() const
-  { return IRect(0, 0, this.width, this.height); }
 }
 
 version (unittest)
@@ -414,13 +436,16 @@ unittest {
   testLayout();
 }
 
+version (unittest):
+
 void testDrawOrder() {
   struct TestFixture {
     Canvas canvas;
 
     void testDraw(View v, int[] exp) {
       if (!this.canvas) {
-	this.canvas = new Canvas(new Bitmap());
+        auto bitmap = new Bitmap(Config.ARGB_8888, 100, 100);
+        this.canvas = new Canvas(bitmap);
       }
       v.draw(canvas);
       assert(TestView.draws == exp);
@@ -444,7 +469,7 @@ void testDrawOrder() {
   v1.attachChildTo!BackPos(v3);
 
   f.testDraw(v1, [1, 3, 2]);
-  
+
   v3.attachChildTo!FrontPos(new TestView(4));
   f.testDraw(v1, [1, 3, 4, 2]);
 
@@ -461,7 +486,7 @@ void testInvalidation() {
   v1.attachChildTo!FrontPos(v3);
   assert(v3.inval(IRect(1, 1)) == IRect(0, 0, 1, 1));
   v3.setLoc(10, 5);
-  assert(v3.inval(IRect(1, 1)) == IRect(10, 5, 11, 6));  
+  assert(v3.inval(IRect(1, 1)) == IRect(10, 5, 11, 6));
   assert(v2.inval(IRect(1, 1)) == IRect(0, 0, 1, 1));
 }
 

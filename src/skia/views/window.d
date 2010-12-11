@@ -24,7 +24,7 @@ class Window : View
   Region dirtyRegion;
 public:
   this() {
-    this.config = Config.kARGB_8888_Config;
+    this.config = Config.ARGB_8888;
     this.bitmap = new Bitmap();
     this._flags.visible = true;
     this._flags.enabled = true;
@@ -34,11 +34,11 @@ public:
   {
     if (!this.dirtyRegion.empty)
     {
-      Canvas canvas = new Canvas(this.bitmap);
+      scope auto canvas = new Canvas(this.bitmap);
       canvas.clipRegion(this.dirtyRegion);
 
       if (updateArea)
-	*updateArea = this.dirtyRegion.getBounds();
+	*updateArea = this.dirtyRegion.bounds;
       this.dirtyRegion.setEmpty();
 
       this.draw(canvas);
@@ -49,7 +49,8 @@ public:
   }
 
   override void onDraw(Canvas canvas) {
-    canvas.drawPaint(Paint(WarmGray));
+    scope auto paint = new Paint(WarmGray);
+    canvas.drawPaint(paint);
   }
 
   void resize(uint width, uint height)
