@@ -1,14 +1,27 @@
 module skia.core.point;
 
-import std.math;
-import std.conv : to;
-import std.traits : isSigned;
-debug import std.stdio : writeln, printf;
-/** \struct SkIPoint
+private {
+  import std.math;
+  import std.conv : to;
+  import std.traits : isSigned, isAssignable;
+  debug import std.stdio : writeln, printf;
 
-    SkIPoint holds two 32 bit integer coordinates
-*/
+  import skia.core.size;
+}
+
 alias Point!(int) IPoint;
+alias Point!(float) FPoint;
+
+/**
+ * Template deducing function.
+ */
+Point!T point(T)(T x, T y) {
+  return Point!T(x, y);
+}
+
+FPoint fPoint(T)(Point!T pt) {
+  return FPoint(pt.x, pt.y);
+}
 
 struct Point (T)
 {
@@ -29,8 +42,8 @@ struct Point (T)
   void set(T x, T y) { this.x = x; this.y = y; }
 
   /** Set the point's X and Y coordinates by automatically promoting (x,y) to
-      SkScalar values.
-  */
+   *  SkScalar values.
+   */
   void iset(uint x, uint y) {
     this.x = to!T(x);
     this.y = to!T(y);
@@ -44,35 +57,35 @@ struct Point (T)
   }
 
   /** Set the point (vector) to be unit-length in the same direction as it
-      currently is, and return its old length. If the old length is
-      degenerately small (nearly zero), do nothing and return false, otherwise
-      return true.
-  */
+   *  currently is, and return its old length. If the old length is
+   *  degenerately small (nearly zero), do nothing and return false, otherwise
+   *  return true.
+   */
   void normalize() {
     this.setLength(1);
   }
 
   /** Set the point (vector) to be unit-length in the same direction as the
-      x,y params. If the vector (x,y) has a degenerate length (i.e. nearly 0)
-      then return false and do nothing, otherwise return true.
-  */
+   *  x,y params. If the vector (x,y) has a degenerate length (i.e. nearly 0)
+   *  then return false and do nothing, otherwise return true.
+   */
   void setNormalize(T x, T y) {
     this.set(x, y);
     this.normalize();
   }
 
   /** Scale the point (vector) to have the specified length, and return that
-      length. If the original length is degenerately small (nearly zero),
-      do nothing and return false, otherwise return true.
-  */
+   *  length. If the original length is degenerately small (nearly zero),
+   *   do nothing and return false, otherwise return true.
+   */
   void setLength(T length) {
     this.setLength(this.x, this.y, length);
   }
 
   /** Set the point (vector) to have the specified length in the same
-      direction as (x,y). If the vector (x,y) has a degenerate length
-      (i.e. nearly 0) then return false and do nothing, otherwise return true.
-  */
+   *  direction as (x,y). If the vector (x,y) has a degenerate length
+   *  (i.e. nearly 0) then return false and do nothing, otherwise return true.
+   */
   void setLength(T x, T y, T length) {
     double mag = Point!double(x, y).length();
     auto _x = x * length / mag;
@@ -82,8 +95,8 @@ struct Point (T)
   }
 
   /** Scale the point's coordinates by scale, writing the answer into dst.
-      It is legal for dst == this.
-  */
+   *  It is legal for dst == this.
+   */
   void scale(T2)(T2 scale, ref Point dst) const
   {
     dst.set(to!T(this.x * scale), to!T(this.y * scale));
@@ -100,27 +113,27 @@ struct Point (T)
   {
 
   /** Rotate the point clockwise by 90 degrees, writing the answer into dst.
-      It is legal for dst == this.
-  */
+   *  It is legal for dst == this.
+   */
   void rotateCW(ref Point dst) const {
     dst = Point(-this.y, this.x);
   }
 
   /** Rotate the point clockwise by 90 degrees, writing the answer back into
-      the point.
-  */
+   *  the point.
+   */
   void rotateCW() { this.rotateCW(this); }
 
   /** Rotate the point counter-clockwise by 90 degrees, writing the answer
-      into dst. It is legal for dst == this.
-  */
+   *  into dst. It is legal for dst == this.
+   */
   void rotateCCW(ref Point dst) const {
     dst = Point(this.y, -this.x);
   }
 
   /** Rotate the point counter-clockwise by 90 degrees, writing the answer
-      back into the point.
-  */
+   *  back into the point.
+   */
   void rotateCCW() { this.rotateCCW(this); }
 
   /** Negate the point's coordinates
@@ -137,15 +150,37 @@ struct Point (T)
 
 
   /** Returns a new point whose coordinates are the difference/sum
-      between a's and b's (a -/+ b).
-  */
-  Point opBinary(string op)(Point rhs)
-    if (op == "-" || op == "+")
+   * between a's and b's (a -/+ b).
+   */
+  Point opBinary(string op)(Point rhs) const
+    if (op == "-" || op == "+" || op == "*" || op == "/")
   {
     T resx = mixin("this.x" ~ op ~ "rhs.x");
     T resy = mixin("this.y" ~ op ~ "rhs.y");
     return Point(resx, resy);
   }
+
+  /** Returns a new point whose coordinates is multiplied/divided by
+   *  the scalar.
+   */
+  Point opBinary(string op)(T val)
+    if (op == "*" || op == "/")
+  {
+    T resx = mixin("this.x" ~ op ~ "val");
+    T resy = mixin("this.y" ~ op ~ "val");
+    return Point(resx, resy);
+  }
+
+
+  Point!T opBinary(string op)(Size!T size) const
+    if (op == "-" || op == "+")
+  {
+    T resx = mixin("this.x" ~ op ~ "size.width");
+    T resy = mixin("this.y" ~ op ~ "size.height");
+    return point(resx, resy);
+  }
+
+
 
   /** Add/Subtract v's coordinates to the point's
    */
@@ -154,6 +189,14 @@ struct Point (T)
  {
     mixin("this.x" ~ op ~ "=rhs.x;");
     mixin("this.y" ~ op ~ "=rhs.y;");
+    return this;
+  }
+
+  ref Point opOpAssign(string op)(T val)
+  //if (op == "*" || op == "/")
+ {
+    mixin("this.x" ~ op ~ "=val;");
+    mixin("this.y" ~ op ~ "=val;");
     return this;
   }
 
@@ -170,22 +213,23 @@ struct Point (T)
 
 /** Returns the euclidian distance between a and b
  */
-T Distance(T)(Point!T a, Point!T b) {
+T distance(T)(Point!T a, Point!T b) {
   Point tmp = a - b;
   return tmp.length();
 }
 
 /** Returns the dot product of a and b, treating them as 2D vectors
  */
-T DotProduct(T)(Point!T a, Point!T b) {
+T dotProduct(T)(Point!T a, Point!T b) {
   return a.x * b.x + a.y * b.y;
 }
 
 /** Returns the cross product of a and b, treating them as 2D vectors
  */
-T CrossProduct(T)(Point!T a, Point!T b) {
+T crossProduct(T)(Point!T a, Point!T b) {
   return a.x * b.y - a.y * b.x;
 }
+
 
 unittest
 {
@@ -285,13 +329,13 @@ void testVectorOps(T)()
 {
   auto p1 = Point!T(2, 1);
   auto p2 = -p1;
-  assert(DotProduct(p1, p2) == -5);
+  assert(dotProduct(p1, p2) == -5);
 
-  assert(CrossProduct(p1, p2) == 0);
+  assert(crossProduct(p1, p2) == 0);
   auto pCW = p1;
   pCW.rotateCW();
   auto pCCW = p1;
   pCCW.rotateCCW();
-  assert(CrossProduct(p1, pCW) == -(CrossProduct(p1, pCCW)));
-  assert(DotProduct(p1, pCW) == 0);
+  assert(crossProduct(p1, pCW) == -(crossProduct(p1, pCCW)));
+  assert(dotProduct(p1, pCW) == 0);
 }
