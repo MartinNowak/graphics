@@ -1,5 +1,7 @@
 private {
   import quickcheck._;
+  import quickcheck.unittestrunner;
+
   import skia.core.edgebuilder;
 }
 
