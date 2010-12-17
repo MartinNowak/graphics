@@ -3,6 +3,8 @@ module skia.core.edgesTest;
 private {
   import std.algorithm : iota;
   import std.stdio : writefln;
+  import std.random : uniform;
+
   import skia.core.edgebuilder;
   import skia.core.point;
   import quickcheck._;
@@ -14,7 +16,7 @@ version(unittest) {
     auto app = appender!(FEdge[]);
     lineEdge(app, pts);
     assert(app.data.length > 0);
-    auto idx = uniform(0u, app.data.length - 1);
+    auto idx = uniform(0u, app.data.length);
     return app.data[idx];
   }
 
@@ -22,7 +24,7 @@ version(unittest) {
     auto app = appender!(FEdge[]);
     quadraticEdge(app, pts);
     assert(app.data.length > 0);
-    auto idx = uniform(0u, app.data.length - 1);
+    auto idx = uniform(0u, app.data.length);
     return app.data[idx];
   }
 
@@ -30,7 +32,7 @@ version(unittest) {
     auto app = appender!(FEdge[]);
     cubicEdge(app, pts);
     assert(app.data.length > 0);
-    auto idx = uniform(0u, app.data.length - 1);
+    auto idx = uniform(0u, app.data.length);
     return app.data[idx];
   }
 
