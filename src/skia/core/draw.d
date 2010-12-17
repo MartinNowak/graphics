@@ -39,7 +39,7 @@ public:
 
   void drawPaint(Paint paint) {
     if (this.clip.empty
-        || this.bounder && !this.bounder.doIRect(this.bitmap.bounds))
+        || this.bounder && !this.bounder.doIRect(this.bitmap.bounds, paint))
       return;
 
     /**
@@ -76,8 +76,7 @@ public:
   }
 
   void drawPath(in Path path, Paint paint) {
-    if (this.clip.empty
-        || this.bounder && !this.bounder.doIRect(this.bitmap.bounds))
+    if (this.clip.empty)
       return;
 
     // TODO: query the paint
@@ -89,6 +88,7 @@ public:
         && !this.bounder.doPath(transPath, paint, doFill))
         return;
 
+    // TODO: quickReject on clip before building blitter
     Blitter blitter = this.getBlitter(paint);
 
     if (doFill) {
