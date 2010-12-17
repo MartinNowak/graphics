@@ -131,7 +131,7 @@ public:
   T updateQuad(T y) {
     assert(this.type == Type.Quad);
     auto pmSqrt = this.quad.fixSqrt + y * this.quad.scale;
-    pmSqrt = sqrt_sse(pmSqrt);
+    pmSqrt = fast_sqrt(pmSqrt);
     auto t = this.quad.fixAdd + this.quad.addSub ? pmSqrt : -pmSqrt;
     this.curX = this.quadraticCalcX(t);
     return this.curX;
@@ -256,7 +256,7 @@ public:
 unittest {
   auto app = appender!(FEdge[])();
   cubicEdge(app, [FPoint(0.0, 0.0), FPoint(1.0, 1.0),
-                        FPoint(2.0, 4.0), FPoint(4.0, 16.0)]);
+                  FPoint(2.0, 4.0), FPoint(4.0, 16.0)]);
   assert(app.data.length == 1);
   auto cub = app.data[0];
   assert(cub.type == FEdge.Type.Cubic);
@@ -271,29 +271,36 @@ unittest {
   assert(abs(val - 1.658) < 1e-3);
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
 
-float sqrt_sse(float n)
-{
-  assert(n >= 0);
-
-  if (n == 0)
-    return 0;
-
-  asm {
-    rsqrtss XMM0, n;
-    mulss XMM0, n;
-    movss n, XMM0;
+version(NO_SSE) {
+  float fast_sqrt(float n) {
+    return sqrt(n);
   }
+} else {
+  float fast_sqrt(float n)
+  {
+    assert(n >= 0);
 
-  return n;
+    if (n == 0)
+      return 0;
+
+    asm {
+      rsqrtss XMM0, n;
+      mulss XMM0, n;
+      movss n, XMM0;
+    }
+
+    return n;
+  }
 }
 
 unittest {
   real errorSum = 0.0;
   size_t j;
   for (float i = 1.0/1000; i<=1000; i+=1.0/1000, ++j) {
-    auto dev = sqrt_sse(i) - sqrt(i);
+    auto dev = fast_sqrt(i) - sqrt(i);
     errorSum += dev * dev;
   }
   auto error = sqrt(errorSum / j);
@@ -550,7 +557,7 @@ int quadUnitRoots(T)(T[3] coeffs, out T[2] roots) {
     if (isNaN(r))
       return 0;
   }
-  r = sqrt_sse(r);
+  r = fast_sqrt(r);
   auto q = b < 0 ? -(b-r)/2 : -(b+r)/2;
   int rootIdx;
   rootIdx += valid_unit_divide(q, a, roots[rootIdx]);
