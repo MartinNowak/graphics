@@ -158,8 +158,9 @@ public:
     return this.drawCircle(fPoint(c), radius, paint);
   }
   void drawCircle(FPoint c, float radius, Paint paint) {
-    auto rect = FRect(c.x, c.y, 0, 0);
-    rect.inset(-radius, -radius);
+    auto topL = FPoint(c.x - radius, c.y - radius);
+    auto botR = topL + FPoint(2*radius, 2*radius);
+    auto rect = FRect(topL, botR);
 
     Path path;
     path.addOval(rect);
@@ -173,18 +174,13 @@ public:
     if (this.curMCRec.clip.empty)
       return true;
 
-    auto clipRect = this.curMCRec.clip.bounds;
-
-    if (!this.curMCRec.matrix.perspective) {
-      return rect.top >= clipRect.bottom
-              || rect.bottom <= clipRect.top
-              || rect.left >= clipRect.right
-              || rect.right <= clipRect.left;
-    } else {
+    if (!this.curMCRec.matrix.perspective)
+      return !rect.intersects(this.clipBounds);
+    else {
       FRect mapped;
       this.curMCRec.matrix.mapRect(fRect(rect), mapped);
       auto ir = mapped.roundOut();
-      return !ir.intersects(clipRect);
+      return !ir.intersects(this.clipBounds);
     }
   }
 
@@ -193,31 +189,31 @@ public:
   }
 
   bool clipRegion(in Region rgn, Region.Op op=Region.Op.Intersect) {
-    /++
-    this.deviceCMDirty = true;
-    this.localBoundsCompareTypeDirty = true;
-    this.localBoundsCompareTypeDirtyBW = true;
-
-    return fMCRec->fRegion->op(rgn, op);
-    +/
-    return true;
+    return this.curMCRec.clip.op(rgn, op);
   }
 
   bool clipRect(in IRect rect, Region.Op op=Region.Op.Intersect) {
-    auto clipBounds = this.curMCRec.clip.bounds;
+    auto clipBounds = this.clipBounds;
     clipBounds.intersect(rect);
     this.curMCRec.clip.setRect(clipBounds);
     return true;
   }
 
+  @property IRect clipBounds() const {
+    return this.curMCRec.clip.bounds;
+  }
+
   void translate(float dx, float dy) {
-    this.curMCRec.matrix.translate(dx, dy);
+    this.curMCRec.matrix.preTranslate(dx, dy);
   }
   void scale(float xs, float ys) {
-    this.curMCRec.matrix.scale(xs, ys);
+    this.curMCRec.matrix.preScale(xs, ys);
   }
   void rotate(float deg) {
     this.curMCRec.matrix.preRotate(deg);
+  }
+  void rotate(float deg, float px, float py) {
+    this.curMCRec.matrix.preRotate(deg, px, py);
   }
 
   /****************************************
@@ -228,7 +224,7 @@ public:
   }
   private final int internalSave(SaveFlags flags) {
     this.mcRecs ~= this.curMCRec;
-    return this.mcRecs.length;
+    return this.mcRecs.length - 1;
   }
   @property private ref MCRec curMCRec() {
     assert(this.mcRecs.length > 0);
