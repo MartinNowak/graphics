@@ -28,8 +28,8 @@ void fillIRect(Blitter)(IRect rect, in Region clip, Blitter blitter) {
 
 void antiFillPath(Blitter)(in Path path, in Region clip,
                            Blitter blitter) {
-  blitter.scaleAlpha(0.25f);
-  return fillPathImpl(path, clip, blitter, 0.25f);
+  blitter.scaleAlpha(0.5f);
+  return fillPathImpl(path, clip, blitter, 0.5f);
 }
 void fillPath(Blitter)(in Path path, in Region clip,
                        Blitter blitter) {
@@ -52,6 +52,7 @@ void fillPathImpl(Blitter, T)(in Path path, in Region clip,
 
   if (!clip.bounds.intersects(ir))
     return;
+
 
   // TODO chose SkRgnBlitter, SkRectBlitter
   if (path.inverseFillType) {
@@ -218,6 +219,8 @@ unittest
 version(unittest) {
   private import skia.core.point;
 }
+
+
 unittest
 {
   auto path = Path();
@@ -236,8 +239,8 @@ unittest
 
 void antiHairPath(Blitter)(in Path path, in Region clip,
                            Blitter blitter) {
-  blitter.scaleAlpha(0.1f);
-  return hairPathImpl(path, clip, blitter, 0.1f);
+  blitter.scaleAlpha(0.5f);
+  return hairPathImpl(path, clip, blitter, 0.5f);
 }
 void hairPath(Blitter)(in Path path, in Region clip,
                            Blitter blitter) {
