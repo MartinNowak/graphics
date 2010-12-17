@@ -38,6 +38,15 @@ protected:
   void onInflate(DOM dom, DOM.Node node);
 };
 
+class OneChildFullSpaceLayout : Layout
+{
+  void onLayoutChildren(View parent) {
+    assert(parent.children.length == 1);
+    parent.children[0].loc = parent.loc;
+    parent.children[0].size = parent.size;
+  }
+  void onInflate(DOM dom, DOM.Node node) {}
+}
 ////////////////////////////////////////////////////////////////////////////////
 
 public enum Position
@@ -81,6 +90,12 @@ public:
     this.flags = flags;
   }
 
+  this(IPoint loc, ISize size, Flags flags = Flags.init) {
+    this(flags);
+    this.setLoc(loc);
+    this.setSize(size);
+  }
+
   @property Flags flags() const {
     return this._flags;
   }
@@ -93,6 +108,19 @@ public:
 
     if (this._flags.visible ^ val.visible)
       this.inval();
+  }
+
+  @property IPoint loc() const {
+    return IPoint(this.x, this.y);
+  }
+  @property void loc(IPoint loc) {
+    this.setLoc(loc);
+  }
+  @property ISize size() const {
+    return ISize(this.width, this.height);
+  }
+  @property void size(ISize size) {
+    this.setSize(size);
   }
 
   void setSize(ISize size) {
@@ -195,11 +223,11 @@ public:
    * Calls draw on each child view.
    */
   private final void drawChildren(ref Canvas canvas) {
-      Canvas childCanvas = this.beforeChildren(canvas);
-      foreach (ref child; this.children) {
-	child.draw(childCanvas);
-      }
-      this.afterChildren(canvas);
+    Canvas childCanvas = this.beforeChildren(canvas);
+    foreach (ref child; this.children) {
+      child.draw(childCanvas);
+    }
+    this.afterChildren(canvas);
   }
 
   /****************************************
