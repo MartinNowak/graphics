@@ -126,41 +126,48 @@ public:
         + this[2][0] * (this[0][1] * this[1][2] - this[0][1] * this[1][0]);
   }
 
-  void translate(float dx, float dy) {
+  void setTranslate(float dx, float dy) {
+    this.reset();
     this.setDirty();
-    this.mat[0][2] += dx;
-    this.mat[1][2] += dy;
+    this.mat[0][2] = dx;
+    this.mat[1][2] = dy;
   }
-  void scale(float xs, float ys) {
-    this.setDirty();
-    this.mat[0][0] *= xs;
-    this.mat[1][1] *= ys;
-  }
-
   void setRotate(float deg) {
+    this.reset();
     this.setDirty();
     auto rad = deg * 2 * PI / 360.0f;
     this.setSinCos(sin(rad), cos(rad));
   }
-
-  void preRotate(float deg) {
-    Matrix m;
-    m.setRotate(deg);
-    this.preConcat(m);
-  }
-  void postRotate(float deg) {
-    Matrix m;
-    m.setRotate(deg);
-    this.postConcat(m);
-  }
-
-  void preConcat(in Matrix mat) {
+  void setRotate(float deg, float px, float py) {
+    this.reset();
     this.setDirty();
-    this = this * mat;
+    auto rad = deg * 2 * PI / 360.0f;
+    this.setSinCos(sin(rad), cos(rad), px, py);
   }
-  void postConcat(in Matrix mat) {
+  void setScale(float xs, float ys) {
+    this.reset();
     this.setDirty();
-    this = mat * this;
+    this.mat[0][0] = xs;
+    this.mat[1][1] = ys;
+  }
+  mixin PrePost!("Translate");
+  mixin PrePost!("Rotate");
+  mixin PrePost!("Scale");
+
+  private mixin template PrePost(string s)
+  {
+    mixin(
+      "void pre"~s~"(Args...)(Args args) {
+         Matrix m;
+         m.set"~s~"(args);
+         this = m * this;
+       }");
+    mixin(
+      "void post"~s~"(Args...)(Args args) {
+         Matrix m;
+         m.set"~s~"(args);
+         this = this * m;
+       }");
   }
 
   /****************************************
@@ -176,7 +183,7 @@ public:
     } else {
       FPoint[] quad = src.toQuad();
       this.mapPoints(quad);
-      dst.calcBounds(quad);
+      dst = FRect.calcBounds(quad);
       return false;
     }
   }
@@ -188,11 +195,16 @@ public:
 
 private:
 
-  void setSinCos(float sinVal, float cosVal) {
+  void setSinCos(float sinV, float cosV) {
     this.mat =
-      [[cosVal, -sinVal, 0.0f],
-       [sinVal, cosVal , 0.0f],
+      [[cosV, -sinV, 0.0f],
+       [sinV, cosV , 0.0f],
        [0.0f  , 0.0f   , 1.0f]];
+  }
+  void setSinCos(float sinV, float cosV, float px, float py) {
+    this.setSinCos(sinV, cosV);
+    this[0][2] = sinV*py - cosV*px + px;
+    this[1][2] = -sinV*px - cosV*py + py;
   }
   ref float[3] opIndex(int idx) {
     assert(0 <= idx && idx <= 2);
