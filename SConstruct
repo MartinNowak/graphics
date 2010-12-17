@@ -33,12 +33,12 @@ skia_lib = env.SConscript('src/skia/SConscript', duplicate=0,
                           exports='env',
                           variant_dir='build/skia/'+_build_style)
 env.SConscript('src/SampleApp/SConscript', duplicate=0,
-               exports='env skia_lib ut_runner',
+               exports='env skia_lib qcheck_lib qcheck_imp',
                variant_dir='build/SampleApp/'+_build_style)
-env.SConscript('src/Benchmark/SConscript', duplicate=0,
-               exports='env skia_lib',
-               variant_dir='build/Benchmark/'+_build_style)
 env.SConscript('src/QuickCheck/SConscript', duplicate=0,
                exports='env skia_lib qcheck_lib qcheck_imp',
                variant_dir='build/QuickCheck/'+_build_style)
+env.SConscript('src/Benchmark/SConscript', duplicate=0,
+               exports='env skia_lib',
+               variant_dir='build/Benchmark/'+_build_style)
 

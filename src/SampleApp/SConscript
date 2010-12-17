@@ -1,9 +1,16 @@
-Import('env skia_lib')
+Import('env skia_lib qcheck_lib qcheck_imp')
 
-sample_srcs = Glob('*.d')
+_srcs = Glob('*.d')
+
+if env['BUILD_STYLE'] == 'relese':
+   _d_link_flags=[File('GuiApp.def')]
+else:
+   _d_link_flags=[File('ConsoleApp.def')]
+
 app = env.Program('SampleApp',
-                  sample_srcs,
+                  _srcs,
                   LINKCOM=env['DLINKCOM'],
-                  LIBS=['#/gdi32', skia_lib],
-                  DPATH=['#/src', '.'])
+                  DLINKFLAGS=_d_link_flags,
+                  LIBS=['#/gdi32', skia_lib, qcheck_lib],
+                  DPATH=['#/src', '.', qcheck_imp])
 Return('app')

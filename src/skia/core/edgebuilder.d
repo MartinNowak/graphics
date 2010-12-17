@@ -1,6 +1,7 @@
 module skia.core.edgebuilder;
 
 private {
+  debug import std.stdio : writeln, writefln;
   import std.algorithm : map, min, sort, swap;
   import std.array : appender, array, back, front;
   import std.math : isNaN, abs, sqrt;
@@ -182,6 +183,7 @@ public:
       [this.p0, this.cubic.p1, this.cubic.p2, this.cubic.p3],
       this.cubic.oldT);
     assert(slope >= 0);
+
     T b = 1.0;
     if (slope > 1e-3) {
       b = min(1.0, this.cubic.oldT + 1.5 * Step / slope);
@@ -364,12 +366,10 @@ struct CubicEdge(T) {
   private void fixRoundingErrors(ref Point!T[4] pts) {
     enum tol = 1e-2f;
     if (pts[2].y > pts[3].y) {
-      writeln("Error", pts[2].y - pts[3].y);
       assert(pts[2].y - pts[3].y <= abs(pts[2].y * tol));
       swap(pts[2].y, pts[3].y);
     }
     if (pts[0].y > pts[1].y) {
-      writeln("Error", pts[0].y - pts[1].y);
       assert(pts[0].y - pts[1].y <= abs(pts[0].y * tol));
       swap(pts[1].y, pts[0].y);
     }
@@ -377,9 +377,14 @@ struct CubicEdge(T) {
 
   this(Point!T p0, Point!T p1, Point!T p2, Point!T p3) {
     Point!T[4] pts = [p0, p1, p2, p3];
-    writeln("Points", pts);
     fixRoundingErrors(pts);
     assert(pts[0].y <= pts[1].y && pts[2].y <= pts[3].y);
+//    this.ya
+//    this.yb
+//    this.yc
+//    this.xa
+//    this.xb
+//    this.xc
     this.p1 = pts[1];
     this.p2 = pts[2];
     this.p3 = pts[3];
@@ -521,6 +526,7 @@ void cubicEdge(R, T)(ref R appender, in Point!T[] pts) {
   T[2] unitRoots;
   auto nUnitRoots = cubicUnitRoots(pts, unitRoots);
   Point!T[4] right = pts;
+
   for (auto i = 0; i < nUnitRoots; ++i) {
     auto ptss = splitBezier!4(right, unitRoots[i]);
     appender.put(makeCubic(ptss[0]));

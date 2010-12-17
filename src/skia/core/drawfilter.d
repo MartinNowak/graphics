@@ -25,3 +25,10 @@ interface DrawFilter {
    */
   void restore(Canvas canvas, Paint paint, Type);
 }
+
+class BaseDrawFilter : DrawFilter {
+  this() {
+  }
+  bool filter(Canvas canvas, Paint paint, Type) { return true; }
+  void restore(Canvas canvas, Paint paint, Type) {}
+}

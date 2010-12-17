@@ -1,4 +1,4 @@
-module RectView;
+module rectview;
 
 private {
   debug private import std.stdio : writeln;
@@ -28,11 +28,13 @@ class RectView : View
   }
 
   override void onDraw(Canvas canvas) {
-    auto gray = DarkGray;
-    gray.a = 50;
-    scope auto paint2 = new Paint(gray);
-    paint2.antiAlias = true;
-    canvas.drawRoundRect(this.bounds, 30, 30, paint2);
-    canvas.drawCircle(this.bounds.center, 80, paint);
+    canvas.translate(25, 25);
+    scope auto paintRect = new Paint(Red);
+    paintRect.antiAlias = true;
+    canvas.drawRoundRect(IRect(100, 100), 5, 5, paintRect);
+
+    scope auto paintCircle = new Paint(Color(0x808080FF));
+    paintCircle.antiAlias = true;
+    canvas.drawCircle(point(25, 25), 50, paintCircle);
   }
 }

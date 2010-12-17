@@ -24,3 +24,9 @@ interface DrawLooper {
   bool drawAgain();
   void restore();
 }
+
+class DrawLooperImpl : DrawLooper {
+  void init(Canvas canvas=null, Paint paint=null) {}
+  bool drawAgain() { return true; }
+  void restore() {}
+}
