@@ -1,0 +1,13 @@
+Import('env skia_lib qcheck_lib qcheck_imp')
+
+_srcs = Glob('*.d')
+
+_d_link_flags=[File('ConsoleApp.def')]
+
+app = env.Program('QuickCheck',
+                  _srcs,
+                  LINKCOM=env['DLINKCOM'],
+                  DLINKFLAGS=_d_link_flags,
+                  LIBS=[skia_lib, qcheck_lib],
+                  DPATH=['#/src', '.', qcheck_imp])
+Return('app')
