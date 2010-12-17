@@ -1,30 +1,37 @@
 module WinMain;
-import Win = std.c.windows.windows;
-import std.c.stdio;
 
 //import SkOsWindow;
 private {
   import core.runtime;
-  import std.string : rjustify;
   import std.algorithm : max;
+  import Win = std.c.windows.windows;
   import std.conv;
+  import std.stdio;
+  import std.string : rjustify;
 
   import skia.core.color;
   import skia.core.point;
   import skia.core.size;
   import skia.views.window;
   import skia.views.view;
-  import RectView;
+  import rectview;
+  import circlesview;
+
+  import quickcheck.unittestrunner;
 }
 
 private const auto KWindowClassName = "DawgWndClass";
 private const auto KWindowTitle = "DawgWindow";
 
+/*
 extern (C) void gc_init();
 extern (C) void gc_term();
 extern (C) void _minit();
 extern (C) void _moduleCtor();
 extern (C) bool runModuleUnitTests();
+*/
+extern (C) bool rt_init(ExceptionHandler dg = null);
+extern (C) bool rt_term(ExceptionHandler dg = null);
 
 ////////////////////////////////////////////////////////////////////////////////
 // global window class instance
@@ -40,58 +47,29 @@ extern (Windows)
 int WinMain(Win.HINSTANCE hInstance, Win.HINSTANCE hPrevInstance,
 	    Win.LPSTR lpCmdLine, int nCmdShow)
 {
+  void TraceException(Throwable e) {
+    writeln("Exception while initializing runtime ", e);
+  }
+  // Win.AttachConsole(Win.ATTACH_PARENT_PROCESS);
+  if (!rt_init(&TraceException))
+    return 1;
+
   int result;
-
-  gc_init();
-  _minit();
-
   try
   {
-    _moduleCtor();
-    core.runtime.Runtime.moduleUnitTester = &unittestrunner;
-    runModuleUnitTests();
     InitWindow(hInstance, nCmdShow);
     result = RunMainLoop();
   }
   catch (Object o)
   {
-    Win.MessageBoxA(null, cast(char *) o.toString(), "Error",
+    Win.MessageBoxA(null, cast(char*)o.toString(), "Error",
 		    Win.MB_OK | Win.MB_ICONEXCLAMATION);
-    result = 0;
+    result = 1;
   }
 
-  gc_term();
+  if (!rt_term(&TraceException))
+    return 1;
   return result;
-}
-
-
-bool unittestrunner()
-{
-  size_t failed = 0;
-  foreach(ref m; ModuleInfo )
-  {
-    if( m )
-    {
-      auto fp = m.unitTest;
-      if( fp )
-      {
-	auto msg = "TEST: "~m.name;
-	try
-	{
-	  fp();
-	  msg ~= " OK".rjustify(max(0, 79 - msg.length));
-	}
-	catch( Throwable e )
-	{
-	  msg ~= " FAILED".rjustify(max(0, 79 - msg.length))
-	    ~ "\n" ~ e.toString;
-	  failed++;
-	}
-	debug writeln(msg);
-      }
-    }
-  }
-  return failed == 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -142,9 +120,9 @@ void InitWindow(Win.HINSTANCE hInstance, int nCmdShow)
 {
   auto hWindow = MakeWindow(hInstance);
   gWindow = new OsWindow(hWindow);
-  gWindow.attachChildTo!FrontPos(
-    new RectView(IPoint(100, 100), ISize(200, 200), Orange));
-  //  gWindow.attachChildTo!FrontPos(new RectView(200, 200, Magenta));
+  //  gWindow.attachChildTo!FrontPos(
+  //    new RectView(IPoint(100, 100), ISize(200, 200), Orange));
+  gWindow.attachChildTo!FrontPos(new CirclesView());
 
   Win.ShowWindow(hWindow, nCmdShow);
   Win.UpdateWindow(hWindow);
