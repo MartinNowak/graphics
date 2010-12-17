@@ -10,8 +10,8 @@ private {
 interface Bounder {
 public:
   // TODO: Revise necessity for Bounder
-  final bool doIRect(in IRect rect) {
-    return this.onIRect(rect);
+  final bool doIRect(in IRect rect, in Paint paint) {
+    return this.onIRect(rect, paint);
   }
   final bool doPath(in Path path, in Paint paint, bool doFill) {
     return this.onPath(path, paint, doFill);
@@ -23,9 +23,9 @@ public:
   */
 protected:
   void commit();
-  bool onIRect(in IRect);
-  bool onPath(in Path path, in Paint paint, bool doFill);
-  bool onIRectGlyph(in IRect, in GlyphRec);
+  bool onIRect(in IRect, in Paint);
+  bool onPath(in Path, in Paint, bool doFill);
+  bool onIRectGlyph(in IRect, in Paint, in GlyphRec);
 }
 
 struct GlyphRec {
