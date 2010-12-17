@@ -2,15 +2,31 @@ module skia.core.paint;
 
 private {
   import std.bitmanip;
+  import std.format : formattedWrite;
+  import std.array : appender;
 
   import skia.core.color;
   import skia.core.drawlooper;
+
+  version(No_DefaultAntiAlias) {
+    enum DefaultAntiAlias = false;
+  } else {
+    enum DefaultAntiAlias = true;
+  }
 }
 
 class Paint
 {
   Color color;
   DrawLooper drawLooper;
+
+  @property string toString() const {
+    auto writer = appender!string();
+    auto fmt = "Paint aa: %s fillStyle: %s enc: %s color: %col looper: %s";
+    formattedWrite(writer, fmt, this.antiAlias, this.fillStyle,
+                   this.textEncoding, this.color, this.drawLooper);
+    return writer.data;
+  }
   mixin(bitfields!(
       bool, "antiAlias", 1,
       bool, "filterBitmap", 1,
@@ -43,12 +59,13 @@ class Paint
     this.color = color;
     this.capStyle = Cap.Butt;
     this.joinStyle = Join.Miter;
+    this.antiAlias = DefaultAntiAlias;
   }
 }
 
 unittest {
   scope auto paint = new Paint(Red);
-  assert(!paint.antiAlias);
+  assert(paint.antiAlias == DefaultAntiAlias);
   assert(!paint.filterBitmap);
   assert(!paint.dither);
   assert(!paint.underlineText);
