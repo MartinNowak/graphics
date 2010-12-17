@@ -41,6 +41,10 @@ struct Rect(T)
     return Rect!T(0, 0);
   }
 
+  static Rect!T invalidRect() {
+    return Rect!T(T.max, T.max, T.min, T.min);
+  }
+
   this(T w, T h) {
     this.set(0, 0, w, h);
   }
@@ -84,22 +88,20 @@ struct Rect(T)
   @property Point!T center() const {
     return Point!T(this.centerX(), this.centerY());
   }
-  T centerX()() const
-  if (isFloatingPoint!T) {
-    return 0.5 * (this.left + this.right);
-  }
-  T centerY()() const
-  if (isFloatingPoint!T) {
-    return 0.5 * (this.top + this.bottom);
-  }
-
-  @property T centerX()() const
-  if (isIntegral!T) {
-    return (this.left + this.right) >> 1;
-  }
-  @property T centerY()() const
-  if (isIntegral!T) {
-    return (this.top + this.bottom) >> 1;
+  static if (isFloatingPoint!T) {
+    @property T centerX() const {
+      return 0.5 * (this.left + this.right);
+    }
+    @property T centerY() const {
+      return 0.5 * (this.top + this.bottom);
+    }
+  } else {
+    @property T centerX() const {
+      return (this.left + this.right) >> 1;
+    }
+    @property T centerY() const {
+      return (this.top + this.bottom) >> 1;
+    }
   }
 
   void set(T left, T top, T right, T bottom) {
@@ -334,8 +336,12 @@ struct Rect(T)
   }
 
 
-  static Rect!T calcBounds(in Point!T[] pts) {
-    Rect!T res = Rect!T.emptyRect();
+  static Rect!T calcBounds(in Point!T[] pts)
+  in {
+    assert(pts.length > 0);
+  }
+  body {
+    Rect!T res = Rect!T.invalidRect();
     foreach(pt; pts) {
       res.left = getBigger!Left(res, pt.x);
       res.top = getBigger!Top(res, pt.y);
