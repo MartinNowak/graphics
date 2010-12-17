@@ -40,7 +40,7 @@ private:
     if (mat[0][1] != 0.0f || mat[1][0] != 0.0f) {
       mask |= Type.Affine;
     }
-    if (!mask & Type.Perspective) {
+    if (!(mask & Type.Perspective)) {
       //! Collect whether (p)rimary or (s)econdary diagonals are zero
       //! or one.
       auto dp0 = mat[0][0] == 0.0f && mat[1][1] == 0.0f;
