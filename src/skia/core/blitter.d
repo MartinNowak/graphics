@@ -43,9 +43,9 @@ class Blitter
   static Blitter Choose(Bitmap bitmap, in Matrix matrix, Paint paint)
   {
     switch(bitmap.config) {
-    case Config.NoConfig:
+    case Bitmap.Config.NoConfig:
       return new NullBlitter();
-    case Config.ARGB_8888:
+    case Bitmap.Config.ARGB_8888:
       return new ARGB32Blitter(bitmap, paint);
     }
   }

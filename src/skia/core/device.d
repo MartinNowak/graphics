@@ -16,14 +16,14 @@ import skia.core.rect;
  */
 interface DeviceFactory {
 public:
-  abstract Device newDevice(Config config, int width, int height,
+  abstract Device newDevice(Bitmap.Config config, int width, int height,
 			    bool isOpaque, bool isForLayer);
 };
 
 class RasterDeviceFactory : DeviceFactory
 {
 public:
-  Device newDevice(Config config, int width, int height,
+  Device newDevice(Bitmap.Config config, int width, int height,
 		   bool isOpaque, bool isForLayer) const
   {
     Bitmap bitmap = new Bitmap();
@@ -75,7 +75,7 @@ public:
   @property uint height() const { return this.bitmap.height; }
   /** Return the bitmap config of the device's pixels
    */
-  @property Config config() const { return bitmap.config; }
+  @property Bitmap.Config config() const { return bitmap.config; }
   /** Returns true if the device's bitmap's config treats every pixels as
       implicitly opaque.
   */

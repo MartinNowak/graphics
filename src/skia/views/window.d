@@ -20,11 +20,11 @@ debug private import std.stdio : writeln, printf;
 class Window : View
 {
   @property Bitmap bitmap;
-  Config config;
+  Bitmap.Config config;
   Region dirtyRegion;
 public:
   this() {
-    this.config = Config.ARGB_8888;
+    this.config = Bitmap.Config.ARGB_8888;
     this.bitmap = new Bitmap();
     this._flags.visible = true;
     this._flags.enabled = true;
@@ -60,15 +60,15 @@ public:
     this.dirtyRegion = IRect(width, height);
   }
 
-  void resize(uint width, uint height, Config config)
+  void resize(uint width, uint height, Bitmap.Config config)
   {
     this.config = config;
     this.resize(width, height);
   }
 
-  void setConfig(Config config)
+  void setConfig(Bitmap.Config config)
   {
-    this.resize(this.bitmap.width, this.bitmap.height, this.config);
+    this.resize(this.bitmap.width, this.bitmap.height, config);
   }
 };
 

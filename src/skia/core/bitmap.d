@@ -16,18 +16,6 @@ debug(PRINTF) import std.stdio : writeln, printf;
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-enum Config {
-  NoConfig,   //!< bitmap has not been configured
-  A1,         //!< 1-bit per pixel, (0 is transparent, 1 is opaque)
-  A8,         //!< 8-bits per pixel, with only alpha specified (0 is
-              //!< transparent, 0xFF is opaque)
-  Index8,     //!< 8-bits per pixel, using SkColorTable to specify the colors
-  RGB_565,    //!< 16-bits per pixel, (see SkColorPriv.h for packing)
-  ARGB_4444,  //!< 16-bits per pixel, (see SkColorPriv.h for packing)
-  ARGB_8888,  //!< 32-bits per pixel, (see SkColorPriv.h for packing)
-  RLE_Index8,
-};
-
 /**
    stub ColorTable
 */
@@ -44,6 +32,18 @@ class ColorTable
    Bitmap
  */
 class Bitmap {
+  enum Config {
+    NoConfig,   //!< bitmap has not been configured
+    A1,         //!< 1-bit per pixel, (0 is transparent, 1 is opaque)
+    A8,         //!< 8-bits per pixel, with only alpha specified (0 is
+              //!< transparent, 0xFF is opaque)
+    Index8,     //!< 8-bits per pixel, using SkColorTable to specify the colors
+    RGB_565,    //!< 16-bits per pixel, (see SkColorPriv.h for packing)
+    ARGB_4444,  //!< 16-bits per pixel, (see SkColorPriv.h for packing)
+    ARGB_8888,  //!< 32-bits per pixel, (see SkColorPriv.h for packing)
+    RLE_Index8,
+  };
+
   @property uint width;
   @property uint height;
   @property ISize size() const {
@@ -53,10 +53,10 @@ class Bitmap {
     return IRect(this.size);
   }
 
-  Config config;
+  Bitmap.Config config;
   ubyte flags;
   ColorTable colorTable;
-  // TODO: different storage for kA1Config needed
+  // TODO: different storage for kA1Bitmap.Config.needed
   PMColor[] buffer;
 
   this() {
@@ -66,7 +66,7 @@ class Bitmap {
     this.setConfig(config, width, height);
   }
 
-  void setConfig(Config config, uint width, uint height) {
+  void setConfig(Bitmap.Config config, uint width, uint height) {
     this.width = width;
     this.height = height;
     this.config = config;
@@ -96,35 +96,35 @@ class Bitmap {
 
   @property bool opaque() const {
     final switch (this.config) {
-        case Config.NoConfig:
+        case Bitmap.Config.NoConfig:
             return true;
 
-        case Config.A1:
-        case Config.A8:
-        case Config.ARGB_4444:
-        case Config.ARGB_8888:
+        case Bitmap.Config.A1:
+        case Bitmap.Config.A8:
+        case Bitmap.Config.ARGB_4444:
+        case Bitmap.Config.ARGB_8888:
             return (this.flags & Flags.kImageIsOpaque_Flag) != 0;
 
-        case Config.Index8:
-        case Config.RLE_Index8: {
+        case Bitmap.Config.Index8:
+        case Bitmap.Config.RLE_Index8: {
 	  // if lockPixels failed, we may not have a ctable ptr
 	  return this.colorTable &&
 	    ((this.colorTable.flags
 	     & ColorTable.kColorsAreOpaque_Flag) != 0);
 	}
 
-        case Config.RGB_565:
+        case Bitmap.Config.RGB_565:
             return true;
     }
   }
 
   void eraseColor(PMColor c) {
     if (0 == this.width || 0 == this.height
-	|| this.config == Config.NoConfig
-	|| this.config == Config.Index8)
+	|| this.config == Bitmap.Config.NoConfig
+	|| this.config == Bitmap.Config.Index8)
       return;
 
-    assert(this.config == Config.ARGB_8888);
+    assert(this.config == Bitmap.Config.ARGB_8888);
     this.buffer[] = c;
     // this.notifyPixelChanged();
   }
@@ -138,20 +138,20 @@ private:
 }
 
 /++
-size_t RowBytes(Config c, int width) {
+size_t RowBytes(Bitmap.Config.c, int width) {
   assert(width > 0);
-  return c == Config.A1 ? (width + 7) >> 3 : width * BytesPerPixel(c);
+  return c == Bitmap.Config.A1 ? (width + 7) >> 3 : width * BytesPerPixel(c);
 }
 
-uint BytesPerPixel(Config c) {
+uint BytesPerPixel(Bitmap.Config.c) {
   final switch (c) {
-  case Config.NoConfig, Config.A1:
+  case Bitmap.Config.NoConfig, Config.A1:
     return 0;
-  case Config.RLE_Index8, Config.A8, Config.Index8:
+  case Bitmap.Config.RLE_Index8, Config.A8, Config.Index8:
     return 1;
-  case Config.RGB_565, Config.ARGB_4444:
+  case Bitmap.Config.RGB_565, Config.ARGB_4444:
     return 2;
-  case Config.ARGB_8888:
+  case Bitmap.Config.ARGB_8888:
     return 4;
   }
 }
