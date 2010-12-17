@@ -105,7 +105,9 @@ public:
   }
 
   FRect updateBounds() {
-    this._bounds = FRect.calcBounds(this.points);
+    this._bounds = this.points.length > 0
+      ? FRect.calcBounds(this.points)
+      : FRect.emptyRect();
     this.boundsIsClean = true;
     return this._bounds;
   }
