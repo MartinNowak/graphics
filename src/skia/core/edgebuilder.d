@@ -354,10 +354,35 @@ struct CubicEdge(T) {
       " p3: " ~ to!string(p3) ~
       " oldT: " ~ to!string(oldT);
   }
+
+  /**
+   * This fixes rounding error that get quite big due to the usage of
+   * rsqrt. The bezier is not splitted at the exact roots of the cubic
+   * derivative and the monotonic assumption breaks. Should this error
+   * grow to big, sqrt could be used again.
+   */
+  private void fixRoundingErrors(ref Point!T[4] pts) {
+    enum tol = 1e-2f;
+    if (pts[2].y > pts[3].y) {
+      writeln("Error", pts[2].y - pts[3].y);
+      assert(pts[2].y - pts[3].y <= abs(pts[2].y * tol));
+      swap(pts[2].y, pts[3].y);
+    }
+    if (pts[0].y > pts[1].y) {
+      writeln("Error", pts[0].y - pts[1].y);
+      assert(pts[0].y - pts[1].y <= abs(pts[0].y * tol));
+      swap(pts[1].y, pts[0].y);
+    }
+  }
+
   this(Point!T p0, Point!T p1, Point!T p2, Point!T p3) {
-    this.p1 = p1;
-    this.p2 = p2;
-    this.p3 = p3;
+    Point!T[4] pts = [p0, p1, p2, p3];
+    writeln("Points", pts);
+    fixRoundingErrors(pts);
+    assert(pts[0].y <= pts[1].y && pts[2].y <= pts[3].y);
+    this.p1 = pts[1];
+    this.p2 = pts[2];
+    this.p3 = pts[3];
     this.oldT = 0.0;
   }
   Point!T p1;
@@ -616,6 +641,28 @@ unittest {
   assert(app.data[3].type == FEdge.Type.Cubic);
 }
 
+/*
+unittest {
+  auto app = appender!(FEdge[])();
+  cubicEdge(app, [FPoint(362.992, 383.095),
+                  FPoint(365.64, 352.835),
+                  FPoint(370.016, 328.499),
+                  FPoint(372.767, 328.74)]);
+  auto edge1 = app.data[0];
+  auto edge2 = app.data[1];
+
+  auto slope1 = cubicDerivate(
+    [edge1.p0, edge1.cubic.p1, edge1.cubic.p2, edge1.cubic.p3],
+    0.0f);
+  auto slope2 = cubicDerivate(
+    [edge2.p0, edge2.cubic.p1, edge2.cubic.p2, edge2.cubic.p3],
+    0.0f);
+  assert(slope1 >= 0);
+  assert(slope2 >= 0);
+
+  writeln(app.data);
+}
+*/
 ////////////////////////////////////////////////////////////////////////////////
 /**
  * Split bezier curve with de Castlejau algorithm.
