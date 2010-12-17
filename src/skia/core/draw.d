@@ -103,11 +103,32 @@ public:
   }
 
   void drawRect(in IRect rect, Paint paint) {
-    if (this.clip.empty
-        || this.bounder && !this.bounder.doIRect(this.bitmap.bounds))
+    Path path;
+    path.addRect(fRect(rect));
+    this.drawPath(path, paint);
+    /+
+    FRect transRect;
+    this.matrix.mapRect(fRect(rect), transRect);
+
+    if (this.bounder && !this.bounder.doIRect(transRect, paint))
       return;
 
-    Scan.fillIRect(rect, this.clip, this.getBlitter(paint));
+    auto doFill = paint.fillStyle == Paint.Fill.Fill
+      || paint.fillStyle == Paint.Fill.FillAndStroke;
+
+    // TODO: quickReject on clip before building blitter
+    Blitter blitter = this.getBlitter(paint);
+
+    if (doFill) {
+      return paint.antiAlias ?
+        Scan.antiFillRect(transRect, this.clip, blitter)
+        : Scan.fillRect(transRect, this.clip, blitter);
+    } else {
+      return paint.antiAlias ?
+        Scan.antiHairRect(transRect, this.clip, blitter)
+        : Scan.hairRect(transRect, this.clip, blitter);
+    }
+    +/
   }
   //  void drawPath(in Path path, in Paint paint, in Matrix matrix, bool pathMutable) {
   //  }
