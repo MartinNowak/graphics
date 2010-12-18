@@ -195,11 +195,17 @@ public:
 
 private:
 
+  /**
+   * Needs to be reset first.
+   * [[cosV, -sinV, 0.0f],
+   * [sinV, cosV , 0.0f],
+   * [0.0f  , 0.0f  , 1.0f]];
+   */
   void setSinCos(float sinV, float cosV) {
-    this.mat =
-      [[cosV, -sinV, 0.0f],
-       [sinV, cosV , 0.0f],
-       [0.0f  , 0.0f   , 1.0f]];
+    this[0][0] = cosV;
+    this[0][1] = -sinV;
+    this[1][0] = sinV;
+    this[1][1] = cosV;
   }
   void setSinCos(float sinV, float cosV, float px, float py) {
     this.setSinCos(sinV, cosV);
@@ -293,10 +299,9 @@ private:
     assert((m.typeMaskTrans & (Type.Perspective | Type.Translative)) == 0);
 
     auto sPt = FPoint(m.mat[0][0], m.mat[1][1]);
-    //! Skew pt is inverted, so the mul op can be used
-    auto kPt = FPoint(m.mat[1][0], m.mat[0][1]);
     foreach(ref pt; pts) {
-      pt = pt * sPt + pt * kPt;
+      auto skewPt = point(pt.y * m[0][1], pt.x * m[1][0]);
+      pt = pt * sPt + skewPt;
     }
   }
 
