@@ -9,7 +9,7 @@ if ARGUMENTS.get('release', ''):
     _dflags = ['-O', '-release', '-inline']
 else:
     _build_style='debug'
-    _dflags=['-debug', '-unittest', '-gc']
+    _dflags=['-debug', '-unittest', '-g']
 
 _version_flags=ARGUMENTS.get('version', '')
 if _version_flags:
