@@ -2,10 +2,11 @@ module skia.core.edgebuilder;
 
 private {
   debug import std.stdio : writeln, writefln;
-  import std.algorithm : map, min, sort, swap;
-  import std.array : appender, array, back, front;
+  import std.algorithm : map, min, max, reduce, sort, swap;
+  import std.array : appender, array, back, front, save;
   import std.math : isNaN, abs, sqrt;
   import std.traits : isFloatingPoint;
+  import std.format : formattedWrite;
 
   import skia.core.path;
   import skia.core.point;
@@ -14,10 +15,13 @@ private {
 
 //debug=PRINTF;
 //debug=Illinois; // verbose tracing for Illinois algo.
+//debug=QUAD;
 
 alias Edge!float FEdge;
+alias Edge!double DEdge;
+
 struct Edge(T) if (isFloatingPoint!T) {
-private:
+package:
   Point!T p0;
   T _curX;
   T _lastY;
@@ -111,7 +115,7 @@ public:
    * calculation, especially for cubic edges.
    */
   T updateEdge(T y, T yInc=0) {
-    assert(yInc > 0);
+    assert(yInc >= 0);
     final switch(this.type) {
     case Type.Line:
       return this.updateLine(y);
@@ -153,7 +157,7 @@ public:
   T updateCubic(T y) {
     assert(this.type == Type.Cubic);
     auto a = this.cubic.oldT;
-    auto ya = cubicCalc!"y"(a) - y;
+    auto ya = calcT!(Type.Cubic, "y")(a) - y;
     assert(ya <= 0);
     if (ya > -tol)
       return this.curX;
@@ -161,7 +165,7 @@ public:
     assert(ya < y);
 
     auto b = 1.0;
-    auto yb = cubicCalc!"y"(b) - y - y;
+    auto yb = calcT!(Type.Cubic, "y")(b) - y - y;
     this.curX = updateCubicImpl(y, a, ya, b, yb);
     return this.curX;
   }
@@ -174,7 +178,7 @@ public:
     assert(Step > 0);
     assert(this.type == Type.Cubic);
     auto a = this.cubic.oldT;
-    auto ya = cubicCalc!"y"(a) - y;
+    auto ya = calcT!(Type.Cubic, "y")(a) - y;
     assert(ya <= 0);
     if (ya > -tol)
       return this.curX;
@@ -188,7 +192,7 @@ public:
     if (slope > 1e-3) {
       b = min(1.0, this.cubic.oldT + 1.5 * Step / slope);
     }
-    auto yb = cubicCalc!"y"(b) - y;
+    auto yb = calcT!(Type.Cubic, "y")(b) - y;
     this.curX = updateCubicImpl(y, a, ya, b, yb);
     return this.curX;
   }
@@ -205,7 +209,7 @@ public:
     if (yb < 0) {
       assert(b < 1.0);
       b = 1.0;
-      yb = cubicCalc!"y"(b) - y;
+      yb = calcT!(Type.Cubic, "y")(b) - y;
       assert(yb >= ya);
     }
     assert(yb > 0);
@@ -215,7 +219,7 @@ public:
     for (;;) {
       debug(Illinois) i += 1;
       auto c = (gamma*b*ya - a*yb) / (gamma*ya - yb);
-      auto yc = cubicCalc!"y"(c) - y;
+      auto yc = calcT!(Type.Cubic, "y")(c) - y;
       debug(Illinois) writeln("illinois step: ", i,
                             " a: ", a, " ya: ", ya,
                             " b: ", b, " yb: ", yb,
@@ -224,7 +228,7 @@ public:
         this.cubic.oldT = c;
         debug(Illinois) writeln("converged after: ", i,
                                 " at: ", this.cubic.oldT);
-        return cubicCalc!"x"(c);
+        return calcT!(Type.Cubic, "x")(c);
       }
       else {
         if (yc * yb < 0) {
@@ -242,9 +246,41 @@ public:
   }
 
 
-  T cubicCalc(string v)(T t)
-    if (v == "x" || v == "y")
-  {
+  T calcT(string v)(T t) if (v == "x" || v == "y") {
+    final switch(this.type) {
+    case Type.Line: return calcT!(Type.Line, v)(t);
+    case Type.Quad: return calcT!(Type.Quad, v)(t);
+    case Type.Cubic: return calcT!(Type.Cubic, v)(t);
+    }
+  }
+
+  T calcT(Type t : Type.Line, string v)(T t) {
+    assert(this.type == Type.Line);
+    static if (v == "y") {
+      return t * (this.lastY - this.firstY) + this.firstY;
+    } else {
+      return t * (this.lastY - this.firstY) * this.line.dx + this.firstY;
+    }
+  }
+
+  T calcT(Type t : Type.Quad, string v)(T t) {
+    assert(this.type == Type.Quad);
+    static if (v == "y") {
+      debug (QUAD) {
+        auto mt = 1 - t;
+        return mt*mt*this.p0.y + 2*t*mt*this.quad.p1.y + t*t*this.quad.p2.y;
+      }
+      real a = 1.0 / this.quad.scale;
+      real p = -2 * this.quad.fixAdd / this.quad.scale;
+      real q = this.p0.y;
+      return t*t*a + t*p + q;
+    } else {
+      auto oneMt = 1 - t;
+      return oneMt*oneMt*this.x0 + 2*oneMt*t*this.x1 + t*t*this.x2;
+    }
+  }
+
+  T calcT(Type t : Type.Cubic, string v)(T t) {
     assert(this.type == Type.Cubic);
     auto mt = 1 - t;
     auto v0 = mixin("this.p0."~v);
@@ -314,7 +350,7 @@ struct LineEdge(T) {
     return "LineEdge!" ~ to!string(typeid(T)) ~
       " dx: " ~ to!string(dx);
   }
-  this(FPoint p0, FPoint p1) {
+  this(Point!T p0, Point!T p1) {
     assert(p1.y >= p0.y);
     this.dx = (p1.x - p0.x) / (p1.y - p0.y);
   }
@@ -323,10 +359,15 @@ struct LineEdge(T) {
 
 struct QuadraticEdge(T) {
   @property string toString() const {
-    return "QuadraticEdge!" ~ to!string(typeid(T)) ~
+    auto msg = "QuadraticEdge!" ~ to!string(typeid(T)) ~
       " scale: " ~ to!string(scale) ~
       " fixSqrt: " ~ to!string(fixSqrt) ~
       " fixAdd: " ~ to!string(fixAdd);
+    debug(QUAD) {
+      msg ~= " p1: " ~ to!string(this.p1) ~
+        " p2: " ~ to!string(this.p2);
+    }
+    return msg;
   }
   this(Point!T p0, Point!T p1, Point!T p2) {
     auto a = p0.y - 2*p1.y + p2.y;
@@ -340,12 +381,19 @@ struct QuadraticEdge(T) {
     this.x1 = p1.x;
     this.x2 = p2.x;
     this.addSub = a >= 0;
+    debug(QUAD) {
+      this.p1 = p1;
+      this.p2 = p2;
+    }
   }
   T x0, x1, x2;
   T scale;
   T fixAdd;
   T fixSqrt;
   bool addSub;
+  debug(QUAD) {
+    Point!T p1, p2;
+  }
 };
 
 struct CubicEdge(T) {
@@ -357,6 +405,11 @@ struct CubicEdge(T) {
       " oldT: " ~ to!string(oldT);
   }
 
+  private string formatString(TL...)(string fmt, TL tl) {
+    auto writer = appender!string();
+    formattedWrite(writer, fmt, tl);
+    return writer.data;
+  }
   /**
    * This fixes rounding error that get quite big due to the usage of
    * rsqrt. The bezier is not splitted at the exact roots of the cubic
@@ -364,13 +417,20 @@ struct CubicEdge(T) {
    * grow to big, sqrt could be used again.
    */
   private void fixRoundingErrors(ref Point!T[4] pts) {
-    enum tol = 1e-2f;
+    //! TODO deactivate tests in release
+    auto tol = 1e-2 * reduce!(max)(
+      map!("a.y < 0 ? -a.y : a.y")(pts.save));
+
     if (pts[2].y > pts[3].y) {
-      assert(pts[2].y - pts[3].y <= abs(pts[2].y * tol));
+      assert(pts[2].y - pts[3].y <= tol,
+             formatString("failed pts: %s diff: %s tol: %s",
+                          pts, pts[2].y - pts[3].y, tol));
       swap(pts[2].y, pts[3].y);
     }
     if (pts[0].y > pts[1].y) {
-      assert(pts[0].y - pts[1].y <= abs(pts[0].y * tol));
+      assert(pts[0].y - pts[1].y <= tol,
+             formatString("failed pts: %s diff: %s tol: %s",
+                          pts, pts[0].y - pts[1].y, tol));
       swap(pts[1].y, pts[0].y);
     }
   }
@@ -402,13 +462,18 @@ struct CubicEdge(T) {
 // TODO: pass in clip rect
 void lineEdge(R, T)(ref R appender, in Point!T[] pts) {
   assert(pts.length == 2);
+  appender.put(makeLine(pts));
+}
+
+Edge!T makeLine(T)(in Point!T[] pts) {
+  assert(pts.length == 2);
   auto topI = pts[0].y > pts[1].y ? 1 : 0;
   auto botI = 1 - topI;
   auto res = Edge!T(pts[topI], pts[botI].y);
   res.winding = topI > botI ? 1 : -1;
   res.type = Edge!T.Type.Line;
   res.line = LineEdge!T(pts[topI], pts[botI]);
-  appender.put(res);
+  return res;
 }
 
 bool isLine(T)(in Point!T[] pts) {
@@ -435,29 +500,65 @@ void quadraticEdge(R, T)(ref R appender, in Point!T[] pts) {
 
   if (monotonicY(pts)) {
     appender.put(makeQuad(pts));
+  } else {
+    appendSplittedQuad(appender, pts);
   }
-  else {
-    auto ptss = splitIntoMonotonicQuads(pts);
-    auto edges = map!makeQuad(ptss);
-    foreach(edge ;edges) {
-      appender.put(edge);
-    }
+}
+
+/**
+ * Given the parametric eq.:
+ * y(t) = (1-t)^2*y0 + 2*t*(1-t)*y1 + t^2*y2
+ * the derivative is:
+ * dy/dt = 2*t(y0-2y1+y2) + 2*(y1-y0)
+ * Finding t at the extremum
+ */
+void appendSplittedQuad(R, T)(ref R appender, in Point!T[] pts) {
+  assert(pts.length == 3);
+  T denom = pts[0].y - 2*pts[1].y + pts[2].y;
+  T numer = pts[0].y - pts[1].y;
+  T tValue;
+  if (valid_unit_divide(numer, denom, tValue)) {
+    auto ptss = splitBezier!3(pts, tValue);
+    appender.put(makeQuad(ptss[0]));
+    appender.put(makeQuad(ptss[1]));
+  } else {
+    //! Force monotonic
+    Point!T[3] forced = pts[0 .. 3];
+    // set middle y to the closest y of border points
+    forced[1].y = abs(pts[0].y - pts[1].y) < abs(pts[2].y - pts[1].y)
+      ? pts[0].y
+      : pts[2].y;
+
+    appender.put(makeQuad(forced));
   }
+}
+
+unittest {
+  FPoint[3] pts = [FPoint(3.12613, 0.230524),
+                   FPoint(4.67817, 2.7919),
+                   FPoint(4.38304, 0.389878)];
+  auto app = appender!(FEdge[])();
+  quadraticEdge(app, pts);
+  assert(app.data.length == 2);
 }
 
 Edge!T makeQuad(T)(in Point!T[] pts) {
   assert(pts.length == 3);
+
+  if (isLine(pts))
+    return makeLine([pts[0], pts[2]]);
+
   auto topI = pts[0].y > pts[2].y ? 2 : 0;
   auto botI = 2 - topI;
   auto res = Edge!T(pts[topI], pts[botI].y);
   res.winding = topI > botI ? 1 : -1;
-  res.type = FEdge.Type.Quad;
+  res.type = Edge!T.Type.Quad;
   res.quad = QuadraticEdge!T(pts[topI], pts[1], pts[botI]);
   return res;
 }
 
 // TODO: move this part into skia.core.geometry
-bool monotonicY(in FPoint[] pts) {
+bool monotonicY(T)(in Point!T[] pts) {
   return (pts[0].y - pts[1].y) * (pts[1].y - pts[2].y) > 0;
 }
 
@@ -480,38 +581,6 @@ int valid_unit_divide(T)(T numer, T denom, out T ratio) {
   return 1;
 }
 
-/**
- * Given the parametric eq.:
- * y(t) = (1-t)^2*y0 + 2*t*(1-t)*y1 + t^2*y2
- * the derivative is:
- * dy/dt = 2*t(y0-2y1+y2) + 2*(y1-y0)
- * Finding t at the extremum
- */
-Point!T[3][] splitIntoMonotonicQuads(T)(in Point!T[] pts) {
-  assert(pts.length == 3);
-  assert(!monotonicY(pts));
-  T denom = pts[0].y - 2*pts[1].y + pts[2].y;
-  T numer = pts[1].y - pts[0].y;
-  T tValue;
-  if (valid_unit_divide(numer, denom, tValue)) {
-    return splitBezier!3(pts, tValue);
-  }
-  else {
-    return forceMonotonicQuad(pts);
-  }
-}
-
-Point!T[3][1] forceMonotonicQuad(T)(in Point!T[] pts) {
-  Point!T[3][1] result;
-  result[0] = pts;
-
-  // set middle y to the closest y of border points
-  result[0][1].y = abs(pts[0].y - pts[1].y) < abs(pts[2].y - pts[1].y)
-    ? pts[0].y
-    : pts[2].y;
-  return result;
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -525,19 +594,45 @@ void cubicEdge(R, T)(ref R appender, in Point!T[] pts) {
 
   T[2] unitRoots;
   auto nUnitRoots = cubicUnitRoots(pts, unitRoots);
-  Point!T[4] right = pts;
+  debug(PRINTF) writefln("1nd pass n:%s roots: %s",
+                         nUnitRoots, unitRoots);
 
-  for (auto i = 0; i < nUnitRoots; ++i) {
-    auto ptss = splitBezier!4(right, unitRoots[i]);
+  if (nUnitRoots == 0) {
+    appender.put(makeCubic(pts));
+  } else if (nUnitRoots == 1) {
+    auto ptss = splitBezier!4(pts, unitRoots[0]);
     appender.put(makeCubic(ptss[0]));
-    right = ptss[1];
+    appender.put(makeCubic(ptss[1]));
+  } else {
+    assert(nUnitRoots == 2);
+
+    auto ptss = splitBezier!4(pts, unitRoots[0]);
+    appender.put(makeCubic(ptss[0]));
+    T sndRoot = (unitRoots[1] - unitRoots[0]) / (1 - unitRoots[0]);
+
+    debug {
+      auto numRoots = cubicUnitRoots(ptss[1], unitRoots);
+      if (numRoots > 0) {
+        debug(PRINTF) writefln("2nd pass n:%s roots: %s orig 2nd root: %s",
+                               numRoots, unitRoots, sndRoot);
+        assert(abs(unitRoots[numRoots - 1] - sndRoot) < 1e-3);
+      } else {
+        assert(abs(sndRoot - 1) < 5e-4);
+      }
+    }
+    ptss = splitBezier!4(ptss[1], sndRoot);
+    appender.put(makeCubic(ptss[0]));
+    appender.put(makeCubic(ptss[1]));
   }
-  appender.put(makeCubic(right));
 }
 
 Edge!T makeCubic(T)(in Point!T[] pts) {
   assert(pts.length == 4);
-  auto topI = pts[0].y > pts[2].y ? 3 : 0;
+
+  if (isLine(pts))
+    makeLine([pts[0], pts[3]]);
+
+  auto topI = pts[0].y > pts[3].y ? 3 : 0;
   auto botI = 3 - topI;
   auto ttopI = topI > botI ? 2 : 1;
   auto bbotI = topI > botI ? 1 : 2;
@@ -675,6 +770,7 @@ unittest {
  */
 Point!T[K][2] splitBezier(int K, T)(in Point!T[] pts, T tValue) if (K>=2) {
   assert(0 < tValue && tValue < 1);
+  assert(pts.length == K);
 
   T oneMt = 1 - tValue;
 
@@ -683,11 +779,8 @@ Point!T[K][2] splitBezier(int K, T)(in Point!T[] pts, T tValue) if (K>=2) {
   }
 
   Point!T[K] left;
-  Point!T[K] tmp;
+  Point!T[K] tmp = pts[0 .. K];
   left[0] = pts[0];
-  foreach(i,ref pt; tmp) {
-    pt = pts[i];
-  }
 
   int k = K;
   while (--k > 0) {
