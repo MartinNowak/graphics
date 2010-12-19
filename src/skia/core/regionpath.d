@@ -24,9 +24,9 @@ class RgnBuilder : Blitter
     return "RgnBuilder scanLines:" ~ to!string(this.scanLines);
   }
 
-  override void blitH(int x, int y, uint width) {
+  override void blitH(int y, int xStart, int xEnd) {
     debug(PRINTF) writeln("RgnBuilder.blitH", "x:", x, "y:",y, "w:",width);
-    this.scanLines.appendSpan(x, y, width);
+    this.scanLines.appendSpan(y, xStart, xEnd - xStart);
   }
 
   void done() {
@@ -132,7 +132,7 @@ package:
   @property bool empty() const {
     return this.scanLines.empty;
   }
-  void appendSpan(ValueT x, ValueT y, ValueT width) {
+  void appendSpan(ValueT y, ValueT x, ValueT width) {
     if (this.isNewLine(y)) {
       this.collapsePrev();
       this.appendScanLine(y);
@@ -274,7 +274,7 @@ unittest
 {
   ScanLines sl;
   for (auto i = 0; i < 100; ++i) {
-    sl.appendSpan(0, 10 + i, 100);
+    sl.appendSpan(10 + i, 0, 100);
   }
   sl.collapsePrev();
   assert(sl.getType() == Region.Type.Rect);
@@ -282,9 +282,9 @@ unittest
 
   sl = ScanLines.init;
   sl.appendSpan(10, 10, 20);
-  sl.appendSpan(11, 13, 20);
-  sl.appendSpan(12, 15, 20);
-  sl.appendSpan(13, 17, 20);
+  sl.appendSpan(13, 11, 20);
+  sl.appendSpan(15, 12, 20);
+  sl.appendSpan(17, 13, 20);
   sl.collapsePrev();
   assert(sl.bounds() == IRect(10, 10, 33, 18));
 }

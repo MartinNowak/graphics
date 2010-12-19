@@ -156,22 +156,37 @@ bool monotonicEdge(T)(Edge!T edge) {
 bool verifyLines(T)(Edge!T edge) {
   return edge.type == Edge!T.Type.Line
     && edge.lastY >= edge.firstY
-    && monotonicEdge(edge);
+    && monotonicEdge(edge)
+    && verifyXYT(edge);
 }
 
 bool verifyQuads(T)(Edge!T edge) {
   return (edge.type == Edge!T.Type.Quad
           || edge.type == Edge!T.Type.Line)
     && edge.lastY >= edge.firstY
-    && monotonicEdge(edge);
+    && monotonicEdge(edge)
+    && verifyXYT(edge);
 }
 bool verifyCubics(T)(Edge!T edge) {
   return (edge.type == Edge!T.Type.Cubic
           || edge.type == Edge!T.Type.Line)
     && edge.lastY >= edge.firstY
-    && monotonicEdge(edge);
+    && monotonicEdge(edge)
+    && verifyXYT(edge, 8e-2);
 }
 
+bool verifyXYT(T)(Edge!T edge, double tol=5e-2) {
+  auto ts = iota(0, 1000, 1);
+  auto step = 0.001;
+  foreach (it; ts) {
+    auto te = it * step;
+    auto y = edge.calcT!("y")(te);
+    auto t = edge.getT(y);
+    assert(abs(t - te) <= tol,
+           formatString("t:%.7f te:%.7f y:%.7f tol:%.7f", t, te, y, tol));
+  }
+  return true;
+}
 
 template paramTuple(TL...) {
   alias TL paramTuple;
@@ -179,10 +194,10 @@ template paramTuple(TL...) {
 
 template verification(T) {
   bool run() {
-    alias paramTuple!(Policies.RandomizeMembers) params;
-    return quickCheck!(verifyLines!T, lineMaker!T, params)()
-      && quickCheck!(verifyQuads!T, quadMaker!T, params)()
-      && quickCheck!(verifyCubics!T, cubicMaker!T, params)();
+    alias paramTuple!(Policies.RandomizeMembers, count(100_000), minValue(0), maxValue(5)) params;
+    return //quickCheck!(verifyLines!T, lineMaker!T, params)() &&
+      quickCheck!(verifyQuads!T, quadMaker!T, params)() &&
+      quickCheck!(verifyCubics!T, cubicMaker!T, params)();
   }
 }
 

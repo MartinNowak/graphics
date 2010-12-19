@@ -16,6 +16,7 @@ private {
 }
 //debug=WHITEBOX;
 debug import std.stdio : writeln, printf;
+version=CUBIC_ARC;
 
 // TODO FPoint
 struct Path
@@ -350,12 +351,14 @@ public:
   }
 
   void addOval(FRect oval, Direction dir = Direction.CW) {
-    float cx = oval.centerX();
-    float cy = oval.centerY();
-    float rx = 0.5f * oval.width;
-    float ry = 0.5f * oval.height;
-    float sx = rx * CubicArcFactor;
-    float sy = ry * CubicArcFactor;
+    auto cx = oval.centerX;
+    auto cy = oval.centerY;
+    auto rx = 0.5 * oval.width;
+    auto ry = 0.5 * oval.height;
+
+  version(CUBIC_ARC) {
+    auto sx = rx * CubicArcFactor;
+    auto sy = ry * CubicArcFactor;
 
     this.moveTo(FPoint(cx + rx, cy));
     if (dir == Direction.CCW) {
@@ -377,6 +380,40 @@ public:
       this.cubicTo(FPoint(cx + sx, cy - ry), FPoint(cx + rx, cy - sy),
                    FPoint(cx + rx, cy));
     }
+  } else {
+    enum TAN_PI_8 = tan(PI_4 * 0.5);
+    auto sx = rx * TAN_PI_8;
+    auto sy = ry * TAN_PI_8;
+    auto mx = rx * SQRT1_2;
+    auto my = ry * SQRT1_2;
+    const L = oval.left;
+    const T = oval.top;
+    const R = oval.right;
+    const B = oval.bottom;
+
+    this.moveTo(FPoint(R, cy));
+    if (dir == Direction.CCW) {
+      this.quadTo(FPoint(R,  cy - sy), FPoint(cx + mx, cy - my));
+      this.quadTo(FPoint(cx + sx,  T), FPoint(cx, T));
+      this.quadTo(FPoint(cx - sx,  T), FPoint(cx - mx, cy - my));
+      this.quadTo(FPoint(L,  cy - sy), FPoint(L, cy));
+      this.quadTo(FPoint(L,  cy + sy), FPoint(cx - mx, cy + my));
+      this.quadTo(FPoint(cx - sx,  B), FPoint(cx, B));
+      this.quadTo(FPoint(cx + sx,  B), FPoint(cx + mx, cy + my));
+      this.quadTo(FPoint(R,  cy + sy), FPoint(R, cy));
+    } else {
+      this.quadTo(FPoint(R,  cy + sy), FPoint(cx + mx, cy + my));
+      this.quadTo(FPoint(cx + sx,  B), FPoint(cx, B));
+      this.quadTo(FPoint(cx - sx,  B), FPoint(cx - mx, cy + my));
+      this.quadTo(FPoint(L,  cy + sy), FPoint(L, cy));
+      this.quadTo(FPoint(L,  cy - sy), FPoint(cx - mx, cy - my));
+      this.quadTo(FPoint(cx - sx,  T), FPoint(cx, T));
+      this.quadTo(FPoint(cx + sx,  T), FPoint(cx + mx, cy - my));
+      this.quadTo(FPoint(R,  cy - sy), FPoint(R, cy));
+    }
+  } // version(CUBIC_ARC)
+
+    this.close();
   }
 
   Path transformed(in Matrix matrix) const {

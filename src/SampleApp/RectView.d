@@ -28,13 +28,17 @@ class RectView : View
   }
 
   override void onDraw(Canvas canvas) {
-    canvas.translate(25, 25);
-    scope auto paintRect = new Paint(Red);
+    //    canvas.rotate(20);
+    //    canvas.rotate(2, fPoint(this.bounds.center));
+    canvas.rotate(5);
+    scope auto paintRect = new Paint(Black.a = 200);
     paintRect.antiAlias = true;
-    canvas.drawRoundRect(IRect(100, 100), 5, 5, paintRect);
+    canvas.drawRoundRect(IRect(IPoint(), this.bounds.center), 40, 40, paintRect);
 
-    scope auto paintCircle = new Paint(Color(0x808080FF));
+    auto color = Color(0x108080FF);
+    color.a = 80;
+    scope auto paintCircle = new Paint(color);
     paintCircle.antiAlias = true;
-    canvas.drawCircle(point(25, 25), 50, paintCircle);
+    canvas.drawCircle(this.bounds.center, 50, paintCircle);
   }
 }

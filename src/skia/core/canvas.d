@@ -215,6 +215,9 @@ public:
   void rotate(float deg, float px, float py) {
     this.curMCRec.matrix.preRotate(deg, px, py);
   }
+  void rotate(float deg, FPoint pt) {
+    this.curMCRec.matrix.preRotate(deg, pt.x, pt.y);
+  }
 
   /****************************************
    * Stub

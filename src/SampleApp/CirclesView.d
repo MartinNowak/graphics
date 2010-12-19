@@ -19,7 +19,7 @@ class CirclesView : View
 {
   Paint paint, framePaint;
   const float cRad;
-  this(float cRad = 5.0f) {
+  this(float cRad = 10.0f) {
     this.cRad = cRad;
     this._flags.visible = true;
     this._flags.enabled = true;
@@ -42,12 +42,12 @@ class CirclesView : View
     paint.antiAlias = true;
 
     auto scaled = 1.0f;
-    auto const scaleFac = 0.9945;
+    auto const scaleFac = 0.998;
     do {
       canvas.drawCircle(IPoint(0, -dist), this.cRad, paint);
       canvas.scale(scaleFac, scaleFac);
       scaled *= scaleFac;
-      canvas.rotate(degInc, this.x + 100, this.y + 100);
+      canvas.rotate(degInc, fPoint(this.bounds.center));
     } while(scaled > 1e-2f);
   }
 }

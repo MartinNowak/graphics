@@ -57,7 +57,7 @@ class Bitmap {
   ubyte flags;
   ColorTable colorTable;
   // TODO: different storage for kA1Bitmap.Config.needed
-  PMColor[] buffer;
+  Color[] buffer;
 
   this() {
     this(Config.NoConfig, 0, 0);
@@ -78,11 +78,15 @@ class Bitmap {
     return buffer.ptr;
   }
 
-  auto getRange(int x, int y) {
+  auto getRange(int y, int xStart, int xEnd) {
     //assert(x <= this.width);
     //assert(y <= this.height);
-    size_t begin = y * this.width + x;
-    return this.buffer[begin .. $];
+    size_t yOff = y * this.width;
+    return this.buffer[yOff + xStart .. yOff + xEnd];
+  }
+
+  auto getLine(int y) {
+    return this.getRange(y, 0, this.width);
   }
 
   @property void opaque(bool isOpaque) {

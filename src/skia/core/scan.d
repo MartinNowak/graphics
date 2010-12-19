@@ -26,10 +26,12 @@ void fillIRect(Blitter)(IRect rect, in Region clip, Blitter blitter) {
   }
 }
 
+enum AAScale = 4;
+enum AAStep = 1.0f / AAScale;
+
 void antiFillPath(Blitter)(in Path path, in Region clip,
                            Blitter blitter) {
-  blitter.scaleAlpha(0.5f);
-  return fillPathImpl(path, clip, blitter, 0.5f);
+  return fillPathImpl(path, clip, blitter, AAStep);
 }
 void fillPath(Blitter)(in Path path, in Region clip,
                        Blitter blitter) {
@@ -178,10 +180,9 @@ static void fillLine(Blitter, Range, T)(
     w += edge.winding;
     if ((w & windingMask) == 0) {
       assert(inInterval);
-      auto width = edge.curX - left;
-      assert(width >= 0);
-      if (width)
-        blitter.blitFH(left, curY, width);
+      assert(edge.curX >= left);
+      if (edge.curX > left)
+        blitter.blitFH(curY, left, edge.curX);
       inInterval = false;
     } else if (!inInterval) {
       left = edge.curX;
@@ -197,7 +198,7 @@ static void dotLine(Blitter, Range, T)(
   int windingMask)
 {
   foreach(ref edge; edges) {
-    blitter.blitFH(edge.curX, curY, 1.0f);
+    blitter.blitFH(curY, edge.curX, edge.curX + 1.0f);
   }
 }
 
@@ -239,8 +240,7 @@ unittest
 
 void antiHairPath(Blitter)(in Path path, in Region clip,
                            Blitter blitter) {
-  blitter.scaleAlpha(0.5f);
-  return hairPathImpl(path, clip, blitter, 0.5f);
+  return hairPathImpl(path, clip, blitter, AAStep);
 }
 void hairPath(Blitter)(in Path path, in Region clip,
                            Blitter blitter) {

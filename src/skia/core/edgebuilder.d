@@ -1,7 +1,7 @@
 module skia.core.edgebuilder;
 
 private {
-  debug import std.stdio : writeln, writefln;
+  debug import std.stdio : writeln, writefln, writef;
   import std.algorithm : map, min, max, reduce, sort, swap;
   import std.array : appender, array, back, front, save;
   import std.math : isNaN, abs, sqrt;
@@ -15,7 +15,7 @@ private {
 
 //debug=PRINTF;
 //debug=Illinois; // verbose tracing for Illinois algo.
-//debug=QUAD;
+debug=QUAD;
 
 alias Edge!float FEdge;
 alias Edge!double DEdge;
@@ -135,18 +135,58 @@ public:
 
   T updateQuad(T y) {
     assert(this.type == Type.Quad);
-    auto pmSqrt = this.quad.fixSqrt + y * this.quad.scale;
-    pmSqrt = fast_sqrt(pmSqrt);
-    auto t = this.quad.fixAdd + this.quad.addSub ? pmSqrt : -pmSqrt;
-    this.curX = this.quadraticCalcX(t);
+
+    auto t = getT!(Type.Quad)(y);
+    this.curX = calcT!(Type.Quad, "x")(t);
     return this.curX;
   }
-  T quadraticCalcX(T t) {
-    assert(this.type == Type.Quad);
-    auto oneMt = 1 - t;
-    return oneMt*oneMt * this.quad.x0
-      + 2*t*oneMt * this.quad.x1
-      + t*t * this.quad.x2;
+
+  T getT()(T y) {
+    final switch(this.type) {
+    case Type.Line: return getT!(Type.Line)(y);
+    case Type.Quad: return getT!(Type.Quad)(y);
+    case Type.Cubic: return getT!(Type.Cubic)(y);
+    }
+  }
+  T getT(Type t : Type.Line)(T y) {
+    return (y - this.firstY) / (this.lastY - this.firstY);
+  }
+  T getT(Type t : Type.Quad)(T y) {
+    if (y >= this.lastY)
+      return 1.0;
+    if (y <= this.firstY)
+      return 0.0;
+
+    T[2] roots;
+    auto coeffs = this.quad.coeffs;
+    coeffs[2] -= y;
+    auto nRoots = quadUnitRoots(coeffs, roots);
+    assert(nRoots == 1, formatString("y:%.7f coeffs:%s roots:%s",
+                                     y, coeffs, roots));
+    auto t = roots[0];
+    debug (QUAD) {
+      auto revY = calcT!(Type.Quad, "y")(t);
+      //      assert(abs(y - revY) < abs(y) * 10 * Edge!T.tol,
+      //       formatString("t:%s y:%s revY:%s edge:%s", t, y, revY, this));
+    }
+    return t;
+  }
+
+  T getT(Type t : Type.Cubic)(T y) {
+    assert(this.type == Type.Cubic);
+    auto a = this.cubic.oldT;
+    auto ya = calcT!(Type.Cubic, "y")(a) - y;
+    if (ya > -1e-5) {
+      assert(ya < tol);
+      return this.curX;
+    }
+
+    assert(ya <= 0 && ya < y,
+           formatString("ya over zero ya:%.7f a:%.7f", ya, a));
+
+    auto b = 1.0;
+    auto yb = calcT!(Type.Cubic, "y")(b) - y - y;
+    return updateCubicImpl(y, a, ya, b, yb);
   }
 
   /**
@@ -158,15 +198,18 @@ public:
     assert(this.type == Type.Cubic);
     auto a = this.cubic.oldT;
     auto ya = calcT!(Type.Cubic, "y")(a) - y;
-    assert(ya <= 0);
-    if (ya > -tol)
+    if (ya > -1e-5) {
+      assert(ya < tol);
       return this.curX;
+    }
 
-    assert(ya < y);
+    assert(ya <= 0 && ya < y,
+           formatString("ya over zero ya:%.7f a:%.7f", ya, a));
 
     auto b = 1.0;
     auto yb = calcT!(Type.Cubic, "y")(b) - y - y;
-    this.curX = updateCubicImpl(y, a, ya, b, yb);
+    auto t = updateCubicImpl(y, a, ya, b, yb);
+    this.curX = calcT!(Type.Cubic, "x")(t);
     return this.curX;
   }
 
@@ -179,9 +222,10 @@ public:
     assert(this.type == Type.Cubic);
     auto a = this.cubic.oldT;
     auto ya = calcT!(Type.Cubic, "y")(a) - y;
-    assert(ya <= 0);
-    if (ya > -tol)
+    if (ya > -1e-5) {
+      assert(ya < tol);
       return this.curX;
+    }
 
     auto slope = cubicDerivate(
       [this.p0, this.cubic.p1, this.cubic.p2, this.cubic.p3],
@@ -193,9 +237,11 @@ public:
       b = min(1.0, this.cubic.oldT + 1.5 * Step / slope);
     }
     auto yb = calcT!(Type.Cubic, "y")(b) - y;
-    this.curX = updateCubicImpl(y, a, ya, b, yb);
+    auto t = updateCubicImpl(y, a, ya, b, yb);
+    this.curX = calcT!(Type.Cubic, "x")(t);
     return this.curX;
   }
+
 
   // TODO: have a look at std.numeric.findRoot, does it apply to this
   // problem, is it even a better numerical approach?
@@ -207,7 +253,7 @@ public:
     assert(0<= b && b <= 1.0);
 
     if (yb < 0) {
-      assert(b < 1.0);
+      assert(b <= 1.0);
       b = 1.0;
       yb = calcT!(Type.Cubic, "y")(b) - y;
       assert(yb >= ya);
@@ -228,7 +274,7 @@ public:
         this.cubic.oldT = c;
         debug(Illinois) writeln("converged after: ", i,
                                 " at: ", this.cubic.oldT);
-        return calcT!(Type.Cubic, "x")(c);
+        return c;
       }
       else {
         if (yc * yb < 0) {
@@ -259,7 +305,7 @@ public:
     static if (v == "y") {
       return t * (this.lastY - this.firstY) + this.firstY;
     } else {
-      return t * (this.lastY - this.firstY) * this.line.dx + this.firstY;
+      return t * (this.lastY - this.firstY) * this.line.dx + this.p0.x;
     }
   }
 
@@ -270,13 +316,13 @@ public:
         auto mt = 1 - t;
         return mt*mt*this.p0.y + 2*t*mt*this.quad.p1.y + t*t*this.quad.p2.y;
       }
-      real a = 1.0 / this.quad.scale;
-      real p = -2 * this.quad.fixAdd / this.quad.scale;
-      real q = this.p0.y;
-      return t*t*a + t*p + q;
+      auto a = this.quad.coeffs[0];
+      auto b = this.quad.coeffs[1];
+      auto c = this.quad.coeffs[2];
+      return t*t*a + t*b + c;
     } else {
       auto oneMt = 1 - t;
-      return oneMt*oneMt*this.x0 + 2*oneMt*t*this.x1 + t*t*this.x2;
+      return oneMt*oneMt*this.quad.x0 + 2*oneMt*t*this.quad.x1 + t*t*this.quad.x2;
     }
   }
 
@@ -345,6 +391,17 @@ unittest {
   assert(error < 3e-3);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+private string formatString(TL...)(string fmt, TL tl) {
+  auto writer = appender!string();
+  formattedWrite(writer, fmt, tl);
+  return writer.data;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+
 struct LineEdge(T) {
   @property string toString() const {
     return "LineEdge!" ~ to!string(typeid(T)) ~
@@ -360,9 +417,7 @@ struct LineEdge(T) {
 struct QuadraticEdge(T) {
   @property string toString() const {
     auto msg = "QuadraticEdge!" ~ to!string(typeid(T)) ~
-      " scale: " ~ to!string(scale) ~
-      " fixSqrt: " ~ to!string(fixSqrt) ~
-      " fixAdd: " ~ to!string(fixAdd);
+      " a, b, c: " ~ to!string(this.coeffs);
     debug(QUAD) {
       msg ~= " p1: " ~ to!string(this.p1) ~
         " p2: " ~ to!string(this.p2);
@@ -370,27 +425,19 @@ struct QuadraticEdge(T) {
     return msg;
   }
   this(Point!T p0, Point!T p1, Point!T p2) {
-    auto a = p0.y - 2*p1.y + p2.y;
-    assert(abs(a) > 1e-7);
-    this.scale = 1 / a;
-    auto p = (-2*p0.y + 2*p1.y) * this.scale;
-    auto q = p0.y * this.scale;
-    this.fixAdd = -p * 0.5;
-    this.fixSqrt = (p * p * 0.25) - q;
+    this.coeffs[0] = p0.y - 2*p1.y + p2.y;
+    this.coeffs[1] = (-2*p0.y + 2*p1.y);
+    this.coeffs[2] = p0.y;
     this.x0 = p0.x;
     this.x1 = p1.x;
     this.x2 = p2.x;
-    this.addSub = a >= 0;
     debug(QUAD) {
       this.p1 = p1;
       this.p2 = p2;
     }
   }
+  T[3] coeffs;
   T x0, x1, x2;
-  T scale;
-  T fixAdd;
-  T fixSqrt;
-  bool addSub;
   debug(QUAD) {
     Point!T p1, p2;
   }
@@ -405,11 +452,6 @@ struct CubicEdge(T) {
       " oldT: " ~ to!string(oldT);
   }
 
-  private string formatString(TL...)(string fmt, TL tl) {
-    auto writer = appender!string();
-    formattedWrite(writer, fmt, tl);
-    return writer.data;
-  }
   /**
    * This fixes rounding error that get quite big due to the usage of
    * rsqrt. The bezier is not splitted at the exact roots of the cubic
@@ -481,7 +523,7 @@ bool isLine(T)(in Point!T[] pts) {
     return false;
   auto refVec = pts[$-1] - pts[0];
   foreach(pt; pts[1..$-1]) {
-    if (abs(crossProduct(refVec, pt)) > Edge!T.tol) {
+    if (abs(crossProduct(refVec, pt)) > 1e-2) {
       return false;
     }
   }
