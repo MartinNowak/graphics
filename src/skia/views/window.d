@@ -1,17 +1,20 @@
 module skia.views.window;
 
-import Win = std.c.windows.windows;
-import skia.core.bitmap;
-import skia.core.canvas;
-import skia.core.color : White;
-import skia.core.draw;
-import skia.core.paint : Paint;
-import skia.core.rect;
-import skia.core.region;
-import skia.views.view;
+private {
+  import skia.core.bitmap;
+  import skia.core.canvas;
+  import skia.core.color : White, Black;
+  import skia.core.draw;
+  import skia.core.paint : Paint;
+  import skia.core.rect;
+  import skia.core.point;
+  import skia.core.size;
+  import skia.core.region;
+  import skia.views.view;
 
-//debug=PRINTF;
-debug private import std.stdio : writeln, printf;
+  //debug=PRINTF;
+  debug private import std.stdio : writeln, printf;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -28,7 +31,7 @@ public:
     this.bitmap = new Bitmap();
     this._flags.visible = true;
     this._flags.enabled = true;
-    this._layout = new OneChildFullSpaceLayout();
+    this._layout = new VerticalSplit();
   }
 
   bool update(IRect* updateArea = null)
@@ -38,8 +41,8 @@ public:
       scope auto canvas = new Canvas(this.bitmap);
       canvas.clipRegion(this.dirtyRegion);
 
-      if (updateArea)
-	*updateArea = this.dirtyRegion.bounds;
+      if (updateArea != null)
+        *updateArea = this.dirtyRegion.bounds;
       this.dirtyRegion.setEmpty();
 
       this.draw(canvas);
@@ -56,9 +59,11 @@ public:
 
   void resize(uint width, uint height)
   {
-    this.bitmap.setConfig(this.config, width, height);
-    this.setSize(width, height);
-    this.dirtyRegion = IRect(width, height);
+      if (width != this.bitmap.width || height != this.bitmap.height) {
+          this.bitmap.setConfig(this.config, width, height);
+          this.setSize(width, height);
+          this.dirtyRegion = IRect(width, height);
+      }
   }
 
   void resize(uint width, uint height, Bitmap.Config config)
@@ -75,7 +80,7 @@ public:
 
 version(Windows)
 {
-  import Win = std.c.windows.windows;
+    import Win = std.c.windows.windows;
 
 
   struct MsgParameter
@@ -155,3 +160,70 @@ version(Windows)
 
 }
 
+version(FreeBSD)
+{
+  import X11 = X11.Xlib;
+  import Xutil = X11.Xutil;
+
+  class OsWindow : Window {
+    X11.Display* dpy;
+    X11.Window win;
+    X11.XImage* ximage;
+    X11.GC gc;
+
+    this(X11.Display* dpy, X11.Window win) {
+      this.dpy = dpy;
+      this.win = win;
+    }
+
+    ~this() {
+      // crashes ??
+      // Xutil.XDestroyImage(ximage);
+      X11.XDestroyWindow(this.dpy, this.win);
+    }
+
+    bool windowProc(X11.XEvent e) {
+      switch(e.type) {
+      case X11.Expose:
+        if (e.xexpose.count < 1)
+          this.doPaint(IRect(IPoint(e.xexpose.x, e.xexpose.y),
+                             ISize(e.xexpose.width, e.xexpose.height)));
+
+      case X11.ConfigureNotify:
+        this.resize(e.xconfigure.width, e.xconfigure.height);
+        break;
+
+      default:
+        break;
+      }
+      return true;
+    }
+
+    void doPaint(in IRect rect) {
+      this.update();
+      blitBitmap();
+    }
+
+    void blitBitmap() {
+      if (this.gc is null) {
+        X11.XGCValues gcv;
+        this.gc = X11.XCreateGC(this.dpy, this.win, 0, &gcv);
+      }
+      XImageFromBitmap();
+      X11.XPutImage(this.dpy, this.win, this.gc, this.ximage, 0, 0, 0, 0,
+                    this.ximage.width, this.ximage.height);
+    }
+
+    void XImageFromBitmap() {
+      auto screen = X11.XDefaultScreen(this.dpy);
+      auto visual = X11.XDefaultVisual(this.dpy, screen);
+      auto depth = X11.XDefaultDepth(this.dpy, screen);
+      assert(depth == 24);
+      this.ximage =X11.XCreateImage(this.dpy, visual,
+                                           depth, X11.ZPixmap, 0, cast(byte*)bitmap.buffer.ptr,
+                                           bitmap.width, bitmap.height, 8, 0);
+      assert(this.ximage);
+    }
+}
+
+} // version FreeBSD
