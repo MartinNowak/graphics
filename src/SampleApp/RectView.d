@@ -17,7 +17,7 @@ private {
 class RectView : View
 {
   Paint paint;
-  this(IPoint loc, ISize size, Color color) {
+  this(IPoint loc=IPoint(), ISize size=ISize(), Color color=Orange) {
     this.paint = new Paint(color);
     this.paint.fillStyle = Paint.Fill.Stroke;
     this.paint.antiAlias = true;

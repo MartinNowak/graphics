@@ -3,7 +3,6 @@ private {
   import std.array;
   import std.date;
   import std.stdio;
-  import std.bind;
 
   import skia.core.bitmap;
   import skia.core.canvas;

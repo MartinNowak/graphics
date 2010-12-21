@@ -4,7 +4,7 @@ private {
   import std.bitmanip : bitfields;
   import std.algorithm : remove;
   import std.functional : unaryFun;
-  debug import std.stdio : writeln, printf;
+  debug import std.stdio : writeln, writefln;
 
   import skia.core.canvas;
   import skia.core.rect;
@@ -44,6 +44,21 @@ class OneChildFullSpaceLayout : Layout
     assert(parent.children.length == 1);
     parent.children[0].loc = parent.loc;
     parent.children[0].size = parent.size;
+  }
+  void onInflate(DOM dom, DOM.Node node) {}
+}
+class VerticalSplit : Layout
+{
+  void onLayoutChildren(View parent) {
+    auto Start = parent.loc;
+    auto Shift = IPoint(0, parent.height / parent.children.length);
+    auto size = parent.size;
+    size.height = size.height / parent.children.length;
+    foreach(child; parent.children) {
+      child.loc = Start;
+      child.size = size;
+      Start = Start + Shift;
+    }
   }
   void onInflate(DOM dom, DOM.Node node) {}
 }
@@ -343,15 +358,15 @@ public:
   View attachChildTo(Position pos)(View child) {
     assert(child != this);
 
-    if (!child || children.length > 0 && child == children[0])
+    if (!child || this.children.length > 0 && child == this.children[0])
       return child;
 
     child.detachFromParent_NoLayout();
 
     static if (pos == Position.Front)
-      children = children ~ child;
+      this.children ~= child;
     else if (pos == Position.Back)
-      children = child ~ children;
+      this.children = child ~ this.children;
     else assert(false);
 
     child.parent = this;

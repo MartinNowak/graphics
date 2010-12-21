@@ -53,6 +53,10 @@ struct Rect(T)
     this(size.width, size.height);
   }
 
+  this(Point!T pos, Size!T size) {
+    this(pos, pos+size);
+  }
+
   this(Point!T topL, Point!T botR) {
     this(topL.x, topL.y, botR.x, botR.y);
   }
