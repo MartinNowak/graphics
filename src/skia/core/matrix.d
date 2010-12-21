@@ -28,25 +28,25 @@ private:
 
   Type computeTypeMask() const {
     Type mask;
-    if (mat[2] != [0.0f, 0.0f, 1.0f]) {
+    if (this[2] != [0.0f, 0.0f, 1.0f]) {
       mask |= Type.Perspective;
     }
-    if (mat[0][2] != 0.0f || mat[1][2] != 0.0f) {
+    if (this[0][2] != 0.0f || this[1][2] != 0.0f) {
       mask |= Type.Translative;
     }
-    if (mat[0][0] != 1.0f || mat[1][1] != 1.0f) {
+    if (this[0][0] != 1.0f || this[1][1] != 1.0f) {
       mask |= Type.Scaling;
     }
-    if (mat[0][1] != 0.0f || mat[1][0] != 0.0f) {
+    if (this[0][1] != 0.0f || this[1][0] != 0.0f) {
       mask |= Type.Affine;
     }
     if (!(mask & Type.Perspective)) {
       //! Collect whether (p)rimary or (s)econdary diagonals are zero
       //! or one.
-      auto dp0 = mat[0][0] == 0.0f && mat[1][1] == 0.0f;
-      auto dp1 = mat[0][0] != 0.0f && mat[1][1] != 0.0f;
-      auto ds0 = mat[0][1] == 0.0f && mat[1][0] == 0.0f;
-      auto ds1 = mat[0][1] != 0.0f && mat[1][0] != 0.0f;
+      auto dp0 = this[0][0] == 0.0f && this[1][1] == 0.0f;
+      auto dp1 = this[0][0] != 0.0f && this[1][1] != 0.0f;
+      auto ds0 = this[0][1] == 0.0f && this[1][0] == 0.0f;
+      auto ds1 = this[0][1] != 0.0f && this[1][0] != 0.0f;
       //! No perspective transformation and multiple of 90 degree
       //! rotation.
       if ((dp0 && ds1) || (dp1 && ds0)) {
@@ -129,8 +129,8 @@ public:
   void setTranslate(float dx, float dy) {
     this.reset();
     this.setDirty();
-    this.mat[0][2] = dx;
-    this.mat[1][2] = dy;
+    this[0][2] = dx;
+    this[1][2] = dy;
   }
   void setRotate(float deg) {
     this.reset();
@@ -147,8 +147,8 @@ public:
   void setScale(float xs, float ys) {
     this.reset();
     this.setDirty();
-    this.mat[0][0] = xs;
-    this.mat[1][1] = ys;
+    this[0][0] = xs;
+    this[1][1] = ys;
   }
   mixin PrePost!("Translate");
   mixin PrePost!("Rotate");
@@ -191,6 +191,12 @@ public:
   void mapPoints(ref FPoint[] pts) const {
     auto mapF = this.mapPtsFunc();
     mapF(this, pts);
+  }
+
+  FPoint mapPoint(FPoint pt) const {
+    auto pts = [pt];
+    this.mapPoints(pts);
+    return pts[0];
   }
 
 private:
@@ -267,18 +273,18 @@ private:
   }
 
   static void TransPts(in Matrix m, ref FPoint[] pts) {
-    assert(m.typeMaskTrans == Type.Translative);
+    assert(m.typeMaskTrans == Type.Translative, to!string(m.typeMaskTrans));
 
-    auto tPt = FPoint(m.mat[0][2], m.mat[1][2]);
+    auto tPt = FPoint(m[0][2], m[1][2]);
     foreach(ref pt; pts) {
       pt += tPt;
     }
   }
 
   static void ScalePts(in Matrix m, ref FPoint[] pts) {
-    assert(m.typeMaskTrans == Type.Translative);
+    assert(m.typeMaskTrans == Type.Scaling, to!string(m.typeMaskTrans));
 
-    auto sPt = FPoint(m.mat[0][0], m.mat[1][1]);
+    auto sPt = FPoint(m[0][0], m[1][1]);
     foreach(ref pt; pts) {
       pt *= sPt;
     }
@@ -287,8 +293,8 @@ private:
   static void ScaleTransPts(in Matrix m, ref FPoint[] pts) {
     assert(m.typeMaskTrans == (Type.Translative | Type.Scaling));
 
-    auto tPt = FPoint(m.mat[0][2], m.mat[1][2]);
-    auto sPt = FPoint(m.mat[0][0], m.mat[1][1]);
+    auto tPt = FPoint(m[0][2], m[1][2]);
+    auto sPt = FPoint(m[0][0], m[1][1]);
     foreach(ref pt; pts) {
       pt *= sPt;
       pt += tPt;
@@ -298,7 +304,7 @@ private:
   static void RotPts(in Matrix m, ref FPoint[] pts) {
     assert((m.typeMaskTrans & (Type.Perspective | Type.Translative)) == 0);
 
-    auto sPt = FPoint(m.mat[0][0], m.mat[1][1]);
+    auto sPt = FPoint(m[0][0], m[1][1]);
     foreach(ref pt; pts) {
       auto skewPt = point(pt.y * m[0][1], pt.x * m[1][0]);
       pt = pt * sPt + skewPt;
@@ -308,8 +314,8 @@ private:
   static void RotTransPts(in Matrix m, ref FPoint[] pts) {
     assert((m.typeMaskTrans & Type.Perspective) == 0);
 
-    auto sPt = FPoint(m.mat[0][0], m.mat[1][1]);
-    auto tPt = FPoint(m.mat[0][2], m.mat[1][2]);
+    auto sPt = FPoint(m[0][0], m[1][1]);
+    auto tPt = FPoint(m[0][2], m[1][2]);
 
     foreach(ref pt; pts) {
       auto skewPt = point(pt.y * m[0][1], pt.x * m[1][0]);
