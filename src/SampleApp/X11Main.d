@@ -8,6 +8,8 @@ private {
   import skia.views.view;
   import skia.views.window;
   import CirclesView;
+  // Set's default fpu exceptions on
+  import skia.math.fpu;
   import RectView;
 }
 
