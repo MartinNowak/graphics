@@ -6,12 +6,16 @@ private {
 
   import skia.core.rect;
   import skia.core.point;
+  debug import std.stdio : writefln;
+  import Detail = skia.core.matrix_detail._;
 }
 
+// TODO: move matrix implementation into matrix_detail and leave an
+// interface here.
 struct Matrix {
 private:
   float[3][3] mat;
-  Type _typeMask;
+  ubyte _typeMask;
 
   enum Type : ubyte {
     Identity = 0x00,
@@ -26,8 +30,8 @@ private:
     | Type.Affine | Type.Perspective;
   static assert(KAllTransMask == 0x0F);
 
-  Type computeTypeMask() const {
-    Type mask;
+  ubyte computeTypeMask() const {
+    ubyte mask;
     if (this[2] != [0.0f, 0.0f, 1.0f]) {
       mask |= Type.Perspective;
     }
@@ -56,14 +60,16 @@ private:
     return mask;
   }
 
-  @property Type typeMask() const {
+  @property ubyte typeMask() const {
     if (this._typeMask & Type.Unknown) {
       auto ncThis = cast(Matrix*)&this;
       ncThis._typeMask = this.computeTypeMask();
     }
     return this._typeMask;
   }
-  @property byte typeMaskTrans() const {
+  // TODO: this should only have package visibility, but the matrix
+  // impl needed to be moved.
+  public @property ubyte typeMaskTrans() const {
     return this.typeMask & KAllTransMask;
   }
 
@@ -72,6 +78,11 @@ private:
   }
 
 public:
+
+  debug this(float[3][3] mat) {
+    this.mat = mat;
+    this._typeMask = Type.Unknown;
+  }
 
   @property string toString() const {
     return "Matrix33: " ~ to!string(this.mat);
@@ -189,7 +200,7 @@ public:
   }
 
   void mapPoints(ref FPoint[] pts) const {
-    auto mapF = this.mapPtsFunc();
+    auto mapF = Detail.mapPtsFunc(this.typeMaskTrans);
     mapF(this, pts);
   }
 
@@ -218,11 +229,11 @@ private:
     this[0][2] = sinV*py - cosV*px + px;
     this[1][2] = -sinV*px - cosV*py + py;
   }
-  ref float[3] opIndex(int idx) {
+  public ref float[3] opIndex(int idx) {
     assert(0 <= idx && idx <= 2);
     return this.mat[idx];
   }
-  ref const float[3] opIndex(int idx) const {
+  public ref const float[3] opIndex(int idx) const {
     assert(0 <= idx && idx <= 2);
     return this.mat[idx];
   }
@@ -245,100 +256,6 @@ private:
       }
       tmp.setDirty();
       return tmp;
-    }
-  }
-
-  alias void function(in Matrix, ref FPoint[]) MapPtsFunc;
-  MapPtsFunc mapPtsFunc() const {
-    switch(this.typeMaskTrans) {
-    case 0:
-      return &IdentityPts;
-    case 1:
-      return &TransPts;
-    case 2:
-      return &ScalePts;
-    case 3:
-      return &ScaleTransPts;
-    case 4, 6:
-      return &RotPts;
-    case 5, 7:
-      return &RotTransPts;
-    default:
-      return &PerspPts;
-    }
-  }
-
-  static void IdentityPts(in Matrix, ref FPoint[]) {
-    return;
-  }
-
-  static void TransPts(in Matrix m, ref FPoint[] pts) {
-    assert(m.typeMaskTrans == Type.Translative, to!string(m.typeMaskTrans));
-
-    auto tPt = FPoint(m[0][2], m[1][2]);
-    foreach(ref pt; pts) {
-      pt += tPt;
-    }
-  }
-
-  static void ScalePts(in Matrix m, ref FPoint[] pts) {
-    assert(m.typeMaskTrans == Type.Scaling, to!string(m.typeMaskTrans));
-
-    auto sPt = FPoint(m[0][0], m[1][1]);
-    foreach(ref pt; pts) {
-      pt *= sPt;
-    }
-  }
-
-  static void ScaleTransPts(in Matrix m, ref FPoint[] pts) {
-    assert(m.typeMaskTrans == (Type.Translative | Type.Scaling));
-
-    auto tPt = FPoint(m[0][2], m[1][2]);
-    auto sPt = FPoint(m[0][0], m[1][1]);
-    foreach(ref pt; pts) {
-      pt *= sPt;
-      pt += tPt;
-    }
-  }
-
-  static void RotPts(in Matrix m, ref FPoint[] pts) {
-    assert((m.typeMaskTrans & (Type.Perspective | Type.Translative)) == 0);
-
-    auto sPt = FPoint(m[0][0], m[1][1]);
-    foreach(ref pt; pts) {
-      auto skewPt = point(pt.y * m[0][1], pt.x * m[1][0]);
-      pt = pt * sPt + skewPt;
-    }
-  }
-
-  static void RotTransPts(in Matrix m, ref FPoint[] pts) {
-    assert((m.typeMaskTrans & Type.Perspective) == 0);
-
-    auto sPt = FPoint(m[0][0], m[1][1]);
-    auto tPt = FPoint(m[0][2], m[1][2]);
-
-    foreach(ref pt; pts) {
-      auto skewPt = point(pt.y * m[0][1], pt.x * m[1][0]);
-      pt = pt * sPt + skewPt + tPt;
-    }
-  }
-
-  static void PerspPts(in Matrix m, ref FPoint[] pts) {
-    assert(m.typeMaskTrans & Type.Perspective);
-
-    auto sPt = FPoint(m[0][0], m[1][1]);
-    auto tPt = FPoint(m[0][2], m[1][2]);
-
-    auto p0 = m[2][0];
-    auto p1 = m[2][1];
-    auto p2 = m[2][2];
-
-    foreach(ref pt; pts) {
-      auto z = pt.x * p0 + pt.y * p1 + p2;
-      auto skewPt = point(pt.y * m[0][1], pt.x * m[1][0]);
-      pt = pt * sPt + skewPt + tPt;
-      if (z)
-        pt /= z;
     }
   }
 }
