@@ -157,7 +157,7 @@ bool verifyLines(T)(Edge!T edge) {
   return edge.type == Edge!T.Type.Line
     && edge.lastY >= edge.firstY
     && monotonicEdge(edge)
-    && verifyXYT(edge);
+    && (edge.lastY > edge.firstY ? verifyXYT(edge) : true);
 }
 
 bool verifyQuads(T)(Edge!T edge) {
@@ -194,8 +194,8 @@ template paramTuple(TL...) {
 
 template verification(T) {
   bool run() {
-    alias paramTuple!(Policies.RandomizeMembers, count(100_000), minValue(0), maxValue(5)) params;
-    return //quickCheck!(verifyLines!T, lineMaker!T, params)() &&
+    alias paramTuple!(Policies.RandomizeMembers, count(1_000), minValue(0), maxValue(5)) params;
+    return quickCheck!(verifyLines!T, lineMaker!T, params)() &&
       quickCheck!(verifyQuads!T, quadMaker!T, params)() &&
       quickCheck!(verifyCubics!T, cubicMaker!T, params)();
   }

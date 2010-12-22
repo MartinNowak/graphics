@@ -409,7 +409,10 @@ struct LineEdge(T) {
   }
   this(Point!T p0, Point!T p1) {
     assert(p1.y >= p0.y);
-    this.dx = (p1.x - p0.x) / (p1.y - p0.y);
+    if (p0.y == p1.y)
+      this.dx = 0;
+    else
+      this.dx = (p1.x - p0.x) / (p1.y - p0.y);
   }
   T dx;
 }
