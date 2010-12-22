@@ -7,11 +7,16 @@ private {
 
   import skia.views.view;
   import skia.views.window;
-  import CirclesView;
+
   // Set's default fpu exceptions on
   import skia.math.fpu;
+  import circlesview;
+  import sineview;
   import RectView;
+  import quickcheck.unittestrunner;
 }
+
+//debug=PRINTF;
 
 ////////////////////////////////////////////////////////////////////////////////
 // global window class instance
@@ -24,7 +29,6 @@ X11.Atom gDeleteWindowAtom;
 ////////////////////////////////////////////////////////////////////////////////
 
 int main() {
-  writefln("sizeof size_t %s", size_t.sizeof);
   int result;
   scope auto errorHandler = new ErrorHandler();
   auto dpy = InitWindow();
@@ -42,7 +46,7 @@ int RunMainLoop(X11.Display* dpy) {
 
  loop: while(true) {
     X11.XNextEvent(dpy, &e);
-    writeln("EventType", e.type);
+    debug(PRINTF) writeln("EventType", e.type);
 
     switch (e.type) {
     case X11.ClientMessage:
@@ -72,10 +76,9 @@ X11.Display* InitWindow() {
   auto win = MakeWindow(dpy);
 
   gWindow = new OsWindow(dpy, win);
+  gWindow.attachChildTo!FrontPos(new SineView());
   gWindow.attachChildTo!FrontPos(new CirclesView());
-  gWindow.attachChildTo!FrontPos(new CirclesView());
-  gWindow.attachChildTo!FrontPos(
-    new RectView());
+  //gWindow.attachChildTo!FrontPos(new RectView());
 
   X11.XMapWindow(dpy, win);
   return dpy;

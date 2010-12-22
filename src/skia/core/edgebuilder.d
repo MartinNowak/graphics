@@ -359,11 +359,11 @@ unittest {
 ////////////////////////////////////////////////////////////////////////////////
 
 version(NO_SSE) {
-  float fast_sqrt(float n) {
+  float fastSqrt(float n) {
     return sqrt(n);
   }
 } else {
-  float fast_sqrt(float n)
+  float fastSqrt(float n)
   {
     assert(n >= 0);
 
@@ -384,7 +384,7 @@ unittest {
   real errorSum = 0.0;
   size_t j;
   for (float i = 1.0/1000; i<=1000; i+=1.0/1000, ++j) {
-    auto dev = fast_sqrt(i) - sqrt(i);
+    auto dev = fastSqrt(i) - sqrt(i);
     errorSum += dev * dev;
   }
   auto error = sqrt(errorSum / j);
@@ -728,7 +728,7 @@ int quadUnitRoots(T)(T[3] coeffs, out T[2] roots) {
     if (isNaN(r))
       return 0;
   }
-  r = fast_sqrt(r);
+  r = fastSqrt(r);
   auto q = b < 0 ? -(b-r)/2 : -(b+r)/2;
   int rootIdx;
   rootIdx += valid_unit_divide(q, a, roots[rootIdx]);

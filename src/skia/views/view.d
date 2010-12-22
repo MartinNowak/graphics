@@ -38,12 +38,13 @@ protected:
   void onInflate(DOM dom, DOM.Node node);
 };
 
-class OneChildFullSpaceLayout : Layout
+class SquashChildrenZLayout : Layout
 {
   void onLayoutChildren(View parent) {
-    assert(parent.children.length == 1);
-    parent.children[0].loc = parent.loc;
-    parent.children[0].size = parent.size;
+    foreach(child; parent.children) {
+     child.loc = parent.loc;
+     child.size = parent.size;
+    }
   }
   void onInflate(DOM dom, DOM.Node node) {}
 }

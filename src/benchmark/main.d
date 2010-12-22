@@ -8,7 +8,7 @@ private {
 }
 
 int main(string[] argv) {
-  scope auto reporter = new BenchmarkReporter(1);
+  scope auto reporter = new BenchmarkReporter(10);
 
   if (argv.length > 1) {
 
@@ -24,7 +24,7 @@ int main(string[] argv) {
     excludeBenchmarks("");
 
   foreach(ref testTup; benchmarks) {
-    reporter.info("Run BenchMarkSuite %s", testTup[0]);
+    reporter.info("--------------------Run BenchMarkSuite %s--------------------", testTup[0]);
     testTup[1](reporter);
   }
   return 0;

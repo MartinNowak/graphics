@@ -3,7 +3,7 @@ module skia.views.window;
 private {
   import skia.core.bitmap;
   import skia.core.canvas;
-  import skia.core.color : White, Black;
+  import skia.core.color : White, Black, WarmGray;
   import skia.core.draw;
   import skia.core.paint : Paint;
   import skia.core.rect;
@@ -31,7 +31,7 @@ public:
     this.bitmap = new Bitmap();
     this._flags.visible = true;
     this._flags.enabled = true;
-    this._layout = new VerticalSplit();
+    this._layout = new SquashChildrenZLayout();
   }
 
   bool update(IRect* updateArea = null)
@@ -53,7 +53,7 @@ public:
   }
 
   override void onDraw(Canvas canvas) {
-    scope auto paint = new Paint(White);
+    scope auto paint = new Paint(WarmGray);
     canvas.drawPaint(paint);
   }
 

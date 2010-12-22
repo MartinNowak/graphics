@@ -14,9 +14,10 @@ private {
   import skia.core.point;
   import skia.core.rect;
   import skia.core.region;
+
+  debug private import std.stdio : writeln, writef;
 }
 //debug=WHITEBOX;
-debug private import std.stdio : writeln, printf;
 
 enum EdgeType
 {
@@ -82,6 +83,13 @@ public:
     this.setDevice(device);
   }
 
+  debug @property Matrix curMatrix() const {
+    return this.curMCRec.matrix;
+  }
+  debug @property size_t saveCount() const {
+    return this.mcRecs.length;
+  }
+
   void setDevice(Device device) {
     this.device = device;
     auto bounds = device ? device.bounds : IRect();
@@ -96,6 +104,9 @@ public:
 
   void setMatrix(in Matrix matrix) {
     this.curMCRec.matrix = matrix;
+  }
+  Matrix getMatrix() const {
+    return this.curMCRec.matrix;
   }
   void resetMatrix() {
     this.setMatrix(Matrix.identityMatrix());

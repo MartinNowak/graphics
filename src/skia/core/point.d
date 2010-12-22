@@ -3,8 +3,8 @@ module skia.core.point;
 private {
   import std.math;
   import std.conv : to;
-  import std.traits : isSigned, isAssignable;
-  debug import std.stdio : writeln, printf;
+  import std.traits : isSigned, isAssignable, isFloatingPoint;
+  debug import std.stdio : writeln, writefln;
 
   import skia.core.size;
 }
@@ -19,6 +19,13 @@ Point!T point(T)(T x, T y) {
   return Point!T(x, y);
 }
 
+/**
+ * Convenience function to obtain a null initialized FPoint.  FPoint()
+ * is initialized with nan.
+ */
+FPoint fPoint()() {
+  return FPoint(0, 0);
+}
 FPoint fPoint(T)(Point!T pt) {
   return FPoint(pt.x, pt.y);
 }

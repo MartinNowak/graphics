@@ -76,7 +76,6 @@ void circles(string paint)() {
 ////////////////////////////////////////////////////////////////////////////////
 
 void BenchConfig(string paint)(BenchmarkReporter reporter) {
-  reporter.log!(LogLevel.Info)("--------------------"~paint~"--------------------");
   const numRuns = reporter.numHint;
   reporter.bench!(rectangles!(paint))();
   reporter.bench!(roundRect!(paint))();

@@ -10,6 +10,7 @@ private {
   import skia.core.rect;
   import skia.core.regionpath;
   import skia.core.edgebuilder;
+  debug import std.stdio;
 }
 
 // debug=WALK_EDGES; // verbose tracing for walk_edges
@@ -26,7 +27,7 @@ void fillIRect(Blitter)(IRect rect, in Region clip, Blitter blitter) {
   }
 }
 
-enum AAScale = 4;
+enum AAScale = 2;
 enum AAStep = 1.0f / AAScale;
 
 void antiFillPath(Blitter)(in Path path, in Region clip,
