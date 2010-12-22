@@ -29,6 +29,9 @@ struct Point (T)
   @property T y;
 
   this (T x, T y) {
+    static if (isFloatingPoint!T) {
+      //assert(isNormal(x)&& isNormal(y));
+    }
     this.x = x;
     this.y = y;
   }
