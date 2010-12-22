@@ -126,7 +126,9 @@ private void walkEdges(alias blitLineFunc, Blitter, Range)(
     yStart, yEnd);
 
   FEdge[] workingSet;
-  const int windingMask = (fillType & 1) ? 1 : -1;
+  // TODO: Allow non-zero winding rule.
+  // const int windingMask = (fillType & 0x1) ? 1 : -1;
+  const int windingMask = 1;
   auto curY = yStart;
 
   while (curY < yEnd) {
