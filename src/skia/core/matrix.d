@@ -14,7 +14,7 @@ private {
 // interface here.
 struct Matrix {
 private:
-  float[3][3] mat;
+  Detail.MatrixStorage data;
   ubyte _typeMask;
 
   enum Type : ubyte {
@@ -32,7 +32,7 @@ private:
 
   ubyte computeTypeMask() const {
     ubyte mask;
-    if (this[2] != [0.0f, 0.0f, 1.0f]) {
+    if (this[2][0..3] != [0.0f, 0.0f, 1.0f]) {
       mask |= Type.Perspective;
     }
     if (this[0][2] != 0.0f || this[1][2] != 0.0f) {
@@ -79,13 +79,12 @@ private:
 
 public:
 
-  debug this(float[3][3] mat) {
-    this.mat = mat;
-    this._typeMask = Type.Unknown;
+  this(in Detail.MatrixStorage data) {
+    this.data = data;
+    this.setDirty();
   }
-
   @property string toString() const {
-    return "Matrix33: " ~ to!string(this.mat);
+    return "Matrix33: " ~ to!string(this.data);
   }
 
   @property bool identity() const { return this.typeMask == Type.Identity; }
@@ -100,14 +99,22 @@ public:
   @property bool rectStaysRect() const
   { return (this.typeMask & Type.RectStaysRect) != 0; }
 
+  public ref typeof(this.data[0]) opIndex(int idx) {
+    assert(0 <= idx && idx <= 2);
+    return this.data[idx];
+  }
+  public ref const typeof(this.data[0]) opIndex(int idx) const {
+    assert(0 <= idx && idx <= 2);
+    return this.data[idx];
+  }
+
   static Matrix identityMatrix() {
-    Matrix ident;
-    ident.mat
-      = [[1.0f, 0.0f, 0.0f],
-         [0.0f, 1.0f, 0.0f],
-         [0.0f, 0.0f, 1.0f]];
-    ident._typeMask = Matrix.Type.Identity;
-    return ident;
+    Matrix id;
+    id.data[0][0] = 1.0f; id.data[0][1] = 0.0f; id.data[0][2] = 0.0f;
+    id.data[1][0] = 0.0f; id.data[1][1] = 1.0f; id.data[1][2] = 0.0f;
+    id.data[2][0] = 0.0f; id.data[2][1] = 0.0f; id.data[2][2] = 1.0f;
+    id._typeMask = Matrix.Type.Identity;
+    return id;
   }
 
   /****************************************
@@ -229,14 +236,7 @@ private:
     this[0][2] = sinV*py - cosV*px + px;
     this[1][2] = -sinV*px - cosV*py + py;
   }
-  public ref float[3] opIndex(int idx) {
-    assert(0 <= idx && idx <= 2);
-    return this.mat[idx];
-  }
-  public ref const float[3] opIndex(int idx) const {
-    assert(0 <= idx && idx <= 2);
-    return this.mat[idx];
-  }
+
   Matrix opBinary(string op)(in Matrix rhs) const
     if (op == "*") {
 
