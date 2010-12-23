@@ -245,15 +245,7 @@ private:
     else if (this.identity)
       return rhs;
     else {
-      Matrix tmp;
-      for(size_t row = 0; row < 3; ++row) {
-        for (size_t col = 0; col < 3; ++col) {
-          tmp[row][col] =
-            this[row][0] * rhs[0][col]
-            + this[row][1] * rhs[1][col]
-            + this[row][2] * rhs[2][col];
-        }
-      }
+      auto tmp = Detail.multiplyMatrices(this, rhs);
       tmp.setDirty();
       return tmp;
     }
