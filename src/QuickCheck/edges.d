@@ -8,8 +8,12 @@ private {
   import std.typetuple;
   import std.format : formattedWrite;
   import std.array : appender;
+  import std.math : abs;
 
   import skia.core.edgebuilder;
+  import skia.core.edge_detail._;
+  import skia.core.edge_detail.edge : EdgeType;
+  import skia.core.edge_detail.algo;
   import skia.core.point;
   import quickcheck._;
 }
@@ -154,22 +158,22 @@ bool monotonicEdge(T)(Edge!T edge) {
   return true;
 }
 bool verifyLines(T)(Edge!T edge) {
-  return edge.type == Edge!T.Type.Line
+  return edge.type == EdgeType.Line
     && edge.lastY >= edge.firstY
     && monotonicEdge(edge)
     && (edge.lastY > edge.firstY ? verifyXYT(edge) : true);
 }
 
 bool verifyQuads(T)(Edge!T edge) {
-  return (edge.type == Edge!T.Type.Quad
-          || edge.type == Edge!T.Type.Line)
+  return (edge.type == EdgeType.Quad
+          || edge.type == EdgeType.Line)
     && edge.lastY >= edge.firstY
     && monotonicEdge(edge)
     && verifyXYT(edge);
 }
 bool verifyCubics(T)(Edge!T edge) {
-  return (edge.type == Edge!T.Type.Cubic
-          || edge.type == Edge!T.Type.Line)
+  return (edge.type == EdgeType.Cubic
+          || edge.type == EdgeType.Line)
     && edge.lastY >= edge.firstY
     && monotonicEdge(edge)
     && verifyXYT(edge, 8e-2);

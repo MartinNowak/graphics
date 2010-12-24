@@ -10,6 +10,7 @@ private {
   import skia.core.rect;
   import skia.core.regionpath;
   import skia.core.edgebuilder;
+  import skia.core.edge_detail._;
   debug import std.stdio;
 }
 

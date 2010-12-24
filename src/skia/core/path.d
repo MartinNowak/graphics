@@ -10,8 +10,7 @@ private {
 
   import skia.core.matrix;
   import skia.core.point;
-  // only included for splitBezier which belongs to geometry
-  import skia.core.edgebuilder;
+  import skia.core.edge_detail.algo : splitBezier;
   import skia.core.rect;
 }
 //debug=WHITEBOX;
