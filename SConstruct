@@ -4,7 +4,7 @@ env = DefaultEnvironment(tools=['dmd', 'link', 'gcc', 'ar'])
 
 if ARGUMENTS.get('release', ''):
     _build_style='release'
-    _dflags = ['-O', '-release', '-inline']
+    _dflags = ['-O', '-release', '-inline', '-gc']
 else:
     _build_style='debug'
     _dflags=['-debug', '-unittest', '-gc']
