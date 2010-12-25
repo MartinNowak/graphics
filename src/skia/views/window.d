@@ -54,6 +54,7 @@ public:
 
   override void onDraw(Canvas canvas) {
     scope auto paint = new Paint(WarmGray);
+    paint.antiAlias = false;
     canvas.drawPaint(paint);
   }
 

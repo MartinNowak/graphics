@@ -2,7 +2,7 @@ module circlesview;
 
 private {
   debug private import std.stdio : writeln;
-  import std.algorithm : min;
+  import std.algorithm : min, max;
   import std.math : PI;
 
   import skia.core.canvas;
@@ -35,9 +35,9 @@ class CirclesView : View
     canvas.setMatrix(matrix);
     */
     canvas.translate(this.bounds.centerX, this.bounds.centerY);
-    const auto dist = to!int(min(this.bounds.centerX, this.bounds.centerY)
+    const auto dist = to!int(max(this.bounds.centerX, this.bounds.centerY)
                              - 2 * this.cRad);
-    auto steps = min(this.width, this.height) * PI / (3*this.cRad);
+    auto steps = 2 * PI * dist / (3*this.cRad);
     auto degInc = 360 / steps;
 
     auto cyan = Cyan; cyan.a = 100; cyan.g = 100;

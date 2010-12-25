@@ -218,6 +218,10 @@ struct Rect(T)
       && this.top <= y && this.bottom >= y;
   }
 
+  bool contains(bool check=true)(Point!T pt) const {
+    return this.contains!(check)(pt.x, pt.y);
+  }
+
   /** Returns true if the 4 specified sides of a rectangle are inside or equal to this rectangle.
       If either rectangle is empty, contains() returns false.
   */
