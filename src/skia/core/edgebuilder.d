@@ -3,7 +3,7 @@ module skia.core.edgebuilder;
 private {
   debug import std.stdio : writeln, writefln, writef;
   import std.algorithm : map, min, max, reduce, sort, swap;
-  import std.array : appender, array, back, front, save;
+  import std.array : Appender, array, back, front, save;
 
   import skia.core.path;
   import skia.core.point;
@@ -17,8 +17,12 @@ private {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+//! Using a TLS buffer, so less allocations are necessary once it has
+//! soaked some mem.
+static Appender!(FEdge[]) app;
+
 FEdge[] buildEdges(in Path path) {
-  auto app = appender!(FEdge[])();
+  app.clear();
   path.forEach((const Path.Verb verb, const FPoint[] pts) {
       final switch(verb) {
       case Path.Verb.Move, Path.Verb.Close:
