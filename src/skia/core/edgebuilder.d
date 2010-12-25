@@ -41,6 +41,26 @@ FEdge[] buildEdges(in Path path) {
   return app.data;
 }
 
+FEdge[] buildEdges(in Path path, in IRect clip) {
+  app.clear();
+  path.forEach((const Path.Verb verb, const FPoint[] pts) {
+      final switch(verb) {
+      case Path.Verb.Move, Path.Verb.Close:
+        break;
+      case Path.Verb.Line:
+        clippedLineEdge(app, pts, clip);
+        break;
+      case Path.Verb.Quad:
+        clippedQuadraticEdge(app, pts, clip);
+        break;
+      case Path.Verb.Cubic:
+        clippedCubicEdge(app, pts, clip);
+        break;
+      }
+    });
+  return app.data;
+}
+
 
 unittest {
   auto path = Path();
