@@ -5,6 +5,7 @@ private {
   import std.range : assumeSorted, retro;
 
   import skia.core.blitter;
+  import skia.core.blitter_detail.clipping_blitter;
   import skia.core.path;
   import skia.core.region;
   import skia.core.rect;
@@ -31,16 +32,16 @@ void fillIRect(Blitter)(IRect rect, in Region clip, Blitter blitter) {
 enum AAScale = 2;
 enum AAStep = 1.0f / AAScale;
 
-void antiFillPath(Blitter)(in Path path, in Region clip,
-                           Blitter blitter) {
+void antiFillPath(in Path path, in Region clip,
+                  Blitter blitter) {
   return fillPathImpl(path, clip, blitter, AAStep);
 }
-void fillPath(Blitter)(in Path path, in Region clip,
-                       Blitter blitter) {
+void fillPath(in Path path, in Region clip,
+              Blitter blitter) {
   return fillPathImpl(path, clip, blitter, 1.0f);
 }
-void fillPathImpl(Blitter, T)(in Path path, in Region clip,
-                              Blitter blitter, T step) {
+void fillPathImpl(T)(in Path path, in Region clip,
+                     Blitter blitter, T step) {
   if (clip.empty) {
     return;
   }
@@ -54,28 +55,41 @@ void fillPathImpl(Blitter, T)(in Path path, in Region clip,
     return;
   }
 
-  if (!clip.bounds.intersects(ir))
-    return;
+  blitter = getClippingBlitter(blitter, clip, ir);
 
-
-  // TODO chose SkRgnBlitter, SkRectBlitter
-  if (path.inverseFillType) {
-    blitAboveAndBelow(blitter, ir, clip);
-  }
-  else {
-    blitEdges!(fillLine)(path, clip.bounds, blitter,
-                         ir.top, ir.bottom, step, clip);
+  if (!(blitter is null)) {
+    if (path.inverseFillType) {
+      blitAboveAndBelow(blitter, ir, clip);
+    }
+    else {
+      blitEdges!(fillLine)(path, clip.bounds, blitter,
+                           ir.top, ir.bottom, step, clip);
+    }
   }
 }
 
-private void blitEdges(alias blitLineFunc, Blitter)(
+Blitter getClippingBlitter(Blitter blitter, in Region clip, in IRect ir) {
+  if (!clip.bounds.intersects(ir))
+    return null;
+
+  if (clip.isRect()) {
+    // only need a wrapper blitter if we're horizontally clipped
+    if (clip.bounds.left > ir.left || clip.bounds.right < ir.right)
+      return new RectBlitter(blitter, clip.bounds);
+  } else {
+    assert(clip.isComplex());
+    return new RegionBlitter(blitter, clip);
+  }
+  return blitter;
+}
+
+private void blitEdges(alias blitLineFunc)(
   in Path path, in IRect clipRect,
   Blitter blitter,
   float yStart, float yEnd,
   float step, in Region clip) {
 
-  // TODO: give clipper to buildEdges
-  auto edges = buildEdges(path);
+  auto edges = buildEdges(path, clipRect);
   yStart = max(yStart, clipRect.top);
   yEnd = min(yEnd, clipRect.bottom);
 
@@ -116,13 +130,14 @@ unittest {
   assert(trunc[0] == exp[0]);
 }
 
-private void walkEdges(alias blitLineFunc, Blitter, Range)(
+private void walkEdges(alias blitLineFunc, Range)(
   Range edges,
   Path.FillType fillType,
   ref Blitter blitter,
   float step,
   float yStart, float yEnd)
 {
+  debug(WALK_EDGES) writefln("walkEdges %s", edges);
   auto sortedEdges = truncateOutOfRange(
     sort!("a.firstY < b.firstY")(edges),
     yStart, yEnd);
@@ -170,7 +185,7 @@ static R1 updateWorkingSet(R1, T)(R1 curWorkingSet, T curY, T step)
 }
 
 
-static void fillLine(Blitter, Range, T)(
+static void fillLine(Range, T)(
   T curY,
   Blitter blitter,
   Range edges,
@@ -195,7 +210,7 @@ static void fillLine(Blitter, Range, T)(
   }
 }
 
-static void dotLine(Blitter, Range, T)(
+static void dotLine(Range, T)(
   T curY,
   Blitter blitter,
   Range edges,
@@ -238,21 +253,21 @@ unittest
   fillPath(path, clip, blitter);
   blitter.done();
 
-  assert(blitter.scanLines.bounds == IRect(0, 0, 53, 14));
+  assert(blitter.scanLines.bounds == IRect(0, 0, 53, 14), to!string(blitter.scanLines.bounds));
 }
 
 
-void antiHairPath(Blitter)(in Path path, in Region clip,
-                           Blitter blitter) {
+void antiHairPath(in Path path, in Region clip,
+                  Blitter blitter) {
   return hairPathImpl(path, clip, blitter, AAStep);
 }
-void hairPath(Blitter)(in Path path, in Region clip,
-                           Blitter blitter) {
+void hairPath(in Path path, in Region clip,
+              Blitter blitter) {
   return hairPathImpl(path, clip, blitter, 1.0f);
 }
 
-void hairPathImpl(Blitter, T)(in Path path, in Region clip,
-                              Blitter blitter, T step) {
+void hairPathImpl(T)(in Path path, in Region clip,
+                     Blitter blitter, T step) {
   if (clip.empty) {
     return;
   }

@@ -78,15 +78,15 @@ class Bitmap {
     return buffer.ptr;
   }
 
-  auto getRange(int y, int xStart, int xEnd) {
-    //assert(x <= this.width);
-    //assert(y <= this.height);
+  auto getRange(int xStart, int xEnd, int y) {
+    assert(xEnd -xStart <= this.width);
+    assert(y <= this.height);
     size_t yOff = y * this.width;
     return this.buffer[yOff + xStart .. yOff + xEnd];
   }
 
   auto getLine(int y) {
-    return this.getRange(y, 0, this.width);
+    return this.getRange(0, this.width, y);
   }
 
   @property void opaque(bool isOpaque) {

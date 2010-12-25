@@ -17,6 +17,7 @@ private {
   import skia.core.rect;
   import skia.core.region;
   import skia.core.scan : AAScale;
+  import skia.core.blitter_detail._;
 }
 
 class Blitter
@@ -30,15 +31,9 @@ class Blitter
   }
   void blitRect(int x, int y, int width, int height) {
     while (--height >= 0)
-      this.blitH(y++, x, x + width);
+      this.blitFH(y++, x, x + width);
   }
-  abstract void blitH(int y, int xStart, int xEnd);
-  void blitFH(float y, float xStart, float xEnd) {
-    // assert(width > 0); // already asserted by conv
-    // TODO: review rounding functions, find out why lrint doesn't work.
-    this.blitH(roundTo!int(y), roundTo!int(xStart), roundTo!int(xEnd));
-    // this.blitH(to!int(lrint(x)), to!int(lrint(y)), to!uint(lrint(width)));
-  }
+  abstract void blitFH(float y, float xStart, float xEnd);
 
   static Blitter Choose(Bitmap bitmap, in Matrix matrix, Paint paint)
   {
@@ -55,6 +50,10 @@ class Blitter
     }
   }
 
+  final protected int round(float f) {
+    //! TODO: investigate faster, but correct rounding modes.
+    return roundTo!int(f);
+  }
   debug(WHITEBOX) auto opDispatch(string m, Args...)(Args a) {
     throw new Exception("Unimplemented property "~m);
   }
@@ -64,7 +63,7 @@ class Blitter
 ////////////////////////////////////////////////////////////////////////////////
 
 class NullBlitter : Blitter {
-  override void blitH(int y, int xStart, int xEnd) {
+  override void blitFH(float y, float xStart, float xEnd) {
   }
 }
 
@@ -75,6 +74,9 @@ class RasterBlitter : Blitter {
   Bitmap bitmap;
   this(Bitmap bitmap) {
     this.bitmap = bitmap;
+  }
+  final auto getBitmapRange(float xS, float xE, float y) {
+    return this.bitmap.getRange(this.round(xS), this.round(xE), this.round(y));
   }
 }
 
@@ -87,8 +89,8 @@ class ARGB32Blitter : RasterBlitter {
     super(bitmap);
     pmColor = PMColor(paint.color);
   }
-  override void blitH(int y, int xStart, int xEnd) {
-    BlitRow.Color32(this.bitmap.getRange(y, xStart, xEnd), pmColor);
+  override void blitFH(float y, float xStart, float xEnd) {
+    Color32(this.getBitmapRange(xStart, xEnd, y), pmColor);
   }
 }
 
@@ -136,41 +138,9 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
     if (this.vertCnt == S) {
       this.vertCnt = 0;
       //! finished line => blit to bitmap
-      BlitRow.Color32(this.bitmap.getLine(to!int(y)),
-                      this.aaLine, this.color);
+      Color32(this.bitmap.getLine(to!int(y)),
+              this.aaLine, this.color);
       this.aaLine[] = 0;
     }
   }
-}
-
-
-struct BlitRow {
-  static void Color32(Range)(Range range, PMColor pmColor) {
-    if (pmColor.a == 255) {
-      while (!range.empty) {
-        range.front = pmColor;
-        range.popFront;
-      }
-    } else {
-      auto scale = Color.getInvAlphaFactor(pmColor.a);
-      while (!range.empty) {
-        range.front = range.front.mulAlpha(scale) + pmColor;
-        range.popFront;
-      }
-    }
-  }
-
-  static void Color32(Range, Range2)(Range output, Range2 alpha, Color color) {
-    auto colorA = color.a;
-    while (!alpha.empty) {
-      if (alpha.front > 0) {
-        auto combA = (colorA + 1) * (alpha.front + 1) >> 8;
-        auto srcA = Color.getAlphaFactor(combA);
-        auto dstA = Color.getInvAlphaFactor(combA);
-        output.front = output.front.mulAlpha(dstA) + color.mulAlpha(srcA);
-      }
-      output.popFront; alpha.popFront;
-    }
-  }
-
 }

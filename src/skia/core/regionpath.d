@@ -24,9 +24,9 @@ class RgnBuilder : Blitter
     return "RgnBuilder scanLines:" ~ to!string(this.scanLines);
   }
 
-  override void blitH(int y, int xStart, int xEnd) {
+  override void blitFH(float y, float xStart, float xEnd) {
     debug(PRINTF) writeln("RgnBuilder.blitH", "x:", x, "y:",y, "w:",width);
-    this.scanLines.appendSpan(y, xStart, xEnd - xStart);
+    this.scanLines.appendSpan(this.round(y), this.round(xStart), this.round(xEnd - xStart));
   }
 
   void done() {
