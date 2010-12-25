@@ -120,6 +120,7 @@ public:
    * Draw functions
    */
   void drawPaint(Paint paint) {
+    assert(!paint.antiAlias, "Check you're paint");
     scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Paint);
     foreach(ref draw; cycle) {
       draw.drawPaint(paint);
