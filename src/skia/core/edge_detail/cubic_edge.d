@@ -10,14 +10,14 @@ private {
   import skia.core.edge_detail.algo;
   import skia.core.edge_detail.edge;
   import skia.core.edge_detail.line_edge;
+  import skia.core.rect;
   import skia.core.point;
   import skia.math.fast_sqrt;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Edge cubicEdge(in IPoint[] pts, in IRect clip);
-void cubicEdge(R, T)(ref R appender, in Point!T[] pts) {
+ void cubicEdge(R, T)(ref R appender, in Point!T[] pts, const(IRect*) clip=null) {
   assert(pts.length == 4);
 
   if (isLine(pts)) {
@@ -30,16 +30,16 @@ void cubicEdge(R, T)(ref R appender, in Point!T[] pts) {
                          nUnitRoots, unitRoots);
 
   if (nUnitRoots == 0) {
-    appender.put(makeCubic(pts));
+    appendMonoCubic(appender, pts, clip);
   } else if (nUnitRoots == 1) {
     auto ptss = splitBezier!4(pts, unitRoots[0]);
-    appender.put(makeCubic(ptss[0]));
-    appender.put(makeCubic(ptss[1]));
+    appendMonoCubic(appender, ptss[0], clip);
+    appendMonoCubic(appender, ptss[1], clip);
   } else {
     assert(nUnitRoots == 2);
 
     auto ptss = splitBezier!4(pts, unitRoots[0]);
-    appender.put(makeCubic(ptss[0]));
+    appendMonoCubic(appender, ptss[0], clip);
     T sndRoot = (unitRoots[1] - unitRoots[0]) / (1 - unitRoots[0]);
 
     debug {
@@ -53,9 +53,13 @@ void cubicEdge(R, T)(ref R appender, in Point!T[] pts) {
       }
     }
     ptss = splitBezier!4(ptss[1], sndRoot);
-    appender.put(makeCubic(ptss[0]));
-    appender.put(makeCubic(ptss[1]));
+    appendMonoCubic(appender, ptss[0], clip);
+    appendMonoCubic(appender, ptss[1], clip);
   }
+}
+
+void clippedCubicEdge(R, T)(ref R appender, in Point!T[] pts, in IRect clip) {
+  cubicEdge(appender, pts, &clip);
 }
 
 package:
@@ -95,7 +99,7 @@ T updateCubic(T)(ref Edge!T pthis, T y, T Step){
   auto a = pthis.cubic.oldT;
   auto ya = calcTCubic!("y")(pthis, a) - y;
   if (ya > -1e-5) {
-    assert(ya < Edge!T.tol);
+    assert(ya < Edge!T.tol, "tolerance " ~ to!string(ya));
     return pthis.curX;
   }
 
@@ -120,20 +124,7 @@ T updateCubic(T)(ref Edge!T pthis, T y, T Step){
  * parameter. Returns the x position.
  */
 T updateCubic(T)(ref Edge!T pthis, T y) {
-  assert(pthis.type == EdgeType.Cubic);
-  auto a = pthis.cubic.oldT;
-  auto ya = calcTCubic!("y")(pthis, a) - y;
-  if (ya > -1e-5) {
-    assert(ya < Edge!T.tol);
-    return pthis.curX;
-  }
-
-  assert(ya <= 0 && ya < y,
-         formatString("ya over zero ya:%.7f a:%.7f", ya, a));
-
-  T b = 1.0;
-  auto yb = calcTCubic!("y")(pthis, b) - y - y;
-  auto t = updateCubicImpl(pthis, y, a, ya, b, yb);
+  auto t = getTCubic(pthis, y);
   pthis.curX = calcTCubic!("x")(pthis, t);
   return pthis.curX;
 }
@@ -238,6 +229,29 @@ void fixRoundingErrors(T)(ref Point!T[4] pts) {
                         pts, pts[0].y - pts[1].y, tol));
     swap(pts[1].y, pts[0].y);
   }
+}
+
+/**
+ * Constructs a quad bezier, checks for clip bounds and appends a
+ * quad starting a clip.top.
+ */
+void appendMonoCubic(R, T)(ref R appender, in Point!T[] pts, const(IRect*) clip=null) {
+  auto edge = makeCubic(pts);
+
+  if (!(clip is null)) {
+    if (edge.firstY > clip.bottom || edge.lastY < clip.top)
+      return;
+
+    // clip the quad to top
+    if (edge.firstY < clip.top) {
+      auto t = getTCubic(edge, cast(T)clip.top);
+      auto ptss =
+        splitBezier!4([edge.p0, edge.cubic.p1, edge.cubic.p2, edge.cubic.p3], t);
+      edge = makeCubic(ptss[1]);
+    }
+  }
+
+  appender.put(edge);
 }
 
 Edge!T makeCubic(T)(in Point!T[] pts) {

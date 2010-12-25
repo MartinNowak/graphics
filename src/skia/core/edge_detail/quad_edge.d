@@ -7,23 +7,43 @@ private {
   import skia.core.edge_detail.algo;
   import skia.core.edge_detail.edge;
   import skia.core.edge_detail.line_edge;
+  import skia.core.rect;
   import skia.core.point;
 }
 
-//debug=QUAD;
+debug=QUAD;
 
-void quadraticEdge(R, T)(ref R appender, in Point!T[] pts) {
-  assert(pts.length == 3);
+void quadraticEdge(R, T)(ref R appender, in Point!T[] pts)
+  in {
+    assert(pts.length == 3);
+  } body {
 
   if (isLine(pts)) {
     return lineEdge(appender, [pts.front, pts.back]);
   }
 
   if (monotonicY(pts)) {
-    appender.put(makeQuad(pts));
+    appendMonoQuad(appender, pts);
   } else {
     appendSplittedQuad(appender, pts);
   }
+}
+
+void clippedQuadraticEdge(R, T)(ref R appender, in Point!T[] pts, in IRect clip)
+  in {
+    assert(pts.length == 3);
+  } body {
+
+  if (isLine(pts)) {
+    return clippedLineEdge(appender, [pts.front, pts.back], clip);
+  }
+
+  if (monotonicY(pts)) {
+    appendMonoQuad(appender, pts, &clip);
+  } else {
+    appendSplittedQuad(appender, pts, &clip);
+  }
+
 }
 
 package:
@@ -80,9 +100,9 @@ T getTQuad(T)(ref Edge!T pthis, T y) {
                                    y, coeffs, roots));
   auto t = roots[0];
   debug (QUAD) {
-    auto revY = calcTQuad!("y")(t);
-    //      assert(abs(y - revY) < abs(y) * 10 * Edge!T.tol,
-    //       formatString("t:%s y:%s revY:%s edge:%s", t, y, revY, this));
+      auto revY = calcTQuad!("y")(pthis, t);
+      //      assert(abs(y - revY) < abs(y) * 10 * Edge!T.tol,
+      //       formatString("t:%s y:%s revY:%s edge:%s", t, y, revY, this));
   }
   return t;
 }
@@ -114,15 +134,14 @@ private:
  * dy/dt = 2*t(y0-2y1+y2) + 2*(y1-y0)
  * Finding t at the extremum
  */
-void appendSplittedQuad(R, T)(ref R appender, in Point!T[] pts) {
-  assert(pts.length == 3);
+void appendSplittedQuad(R, T)(ref R appender, in Point!T[] pts, const (IRect*) clip=null) {
   T denom = pts[0].y - 2*pts[1].y + pts[2].y;
   T numer = pts[0].y - pts[1].y;
   T tValue;
   if (valid_unit_divide(numer, denom, tValue)) {
     auto ptss = splitBezier!3(pts, tValue);
-    appender.put(makeQuad(ptss[0]));
-    appender.put(makeQuad(ptss[1]));
+    appendMonoQuad(appender, ptss[0], clip);
+    appendMonoQuad(appender, ptss[1], clip);
   } else {
     //! Force monotonic
     Point!T[3] forced = pts[0 .. 3];
@@ -131,8 +150,34 @@ void appendSplittedQuad(R, T)(ref R appender, in Point!T[] pts) {
       ? pts[0].y
       : pts[2].y;
 
-    appender.put(makeQuad(forced));
+    appendMonoQuad(appender, forced, clip);
   }
+}
+
+/**
+ * Constructs a quad bezier, checks for clip bounds and appends a
+ * quad starting a clip.top.
+ */
+void appendMonoQuad(R, T)(ref R appender, in Point!T[] pts, const(IRect*) clip=null)
+  in {
+    assert(monotonicY(pts), to!string(pts));
+  } body {
+
+  auto edge = makeQuad(pts);
+
+  if (!(clip is null)) {
+    if (edge.firstY > clip.bottom || edge.lastY < clip.top)
+      return;
+
+    // clip the quad to top
+    if (edge.firstY < clip.top) {
+      auto t = getTQuad(edge, cast(T)clip.top);
+      auto ptss = splitBezier!3([edge.p0, edge.quad.p1, edge.quad.p2], t);
+      edge = makeQuad(ptss[1]);
+    }
+  }
+
+  appender.put(edge);
 }
 
 unittest {
@@ -159,7 +204,6 @@ Edge!T makeQuad(T)(in Point!T[] pts) {
   return res;
 }
 
-// TODO: move this part into skia.core.geometry
 bool monotonicY(T)(in Point!T[] pts) {
-  return (pts[0].y - pts[1].y) * (pts[1].y - pts[2].y) > 0;
+  return (pts[0].y - pts[1].y) * (pts[1].y - pts[2].y) >= 0;
 }

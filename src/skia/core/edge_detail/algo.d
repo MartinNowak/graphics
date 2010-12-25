@@ -5,7 +5,7 @@ private {
   import std.math : isNaN, abs;
   import std.traits : isFloatingPoint;
 
-  import skia.math.fast_sqrt;
+  import skia.math._;
   import skia.core.point;
 }
 
