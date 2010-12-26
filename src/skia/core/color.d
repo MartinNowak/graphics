@@ -6,16 +6,35 @@ private {
 
 }
 
-
-private uint getShift(string m) {
-  final switch (m) {
-  case "a": return 24;
-  case "r": return 16;
-  case "g": return 8;
-  case "b": return 0;
+uint getShift(char m) {
+  final switch(m) {
+  case 'a': return 24;
+  case 'r': return 16;
+  case 'g': return 8;
+  case 'b': return 0;
   }
 }
+template Shift(char m) {
+  enum Shift = getShift(m);
+}
 
+template StringToMask(string s) {
+  static if (s.length)
+    enum StringToMask = (0xFF << Shift!(s[0])) | StringToMask!(s[1..$]);
+  else
+    enum StringToMask = 0;
+}
+
+template ColorMask(string s) {
+  static assert(s.length <=4 && s.length > 0);
+  enum ColorMask = StringToMask!(s);
+}
+
+unittest {
+  static assert(ColorMask!("rb") == 0x00ff00ff);
+  static assert(ColorMask!("ab") == 0xff0000ff);
+  static assert(ColorMask!("ag") == 0xff00ff00);
+}
 
 struct Color
 {
@@ -38,23 +57,23 @@ struct Color
     this.b = b;
   }
 
-  static uint getAlphaFactor(uint alpha) {
+  static ushort getAlphaFactor(uint alpha) {
     assert(alpha <= 255);
     // This allows to shiftR 8 instead of divide by 255.
-    return alpha + 1;
+    return cast(ushort)(alpha + 1);
   }
-  static uint getInvAlphaFactor(uint alpha) {
+  static ubyte getInvAlphaFactor(uint alpha) {
     assert(alpha <= 255);
-    return 256 - getAlphaFactor(alpha);
+    return cast(ubyte)(256 - getAlphaFactor(alpha));
   }
   Color mulAlpha(uint scale) {
     assert(scale <= 256);
-    enum mask = 0x00ff00ff;
+    enum rb_mask = ColorMask!("rb");
 
     auto c = this.argb;
-    auto rb = ((c & mask) * scale) >> 8;
-    auto ag = ((c >> 8) & mask) * scale;
-    return Color((rb & mask) | (ag & ~mask));
+    auto rb = ((c & rb_mask) * scale) >> 8;
+    auto ag = ((c >> 8) & rb_mask) * scale;
+    return Color((rb & rb_mask) | (ag & ~rb_mask));
   }
   Color opBinary(string op)(Color rhs)
     if (op == "+") {
@@ -69,19 +88,19 @@ struct Color
 private:
   mixin template SetGet(string s)
   {
-    mixin("@property ubyte "~s~"() const { return get!(\""~s~"\"); }");
-    mixin("@property ref Color "~s~"(ubyte v) { return set!(\""~s~"\")(v); }");
+    mixin("@property ubyte "~s~"() const { return get!('"~s~"'); }");
+    mixin("@property ref Color "~s~"(ubyte v) { return set!('"~s~"')(v); }");
   }
 
-  ref Color set(string m)(ubyte val)
+  ref Color set(char m)(ubyte val)
   {
-    static const KShift = getShift(m);
+    static const KShift = Shift!(m);
     this.argb = this.argb & ~(0xff << KShift) | (val << KShift);
     return this;
   }
 
-  const(ubyte) get(string m)() const {
-    static const KShift = getShift(m);
+  const(ubyte) get(char m)() const {
+    static const KShift = Shift!(m);
     return this.argb >> KShift & 0xff;
   }
 }

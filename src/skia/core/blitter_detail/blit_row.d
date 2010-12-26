@@ -20,7 +20,7 @@ static void Color32(Range)(Range range, PMColor pmColor) {
   }
 }
 
-static void Color32(Range, Range2)(Range output, Range2 alpha, Color color) {
+static void Color32(Range, Range2)(Range output, Range2 alpha, PMColor color) {
   auto colorA = color.a;
   while (!alpha.empty) {
     if (alpha.front > 0) {

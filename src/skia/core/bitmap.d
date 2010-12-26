@@ -57,7 +57,7 @@ class Bitmap {
   ubyte flags;
   ColorTable colorTable;
   // TODO: different storage for kA1Bitmap.Config.needed
-  Color[] buffer;
+  PMColor[] buffer;
 
   this() {
     this(Config.NoConfig, 0, 0);

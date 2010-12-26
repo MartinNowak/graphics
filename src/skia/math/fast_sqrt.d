@@ -1,7 +1,7 @@
 module skia.math.fast_sqrt;
 
 private {
-  version(unittest) import std.math : sqrt;
+  import std.math : sqrt;
 }
 
 version(NO_SSE) {
