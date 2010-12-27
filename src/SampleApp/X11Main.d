@@ -12,7 +12,7 @@ private {
   import skia.math.fpu;
   import circlesview;
   import sineview;
-  import RectView;
+  import rectview;
   import quickcheck.unittestrunner;
 }
 
