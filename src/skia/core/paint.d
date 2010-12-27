@@ -7,6 +7,9 @@ private {
 
   import skia.core.color;
   import skia.core.drawlooper;
+  import skia.core.path;
+  import skia.core.patheffect;
+  import skia.core.stroke;
 
   version(No_DefaultAntiAlias) {
     enum DefaultAntiAlias = false;
@@ -19,6 +22,10 @@ class Paint
 {
   Color color;
   DrawLooper drawLooper;
+
+  //! TODO: review alignment
+  PathEffect pathEffect;
+  int strokeWidth;
 
   @property string toString() const {
     auto writer = appender!string();
@@ -42,16 +49,16 @@ class Paint
   enum Join { Miter, Join, Bevel, }
   enum Align { Left, Center, Right, }
   mixin(bitfields!(
-      uint, "fillStyle", 2,
-      uint, "capStyle", 2,
-      uint, "joinStyle", 2,
-      uint, "alignment", 2));
+      Fill, "fillStyle", 2,
+      Cap, "capStyle", 2,
+      Join, "joinStyle", 2,
+      Align, "alignment", 2));
 
   enum TextEncoding { UTF8, UTF16, GlyphId, }
   enum TextBufferDirection : bool { Forward, Backward, }
   mixin(bitfields!(
-      uint, "textEncoding", 2,
-      bool, "textBufferDirection", 1,
+      TextEncoding, "textEncoding", 2,
+      TextBufferDirection, "textBufferDirection", 1,
       uint, "", 5));
 
 
@@ -60,6 +67,50 @@ class Paint
     this.capStyle = Cap.Butt;
     this.joinStyle = Join.Miter;
     this.antiAlias = DefaultAntiAlias;
+  }
+
+  Path getFillPath(in Path src, out bool doFill) const {
+    int width = this.strokeWidth;
+
+    final switch (this.fillStyle) {
+    case Fill.Fill:
+      width = -1; // mark it as no-stroke
+      break;
+    case Fill.Stroke:
+      break;
+    case Fill.FillAndStroke:
+      if (width == 0)
+        width = -1; // mark it as no-stroke
+      break;
+    }
+
+    Path resultPath;
+    resultPath = src;
+    if (this.pathEffect) {
+      // lie to the pathEffect if our style is strokeandfill, so that it treats us as just fill
+      if (this.fillStyle == Fill.FillAndStroke)
+        width = -1; // mark it as no-stroke
+
+      auto effectPath = this.pathEffect.filterPath(resultPath, width);
+      if (!effectPath.empty)
+        resultPath = effectPath;
+
+      // restore the width if we earlier had to lie, and if we're still set to no-stroke
+      // note: if we're now stroke (width >= 0), then the pathEffect asked for that change
+      // and we want to respect that (i.e. don't overwrite their setting for width)
+      if (this.fillStyle == Fill.FillAndStroke && width < 0) {
+        width = this.strokeWidth;
+        if (width == 0)
+          width = -1;
+      }
+    }
+
+    if (width > 0 && !resultPath.empty) {
+      auto stroker = Stroke(this, width);
+      resultPath = stroker.strokePath(resultPath);
+    }
+    doFill = width > 0;
+    return resultPath;  // return true if we're filled, or false if we're hairline (width == 0)
   }
 }
 
