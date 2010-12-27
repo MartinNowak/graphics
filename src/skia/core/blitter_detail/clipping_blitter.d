@@ -25,7 +25,7 @@ class RectBlitter : Blitter {
     xEnd = clampToRange!(float)(xEnd, this.clip.left, this.clip.right);
 
     if (xStart < xEnd)
-      this.blitter,blitFH(y, xStart, xEnd);
+      this.blitter.blitFH(y, xStart, xEnd);
   }
 }
 
