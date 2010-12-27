@@ -143,9 +143,12 @@ private void walkEdges(alias blitLineFunc, Range)(
     yStart, yEnd);
 
   FEdge[] workingSet;
-  // TODO: Allow non-zero winding rule.
-  // const int windingMask = (fillType & 0x1) ? 1 : -1;
-  const int windingMask = 1;
+  const int windingMask =
+    (fillType == Path.FillType.Winding ||
+     fillType == Path.FillType.InverseWinding)
+    ? -1
+    : 1;
+
   auto curY = yStart;
 
   while (curY < yEnd) {
@@ -247,6 +250,7 @@ unittest
   path.moveTo(point(0.0f, 0.0f));
   path.rLineTo(point(10.0f, 10.0f));
   path.cubicTo(point(30.0f, 20.0f), point(50.0f, 10.0f), point(60.0f, -10.0f));
+  path.fillType = Path.FillType.EvenOdd;
   auto clip = Region(IRect(100, 100));
   scope auto blitter = new RgnBuilder();
 
