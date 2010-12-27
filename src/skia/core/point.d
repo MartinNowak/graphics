@@ -61,9 +61,9 @@ struct Point (T)
 
   /** Return the euclidian distance from (0,0) to the point
    */
-  T length()
+  @property real length()
   {
-    return to!T(std.math.sqrt(x * x + y * y));
+    return std.math.sqrt(x * x + y * y);
   }
 
   /** Set the point (vector) to be unit-length in the same direction as it
@@ -72,16 +72,19 @@ struct Point (T)
    *  return true.
    */
   void normalize() {
-    this.setLength(1);
+    return this.setLength(1);
   }
 
   /** Set the point (vector) to be unit-length in the same direction as the
    *  x,y params. If the vector (x,y) has a degenerate length (i.e. nearly 0)
    *  then return false and do nothing, otherwise return true.
    */
+  void setNormalize(Point!T pt) {
+    return setNormalize(pt.x, pt.y);
+  }
   void setNormalize(T x, T y) {
     this.set(x, y);
-    this.normalize();
+    return this.normalize();
   }
 
   /** Scale the point (vector) to have the specified length, and return that
@@ -89,7 +92,10 @@ struct Point (T)
    *   do nothing and return false, otherwise return true.
    */
   void setLength(T length) {
-    this.setLength(this.x, this.y, length);
+    assert(this.length > 10 * float.epsilon, to!string(this));
+    auto scale = length / this.length;
+    this.x = to!T(scale * this.x);
+    this.y = to!T(scale * this.y);
   }
 
   /** Set the point (vector) to have the specified length in the same
@@ -97,25 +103,25 @@ struct Point (T)
    *  (i.e. nearly 0) then return false and do nothing, otherwise return true.
    */
   void setLength(T x, T y, T length) {
-    double mag = Point!double(x, y).length();
-    auto _x = x * length / mag;
-    auto _y = x * length / mag;
-    this.x = to!T(_x);
-    this.y = to!T(_y);
+    this.set(x, y);
+    return this.setLength(length);
   }
 
   /** Scale the point's coordinates by scale, writing the answer into dst.
    *  It is legal for dst == this.
    */
-  void scale(T2)(T2 scale, ref Point dst) const
+  void scale(T2)(T2 scale, ref Point!T dst) const
   {
-    dst.set(to!T(this.x * scale), to!T(this.y * scale));
+    dst = this;
+    dst.scale(scale);
   }
 
   /** Scale the point's coordinates by scale, writing the answer back into
       the point.
   */
-  void scale(T2)(T2 scale) { this.scale(scale, this); }
+  void scale(T2)(T2 scale) {
+    this.set(to!T(this.x * scale), to!T(this.y * scale));
+  }
 
 
   /** static if (isSigned!T) */
@@ -125,26 +131,32 @@ struct Point (T)
   /** Rotate the point clockwise by 90 degrees, writing the answer into dst.
    *  It is legal for dst == this.
    */
-  void rotateCW(ref Point dst) const {
-    dst = Point(-this.y, this.x);
+  void rotateCW(out Point dst) const {
+    dst = this;
+    dst.rotateCW();
   }
 
   /** Rotate the point clockwise by 90 degrees, writing the answer back into
    *  the point.
    */
-  void rotateCW() { this.rotateCW(this); }
+  void rotateCW() {
+    this.set(-this.y, this.x);
+  }
 
   /** Rotate the point counter-clockwise by 90 degrees, writing the answer
    *  into dst. It is legal for dst == this.
    */
-  void rotateCCW(ref Point dst) const {
-    dst = Point(this.y, -this.x);
+  void rotateCCW(out Point dst) const {
+    dst = this;
+    dst.rotateCCW();
   }
 
   /** Rotate the point counter-clockwise by 90 degrees, writing the answer
    *  back into the point.
    */
-  void rotateCCW() { this.rotateCCW(this); }
+  void rotateCCW() {
+    this.set(this.y, -this.x);
+  }
 
   /** Negate the point's coordinates
    */
@@ -224,7 +236,7 @@ struct Point (T)
 /** Returns the euclidian distance between a and b
  */
 T distance(T)(Point!T a, Point!T b) {
-  Point tmp = a - b;
+  Point!T tmp = a - b;
   return tmp.length();
 }
 
