@@ -79,26 +79,30 @@ public:
     if (this.clip.empty)
       return;
 
-    // TODO: query the paint
-    auto doFill = paint.fillStyle == Paint.Fill.Fill
-      || paint.fillStyle == Paint.Fill.FillAndStroke;
+    bool doFill;
+    Path toBlit;
+    if (paint.pathEffect || paint.fillStyle != Paint.Fill.Fill) {
+      toBlit = paint.getFillPath(path, doFill);
+    } else {
+      doFill = true;
+      toBlit = path;
+    }
 
-    auto transPath = path.transformed(this.matrix);
+    toBlit.transform(this.matrix);
     if (this.bounder
-        && !this.bounder.doPath(transPath, paint, doFill))
+        && !this.bounder.doPath(toBlit, paint, doFill))
         return;
 
-    // TODO: quickReject on clip before building blitter
     Blitter blitter = this.getBlitter(paint);
 
     if (doFill) {
       return paint.antiAlias ?
-        Scan.antiFillPath(transPath, this.clip, blitter)
-        : Scan.fillPath(transPath, this.clip, blitter);
+        Scan.antiFillPath(toBlit, this.clip, blitter)
+        : Scan.fillPath(toBlit, this.clip, blitter);
     } else {
       return paint.antiAlias ?
-        Scan.antiHairPath(transPath, this.clip, blitter)
-        : Scan.hairPath(transPath, this.clip, blitter);
+        Scan.antiHairPath(toBlit, this.clip, blitter)
+        : Scan.hairPath(toBlit, this.clip, blitter);
     }
   }
 
