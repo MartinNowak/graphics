@@ -173,7 +173,9 @@ void appendMonoQuad(R, T)(ref R appender, in Point!T[] pts, const(IRect*) clip=n
     if (edge.firstY < clip.top) {
       auto t = getTQuad(edge, cast(T)clip.top);
       auto ptss = splitBezier!3([edge.p0, edge.quad.p1, edge.quad.p2], t);
+      auto winding = edge.winding;
       edge = makeQuad(ptss[1]);
+      edge.winding = winding;
     }
   }
 

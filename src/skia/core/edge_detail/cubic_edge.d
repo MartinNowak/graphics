@@ -247,7 +247,9 @@ void appendMonoCubic(R, T)(ref R appender, in Point!T[] pts, const(IRect*) clip=
       auto t = getTCubic(edge, cast(T)clip.top);
       auto ptss =
         splitBezier!4([edge.p0, edge.cubic.p1, edge.cubic.p2, edge.cubic.p3], t);
+      auto winding = edge.winding;
       edge = makeCubic(ptss[1]);
+      edge.winding = winding;
     }
   }
 
