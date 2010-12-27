@@ -252,6 +252,9 @@ T crossProduct(T)(Point!T a, Point!T b) {
   return a.x * b.y - a.y * b.x;
 }
 
+alias Point Vector;
+alias Vector!float FVector;
+alias Vector!double DVector;
 
 unittest
 {
