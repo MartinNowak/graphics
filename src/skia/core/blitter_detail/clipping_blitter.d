@@ -18,11 +18,11 @@ class RectBlitter : Blitter {
 
   void blitFH(float y, float xStart, float xEnd)
   {
-    if (!fitsIntoRange!(float, "[)")(y, this.clip.top, this.clip.bottom))
+    if (!fitsIntoRange!("[)")(y, this.clip.top, this.clip.bottom))
       return;
 
-    xStart = clampToRange!(float)(xStart, this.clip.left, this.clip.right);
-    xEnd = clampToRange!(float)(xEnd, this.clip.left, this.clip.right);
+    xStart = clampToRange(xStart, this.clip.left, this.clip.right);
+    xEnd = clampToRange(xEnd, this.clip.left, this.clip.right);
 
     if (xStart < xEnd)
       this.blitter.blitFH(y, xStart, xEnd);

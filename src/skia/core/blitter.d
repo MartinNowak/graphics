@@ -18,6 +18,8 @@ private {
   import skia.core.region;
   import skia.core.scan : AAScale;
   import skia.core.blitter_detail._;
+
+  import skia.math.clamp;
 }
 
 class Blitter
@@ -123,13 +125,11 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
   }
 
   override void blitFH(float y, float xStart, float xEnd) {
-    auto xc = max(0.0001f, xStart);
-    auto ixStart = to!int(ceil(xc));
-    aaLine[ixStart - 1] += to!ubyte((ixStart - xc) * 255) >> Shift;
-    auto xec = min(aaLine.length - 0.0001f, xEnd);
-    auto ixEnd = to!int(floor(xec));
+    auto ixStart = to!int(ceil(xStart + 1e-5f));
+    aaLine[ixStart - 1] += to!ubyte(clampToRange((ixStart - xStart) * 255, 0, 255)) >> Shift;
+    auto ixEnd = to!int(floor(xEnd - 1e-5f));
     if (ixStart < ixEnd)
-      aaLine[ixEnd] += to!ubyte((xec - ixEnd) * 255) >> Shift;
+      aaLine[ixEnd] += to!ubyte(clampToRange((xEnd - ixEnd) * 255, 0, 255)) >> Shift;
     if (xEnd > xStart) {
       for (auto i = ixStart; i < ixEnd; ++i)
         aaLine[i] += 255 >> Shift;

@@ -9,17 +9,12 @@ private {
   import skia.core.edge_detail.line_edge;
   import skia.core.rect;
   import skia.core.point;
+  import skia.math.fixed_ary;
 }
 
-debug=QUAD;
-
-void quadraticEdge(R, T)(ref R appender, in Point!T[] pts)
-  in {
-    assert(pts.length == 3);
-  } body {
-
+void quadraticEdge(R, T)(ref R appender, Point!T[3] pts) {
   if (isLine(pts)) {
-    return lineEdge(appender, [pts.front, pts.back]);
+    return lineEdge(appender, fixedAry!2(pts.front, pts.back));
   }
 
   if (monotonicY(pts)) {
@@ -29,13 +24,10 @@ void quadraticEdge(R, T)(ref R appender, in Point!T[] pts)
   }
 }
 
-void clippedQuadraticEdge(R, T)(ref R appender, in Point!T[] pts, in IRect clip)
-  in {
-    assert(pts.length == 3);
-  } body {
-
+void clippedQuadraticEdge(R, T)(ref R appender, Point!T[3] pts, in IRect clip) {
   if (isLine(pts)) {
-    return clippedLineEdge(appender, [pts.front, pts.back], clip);
+    Point!T[2] line = [pts.front, pts.back];
+    return clippedLineEdge(appender, line, clip);
   }
 
   if (monotonicY(pts)) {
@@ -50,80 +42,37 @@ package:
 
 struct QuadraticEdge(T) {
   @property string toString() const {
-    auto msg = "QuadraticEdge!" ~ to!string(typeid(T)) ~
-      " a, b, c: " ~ to!string(this.coeffs);
-    debug(QUAD) {
-      msg ~= " p1: " ~ to!string(this.p1) ~
-        " p2: " ~ to!string(this.p2);
-    }
-    return msg;
+    return "QuadraticEdge!" ~ to!string(typeid(T)) ~
+      " pts: " ~ to!string(this.pts);
   }
-  this(Point!T p0, Point!T p1, Point!T p2) {
-    this.coeffs[0] = p0.y - 2*p1.y + p2.y;
-    this.coeffs[1] = (-2*p0.y + 2*p1.y);
-    this.coeffs[2] = p0.y;
-    this.x0 = p0.x;
-    this.x1 = p1.x;
-    this.x2 = p2.x;
-    debug(QUAD) {
-      this.p1 = p1;
-      this.p2 = p2;
-    }
+  this(Point!T[3] pts) {
+    assert(pts.front.y <= pts.back.y);
+    this.pts = pts;
   }
-  T[3] coeffs;
-  T x0, x1, x2;
-  debug(QUAD) {
-    Point!T p1, p2;
-  }
+  Point!T[3] pts;
 };
 
 
 T updateQuad(T)(ref Edge!T pthis, T y) {
   assert(pthis.type == EdgeType.Quad);
 
-  auto t = getTQuad(pthis, y);
-  pthis.curX = calcTQuad!("x")(pthis, t);
+  auto t = getTQuad(pthis.quad.pts, y);
+  pthis.curX = calcBezier!("x")(pthis.quad.pts, t);
   return pthis.curX;
 }
 
-T getTQuad(T)(ref Edge!T pthis, T y) {
-  if (y >= pthis.lastY)
+T getTQuad(T)(ref Point!T[3] pts, T y) {
+  if (y >= pts.back.y)
     return 1.0;
-  if (y <= pthis.firstY)
+  if (y <= pts.front.y)
     return 0.0;
 
   T[2] roots;
-  auto coeffs = pthis.quad.coeffs;
-  coeffs[2] -= y;
-  auto nRoots = quadUnitRoots(coeffs, roots);
-  assert(nRoots == 1, formatString("y:%.7f coeffs:%s roots:%s",
-                                   y, coeffs, roots));
-  auto t = roots[0];
-  debug (QUAD) {
-      auto revY = calcTQuad!("y")(pthis, t);
-      //      assert(abs(y - revY) < abs(y) * 10 * Edge!T.tol,
-      //       formatString("t:%s y:%s revY:%s edge:%s", t, y, revY, this));
-  }
-  return t;
+  auto nRoots = quadIntersection(pts, y, roots);
+  assert(nRoots == 1, formatString("y:%.7f quadPts:%s roots:%s",
+                                   y, pts, roots));
+  return roots[0];
 }
-
-T calcTQuad(string v, T)(in Edge!T pthis, T t) {
-  assert(pthis.type == EdgeType.Quad);
-  static if (v == "y") {
-    debug (QUAD) {
-      auto mt = 1 - t;
-      return mt*mt*pthis.p0.y + 2*t*mt*pthis.quad.p1.y + t*t*pthis.quad.p2.y;
-    }
-    auto a = pthis.quad.coeffs[0];
-    auto b = pthis.quad.coeffs[1];
-    auto c = pthis.quad.coeffs[2];
-    return t*t*a + t*b + c;
-  } else {
-    auto oneMt = 1 - t;
-    return oneMt*oneMt*pthis.quad.x0 + 2*oneMt*t*pthis.quad.x1 + t*t*pthis.quad.x2;
-  }
-}
-
 
 private:
 
@@ -134,23 +83,21 @@ private:
  * dy/dt = 2*t(y0-2y1+y2) + 2*(y1-y0)
  * Finding t at the extremum
  */
-void appendSplittedQuad(R, T)(ref R appender, in Point!T[] pts, const (IRect*) clip=null) {
+void appendSplittedQuad(R, T)(ref R appender, Point!T[3] pts, const (IRect*) clip=null) {
   T denom = pts[0].y - 2*pts[1].y + pts[2].y;
   T numer = pts[0].y - pts[1].y;
   T tValue;
   if (valid_unit_divide(numer, denom, tValue)) {
-    auto ptss = splitBezier!3(pts, tValue);
+    auto ptss = splitBezier(pts, tValue);
     appendMonoQuad(appender, ptss[0], clip);
     appendMonoQuad(appender, ptss[1], clip);
   } else {
-    //! Force monotonic
-    Point!T[3] forced = pts[0 .. 3];
     // set middle y to the closest y of border points
-    forced[1].y = abs(pts[0].y - pts[1].y) < abs(pts[2].y - pts[1].y)
+    pts[1].y = abs(pts[0].y - pts[1].y) < abs(pts[2].y - pts[1].y)
       ? pts[0].y
       : pts[2].y;
 
-    appendMonoQuad(appender, forced, clip);
+    appendMonoQuad(appender, pts, clip);
   }
 }
 
@@ -158,54 +105,52 @@ void appendSplittedQuad(R, T)(ref R appender, in Point!T[] pts, const (IRect*) c
  * Constructs a quad bezier, checks for clip bounds and appends a
  * quad starting a clip.top.
  */
-void appendMonoQuad(R, T)(ref R appender, in Point!T[] pts, const(IRect*) clip=null)
-  in {
-    assert(monotonicY(pts), to!string(pts));
-  } body {
+void appendMonoQuad(R, T)(ref R appender, Point!T[3] pts, const(IRect*) clip=null) {
+  auto w = sortPoints(pts);
+  auto edge = makeQuad(pts, w);
 
-  auto edge = makeQuad(pts);
+  if (!clip || clipPoints(pts, *clip))
+    appender.put(makeQuad(pts, w));
+}
 
-  if (!(clip is null)) {
-    if (edge.firstY > clip.bottom || edge.lastY < clip.top)
-      return;
+bool clipPoints(T)(ref Point!T[3] pts, in IRect clip) {
+  assert(pts.front.y <= pts.back.y);
+  if (pts.front.y > clip.bottom || pts.back.y < clip.top)
+    return false;
 
-    // clip the quad to top
-    if (edge.firstY < clip.top) {
-      auto t = getTQuad(edge, cast(T)clip.top);
-      auto ptss = splitBezier!3([edge.p0, edge.quad.p1, edge.quad.p2], t);
-      auto winding = edge.winding;
-      edge = makeQuad(ptss[1]);
-      edge.winding = winding;
-    }
+  if (pts.front.y < clip.top) {
+    auto t = getTQuad(pts, cast(T)clip.top);
+    auto ptss = splitBezier(pts, t);
+    pts = ptss[1];
+
+    //! avoid rounding errors;
+    assert(abs(pts.front.y - clip.top) < 10 * float.epsilon);
+    pts.front.y = clip.top;
   }
-
-  appender.put(edge);
+  return true;
 }
 
 unittest {
-  FPoint[3] pts = [FPoint(3.12613, 0.230524),
-                   FPoint(4.67817, 2.7919),
-                   FPoint(4.38304, 0.389878)];
+  auto pts = fixedAry!3(FPoint(3.12613, 0.230524),
+                             FPoint(4.67817, 2.7919),
+                             FPoint(4.38304, 0.389878));
   auto app = appender!(Edge!float[])();
   quadraticEdge(app, pts);
   assert(app.data.length == 2);
 }
 
-Edge!T makeQuad(T)(in Point!T[] pts) {
-  assert(pts.length == 3);
+Edge!T makeQuad(T)(in Point!T[3] pts, byte winding) {
+  if (isLine(pts)) {
+    return makeLine(fixedAry!2(pts.front, pts.back), winding);
+  }
 
-  if (isLine(pts))
-    return makeLine([pts[0], pts[2]]);
-
-  auto topI = pts[0].y > pts[2].y ? 2 : 0;
-  auto botI = 2 - topI;
-  auto res = Edge!T(pts[topI], pts[botI].y);
-  res.winding = topI > botI ? 1 : -1;
+  auto res = Edge!T(pts.front.x, pts.back.y);
+  res.winding = winding;
   res.type = EdgeType.Quad;
-  res.quad = QuadraticEdge!T(pts[topI], pts[1], pts[botI]);
+  res.quad = QuadraticEdge!T(pts);
   return res;
 }
 
 bool monotonicY(T)(in Point!T[] pts) {
-  return (pts[0].y - pts[1].y) * (pts[1].y - pts[2].y) >= 0;
+  return (pts[0].y - pts[1].y) * (pts[1].y - pts[2].y) >= -1e-3;
 }

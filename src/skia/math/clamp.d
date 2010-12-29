@@ -5,12 +5,12 @@ private {
   import std.algorithm : min, max;
 }
 
-T clampToRange(T)(T value, T left, T right) {
+T1 clampToRange(T1, T2, T3)(T1 value, T2 left, T3 right) {
   assert(right >= left);
   return max(left, min(value, right));
 }
 
-bool fitsIntoRange(T, string interval="[)")(T value, T left, T right) {
+bool fitsIntoRange(string interval="[)", T1, T2, T3)(T1 value, T2 left, T3 right) {
   static assert(interval.length == 2);
   return CmpOp!(interval[0])(left, value) && CmpOp!(interval[1])(value, right);
 }

@@ -3,8 +3,10 @@ module skia.core.edge_detail.line_edge;
 private {
   import std.algorithm : swap;
   import std.conv : to;
+  import std.array;
 
   import skia.core.edge_detail.edge;
+  import skia.core.edge_detail.algo;
   import skia.core.rect;
   import skia.core.point;
   import skia.math.clamp;
@@ -12,27 +14,35 @@ private {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void lineEdge(R, T)(ref R appender, in Point!T[] pts) {
-  assert(pts.length == 2);
+//! TODO: really reject horizontal edges?
+void lineEdge(R, T)(ref R appender, Point!T[2] pts) {
   if (pts[0].y == pts[1].y)
     return;
-  appender.put(makeLine(pts));
+
+  auto w = sortPoints(pts);
+  appender.put(makeLine(pts, w));
 }
 
-void clippedLineEdge(R, T)(ref R appender, in Point!T[] pts, in IRect clip) {
-  assert(pts.length == 2);
+void clippedLineEdge(R, T)(ref R appender, Point!T[2] pts, in IRect clip) {
   if (pts[0].y == pts[1].y)
     return;
-  auto edge = makeLine(pts);
-  if (edge.firstY > clip.bottom || edge.lastY < clip.top)
-    return;
+
+  auto w = sortPoints(pts);
+  if (clipPoints(pts, clip))
+    appender.put(makeLine(pts, w));
+}
+
+bool clipPoints(T)(ref Point!T[2] pts, in IRect clip) {
+  assert(pts.front.y <= pts.back.y);
+  if (pts.front.y > clip.bottom || pts.back.y < clip.top)
+    return false;
 
   // clip the line to top
-  if (edge.firstY < clip.top) {
-    edge.updateEdge(clip.top);
-    edge.p0 = Point!T(edge.curX, clip.top);
+  if (pts.front.y < clip.top) {
+    pts.front.x = pts.front.x + (clip.top - pts.front.y) * slope(pts);
+    pts.front.y = clip.top;
   }
-  appender.put(edge);
+  return true;
 }
 
 /** A fully clipped line, but rather using thi only clip line's top and clip the rest while blitting.
@@ -168,16 +178,23 @@ package:
 struct LineEdge(T) {
   @property string toString() const {
     return "LineEdge!" ~ to!string(typeid(T)) ~
+      " pts: " ~ to!string(pts) ~
       " dx: " ~ to!string(dx);
   }
-  this(Point!T p0, Point!T p1) {
-    assert(p1.y >= p0.y);
-    if (p0.y == p1.y)
-      this.dx = 0;
-    else
-      this.dx = (p1.x - p0.x) / (p1.y - p0.y);
+  this(Point!T[2] pts) {
+    assert(pts.front.y <= pts.back.y);
+    this.pts = pts;
+    this.dx = slope(pts);
   }
+  Point!T[2] pts;
   T dx;
+}
+
+T slope(T)(Point!T[2] pts) {
+  if (pts.front.y == pts.back.y)
+    return 0;
+  else
+    return (pts.back.x - pts.front.x) / (pts.back.y - pts.front.y);
 }
 
 T updateLine(T)(ref Edge!T pthis, T y) {
@@ -199,13 +216,10 @@ T calcTLine(string v, T)(in Edge!T pthis, T t) {
 }
 
 
-Edge!T makeLine(T)(in Point!T[] pts) {
-  assert(pts.length == 2);
-  auto topI = pts[0].y > pts[1].y ? 1 : 0;
-  auto botI = 1 - topI;
-  auto res = Edge!T(pts[topI], pts[botI].y);
-  res.winding = topI > botI ? 1 : -1;
+Edge!T makeLine(T)(Point!T[2] pts, byte winding) {
+  auto res = Edge!T(pts.front.x, pts.back.y);
+  res.winding = winding;
   res.type = EdgeType.Line;
-  res.line = LineEdge!T(pts[topI], pts[botI]);
+  res.line = LineEdge!T(pts);
   return res;
 }

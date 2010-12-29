@@ -22,15 +22,15 @@ QCheckResult checkFitsIntoRange(T)(T value, T left, T right) {
   assert(doesFit ^ (value < left || value >= right));
 
   //! default parameter, left closed, right open.
-  assert(doesFit == fitsIntoRange!(T, "[)")(value, left, right));
+  assert(doesFit == fitsIntoRange!("[)")(value, left, right));
 
-  doesFit = fitsIntoRange!(T, "[]")(value, left, right);
+  doesFit = fitsIntoRange!("[]")(value, left, right);
   assert(doesFit ^ (value < left || value > right));
 
-  doesFit = fitsIntoRange!(T, "()")(value, left, right);
+  doesFit = fitsIntoRange!("()")(value, left, right);
   assert(doesFit ^ (value <= left || value >= right));
 
-  doesFit = fitsIntoRange!(T, "(]")(value, left, right);
+  doesFit = fitsIntoRange!("(]")(value, left, right);
   assert(doesFit ^ (value <= left || value > right));
 
   return QCheckResult.Ok;

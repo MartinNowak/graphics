@@ -13,15 +13,14 @@ private {
   import skia.core.rect;
   import skia.core.point;
   import skia.math.fast_sqrt;
+  import skia.math.fixed_ary;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
- void cubicEdge(R, T)(ref R appender, in Point!T[] pts, const(IRect*) clip=null) {
-  assert(pts.length == 4);
-
+void cubicEdge(R, T)(ref R appender, Point!T[4] pts, const(IRect*) clip=null) {
   if (isLine(pts)) {
-    return lineEdge(appender, [pts.front, pts.back]);
+    return lineEdge(appender, fixedAry!2(pts.front, pts.back));
   }
 
   T[2] unitRoots;
@@ -32,13 +31,13 @@ private {
   if (nUnitRoots == 0) {
     appendMonoCubic(appender, pts, clip);
   } else if (nUnitRoots == 1) {
-    auto ptss = splitBezier!4(pts, unitRoots[0]);
+    auto ptss = splitBezier(pts, unitRoots[0]);
     appendMonoCubic(appender, ptss[0], clip);
     appendMonoCubic(appender, ptss[1], clip);
   } else {
     assert(nUnitRoots == 2);
 
-    auto ptss = splitBezier!4(pts, unitRoots[0]);
+    auto ptss = splitBezier(pts, unitRoots[0]);
     appendMonoCubic(appender, ptss[0], clip);
     T sndRoot = (unitRoots[1] - unitRoots[0]) / (1 - unitRoots[0]);
 
@@ -52,13 +51,13 @@ private {
         assert(abs(sndRoot - 1) < 5e-4);
       }
     }
-    ptss = splitBezier!4(ptss[1], sndRoot);
+    ptss = splitBezier(ptss[1], sndRoot);
     appendMonoCubic(appender, ptss[0], clip);
     appendMonoCubic(appender, ptss[1], clip);
   }
 }
 
-void clippedCubicEdge(R, T)(ref R appender, in Point!T[] pts, in IRect clip) {
+void clippedCubicEdge(R, T)(ref R appender, Point!T[4] pts, in IRect clip) {
   cubicEdge(appender, pts, &clip);
 }
 
@@ -67,25 +66,17 @@ package:
 struct CubicEdge(T) {
   @property string toString() const {
     return "CubicEdge!" ~ to!string(typeid(T)) ~
-      " p1: " ~ to!string(p1) ~
-      " p2: " ~ to!string(p2) ~
-      " p3: " ~ to!string(p3) ~
+      " pts: " ~ to!string(this.pts) ~
       " oldT: " ~ to!string(oldT);
   }
 
-  this(Point!T p0, Point!T p1, Point!T p2, Point!T p3) {
-    Point!T[4] pts = [p0, p1, p2, p3];
+  this(Point!T[4] pts) {
     fixRoundingErrors(pts);
     assert(pts[0].y <= pts[1].y && pts[2].y <= pts[3].y);
-    // TODO: store coefficients rather than points.
-    this.p1 = pts[1];
-    this.p2 = pts[2];
-    this.p3 = pts[3];
+    this.pts = pts;
     this.oldT = 0.0;
   }
-  Point!T p1;
-  Point!T p2;
-  Point!T p3;
+  Point!T[4] pts;
   T oldT;
 };
 
@@ -97,24 +88,23 @@ T updateCubic(T)(ref Edge!T pthis, T y, T Step){
   assert(Step > 0);
   assert(pthis.type == EdgeType.Cubic);
   auto a = pthis.cubic.oldT;
-  auto ya = calcTCubic!("y")(pthis, a) - y;
+  auto ya = calcBezier!("y")(pthis.cubic.pts, a) - y;
   if (ya > -1e-5) {
     assert(ya < Edge!T.tol, "tolerance " ~ to!string(ya));
     return pthis.curX;
   }
 
-  auto slope = cubicDerivate(
-    [pthis.p0, pthis.cubic.p1, pthis.cubic.p2, pthis.cubic.p3],
-    pthis.cubic.oldT);
+  auto slope = cubicDerivate(pthis.cubic.pts, pthis.cubic.oldT);
   assert(slope >= 0);
 
   T b = 1.0;
   if (slope > 1e-3) {
     b = min(1.0, pthis.cubic.oldT + 1.5 * Step / slope);
   }
-  auto yb = calcTCubic!("y")(pthis, b) - y;
-  auto t = updateCubicImpl(pthis, y, a, ya, b, yb);
-  pthis.curX = calcTCubic!("x")(pthis, t);
+  auto yb = calcBezier!("y")(pthis.cubic.pts, b) - y;
+  auto t = updateCubicImpl(pthis.cubic.pts, y, a, ya, b, yb);
+  pthis.cubic.oldT = t;
+  pthis.curX = calcBezier!("x")(pthis.cubic.pts, t);
   return pthis.curX;
 }
 
@@ -125,14 +115,14 @@ T updateCubic(T)(ref Edge!T pthis, T y, T Step){
  */
 T updateCubic(T)(ref Edge!T pthis, T y) {
   auto t = getTCubic(pthis, y);
-  pthis.curX = calcTCubic!("x")(pthis, t);
+  pthis.curX = calcBezier!("x")(pthis.cubic.pts, t);
   return pthis.curX;
 }
 
 T getTCubic(T)(ref Edge!T pthis, T y) {
   assert(pthis.type == EdgeType.Cubic);
   auto a = pthis.cubic.oldT;
-  auto ya = calcTCubic!("y")(pthis, a) - y;
+  auto ya = calcBezier!("y")(pthis.cubic.pts, a) - y;
   if (ya > -1e-5) {
     assert(ya < Edge!T.tol);
     return pthis.curX;
@@ -142,25 +132,27 @@ T getTCubic(T)(ref Edge!T pthis, T y) {
          formatString("ya over zero ya:%.7f a:%.7f", ya, a));
 
   T b = 1.0;
-  auto yb = calcTCubic!("y")(pthis, b) - y - y;
-  return updateCubicImpl(pthis, y, a, ya, b, yb);
+  auto yb = calcBezier!("y")(pthis.cubic.pts, b) - y;
+  auto newT =updateCubicImpl(pthis.cubic.pts, y, a, ya, b, yb);
+  pthis.cubic.oldT = newT;
+  debug(Illinois) writeln("converged after: ", i,
+                          " at: ", pthis.cubic.oldT);
+  return newT;
 }
 
-T calcTCubic(string v, T)(in Edge!T pthis, T t) {
-  assert(pthis.type == EdgeType.Cubic);
-  auto mt = 1 - t;
-  auto v0 = mixin("pthis.p0."~v);
-  auto v1 = mixin("pthis.cubic.p1."~v);
-  auto v2 = mixin("pthis.cubic.p2."~v);
-  auto v3 = mixin("pthis.cubic.p3."~v);
-  return mt*mt*mt*v0 + 3*t*mt*mt*v1 + 3*t*t*mt*v2 + t*t*t*v3;
+T getTCubic(T)(in Point!T[4] pts, T y) {
+  T a = 0;
+  auto ya = calcBezier!("y")(pts, a) - y;
+  T b = 1.0;
+  auto yb = calcBezier!("y")(pts, b) - y;
+  return updateCubicImpl(pts, y, a, ya, b, yb);
 }
 
 private:
 
 // TODO: have a look at std.numeric.findRoot, does it apply to this
 // problem, is it even a better numerical approach?
-T updateCubicImpl(T)(ref Edge!T pthis, T y, T a, T ya, T b, T yb) {
+T updateCubicImpl(T)(ref Point!T[4] pts, T y, T a, T ya, T b, T yb) {
   debug(Illinois) writeln("updateCubicImpl:", "y ", y,
                         " a ", a, " ya ", ya,
                         " b " , b, " yb ", yb);
@@ -170,7 +162,7 @@ T updateCubicImpl(T)(ref Edge!T pthis, T y, T a, T ya, T b, T yb) {
   if (yb < 0) {
     assert(b <= 1.0);
     b = 1.0;
-    yb = calcTCubic!("y")(pthis, b) - y;
+    yb = calcBezier!("y")(pts, b) - y;
     assert(yb >= ya);
   }
   assert(yb > 0);
@@ -180,15 +172,12 @@ T updateCubicImpl(T)(ref Edge!T pthis, T y, T a, T ya, T b, T yb) {
   for (;;) {
     debug(Illinois) i += 1;
     auto c = (gamma*b*ya - a*yb) / (gamma*ya - yb);
-    auto yc = calcTCubic!("y")(pthis, c) - y;
+    auto yc = calcBezier!("y")(pts, c) - y;
     debug(Illinois) writeln("illinois step: ", i,
                           " a: ", a, " ya: ", ya,
                           " b: ", b, " yb: ", yb,
                           " c: ", c, " yc: ", yc);
     if (abs(yc) < Edge!T.tol) {
-      pthis.cubic.oldT = c;
-      debug(Illinois) writeln("converged after: ", i,
-                              " at: ", pthis.cubic.oldT);
       return c;
     }
     else {
@@ -235,41 +224,40 @@ void fixRoundingErrors(T)(ref Point!T[4] pts) {
  * Constructs a quad bezier, checks for clip bounds and appends a
  * quad starting a clip.top.
  */
-void appendMonoCubic(R, T)(ref R appender, in Point!T[] pts, const(IRect*) clip=null) {
-  auto edge = makeCubic(pts);
+void appendMonoCubic(R, T)(ref R appender, Point!T[4] pts, const(IRect*) clip=null) {
+  auto w = sortPoints(pts);
+  auto edge = makeCubic(pts, w);
 
-  if (!(clip is null)) {
-    if (edge.firstY > clip.bottom || edge.lastY < clip.top)
-      return;
-
-    // clip the quad to top
-    if (edge.firstY < clip.top) {
-      auto t = getTCubic(edge, cast(T)clip.top);
-      auto ptss =
-        splitBezier!4([edge.p0, edge.cubic.p1, edge.cubic.p2, edge.cubic.p3], t);
-      auto winding = edge.winding;
-      edge = makeCubic(ptss[1]);
-      edge.winding = winding;
-    }
-  }
-
-  appender.put(edge);
+  if (!clip || clipPoints(pts, *clip))
+    appender.put(makeCubic(pts, w));
 }
 
-Edge!T makeCubic(T)(in Point!T[] pts) {
-  assert(pts.length == 4);
+bool clipPoints(T)(ref Point!T[4] pts, in IRect clip) {
+  assert(pts.front.y <= pts.back.y);
+  if (pts.front.y > clip.bottom || pts.back.y < clip.top)
+    return false;
 
-  if (isLine(pts))
-    makeLine([pts[0], pts[3]]);
+  // clip the line to top
+  if (pts.front.y < clip.top) {
+    auto t = getTCubic(pts, cast(T)clip.top);
+    auto ptss = splitBezier(pts, t);
+    pts = ptss[1];
 
-  auto topI = pts[0].y > pts[3].y ? 3 : 0;
-  auto botI = 3 - topI;
-  auto ttopI = topI > botI ? 2 : 1;
-  auto bbotI = topI > botI ? 1 : 2;
-  auto res = Edge!T(pts[topI], pts[botI].y);
-  res.winding = topI > botI ? 1 : -1;
+    //! avoid rounding errors;
+    pts.front.y = clip.top;
+  }
+  return true;
+}
+
+Edge!T makeCubic(T)(in Point!T[4] pts, byte winding) {
+  if (isLine(pts)) {
+    makeLine(fixedAry!2(pts[0], pts[3]), winding);
+  }
+
+  auto res = Edge!T(pts.front.x, pts.back.y);
+  res.winding = winding;
   res.type = EdgeType.Cubic;
-  res.cubic = CubicEdge!T(pts[topI], pts[ttopI], pts[bbotI], pts[botI]);
+  res.cubic = CubicEdge!T(pts);
   return res;
 }
 
@@ -278,8 +266,7 @@ Edge!T makeCubic(T)(in Point!T[] pts) {
     B = 6(a - 2b + c)
     C = 3(b - a)
 */
-T[3] cubicDerivateCoeffs(T)(in Point!T[] pts) {
-  assert(pts.length == 4);
+T[3] cubicDerivateCoeffs(T)(in Point!T[4] pts) {
   T[3] coeffs;
   coeffs[0] = pts[3].y - pts[0].y + 3*(pts[1].y - pts[2].y);
   coeffs[1] = 2*(pts[0].y - 2*pts[1].y + pts[2].y);
@@ -287,7 +274,7 @@ T[3] cubicDerivateCoeffs(T)(in Point!T[] pts) {
   return coeffs;
 }
 
-T cubicDerivate(T)(in Point!T[] pts, T t) {
+T cubicDerivate(T)(in Point!T[4] pts, T t) {
   auto coeffs = cubicDerivateCoeffs(pts);
   return 3*(t*t*coeffs[0] + t*coeffs[1] + coeffs[2]);
 }
@@ -296,26 +283,23 @@ T cubicDerivate(T)(in Point!T[] pts, T t) {
  * Find roots of the derivative dy(t)/dt, keeping only those that fit
  * between 0 < t < 1.
  */
-int cubicUnitRoots(T)(in Point!T[] pts, out T[2] unitRoots) {
+int cubicUnitRoots(T)(in Point!T[4] pts, out T[2] unitRoots) {
   // we divide A,B,C by 3 to simplify
   return quadUnitRoots(cubicDerivateCoeffs(pts), unitRoots);
 }
 
 unittest {
   auto app = appender!(Edge!float[])();
-  cubicEdge(app, [FPoint(362.992, 383.095),
-                  FPoint(365.64, 352.835),
-                  FPoint(370.016, 328.499),
-                  FPoint(372.767, 328.74)]);
+  cubicEdge(app, fixedAry!4(FPoint(362.992, 383.095),
+                             FPoint(365.64, 352.835),
+                             FPoint(370.016, 328.499),
+                             FPoint(372.767, 328.74)));
   auto edge1 = app.data[0];
   auto edge2 = app.data[1];
 
-  auto slope1 = cubicDerivate(
-    [edge1.p0, edge1.cubic.p1, edge1.cubic.p2, edge1.cubic.p3],
-    0.0f);
-  auto slope2 = cubicDerivate(
-    [edge2.p0, edge2.cubic.p1, edge2.cubic.p2, edge2.cubic.p3],
-    0.0f);
+
+  auto slope1 = cubicDerivate(edge1.cubic.pts, 0.0f);
+  auto slope2 = cubicDerivate(edge2.cubic.pts, 0.0f);
   assert(slope1 >= 0);
   assert(slope2 >= 0);
 }

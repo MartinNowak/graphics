@@ -12,6 +12,7 @@ private {
   import skia.core.edge_detail.quad_edge;
   import skia.core.point;
   import skia.core.rect;
+  import skia.math.fixed_ary;
 }
 
 package:
@@ -25,10 +26,11 @@ string formatString(TL...)(string fmt, TL tl) {
 enum EdgeType : byte { Line, Quad, Cubic }
 
 struct Edge(T) if (isFloatingPoint!T) {
-  Point!T p0;
   T curX;
   T lastY;
   union {
+    // insert the first point in the union, this allows to store fixes Point!T[N] array in the curves.
+    Point!T p0;
     LineEdge!T line;
     QuadraticEdge!T quad;
     CubicEdge!T cubic;
@@ -46,9 +48,8 @@ struct Edge(T) if (isFloatingPoint!T) {
 
 public:
 
-  this(Point!T p0, T lastY) {
-    this.p0 = p0;
-    this.curX = p0.x;
+  this(T startX, T lastY) {
+    this.curX = startX;
     this.lastY = lastY;
   }
 
@@ -114,26 +115,26 @@ public:
   T getT()(T y) {
     final switch(this.type) {
     case EdgeType.Line: return getTLine(this, y);
-    case EdgeType.Quad: return getTQuad(this, y);
+    case EdgeType.Quad: return getTQuad(this.quad.pts, y);
     case EdgeType.Cubic: return getTCubic(this, y);
     }
   }
 
   T calcT(string v)(T t) if (v == "x" || v == "y") {
     final switch(this.type) {
-    case EdgeType.Line: return calcTLine!(v)(this, t);
-    case EdgeType.Quad: return calcTQuad!(v)(this, t);
-    case EdgeType.Cubic: return calcTCubic!(v)(this, t);
+    case EdgeType.Line: return calcBezier!(v)(this.line.pts, t);
+    case EdgeType.Quad: return calcBezier!(v)(this.quad.pts, t);
+    case EdgeType.Cubic: return calcBezier!(v)(this.cubic.pts, t);
     }
   }
 }
 
 unittest {
   auto app = appender!(Edge!float[])();
-  lineEdge(app, [FPoint(0,0), FPoint(3,2)]);
-  quadraticEdge(app, [FPoint(0,0), FPoint(1,2), FPoint(2,3)]);
-  cubicEdge(app, [FPoint(0,0), FPoint(1,1), FPoint(2,2), FPoint(3,3)]);
-  cubicEdge(app, [FPoint(0,0), FPoint(1,2), FPoint(2,3), FPoint(3,5)]);
+  lineEdge(app, fixedAry!2(FPoint(0,0), FPoint(3,2)));
+  quadraticEdge(app, fixedAry!3(FPoint(0,0), FPoint(1,2), FPoint(2,3)));
+  cubicEdge(app, fixedAry!4(FPoint(0,0), FPoint(1,1), FPoint(2,2), FPoint(3,3)));
+  cubicEdge(app, fixedAry!4(FPoint(0,0), FPoint(1,2), FPoint(2,3), FPoint(3,5)));
   assert(app.data[0].type == EdgeType.Line);
   assert(app.data[1].type == EdgeType.Quad);
   assert(app.data[2].type == EdgeType.Line);
@@ -142,15 +143,15 @@ unittest {
 
 unittest {
   auto app = appender!(Edge!float[])();
-  cubicEdge(app, [FPoint(0.0, 0.0), FPoint(1.0, 1.0),
-                  FPoint(2.0, 4.0), FPoint(4.0, 16.0)]);
+  cubicEdge(app, fixedAry!4(FPoint(0.0, 0.0), FPoint(1.0, 1.0),
+                             FPoint(2.0, 4.0), FPoint(4.0, 16.0)));
   assert(app.data.length == 1);
   auto cub = app.data[0];
   assert(cub.type == EdgeType.Cubic);
 
   auto val = updateCubic(cub, 0.0f, 0.01f); assert(val == 0.0);
   val = updateCubic(cub, 1.0f, 1.0f);
-  assert(abs(val - 0.659) < 1e-3);
+  assert(abs(val - 0.659) < 1e-3, to!string(val));
   val = updateCubic(cub, 1.2f, 0.2f);
   val = updateCubic(cub, 2.0f, 0.8f);
   assert(abs(val - 1.063) < 1e-3);

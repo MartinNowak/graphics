@@ -46,7 +46,7 @@ Edge!T cubicMaker(T)(Point!T[4] pts) {
 
 bool splitBezierLines(FPoint[2] pts) {
   enum tol = 5e-3;
-  auto ptss = splitBezier!2(pts, 0.5f);
+  auto ptss = splitBezier(pts, 0.5f);
   foreach(t; iota(0.0, 0.5, 1e-2)) {
     auto expX = pts[0].x * (1-t) + pts[1].x * t;
     auto expY = pts[0].y * (1-t) + pts[1].y * t;
@@ -100,7 +100,7 @@ real Calc(string v)(FPoint[4] pts, real t)
 
 bool splitBezierCheck(int K)(FPoint[K] pts) {
   enum tol = 1e-2;
-  auto ptss = splitBezier!K(pts, 0.5f);
+  auto ptss = splitBezier(pts, 0.5f);
   auto idx = 0;
   auto stride = 0.5;
   do {

@@ -10,6 +10,7 @@ private {
   import skia.core.rect;
   import skia.core.edge_detail._;
   import skia.math.fast_sqrt;
+  import skia.math.fixed_ary;
 }
 
 //debug=PRINTF;
@@ -28,13 +29,13 @@ FEdge[] buildEdges(in Path path) {
       case Path.Verb.Move, Path.Verb.Close:
         break;
       case Path.Verb.Line:
-        lineEdge(app, pts);
+        lineEdge(app, fixedAry!2(pts));
         break;
       case Path.Verb.Quad:
-        quadraticEdge(app, pts);
+        quadraticEdge(app, fixedAry!3(pts));
         break;
       case Path.Verb.Cubic:
-        cubicEdge(app, pts);
+        cubicEdge(app, fixedAry!4(pts));
         break;
       }
     });
@@ -48,13 +49,13 @@ FEdge[] buildEdges(in Path path, in IRect clip) {
       case Path.Verb.Move, Path.Verb.Close:
         break;
       case Path.Verb.Line:
-        clippedLineEdge(app, pts, clip);
+        clippedLineEdge(app, fixedAry!2(pts), clip);
         break;
       case Path.Verb.Quad:
-        clippedQuadraticEdge(app, pts, clip);
+        clippedQuadraticEdge(app, fixedAry!3(pts), clip);
         break;
       case Path.Verb.Cubic:
-        clippedCubicEdge(app, pts, clip);
+        clippedCubicEdge(app, fixedAry!4(pts), clip);
         break;
       }
     });

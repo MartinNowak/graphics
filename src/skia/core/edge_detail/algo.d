@@ -2,8 +2,11 @@ module skia.core.edge_detail.algo;
 
 private {
   import std.algorithm : swap;
-  import std.math : isNaN, abs;
+  import std.array : front, back;
+  import std.math : isNaN, abs, sqrt;
+  import std.numeric : FPTemporary;
   import std.traits : isFloatingPoint;
+  import std.metastrings : Format;
 
   import skia.math._;
   import skia.core.point;
@@ -21,7 +24,7 @@ bool isLine(T)(in Point!T[] pts) {
   return true;
 }
 
-int valid_unit_divide(T)(T numer, T denom, out T ratio) {
+int valid_unit_divide(T, T2)(T numer, T denom, out T2 ratio) {
   if (numer * denom <= 0) {
     return 0;
   }
@@ -40,23 +43,27 @@ int valid_unit_divide(T)(T numer, T denom, out T ratio) {
   return 1;
 }
 
-int quadUnitRoots(T)(T[3] coeffs, out T[2] roots) {
-  auto a = coeffs[0];
-  auto b = coeffs[1];
-  auto c = coeffs[2];
+int quadIntersection(T)(in Point!T[3] pts, T y, out T[2] roots) {
+  FPTemporary!T a = pts[0].y - 2*pts[1].y + pts[2].y;
+  FPTemporary!T b = (-2*pts[0].y + 2*pts[1].y);
+  FPTemporary!T c = pts[0].y - y;
+  return quadUnitRoots(fixedAry!3(a, b, c), roots);
+}
 
-  auto r = b*b - 4*a*c;
+int quadUnitRoots(T1, T2)(in T1[3] coeffs, out T2[2] roots) {
+  FPTemporary!T1 a = coeffs[0];
+  FPTemporary!T1 b = coeffs[1];
+  FPTemporary!T1 c = coeffs[2];
+
+  FPTemporary!T1 r = b*b - 4*a*c;
   if (r < 0)
     return 0;
-  static if (isFloatingPoint!T) {
-    if (isNaN(r))
-      return 0;
-  }
-  r = fastSqrt(r);
-  auto q = b < 0 ? -(b-r)/2 : -(b+r)/2;
+  assert(!isNaN(r));
+
+  r = sqrt(r);
   int rootIdx;
-  rootIdx += valid_unit_divide(q, a, roots[rootIdx]);
-  rootIdx += valid_unit_divide(c, q, roots[rootIdx]);
+  rootIdx += valid_unit_divide(-b+r, 2*a, roots[rootIdx]);
+  rootIdx += valid_unit_divide(-b-r, 2*a, roots[rootIdx]);
   if (rootIdx == 2) {
     if (roots[0] > roots[1])
       swap(roots[0], roots[1]);
@@ -69,7 +76,8 @@ int quadUnitRoots(T)(T[3] coeffs, out T[2] roots) {
 /**
  * Split bezier curve with de Castlejau algorithm.
  */
-Point!T[K][2] splitBezier(int K, T)(in Point!T[] pts, T tValue) if (K>=2) {
+Point!T[K][2] splitBezier(size_t K, T)(in Point!T[K] pts, T tValue) {
+  static assert(K>=2);
   assert(0 < tValue && tValue < 1);
   assert(pts.length == K);
 
@@ -94,8 +102,8 @@ Point!T[K][2] splitBezier(int K, T)(in Point!T[] pts, T tValue) if (K>=2) {
 }
 
 unittest {
-  auto pts = [point(0.0, 0.0), point(1.0, 1.0)];
-  auto split = splitBezier!2(pts, 0.5);
+  auto pts = fixedAry!2(point(0.0, 0.0), point(1.0, 1.0));
+  auto split = splitBezier(pts, 0.5);
   auto exp = point(0.0, 0.0);
   assert(split[0][0] == exp);
   exp = point(0.5, 0.5);
@@ -106,6 +114,46 @@ unittest {
 }
 
 unittest {
-  auto pts = [point(0.0, 0.0), point(2.0, 2.0), point(4.0, 0.0)];
-  auto split = splitBezier!3(pts, 0.25);
+  auto pts = fixedAry!3(point(0.0, 0.0), point(2.0, 2.0), point(4.0, 0.0));
+  auto split = splitBezier(pts, 0.25);
+}
+
+/**
+ * sorts points and returns winding
+ */
+byte sortPoints(T, size_t N)(ref Point!T[N] pts) {
+  if (pts.front.y > pts.back.y) {
+    auto i = 0;
+    while (i < (N/2)) {
+      swap(pts[i], pts[N-i-1]);
+      ++i;
+    }
+    return -1;
+  }
+  return 1;
+}
+
+/**
+ * Overloads to calc x/y of given bezier control points.
+ */
+T calcBezier(string v, T)(in Point!T[2] pts, T t) {
+  fitsIntoRange!("[]")(t, 0.0, 1.0);
+  auto mt = 1 - t;
+  enum cmd = Format!("mt*pts[0].%s + t*pts[1].%s", v, v);
+  return mixin(cmd);
+}
+
+T calcBezier(string v, T)(in Point!T[3] pts, T t) {
+  fitsIntoRange!("[]")(t, 0.0, 1.0);
+  auto mt = 1 - t;
+  enum cmd = Format!("mt*mt*pts[0].%s + 2*t*mt*pts[1].%s + t*t*pts[2].%s", v, v, v);
+  return mixin(cmd);
+}
+
+T calcBezier(string v, T)(in Point!T[4] pts, T t) {
+  fitsIntoRange!("[]")(t, 0.0, 1.0);
+  auto mt = 1 - t;
+  enum cmd = Format!("mt*mt*mt*pts[0].%s + 3*t*mt*mt*pts[1].%s + 3*t*t*mt*pts[2].%s + t*t*t*pts[3].%s",
+                     v, v, v, v);
+  return mixin(cmd);
 }
