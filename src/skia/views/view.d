@@ -195,6 +195,17 @@ public:
     this.invokeLayout();
   }
 
+  void onButtonPress(IPoint pt) {
+    foreach(child; this.children) {
+      child.onButtonPress(pt - child.loc);
+    }
+  }
+  void onButtonRelease(IPoint pt) {
+    foreach(child; this.children) {
+      child.onButtonRelease(pt - child.loc);
+    }
+  }
+
   /****************************************
    * Called from view hierachy.
    * Params:

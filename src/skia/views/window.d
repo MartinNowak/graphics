@@ -186,9 +186,20 @@ version(FreeBSD)
     bool windowProc(X11.XEvent e) {
       switch(e.type) {
       case X11.Expose:
-        if (e.xexpose.count < 1)
-          this.doPaint(IRect(IPoint(e.xexpose.x, e.xexpose.y),
-                             ISize(e.xexpose.width, e.xexpose.height)));
+        if (e.xexpose.count < 1) {
+          auto area = IRect(IPoint(e.xexpose.x, e.xexpose.y),
+                            ISize(e.xexpose.width, e.xexpose.height));
+          this.doPaint(area);
+        }
+        break;
+
+      case X11.ButtonPress:
+        this.onButtonPress(IPoint(e.xbutton.x, e.xbutton.y));
+        break;
+
+      case X11.ButtonRelease:
+        this.onButtonRelease(IPoint(e.xbutton.x, e.xbutton.y));
+        break;
 
       case X11.ConfigureNotify:
         this.resize(e.xconfigure.width, e.xconfigure.height);
