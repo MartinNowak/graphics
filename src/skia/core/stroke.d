@@ -2,27 +2,30 @@ module skia.core.stroke;
 
 private {
   import std.traits : isDynamicArray, Unqual;
-  import std.math : abs;
+  import std.math : abs, SQRT1_2;
 
   import skia.core.paint;
   import skia.core.path;
   import skia.core.point;
   import skia.core.stroke_detail._;
+  import skia.core.edge_detail.algo;
+  import skia.math.fixed_ary;
 }
 
 //! TODO: implement joiner
 struct Stroke {
   const Paint paint;
   float radius;
-  float invMiterLimit;
+  //  float invMiterLimit;
 
-  Path outer, inner;
-  FPoint prevPt, firstOuterPt;
-  FVector firstNormal, firstUnitNormal;
-  bool prevIsLine;
+  FVector prevNormal;
+  Path outer;
+  Path inner;
+  Path result;
 
   Capper capper;
   Joiner joiner;
+  bool fillSrcPath;
 
   this(in Paint paint, float width) {
     assert(width > 0);
@@ -30,6 +33,18 @@ struct Stroke {
     this.radius = width * 0.5;
     this.capper = getCapper(paint.capStyle);
     this.joiner = getJoiner(paint.joinStyle);
+    this.fillSrcPath = paint.fillStyle == Paint.Fill.FillAndStroke;
+  }
+
+  void done() {
+    if (!this.outer.empty) {
+      this.finishContour(true);
+    }
+  }
+
+  void close(FPoint[2] pts) {
+    this.lineTo(pts);
+    this.finishContour(false);
   }
 
   FVector getNormal(FPoint pt1, FPoint pt2) {
@@ -49,69 +64,130 @@ struct Stroke {
         this.moveTo(pts[0]);
         break;
       case Path.Verb.Line:
-        this.lineTo(fixedAry!2(pts[0..2]));
+        this.lineTo(fixedAry!2(pts));
         break;
       case Path.Verb.Quad:
-        // this.quadTo(fixedAry!3(pts[0..3]));
+        this.quadTo(fixedAry!3(pts));
         break;
       case Path.Verb.Cubic:
-        // this.cubicTo(fixedAry!4(pts[0..4]));
+        this.cubicTo(fixedAry!4(pts));
         break;
       case Path.Verb.Close:
-        // this.close(pts[?]);
+        this.close(fixedAry!2(pts));
         break;
       }
       });
 
-    this.close();
-    return this.outer;
+    this.done();
+    if (this.fillSrcPath) {
+      this.result.addPath(path);
+    }
+    return this.result;
   }
 
-  //! TODO: get normal, maybe caching last point is necessary.
-  void open(FPoint pt) {
-    this.inner.moveTo(pt - FPoint(this.radius, 0));
-    this.outer.moveTo(pt + FPoint(this.radius, 0));
+  void join(FPoint pt, FVector normalAfter) {
+    if (!this.outer.empty)
+      this.joiner(pt, this.prevNormal, normalAfter, this.inner, this.outer);
+    else {
+      this.inner.moveTo(pt - normalAfter);
+      this.outer.moveTo(pt + normalAfter);
+    }
   }
 
-  void close() {
-    this.outer.lineTo(this.inner.lastPoint);
+  void capClose() {
+    FVector normal = this.getNormal(this.outer.pointsRetro[0], this.outer.pointsRetro[1]);
+    FPoint pt = (this.inner.lastPoint + this.outer.lastPoint) * 0.5;
+    this.capper(pt, normal, this.outer);
+
     this.outer.reversePathTo(this.inner);
+
+    normal = this.getNormal(this.outer.points[0], this.outer.points[1]);
+    pt = (this.outer.pointsRetro[0] + this.outer.points[0]) * 0.5;
+    this.capper(pt, normal, this.outer);
+
+    this.outer.close();
   }
-  void join(FPoint[2] pts, FVector normal) {
+
+  void finishContour(bool close) {
+    if (close)
+      this.capClose();
+    else
+      this.outer.addPath(this.inner);
+
+    this.result.addPath(this.outer);
+    this.inner.reset();
+    this.outer.reset();
   }
 
   void moveTo(FPoint pt) {
-    this.open(pt);
+    if (!this.outer.empty) {
+      this.finishContour(true);
+    }
   }
 
-  void line_to(FPoint currPt, FVector normal) {
-    this.outer.lineTo(currPt + normal);
-    this.inner.lineTo(currPt - normal);
+  private bool degenerate(FPoint pt1, FPoint pt2) {
+    enum tol = 1e-3;
+    return distance(pt1, pt2) < tol;
   }
 
   void lineTo(FPoint[2] pts) {
-    if (degenerateLine(pts[0], pts[1])) {
-        return;
+    //! degenerate line
+    if (degenerate(pts[0], pts[1])) {
+      return;
     }
     auto normal = getNormal(pts[0], pts[1]);
-    this.join(pts, normal);
-    this.line_to(pts[1], normal);
+    this.join(pts[0], normal);
+    this.outer.lineTo(pts[1] + normal);
+    this.inner.lineTo(pts[1] - normal);
+    this.prevNormal = normal;
   }
 
-  static bool degenerateLine(FPoint a, FPoint b) {
-    enum tol = 1e-3;
-    return distance(a, b) < tol;
-  }
-}
+  void quadTo(FPoint[3] pts) {
+    //! degenerate line
+    if (degenerate(pts[0], pts[1])) {
+      this.lineTo(fixedAry!2(pts[0], pts[2]));
+    }
 
-//! TODO: move somewhere useful.
-static Unqual!(typeof(T[0]))[N] fixedAry(size_t N, T)(in T dynAry) if(isDynamicArray!T)
-  in {
-    assert(dynAry.length >= N);
-  } body {
-  typeof(return) result;
-  foreach(i, ref resVal; result) {
-    resVal = dynAry[i];
+    auto normalAB = getNormal(pts[0], pts[1]);
+    auto normalBC = getNormal(pts[1], pts[2]);
+    if (normalsTooCurvy(normalAB, normalBC)) {
+      auto ptss = splitBezier(pts, 0.5f);
+      this.quadTo(ptss[0]);
+      this.quadTo(ptss[1]);
+    } else {
+      auto normalB = getNormal(pts[0], pts[2]);
+      this.join(pts[0], normalAB);
+      this.outer.quadTo(pts[1] + normalB, pts[2] + normalBC);
+      this.inner.quadTo(pts[1] - normalB, pts[2] - normalBC);
+      this.prevNormal = normalBC;
+    }
   }
-  return  result;
+
+  void cubicTo(FPoint[4] pts) {
+    if (degenerate(pts[0], pts[1])) {
+      this.quadTo(fixedAry!3(pts[0], pts[2], pts[3]));
+    }
+
+    auto normalAB = getNormal(pts[0], pts[1]);
+    auto normalCD = getNormal(pts[2], pts[3]);
+    auto normalB = getNormal(pts[0], pts[2]);
+    auto normalC = getNormal(pts[1], pts[3]);
+    if (normalsTooCurvy(normalAB, normalCD)
+        || normalsTooCurvy(normalAB, normalB)
+        || normalsTooCurvy(normalC, normalCD)) {
+      auto ptss = splitBezier(pts, 0.5f);
+      this.cubicTo(ptss[0]);
+      this.cubicTo(ptss[1]);
+    } else {
+      this.join(pts[0], normalAB);
+      this.outer.cubicTo(pts[1] + normalB, pts[2] + normalC, pts[3] + normalCD);
+      this.inner.cubicTo(pts[1] - normalB, pts[2] - normalC, pts[3] - normalCD);
+      this.prevNormal = normalCD;
+    }
+  }
+
+  static bool normalsTooCurvy(FVector normal1, FVector normal2) {
+    const limit = SQRT1_2 * normal1.length * normal2.length;
+    return dotProduct(normal1, normal2) <= limit;
+  }
 }
