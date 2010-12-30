@@ -93,6 +93,9 @@ struct Rect(T)
     return Point!T(this.centerX(), this.centerY());
   }
   static if (isFloatingPoint!T) {
+    @property void center(Point!T ct) {
+      this.position = ct + Point!T(-0.5 * this.width, -0.5 * this.height);
+    }
     @property T centerX() const {
       return 0.5 * (this.left + this.right);
     }
@@ -100,6 +103,9 @@ struct Rect(T)
       return 0.5 * (this.top + this.bottom);
     }
   } else {
+    @property void center(Point!T ct) {
+      this.position = ct + Point!T(this.width >> 1, this.height >> 1);
+    }
     @property T centerX() const {
       return (this.left + this.right) >> 1;
     }

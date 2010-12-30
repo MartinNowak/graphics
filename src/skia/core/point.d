@@ -202,8 +202,11 @@ struct Point (T)
     return point(resx, resy);
   }
 
-
-
+  ref Point!T opAssign(T2)(Point!T2 rhs) {
+    this.x = rhs.x;
+    this.y = rhs.y;
+    return this;
+  }
   /** Add/Subtract v's coordinates to the point's
    */
   ref Point opOpAssign(string op)(Point rhs)

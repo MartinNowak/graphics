@@ -46,7 +46,7 @@ class Paint
 
   enum Fill { Fill, Stroke, FillAndStroke, }
   enum Cap { Butt, Square, Round, }
-  enum Join { Miter, Join, Bevel, }
+  enum Join { Miter, Round, Bevel, }
   enum Align { Left, Center, Right, }
   mixin(bitfields!(
       Fill, "fillStyle", 2,
@@ -109,7 +109,7 @@ class Paint
       auto stroker = Stroke(this, width);
       resultPath = stroker.strokePath(resultPath);
     }
-    doFill = width > 0;
+    doFill = width != 0;
     return resultPath;  // return true if we're filled, or false if we're hairline (width == 0)
   }
 }
