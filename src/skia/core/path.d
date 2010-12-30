@@ -478,6 +478,46 @@ public:
     this.close();
   }
 
+  void arcTo(FPoint center, FPoint endPt, Direction dir = Direction.CW) {
+    this.ensureStart();
+    auto startPt = this.lastPoint;
+    FVector start = startPt - center;
+    FVector end = endPt - center;
+    FPTemporary!float radius = (start.length + end.length) * 0.5;
+    FPTemporary!float startAngle = atan2(start.y, start.x);
+    FPTemporary!float endAngle = atan2(end.y, end.x);
+    FPTemporary!float sweepAngle = endAngle - startAngle;
+    if (sweepAngle < 0)
+      sweepAngle += 2*PI;
+    if (dir == Direction.CCW)
+      sweepAngle -= 2*PI;
+
+    assert(abs(sweepAngle) <= 2*PI);
+    FPTemporary!float midAngle = startAngle + 0.5 * sweepAngle;
+    auto middle = FVector(cos(midAngle), sin(midAngle));
+
+    if (abs(sweepAngle) > PI_4) {
+      middle.setLength(radius);
+      FPoint middlePt = center + middle;
+      this.arcTo(center, middlePt, dir);
+      this.arcTo(center, endPt, dir);
+    } else {
+      //! based upon a deltoid, calculate length of the long axis.
+      FPTemporary!float hc = 0.5 * (startPt - endPt).length;
+      FPTemporary!float b = hc / sin(0.5 * (PI - abs(sweepAngle)));
+      FPTemporary!float longAxis = sqrt(radius * radius + b * b);
+      middle.setLength(longAxis);
+      this.quadTo(center + middle, endPt);
+    }
+  }
+
+  void addArc(FPoint center, FPoint startPt, FPoint endPt, Direction dir = Direction.CW) {
+    this.moveTo(center);
+    this.lineTo(startPt);
+    this.arcTo(center, endPt, dir);
+    this.lineTo(center);
+  }
+
   Path transformed(in Matrix matrix) const {
     Path res;
     res = this;
