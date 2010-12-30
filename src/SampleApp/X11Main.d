@@ -101,11 +101,13 @@ X11.Window MakeWindow(X11.Display* dpy) {
   X11.XSetWMProtocols(dpy, win, &gDeleteWindowAtom, 1); // [].length == 1
 
   enum WantedEvents =
-    X11.ExposureMask|
-    X11.ButtonPressMask|
-    X11.KeyPressMask|
-    X11.KeyReleaseMask|
-    X11.StructureNotifyMask;
+    X11.ExposureMask |
+    X11.ButtonPressMask |
+    X11.ButtonReleaseMask |
+    X11.KeyPressMask |
+    X11.KeyReleaseMask |
+    X11.StructureNotifyMask |
+    X11.VisibilityChangeMask;
 
   X11.XSelectInput(dpy, win, WantedEvents);
   return win;

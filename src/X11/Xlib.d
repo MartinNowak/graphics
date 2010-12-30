@@ -98,6 +98,15 @@ struct XExposeEvent {
   int count;		/* if non-zero, at least this many more */
 };
 
+struct XVisibilityEvent {
+  int type;
+  size_t serial;	/* # of last request processed by server */
+  Bool send_event;	/* true if this came from a SendEvent request */
+  Display *display;	/* Display the event was read from */
+  Window window;
+  int state;		/* Visibility state */
+};
+
 struct XButtonEvent {
   int type;		/* of event */
   size_t serial;	/* # of last request processed by server */
@@ -190,7 +199,7 @@ union XEvent {
   XExposeEvent xexpose;
   //XGraphicsExposeEvent xgraphicsexpose;
   //XNoExposeEvent xnoexpose;
-  //XVisibilityEvent xvisibility;
+  XVisibilityEvent xvisibility;
   //XCreateWindowEvent xcreatewindow;
   //XDestroyWindowEvent xdestroywindow;
   //XUnmapEvent xunmap;
@@ -399,6 +408,21 @@ XImage* XCreateImage(Display* display, Visual* visual, uint depth, int format, i
                     byte* data, uint width, uint height, int bitmap_pad, int bytes_per_line);
 int XPutImage(Display*, Drawable, GC, XImage*,
               int src_x, int src_y, int dest_x, int dest_y, uint width, uint height);
+
+int XClearArea(
+  Display*		/* display */,
+  Window		/* w */,
+  int			/* x */,
+  int			/* y */,
+  uint	/* width */,
+  uint	/* height */,
+  Bool		/* exposures */
+);
+
+int XClearWindow(
+  Display*		/* display */,
+  Window		/* w */
+);
 
 
 /*****************************************************************

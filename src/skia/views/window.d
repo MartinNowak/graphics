@@ -201,6 +201,9 @@ version(FreeBSD)
         this.onButtonRelease(IPoint(e.xbutton.x, e.xbutton.y));
         break;
 
+      case X11.VisibilityNotify:
+        break;
+
       case X11.ConfigureNotify:
         this.resize(e.xconfigure.width, e.xconfigure.height);
         break;
@@ -236,6 +239,15 @@ version(FreeBSD)
                                            bitmap.width, bitmap.height, 8, 0);
       assert(this.ximage);
     }
+
+    bool handleInval(in IRect area) {
+      //! TODO: correctly join
+      this.dirtyRegion = area;
+      X11.XClearArea(this.dpy, this.win, area.x, area.y,
+                     area.width, area.height, X11.Bool.True);
+      return true;
+    }
+
 }
 
 } // version FreeBSD
