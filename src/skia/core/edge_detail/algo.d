@@ -76,19 +76,19 @@ int quadUnitRoots(T1, T2)(in T1[3] coeffs, out T2[2] roots) {
 /**
  * Split bezier curve with de Castlejau algorithm.
  */
-Point!T[K][2] splitBezier(size_t K, T)(in Point!T[K] pts, T tValue) {
+Point!T[K][2] splitBezier(size_t K, T)(in Point!T[K] pts, real tValue) {
   static assert(K>=2);
   assert(0 < tValue && tValue < 1);
   assert(pts.length == K);
 
-  T oneMt = 1 - tValue;
+  real oneMt = 1 - tValue;
 
   Point!T split(Point!T p0, Point!T p1) {
-    return p0 * oneMt + p1 * tValue;
+    return Point!T(p0.x * oneMt + p1.x * tValue, p0.y * oneMt + p1.y * tValue);
   }
 
   Point!T[K] left;
-  Point!T[K] tmp = pts[0 .. K];
+  Point!T[K] tmp = pts;
   left[0] = pts[0];
 
   int k = K;
@@ -98,6 +98,7 @@ Point!T[K][2] splitBezier(size_t K, T)(in Point!T[K] pts, T tValue) {
     }
     left[K-k] = tmp[0];
   }
+  assert(left[K-1] == tmp[0]);
   return [left, tmp];
 }
 
