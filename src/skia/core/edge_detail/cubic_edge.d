@@ -244,7 +244,7 @@ bool clipPoints(T)(ref Point!T[4] pts, in IRect clip) {
     pts = ptss[1];
 
     //! avoid rounding errors;
-    pts.front.y = clip.top;
+    pts[0].y = clip.top;
   }
   return true;
 }

@@ -125,7 +125,7 @@ bool clipPoints(T)(ref Point!T[3] pts, in IRect clip) {
 
     //! avoid rounding errors;
     assert(abs(pts.front.y - clip.top) < 10 * float.epsilon);
-    pts.front.y = clip.top;
+    pts[0].y = clip.top;
   }
   return true;
 }

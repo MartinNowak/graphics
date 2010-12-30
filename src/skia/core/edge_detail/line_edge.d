@@ -39,8 +39,8 @@ bool clipPoints(T)(ref Point!T[2] pts, in IRect clip) {
 
   // clip the line to top
   if (pts.front.y < clip.top) {
-    pts.front.x = pts.front.x + (clip.top - pts.front.y) * slope(pts);
-    pts.front.y = clip.top;
+    pts[0].x = pts.front.x + (clip.top - pts.front.y) * slope(pts);
+    pts[0].y = clip.top;
   }
   return true;
 }
