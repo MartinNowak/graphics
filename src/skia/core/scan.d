@@ -29,19 +29,19 @@ void fillIRect(Blitter)(IRect rect, in Region clip, Blitter blitter) {
   }
 }
 
-enum AAScale = 2;
+enum AAScale = 4;
 enum AAStep = 1.0f / AAScale;
 
 void antiFillPath(in Path path, in Region clip,
                   Blitter blitter) {
-  return fillPathImpl(path, clip, blitter, AAStep);
+  return fillPathImpl(path, clip, blitter, AAScale);
 }
 void fillPath(in Path path, in Region clip,
               Blitter blitter) {
-  return fillPathImpl(path, clip, blitter, 1.0f);
+  return fillPathImpl(path, clip, blitter, 1);
 }
-void fillPathImpl(T)(in Path path, in Region clip,
-                     Blitter blitter, T step) {
+void fillPathImpl(in Path path, in Region clip,
+                     Blitter blitter, uint stepScale) {
   if (clip.empty) {
     return;
   }
@@ -63,7 +63,7 @@ void fillPathImpl(T)(in Path path, in Region clip,
     }
     else {
       blitEdges!(fillLine)(path, clip.bounds, blitter,
-                           ir.top, ir.bottom, step, clip);
+                           ir.top, ir.bottom, stepScale, clip);
     }
   }
 }
@@ -86,15 +86,15 @@ Blitter getClippingBlitter(Blitter blitter, in Region clip, in IRect ir) {
 private void blitEdges(alias blitLineFunc)(
   in Path path, in IRect clipRect,
   Blitter blitter,
-  float yStart, float yEnd,
-  float step, in Region clip) {
+  int yStart, int yEnd,
+  int stepScale, in Region clip) {
 
   auto edges = buildEdges(path, clipRect);
   yStart = max(yStart, clipRect.top);
   yEnd = min(yEnd, clipRect.bottom);
 
   // TODO: handle inverseFillType, path.FillType
-  walkEdges!(blitLineFunc)(edges, path.fillType, blitter, step, yStart, yEnd);
+  walkEdges!(blitLineFunc)(edges, path.fillType, blitter, stepScale, yStart, yEnd);
 }
 
 Range truncateOutOfRange(Range, T)(Range edges, T yStart, T yEnd) {
@@ -134,8 +134,8 @@ private void walkEdges(alias blitLineFunc, Range)(
   Range edges,
   Path.FillType fillType,
   ref Blitter blitter,
-  float step,
-  float yStart, float yEnd)
+  int stepScale,
+  int yStart, int yEnd)
 {
   debug(WALK_EDGES) writefln("walkEdges %s", edges);
   auto sortedEdges = truncateOutOfRange(
@@ -149,20 +149,28 @@ private void walkEdges(alias blitLineFunc, Range)(
     ? -1
     : 1;
 
-  auto curY = yStart;
+  auto iCurY = yStart;
+  auto superCnt = 0;
+  auto fInc = 1.0 / stepScale;
+  auto fCurY = iCurY + superCnt * fInc;
 
-  while (curY < yEnd) {
-    debug(WALK_EDGES) writeln("curY:", curY, "WS: ",workingSet);
+  while (fCurY < yEnd) {
+    debug(WALK_EDGES) writeln("fCurY:", fCurY, "WS: ",workingSet);
 
-    workingSet ~= takeNextEdges(curY, sortedEdges);
-    workingSet = updateWorkingSet(workingSet, curY, step);
+    fCurY = iCurY + superCnt * fInc;
+    workingSet ~= takeNextEdges(fCurY, sortedEdges);
+    workingSet = updateWorkingSet(workingSet, fCurY, fInc);
 
 
     debug(WALK_EDGES) writeln("WSB: ", workingSet);
 
-    blitLineFunc(curY, blitter, workingSet, windingMask);
+    blitLineFunc(fCurY, blitter, workingSet, windingMask);
 
-    curY += step;
+    ++superCnt;
+    if (superCnt == stepScale) {
+      ++iCurY;
+      superCnt = 0;
+    }
   }
 
 }
@@ -263,15 +271,15 @@ unittest
 
 void antiHairPath(in Path path, in Region clip,
                   Blitter blitter) {
-  return hairPathImpl(path, clip, blitter, AAStep);
+  return hairPathImpl(path, clip, blitter, AAScale);
 }
 void hairPath(in Path path, in Region clip,
               Blitter blitter) {
-  return hairPathImpl(path, clip, blitter, 1.0f);
+  return hairPathImpl(path, clip, blitter, 1);
 }
 
-void hairPathImpl(T)(in Path path, in Region clip,
-                     Blitter blitter, T step) {
+void hairPathImpl(in Path path, in Region clip,
+                     Blitter blitter, int stepScale) {
   if (clip.empty) {
     return;
   }
@@ -296,6 +304,6 @@ void hairPathImpl(T)(in Path path, in Region clip,
   }
   else {
     blitEdges!(dotLine)(path, clip.bounds, blitter,
-                        ir.top, ir.bottom, step, clip);
+                        ir.top, ir.bottom, stepScale, clip);
   }
 }
