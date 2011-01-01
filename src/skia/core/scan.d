@@ -69,12 +69,12 @@ void fillPathImpl(in Path path, in Region clip,
 }
 
 Blitter getClippingBlitter(Blitter blitter, in Region clip, in IRect ir) {
-  if (!clip.bounds.intersects(ir))
+  if (clip.quickReject(ir))
     return null;
 
   if (clip.isRect()) {
     // only need a wrapper blitter if we're horizontally clipped
-    if (clip.bounds.left > ir.left || clip.bounds.right < ir.right)
+    if (clip.bounds.left >= ir.left || clip.bounds.right <= ir.right)
       return new RectBlitter(blitter, clip.bounds);
   } else {
     assert(clip.isComplex());
@@ -280,30 +280,24 @@ void hairPath(in Path path, in Region clip,
 
 void hairPathImpl(in Path path, in Region clip,
                      Blitter blitter, int stepScale) {
-  if (clip.empty) {
+  if (path.empty) {
     return;
   }
 
   auto ir = path.ibounds;
+  ir.inset(-1, -1);
 
-  if (ir.empty) {
+  blitter = getClippingBlitter(blitter, clip, ir);
+
+  if (blitter) {
+    // TODO chose SkRgnBlitter, SkRectBlitter
     if (path.inverseFillType) {
       // inverse and stroke ?
-      // blitter.blitRegion(clip);
+      // blitAboveAndBelow(blitter, ir, clip);
     }
-    return;
-  }
-
-  if (!clip.bounds.intersects(ir))
-    return;
-
-  // TODO chose SkRgnBlitter, SkRectBlitter
-  if (path.inverseFillType) {
-    // inverse and stroke ?
-    // blitAboveAndBelow(blitter, ir, clip);
-  }
-  else {
-    blitEdges!(dotLine)(path, clip.bounds, blitter,
-                        ir.top, ir.bottom, stepScale, clip);
+    else {
+      blitEdges!(dotLine)(path, clip.bounds, blitter,
+                          ir.top, ir.bottom, stepScale, clip);
+    }
   }
 }
