@@ -5,5 +5,5 @@ private {
 }
 
 interface PathEffect {
-  Path filterPath(Path path, ref int width) const;
+  Path filterPath(Path path, ref float width) const;
 }

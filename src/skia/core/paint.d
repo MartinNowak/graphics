@@ -25,7 +25,7 @@ class Paint
 
   //! TODO: review alignment
   PathEffect pathEffect;
-  int strokeWidth;
+  float strokeWidth;
 
   @property string toString() const {
     auto writer = appender!string();
@@ -70,7 +70,7 @@ class Paint
   }
 
   Path getFillPath(in Path src, out bool doFill) const {
-    int width = this.strokeWidth;
+    float width = this.strokeWidth;
 
     final switch (this.fillStyle) {
     case Fill.Fill:
