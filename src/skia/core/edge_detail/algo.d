@@ -78,7 +78,7 @@ int quadUnitRoots(T1, T2)(in T1[3] coeffs, out T2[2] roots) {
  */
 Point!T[K][2] splitBezier(size_t K, T)(in Point!T[K] pts, real tValue) {
   static assert(K>=2);
-  assert(0 < tValue && tValue < 1);
+  assert(0 < tValue && tValue < 1, to!string(tValue));
   assert(pts.length == K);
 
   real oneMt = 1 - tValue;

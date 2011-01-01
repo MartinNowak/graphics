@@ -44,8 +44,8 @@ class SineView : View
     }
     path.moveTo(FPoint(x + rem, cy+0.5*dy));
     path.lineTo(FPoint(0, cy-0.5*dy));
+    path.fillType = Path.FillType.EvenOdd;
     scope auto paint = new Paint(Red.a=120);
     canvas.drawPath(path, paint);
   }
 }
-

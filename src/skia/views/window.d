@@ -3,7 +3,7 @@ module skia.views.window;
 private {
   import skia.core.bitmap;
   import skia.core.canvas;
-  import skia.core.color : White, Black, WarmGray;
+  import skia.core.color : White, Black;
   import skia.core.draw;
   import skia.core.paint : Paint;
   import skia.core.rect;
@@ -53,7 +53,7 @@ public:
   }
 
   override void onDraw(Canvas canvas) {
-    scope auto paint = new Paint(WarmGray);
+    scope auto paint = new Paint(White);
     paint.antiAlias = false;
     canvas.drawPaint(paint);
   }

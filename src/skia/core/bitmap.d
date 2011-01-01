@@ -79,7 +79,8 @@ class Bitmap {
   }
 
   auto getRange(int xStart, int xEnd, int y) {
-    assert(xEnd -xStart <= this.width);
+    assert(xEnd - xStart <= this.width,
+           "start:" ~ to!string(xStart) ~ "end: "~ to!string(xEnd) ~ "width:"~to!string(this.width));
     assert(y <= this.height);
     size_t yOff = y * this.width;
     return this.buffer[yOff + xStart .. yOff + xEnd];
