@@ -43,6 +43,13 @@ struct Point (T)
     this.y = y;
   }
 
+  static if (isFloatingPoint!T) {
+    this(creal cmplx) {
+      this.x = cmplx.re;
+      this.y = cmplx.im;
+    }
+  }
+
   @property string toString() const {
     return "Point!"~to!string(typeid(T))
       ~" x: "~to!string(this.x)
