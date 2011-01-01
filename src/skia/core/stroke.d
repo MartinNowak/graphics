@@ -42,9 +42,8 @@ struct Stroke {
     }
   }
 
-  void close(FPoint[2] pts) {
-    this.lineTo(pts);
-    this.finishContour(false);
+  void close(bool capClose) {
+    this.finishContour(capClose);
   }
 
   FVector getNormal(FPoint pt1, FPoint pt2) {
@@ -73,8 +72,7 @@ struct Stroke {
         this.cubicTo(fixedAry!4(pts));
         break;
       case Path.Verb.Close:
-        this.close(fixedAry!2(pts));
-        break;
+        this.close(pts.length != 0);
       }
       });
 
@@ -94,25 +92,22 @@ struct Stroke {
     }
   }
 
-  void capClose() {
-    FVector normal = this.getNormal(this.outer.pointsRetro[0], this.outer.pointsRetro[1]);
-    FPoint pt = (this.inner.lastPoint + this.outer.lastPoint) * 0.5;
-    this.capper(pt, normal, this.outer);
+  void finishContour(bool capClose) {
+    if (capClose) {
+      FVector normal = this.getNormal(this.outer.pointsRetro[0], this.outer.pointsRetro[1]);
+      FPoint pt = (this.inner.lastPoint + this.outer.lastPoint) * 0.5;
+      this.capper(pt, normal, this.outer);
 
-    this.outer.reversePathTo(this.inner);
+      this.outer.reversePathTo(this.inner);
 
-    normal = this.getNormal(this.outer.points[0], this.outer.points[1]);
-    pt = (this.outer.pointsRetro[0] + this.outer.points[0]) * 0.5;
-    this.capper(pt, normal, this.outer);
-
+      normal = this.getNormal(this.outer.points[0], this.outer.points[1]);
+      pt = (this.outer.pointsRetro[0] + this.outer.points[0]) * 0.5;
+      this.capper(pt, normal, this.outer);
+    } else {
+      this.outer.moveTo(this.inner.lastPoint);
+      this.outer.reversePathTo(this.inner);
+    }
     this.outer.close();
-  }
-
-  void finishContour(bool close) {
-    if (close)
-      this.capClose();
-    else
-      this.outer.addPath(this.inner);
 
     this.result.addPath(this.outer);
     this.inner.reset();
