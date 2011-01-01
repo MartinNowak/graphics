@@ -13,12 +13,15 @@ _version_flags=ARGUMENTS.get('version', '')
 if _version_flags:
    for flag in _version_flags.split(','):
        _dflags.append('-version=' + flag)
+       _build_style+='_'+flag
 
 if ARGUMENTS.get('profile', ''):
    _dflags.append('-profile')
+   _build_style+='_profile'
 
 if ARGUMENTS.get('cov', ''):
    _dflags.append('-cov')
+   _build_style+='_cov'
 
 #Scons dmd tool is broken, so define to be linked libs here
 _d_link_flags=['-lphobos2', '-lpthread', '-lm']
@@ -26,9 +29,11 @@ _d_link_flags=['-lphobos2', '-lpthread', '-lm']
 if ARGUMENTS.get('m64', ''):
    _dflags.append('-m64')
    _link_flags = ['-m64']
+   _build_style+='_64'
 else:
    _dflags.append('-m32')
    _link_flags = ['-m32']
+   _build_style+='_32'
 
 env.Append(DFLAGS=_dflags, LINKFLAGS=_link_flags,
                            DLINKFLAGS=_d_link_flags, BUILD_STYLE=_build_style)
