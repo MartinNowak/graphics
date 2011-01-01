@@ -5,7 +5,7 @@ private {
   import skia.core.point;
 }
 
-alias void function(in Matrix, ref FPoint[]) MapPtsFunc;
+alias void function(in Matrix, FPoint[]) MapPtsFunc;
 MapPtsFunc mapPtsFunc(ubyte typeMaskTrans) {
   switch(typeMaskTrans) {
   case 0:
@@ -25,11 +25,11 @@ MapPtsFunc mapPtsFunc(ubyte typeMaskTrans) {
   }
 }
 
-static void IdentityPts(in Matrix, ref FPoint[]) {
+static void IdentityPts(in Matrix, FPoint[]) {
   return;
 }
 
-static void TransPts(in Matrix m, ref FPoint[] pts) {
+static void TransPts(in Matrix m, FPoint[] pts) {
   assert(m.typeMaskTrans == Matrix.Type.Translative, to!string(m.typeMaskTrans));
 
   auto tPt = FPoint(m[0][2], m[1][2]);
@@ -38,7 +38,7 @@ static void TransPts(in Matrix m, ref FPoint[] pts) {
   }
 }
 
-static void ScalePts(in Matrix m, ref FPoint[] pts) {
+static void ScalePts(in Matrix m, FPoint[] pts) {
   assert(m.typeMaskTrans == Matrix.Type.Scaling, to!string(m.typeMaskTrans));
 
   auto sPt = FPoint(m[0][0], m[1][1]);
@@ -58,7 +58,7 @@ static void ScaleTransPts(in Matrix m, ref FPoint[] pts) {
   }
 }
 
-static void RotPts(in Matrix m, ref FPoint[] pts) {
+static void RotPts(in Matrix m, FPoint[] pts) {
   assert((m.typeMaskTrans & (Matrix.Type.Perspective | Matrix.Type.Translative)) == 0);
 
   auto sPt = FPoint(m[0][0], m[1][1]);
@@ -68,7 +68,7 @@ static void RotPts(in Matrix m, ref FPoint[] pts) {
   }
 }
 
-static void RotTransPts(in Matrix m, ref FPoint[] pts) {
+static void RotTransPts(in Matrix m, FPoint[] pts) {
   assert((m.typeMaskTrans & Matrix.Type.Perspective) == 0);
 
   auto sPt = FPoint(m[0][0], m[1][1]);
@@ -80,7 +80,7 @@ static void RotTransPts(in Matrix m, ref FPoint[] pts) {
   }
 }
 
-static void PerspPts(in Matrix m, ref FPoint[] pts) {
+static void PerspPts(in Matrix m, FPoint[] pts) {
   assert(m.typeMaskTrans & Matrix.Type.Perspective);
 
   auto sPt = FPoint(m[0][0], m[1][1]);

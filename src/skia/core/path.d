@@ -23,7 +23,7 @@ version=CUBIC_ARC;
 struct Path
 {
 private:
-  FPoint[] _points;
+  Appender!(FPoint[]) _points;
 
   // TODO: FIXME: Verb[] breaks std.array.front in const function
   ubyte[] verbs;
@@ -36,7 +36,7 @@ private:
 public:
 
   void reset() {
-    this._points.length = 0;
+    this._points.clear();
     this.verbs.length = 0;
     this.boundsIsClean = false;
     this._bounds = FRect();
@@ -79,7 +79,7 @@ public:
     this = path;
   }
   ref Path opAssign(in Path path) {
-    this._points = path._points.dup;
+    this._points = appender(path.points.dup);
     this.verbs = path.verbs.dup;
     this._bounds = path._bounds;
     this.boundsIsClean = path.boundsIsClean;
@@ -117,8 +117,8 @@ public:
   }
 
   FRect updateBounds() {
-    this._bounds = this._points.length > 0
-      ? FRect.calcBounds(this._points)
+    this._bounds = this.points.length > 0
+      ? FRect.calcBounds(this.points)
       : FRect.emptyRect();
     this.boundsIsClean = true;
     return this._bounds;
@@ -147,7 +147,7 @@ public:
     FPoint moveTo;
 
     auto vs = this.verbs.save;
-    auto points = this._points.save;
+    auto points = this.points.save;
 
     while (!vs.empty) {
       Verb verb = cast(Verb)vs.front; vs.popFront();
@@ -194,10 +194,10 @@ public:
   }
 
   @property package Retro!(const(FPoint[])) pointsRetro() const {
-    return this._points.retro;
+    return this.points.retro;
   }
   @property package const(FPoint[]) points() const {
-    return this._points.save;
+    return (cast(Path)this)._points.data.save;
   }
 
   @property FPoint lastPoint() const {
@@ -210,34 +210,17 @@ public:
 
   void ensureStart() {
     if (this.verbs.empty) {
-      assert(this._points.length == 0);
-      this._points ~= fPoint();
+      assert(this.points.length == 0);
+      this._points.put(fPoint());
       this.verbs ~= Verb.Move;
     }
   }
 
-  void primTo(R)(R pts) if(!isRandomAccessRange!R){
+  void primTo(R)(R pts) {
     static assert(isInputRange!R);
     this.ensureStart();
-    size_t count;
-    while (!pts.empty) {
-      this._points ~= pts.front;
-      pts.popFront;
-      ++count;
-    }
-    assert(count <= Verb.Cubic);
-    this.verbs ~= cast(Verb)count;
-    this.boundsIsClean = false;
-  }
-
-  void primTo(R)(R pts) if(isRandomAccessRange!R){
-    this._points.reserve(this._points.length + pts.length);
-    this.ensureStart();
-    this.verbs ~= cast(Verb)pts.length;
-    while (!pts.empty) {
-      this._points ~= pts.front;
-      pts.popFront;
-    }
+    this._points.put(pts);
+    this.verbs ~= cast(Verb)walkLength(pts);
     this.boundsIsClean = false;
   }
 
@@ -252,10 +235,10 @@ public:
 
   void moveTo(in FPoint pt) {
     if (this.lastVerbWas(Verb.Move)) {
-      this._points[$-1] = pt;
+      this._points.data[$-1] = pt;
     }
     else {
-      this._points ~= pt;
+      this._points.put(pt);
       this.verbs ~= Verb.Move;
     }
     this.boundsIsClean = false;
@@ -300,7 +283,7 @@ public:
 
   void addPath(in Path path) {
     this.verbs ~= path.verbs;
-    this._points ~= path._points;
+    this._points.put(path.points);
     this.boundsIsClean = false;
   }
 
@@ -309,20 +292,21 @@ public:
       return;
 
     debug auto initialLength= this.verbs.length;
-    this.verbs.reserve(this.verbs.capacity + path.verbs.length);
-    this._points.reserve(this._points.capacity + path._points.length);
+    this.verbs.reserve(this.verbs.length + path.verbs.length);
+    this._points.reserve(this.points.length + path.points.length);
 
     //! skip initial moveTo
     assert(this.verbs[0] == Verb.Move);
     auto vs = path.verbs[1..$].retro;
-    auto ps = path._points[0 .. $-1].retro;
+    auto rpts = path.pointsRetro;
+    rpts.popFront;
 
     while (!vs.empty) {
       auto verb = vs.front;
       switch (verb) {
       case Verb.Line: .. case Verb.Cubic:
-        this.primTo(take(ps, verb));
-        popFrontN(ps, verb);
+        this.primTo(take(rpts, verb));
+        popFrontN(rpts, verb);
         break;
       default:
         assert(0, "bad verb in reversePathTo: " ~ to!string(path.verbs));
@@ -330,6 +314,7 @@ public:
       }
       vs.popFront;
     }
+    assert(rpts.empty);
   }
 
   unittest {
@@ -340,7 +325,7 @@ public:
     path.moveTo(FPoint(0, 0));
     path.reversePathTo(rev);
     assert(path.verbs == cast(ubyte[])[Verb.Move, Verb.Quad], to!string(path.verbs));
-    assert(path._points == [FPoint(0, 0), FPoint(40, 60), FPoint(100, 100)], to!string(path._points));
+    assert(path.points == [FPoint(0, 0), FPoint(40, 60), FPoint(100, 100)], to!string(path.points));
   }
 
   void addRect(in FRect rect, Direction dir = Direction.CW) {
@@ -570,10 +555,10 @@ public:
         }
       }
       this.forEach(&iterate);
-      matrix.mapPoints(tmp._points);
+      matrix.mapPoints(tmp._points.data);
       this = tmp;
     } else {
-      if (matrix.rectStaysRect && this._points.length > 1) {
+      if (matrix.rectStaysRect && this.points.length > 1) {
         FRect mapped;
         matrix.mapRect(this.bounds, mapped);
         this._bounds = mapped;
@@ -581,7 +566,7 @@ public:
         this.boundsIsClean = false;
       }
 
-      matrix.mapPoints(this._points);
+      matrix.mapPoints(this._points.data);
     }
   }
   static void subdivide(size_t K)(ref Path path, in FPoint[K] pts,
@@ -606,13 +591,13 @@ public:
   {
     Path p;
     p.verbs ~= Verb.Move;
-    p._points ~= FPoint(1, 1);
+    p._points.put(FPoint(1, 1));
     p.verbs ~= Verb.Line;
-    p._points ~= FPoint(1, 3);
+    p._points.put(FPoint(1, 3));
     p.verbs ~= Verb.Quad;
-    p._points ~= [FPoint(2, 4), FPoint(3, 3)];
+    p._points.put([FPoint(2, 4), FPoint(3, 3)]);
     p.verbs ~= Verb.Cubic;
-    p._points ~= [FPoint(4, 2), FPoint(2, -1), FPoint(0, 0)];
+    p._points.put([FPoint(4, 2), FPoint(2, -1), FPoint(0, 0)]);
     p.verbs ~= Verb.Close;
 
     Verb[] verbExp = [Verb.Move, Verb.Line, Verb.Quad, Verb.Cubic, Verb.Line, Verb.Close];

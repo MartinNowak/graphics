@@ -5,7 +5,7 @@ private {
   import skia.core.point;
 }
 
-alias void function(in Matrix, ref FPoint[]) MapPtsFunc;
+alias void function(in Matrix, FPoint[]) MapPtsFunc;
 MapPtsFunc mapPtsFunc(ubyte typeMaskTrans) {
   switch(typeMaskTrans) {
   case 0:
@@ -17,11 +17,11 @@ MapPtsFunc mapPtsFunc(ubyte typeMaskTrans) {
   }
 }
 
-static void IdentityPts(in Matrix, ref FPoint[]) {
+static void IdentityPts(in Matrix, FPoint[]) {
   return;
 }
 
-static void SSERotTransPts(in Matrix m, ref FPoint[] pts) {
+static void SSERotTransPts(in Matrix m, FPoint[] pts) {
   assert((m.typeMaskTrans & Matrix.Type.Perspective) == 0);
   assert(pts.length > 0);
   auto row1 = &m[0][0];
@@ -93,7 +93,7 @@ static void SSERotTransPts(in Matrix m, ref FPoint[] pts) {
 }
 
 // TODO: assembly code for perspective mapping.
-static void PerspPts(in Matrix m, ref FPoint[] pts) {
+static void PerspPts(in Matrix m, FPoint[] pts) {
   assert(m.typeMaskTrans & Matrix.Type.Perspective);
 
   auto sPt = FPoint(m[0][0], m[1][1]);

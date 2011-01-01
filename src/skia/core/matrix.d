@@ -206,7 +206,7 @@ public:
     }
   }
 
-  void mapPoints(ref FPoint[] pts) const {
+  void mapPoints(FPoint[] pts) const {
     auto mapF = Detail.mapPtsFunc(this.typeMaskTrans);
     mapF(this, pts);
   }
