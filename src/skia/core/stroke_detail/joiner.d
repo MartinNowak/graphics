@@ -1,7 +1,7 @@
 module skia.core.stroke_detail.joiner;
 
 private {
-  import std.math : abs, sin, asin, PI;
+  import std.math : abs, sin, asin, tan, PI;
 
   import skia.core.paint;
   import skia.core.path;
@@ -28,10 +28,16 @@ void BevelJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path 
  }
 
 void RoundJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path inner, ref Path outer) {
-  if (clockwise(normalBefore, normalAfter)) {
+  enum tol = tan(0.1 * 2 * PI / 360);
+
+  auto crossP = crossProduct(normalBefore, normalAfter);
+  if (abs(crossP) < tol * abs(dotProduct(normalBefore, normalAfter)))
+    return;
+
+  if (crossP > 0) {
     inner.arcTo(pt, pt - normalAfter, Path.Direction.CW);
     outer.lineTo(pt + normalAfter);
-  } else {
+  } else if (crossP < 0) {
     outer.arcTo(pt, pt + normalAfter, Path.Direction.CCW);
     inner.lineTo(pt - normalAfter);
   }
