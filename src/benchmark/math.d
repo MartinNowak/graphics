@@ -4,6 +4,7 @@ private  {
   import benchmark._;
   import skia.core.edgebuilder : fastSqrt;
   import skia.math.m128;
+  import skia.math.rounding;
 }
 
 static this() {
@@ -24,7 +25,31 @@ void loadm128() {
   }
 }
 
+void benchSSETruncate() {
+  uint sum;
+  for (float f = 0.0f; f < 1e6f; f+=1.0f) {
+    sum += SSETruncate(f);
+  }
+}
+
+void benchStdMathTruncate() {
+  uint sum;
+  for (float f = 0.0f; f < 1e6f; f+=1.0f) {
+    sum += stdMathTruncate(f);
+  }
+}
+
+void benchStdMathLRInt() {
+  uint sum;
+  for (float f = 0.0f; f < 1e6f; f+=1.0f) {
+    sum += cast(int)std.math.lrint(f);
+  }
+}
+
 void runMath(BenchmarkReporter reporter) {
   reporter.bench!(loadm128)();
   reporter.bench!(benchFastSqrt)();
+  reporter.bench!(benchStdMathTruncate)();
+  reporter.bench!(benchSSETruncate)();
+  reporter.bench!(benchStdMathLRInt)();
 }

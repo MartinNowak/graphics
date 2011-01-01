@@ -2,6 +2,7 @@ module skia.math.quickCheck;
 
 private {
   import skia.math._;
+  import skia.math.rounding;
   import quickcheck._;
   import std.stdio;
 }
@@ -52,7 +53,7 @@ class ComparableClass {
   uint val;
 }
 
-void doRun() {
+void runClampToRange() {
   quickCheck!(checkClampToRange!float, count(1_000))();
   quickCheck!(checkClampToRange!real, count(1_000))();
   quickCheck!(checkClampToRange!byte, count(1_000))();
@@ -60,7 +61,8 @@ void doRun() {
   quickCheck!(checkClampToRange!bool, count(20))();
   quickCheck!(checkClampToRange!Comparable, count(1_000))();
   quickCheck!(checkClampToRange!ComparableClass, count(1_000))();
-
+}
+void runFitsIntoRange() {
   quickCheck!(checkFitsIntoRange!float, count(1_000))();
   quickCheck!(checkFitsIntoRange!real, count(1_000))();
   quickCheck!(checkFitsIntoRange!byte, count(1_000))();
@@ -69,6 +71,18 @@ void doRun() {
   quickCheck!(checkFitsIntoRange!Comparable, count(1_000))();
   quickCheck!(checkFitsIntoRange!ComparableClass, count(1_000))();
 }
+QCheckResult checkTruncate(T)(T f) {
+  return stdMathTruncate(f) == SSETruncate(f) ?
+    QCheckResult.Ok : QCheckResult.Fail;
+}
+void runTruncate() {
+  quickCheck!(checkTruncate!float, count(10_000),
+              minValue(int.min), maxValue(int.max))();
+  quickCheck!(checkTruncate!double, count(10_000),
+              minValue(int.min), maxValue(int.max))();
+}
 unittest {
-  doRun();
+  runClampToRange();
+  runFitsIntoRange();
+  runTruncate();
 }
