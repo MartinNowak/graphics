@@ -132,38 +132,61 @@ struct Stroke {
     }
     auto normal = getNormal(pts[0], pts[1]);
     this.join(pts[0], normal);
+    this.prevNormal = this.__lineTo(pts, normal);
+  }
+
+  FVector __lineTo(FPoint[2] pts, FVector normal) {
     this.outer.lineTo(pts[1] + normal);
     this.inner.lineTo(pts[1] - normal);
-    this.prevNormal = normal;
+    return normal;
   }
 
   void quadTo(FPoint[3] pts) {
     //! degenerate line
     if (degenerate(pts[0], pts[1])) {
       this.lineTo(fixedAry!2(pts[0], pts[2]));
+      return;
     }
 
     auto normalAB = getNormal(pts[0], pts[1]);
+    this.join(pts[0], normalAB);
+    this.prevNormal = this.__quadTo(pts, normalAB);
+  }
+
+  FVector __quadTo(FPoint[3] pts, FVector normalAB) {
+    if (degenerate(pts[1], pts[2])) {
+      return this.__lineTo(fixedAry!2(pts[0], pts[1]), normalAB);
+    }
+
     auto normalBC = getNormal(pts[1], pts[2]);
     if (normalsTooCurvy(normalAB, normalBC)) {
       auto ptss = splitBezier(pts, 0.5f);
-      this.quadTo(ptss[0]);
-      this.quadTo(ptss[1]);
+      auto normal1BC = this.__quadTo(ptss[0], normalAB);
+      return this.__quadTo(ptss[1], normal1BC);
     } else {
       auto normalB = getNormal(pts[0], pts[2]);
-      this.join(pts[0], normalAB);
       this.outer.quadTo(pts[1] + normalB, pts[2] + normalBC);
       this.inner.quadTo(pts[1] - normalB, pts[2] - normalBC);
-      this.prevNormal = normalBC;
+      return normalBC;
     }
   }
 
   void cubicTo(FPoint[4] pts) {
     if (degenerate(pts[0], pts[1])) {
       this.quadTo(fixedAry!3(pts[0], pts[2], pts[3]));
+      return;
     }
 
     auto normalAB = getNormal(pts[0], pts[1]);
+    this.join(pts[0], normalAB);
+    this.prevNormal = this.__cubicTo(pts, normalAB);
+  }
+
+  FVector __cubicTo(FPoint[4] pts, FVector normalAB) {
+    if (degenerate(pts[2], pts[3])) {
+      this.__quadTo(fixedAry!3(pts[0], pts[1], pts[2]), normalAB);
+    }
+
     auto normalCD = getNormal(pts[2], pts[3]);
     auto normalB = getNormal(pts[0], pts[2]);
     auto normalC = getNormal(pts[1], pts[3]);
@@ -171,13 +194,12 @@ struct Stroke {
         || normalsTooCurvy(normalAB, normalB)
         || normalsTooCurvy(normalC, normalCD)) {
       auto ptss = splitBezier(pts, 0.5f);
-      this.cubicTo(ptss[0]);
-      this.cubicTo(ptss[1]);
+      auto normal1CD = this.__cubicTo(ptss[0], normalAB);
+      return this.__cubicTo(ptss[1], normal1CD);
     } else {
-      this.join(pts[0], normalAB);
       this.outer.cubicTo(pts[1] + normalB, pts[2] + normalC, pts[3] + normalCD);
       this.inner.cubicTo(pts[1] - normalB, pts[2] - normalC, pts[3] - normalCD);
-      this.prevNormal = normalCD;
+      return normalCD;
     }
   }
 
