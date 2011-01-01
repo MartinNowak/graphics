@@ -7,7 +7,9 @@ private {
   import std.algorithm : max;
   import std.conv : to, roundTo;
   import std.math : lrint, round, nearbyint;
+  import std.numeric : FPTemporary;
   import std.array;
+  import std.range;
 
   import skia.core.bitmap;
   import skia.core.color;
@@ -19,7 +21,7 @@ private {
   import skia.core.scan : AAScale;
   import skia.core.blitter_detail._;
 
-  import skia.math.clamp;
+  import skia.math._;
 }
 
 class Blitter
@@ -111,36 +113,129 @@ unittest {
   static assert(binShift!15 == 3);
 }
 
+struct AARun {
+  ushort length;
+  ushort aaSum;
+}
+
 class ARGB32BlitterAA(byte S) : ARGB32Blitter {
   enum Shift = binShift!S;
+  enum FullCovVal = ushort.max / S;
   Color color;
-  ubyte[] aaLine;
-  ubyte vertCnt;
+  static AARun[] aaRuns;
+  int curIY = int.min;
 
   this(Bitmap bitmap, Paint paint) {
     super(bitmap, paint);
-    this.aaLine.length = bitmap.width;
     this.color = paint.color;
-    // this.lineBuffer[] = PMWhite;
+    this.aaRuns.length = bitmap.width;
+    this.resetRuns();
+  }
+
+  ~this() {
+    this.flush();
   }
 
   override void blitFH(float y, float xStart, float xEnd) {
-    auto ixStart = to!int(ceil(xStart + 1e-5f));
-    aaLine[ixStart - 1] += to!ubyte(clampToRange((ixStart - xStart) * 255, 0, 255)) >> Shift;
-    auto ixEnd = to!int(floor(xEnd - 1e-5f));
-    if (ixStart < ixEnd)
-      aaLine[ixEnd] += to!ubyte(clampToRange((xEnd - ixEnd) * 255, 0, 255)) >> Shift;
-    if (xEnd > xStart) {
-      for (auto i = ixStart; i < ixEnd; ++i)
-        aaLine[i] += 255 >> Shift;
+    auto iy = to!uint(truncate(y));
+    if (iy != this.curIY) {
+      this.flush();
+      this.curIY = iy;
     }
-    ++this.vertCnt;
-    if (this.vertCnt == S) {
-      this.vertCnt = 0;
-      //! finished line => blit to bitmap
-      Color32(this.bitmap.getLine(to!int(y)),
-              this.aaLine, this.color);
-      this.aaLine[] = 0;
+
+    auto ixStart = checkedTo!ushort(truncate(xStart));
+    auto ixEnd = checkedTo!ushort(truncate(xEnd));
+    if (ixStart == ixEnd)
+      this.addAADot(ixStart, checkedTo!ushort(
+                      lrint((xEnd - xStart) * FullCovVal)));
+    else {
+      FPTemporary!float covStart = 1.0 - (xStart - ixStart);
+      auto aaStart = checkedTo!ushort(lrint(covStart * FullCovVal));
+      FPTemporary!float covEnd = xEnd - ixEnd;
+      auto aaEnd = checkedTo!ushort(lrint(covEnd * FullCovVal));
+      const ushort middleCount = checkedTo!ushort(ixEnd - ixStart - 1);
+      this.addAASpan(ixStart, aaStart, middleCount, aaEnd);
     }
+  }
+
+  void addAADot(ushort x, ushort aaVal) {
+    breakSpan(this.aaRuns, x, cast(ushort)1);
+    assert(this.aaRuns[x].length == 1, to!string(this.aaRuns[x+1].length));
+    this.aaRuns[x].aaSum += aaVal;
+  }
+  void addAASpan(ushort x, ushort aaStart, ushort middleCount, ushort aaEnd) {
+    auto runs = this.aaRuns.save;
+    if (aaStart) {
+      breakSpan(runs, x, cast(ushort)1);
+      runs.popFrontN(x);
+      assert(runs.front.length == 1);
+      runs.front.aaSum += aaStart;
+      runs.popFront;
+      x = 0;
+    }
+    if (middleCount) {
+      breakSpan(runs, x, middleCount);
+      runs.popFrontN(x);
+      x = 0;
+      while (middleCount > 0) {
+        runs.front.aaSum += FullCovVal;
+        auto n = runs.front.length;
+        runs.popFrontN(n);
+        middleCount -= n;
+      }
+      assert(middleCount == 0);
+    }
+    if (aaEnd) {
+      breakSpan(runs, x, cast(ushort)1);
+      runs.popFrontN(x);
+      assert(runs.front.length == 1);
+      runs.front.aaSum += aaEnd;
+    }
+  }
+
+  static void breakSpan(Range)(Range range, ushort x, ushort count) {
+    assert(count > 0);
+    auto runs = range.save;
+
+    void splitRuns(size_t pos) {
+      while (pos > 0) {
+        auto n = runs.front.length;
+        assert(n > 0);
+        if (pos < n) {
+          runs.front.length = to!ushort(pos);
+          runs[pos].length = to!ushort(n - pos);
+          runs[pos].aaSum = runs.front.aaSum;
+          runs.popFrontN(pos);
+          break;
+        }
+        pos -= n;
+        runs.popFrontN(n);
+      }
+    }
+
+    splitRuns(x);
+    splitRuns(count);
+  }
+
+  void flush() {
+    auto runs = this.aaRuns.save;
+    uint x = 0;
+    while (!runs.empty && runs.front.length) {
+      auto n = runs.front.length;
+      auto alpha = to!ubyte(runs.front.aaSum >> 8);
+      if (alpha) {
+        auto color = this.color;
+        color.a = to!ubyte((color.a * Color.getAlphaFactor(alpha)) >> 8);
+        Color32(this.bitmap.getRange(x, x + n, this.curIY), PMColor(color));
+      }
+      runs.popFrontN(n);
+      x += n;
+    }
+    this.resetRuns();
+  }
+
+  void resetRuns() {
+    this.aaRuns.front.length = to!ushort(this.bitmap.width);
+    this.aaRuns.front.aaSum = 0;
   }
 }

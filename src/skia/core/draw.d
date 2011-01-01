@@ -93,7 +93,7 @@ public:
         && !this.bounder.doPath(toBlit, paint, doFill))
         return;
 
-    Blitter blitter = this.getBlitter(paint);
+    scope Blitter blitter = this.getBlitter(paint);
 
     if (doFill) {
       return paint.antiAlias ?
