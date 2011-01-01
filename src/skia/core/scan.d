@@ -157,7 +157,6 @@ private void walkEdges(alias blitLineFunc, Range)(
   while (fCurY < yEnd) {
     debug(WALK_EDGES) writeln("fCurY:", fCurY, "WS: ",workingSet);
 
-    fCurY = iCurY + superCnt * fInc;
     workingSet ~= takeNextEdges(fCurY, sortedEdges);
     workingSet = updateWorkingSet(workingSet, fCurY, fInc);
 
@@ -171,6 +170,7 @@ private void walkEdges(alias blitLineFunc, Range)(
       ++iCurY;
       superCnt = 0;
     }
+    fCurY = iCurY + superCnt * fInc;
   }
 
 }
