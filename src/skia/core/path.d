@@ -113,7 +113,7 @@ public:
   }
 
   @property IRect ibounds() const {
-    return this.bounds.round();
+    return this.bounds.roundOut();
   }
 
   FRect updateBounds() {
