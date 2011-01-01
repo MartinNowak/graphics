@@ -192,6 +192,11 @@ public:
     return this.scanLines.bounds;
   }
 
+  bool quickReject(in IRect rect) const {
+    return this.empty || rect.empty ||
+      !this.bounds.intersects(rect);
+  }
+
   /** Returns true if the region is non-empty, and if so, sets the specified
       path to the boundary(s) of the region.
   */
