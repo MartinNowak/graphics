@@ -1,6 +1,8 @@
 module skia.math.clamp;
 
 private {
+  import std.conv : to;
+  import std.traits : isNumeric;
   import std.functional : binaryFun;
   import std.algorithm : min, max;
 }
@@ -21,5 +23,15 @@ template CmpOp(char s) {
   } else {
     static assert(s == '(' || s == ')');
     alias binaryFun!("a < b") CmpOp;
+  }
+}
+
+debug {
+  T checkedTo(T, T2)(T2 val) if(isNumeric!T2) {
+    return to!T(val);
+  }
+} else {
+  T checkedTo(T, T2)(T2 val) if(isNumeric!T2) {
+    return cast(T)(val);
   }
 }
