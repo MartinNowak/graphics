@@ -34,7 +34,7 @@ void clippedLineEdge(R, T)(ref R appender, Point!T[2] pts, in IRect clip) {
 
 bool clipPoints(T)(ref Point!T[2] pts, in IRect clip) {
   assert(pts.front.y <= pts.back.y);
-  if (pts.front.y > clip.bottom || pts.back.y < clip.top)
+  if (pts.front.y >= clip.bottom || pts.back.y <= clip.top)
     return false;
 
   // clip the line to top

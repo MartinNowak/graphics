@@ -115,7 +115,7 @@ void appendMonoQuad(R, T)(ref R appender, Point!T[3] pts, const(IRect*) clip=nul
 
 bool clipPoints(T)(ref Point!T[3] pts, in IRect clip) {
   assert(pts.front.y <= pts.back.y);
-  if (pts.front.y > clip.bottom || pts.back.y < clip.top)
+  if (pts.front.y >= clip.bottom || pts.back.y <= clip.top)
     return false;
 
   if (pts.front.y < clip.top) {

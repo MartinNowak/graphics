@@ -234,7 +234,7 @@ void appendMonoCubic(R, T)(ref R appender, Point!T[4] pts, const(IRect*) clip=nu
 
 bool clipPoints(T)(ref Point!T[4] pts, in IRect clip) {
   assert(pts.front.y <= pts.back.y);
-  if (pts.front.y > clip.bottom || pts.back.y < clip.top)
+  if (pts.front.y >= clip.bottom || pts.back.y <= clip.top)
     return false;
 
   // clip the line to top
