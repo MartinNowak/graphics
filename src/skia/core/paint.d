@@ -1,15 +1,16 @@
 module skia.core.paint;
 
 private {
+  import std.array : appender;
   import std.bitmanip;
   import std.format : formattedWrite;
-  import std.array : appender;
 
   import skia.core.color;
   import skia.core.drawlooper;
   import skia.core.path;
   import skia.core.patheffect;
   import skia.core.stroke;
+  import skia.core.xfermode;
 
   version(No_DefaultAntiAlias) {
     enum DefaultAntiAlias = false;
@@ -22,7 +23,7 @@ class Paint
 {
   Color color;
   DrawLooper drawLooper;
-
+  XferMode xfermode;
   //! TODO: review alignment
   PathEffect pathEffect;
   float strokeWidth;

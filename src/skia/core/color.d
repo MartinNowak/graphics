@@ -121,6 +121,7 @@ struct PMColor
   }
 }
 
+alias ubyte Alpha;
 
 enum : Color
 {
