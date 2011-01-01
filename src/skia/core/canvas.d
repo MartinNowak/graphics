@@ -215,6 +215,9 @@ public:
     return this.curMCRec.clip.bounds;
   }
 
+  void translate(FPoint pt) {
+    this.translate(pt.x, pt.y);
+  }
   void translate(float dx, float dy) {
     this.curMCRec.matrix.preTranslate(dx, dy);
   }
