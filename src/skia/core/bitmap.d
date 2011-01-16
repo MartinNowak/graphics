@@ -56,12 +56,8 @@ class Bitmap {
   Bitmap.Config config;
   ubyte flags;
   ColorTable colorTable;
-  // TODO: different storage for kA1Bitmap.Config.needed
-  PMColor[] buffer;
+  ubyte[] _buffer;
 
-  this() {
-    this(Config.NoConfig, 0, 0);
-  }
   this(Config config, uint width, uint height) {
     this.setConfig(config, width, height);
   }
@@ -70,24 +66,23 @@ class Bitmap {
     this.width = width;
     this.height = height;
     this.config = config;
-    this.buffer.length = width * height;
+    this._buffer.length = width * height * BytesPerPixel(config);
   }
 
-  void* getPixels() {
-    assert(buffer);
-    return buffer.ptr;
-  }
-
-  auto getRange(int xStart, int xEnd, int y) {
+  T[] getRange(T=PMColor)(uint xStart, uint xEnd, uint y) {
     assert(xEnd - xStart <= this.width,
            "start:" ~ to!string(xStart) ~ "end: "~ to!string(xEnd) ~ "width:"~to!string(this.width));
-    assert(y <= this.height);
+    assert(y <= this.height, to!string(y));
     size_t yOff = y * this.width;
-    return this.buffer[yOff + xStart .. yOff + xEnd];
+    return this.getBuffer!T()[yOff + xStart .. yOff + xEnd];
   }
 
-  auto getLine(int y) {
-    return this.getRange(0, this.width, y);
+  T[] getBuffer(T=PMColor)() {
+    return cast(T[])this._buffer;
+  }
+
+  auto getLine(uint y) {
+    return this.getRange(0u, this.width, y);
   }
 
   @property void opaque(bool isOpaque) {
@@ -130,7 +125,7 @@ class Bitmap {
       return;
 
     assert(this.config == Bitmap.Config.ARGB_8888);
-    this.buffer[] = c;
+    this.getBuffer!PMColor()[] = c;
     // this.notifyPixelChanged();
   }
 
@@ -142,22 +137,22 @@ private:
   }
 }
 
-/++
-size_t RowBytes(Bitmap.Config.c, int width) {
+
+size_t RowBytes(Bitmap.Config c, int width) {
   assert(width > 0);
   return c == Bitmap.Config.A1 ? (width + 7) >> 3 : width * BytesPerPixel(c);
 }
 
-uint BytesPerPixel(Bitmap.Config.c) {
+uint BytesPerPixel(Bitmap.Config c) {
   final switch (c) {
-  case Bitmap.Config.NoConfig, Config.A1:
+  case Bitmap.Config.NoConfig, Bitmap.Config.A1:
     return 0;
-  case Bitmap.Config.RLE_Index8, Config.A8, Config.Index8:
+  case Bitmap.Config.RLE_Index8, Bitmap.Config.A8, Bitmap.Config.Index8:
     return 1;
-  case Bitmap.Config.RGB_565, Config.ARGB_4444:
+  case Bitmap.Config.RGB_565, Bitmap.Config.ARGB_4444:
     return 2;
   case Bitmap.Config.ARGB_8888:
     return 4;
   }
 }
-+/
+
