@@ -71,35 +71,63 @@ static this() {
 ushort getFpuCW() {
   ushort control;
   auto pcw = &control;
-  asm {
-    mov EBX, pcw;
-    fstcw [EBX];
+  version (D_InlineAsm_X86) {
+    asm {
+      mov EBX, pcw;
+      fstcw [EBX];
+    }
+  } else version (D_InlineAsm_X86_64) {
+    asm {
+      mov RBX, pcw;
+      fstcw [RBX];
+    }
   }
   return control;
 }
 
 void setFpuCW(ushort control) {
   auto pcw = &control;
-  asm {
-    mov EBX, pcw;
-    fldcw [EBX];
+  version (D_InlineAsm_X86) {
+    asm {
+      mov EBX, pcw;
+      fldcw [EBX];
+    }
+  } else version (D_InlineAsm_X86_64) {
+    asm {
+      mov RBX, pcw;
+      fldcw [RBX];
+    }
   }
 }
 
 uint getMXCSR() {
   uint control;
   auto pcw = &control;
-  asm {
-    mov EBX, pcw;
-    stmxcsr [EBX];
+  version (D_InlineAsm_X86) {
+    asm {
+      mov EBX, pcw;
+      stmxcsr [EBX];
+    }
+  } else version (D_InlineAsm_X86_64) {
+    asm {
+      mov RBX, pcw;
+      stmxcsr [RBX];
+    }
   }
   return control;
 }
 
 void setMXCSR(uint control) {
   auto pcw = &control;
-  asm {
-    mov EBX, pcw;
-    ldmxcsr [EBX];
+  version (D_InlineAsm_X86) {
+    asm {
+      mov EBX, pcw;
+      ldmxcsr [EBX];
+    }
+  } else version (D_InlineAsm_X86_64) {
+    asm {
+      mov RBX, pcw;
+      ldmxcsr [RBX];
+    }
   }
 }

@@ -33,60 +33,116 @@ static void SSERotTransPts(in Matrix m, FPoint[] pts) {
 
   // TODO: Try to switch to movaps when pts are 16-byte aligned, or
   // process unaligned until the are aligned.
+  version (D_InlineAsm_X86) {
+    asm {
+      mov EAX, row1;
+      mov EBX, row2;
+      mov ECX, len;
+      mov ESI, ppts;
 
-  asm {
-    mov EAX, row1;
-    mov EBX, row2;
-    mov ECX, len;
-    mov ESI, ppts;
+      // XMMO m00 m01 m10 m11
+      // XMM1 m10 m11 m00 m01
+      movlps XMM0, [EAX];
+      movhps XMM0, [EBX];
+      movaps XMM1, XMM0;
+      shufps XMM0, XMM0, 0b11_00_11_00;
+      shufps XMM1, XMM1, 0b10_01_10_01;
+      mov EAX, pTrans;
+      movlps XMM2, [EAX];
+      movhps XMM2, [EAX];
 
-    // XMMO m00 m01 m10 m11
-    // XMM1 m10 m11 m00 m01
-    movlps XMM0, [EAX];
-    movhps XMM0, [EBX];
-    movaps XMM1, XMM0;
-    shufps XMM0, XMM0, 0b11_00_11_00;
-    shufps XMM1, XMM1, 0b10_01_10_01;
-    mov EAX, pTrans;
-    movlps XMM2, [EAX];
-    movhps XMM2, [EAX];
+    dotwoa:
+      cmp ECX, 2;
+      jb epilog;
+      movups XMM3, [ESI];
+      movaps XMM4, XMM3;
+      shufps XMM4, XMM3, 0b10_11_00_01;
+      mulps XMM3, XMM0;
+      mulps XMM4, XMM1;
+      addps XMM3, XMM4;
+      // Add translation
+      addps XMM3,  XMM2;
+      movups [ESI], XMM3;
+      add ESI, 16;
+      sub ECX, 2;
+    loopa:
+      jmp dotwoa;
 
-  dotwoa:
-    cmp ECX, 2;
-    jb epilog;
-    movups XMM3, [ESI];
-    movaps XMM4, XMM3;
-    shufps XMM4, XMM3, 0b10_11_00_01;
-    mulps XMM3, XMM0;
-    mulps XMM4, XMM1;
-    addps XMM3, XMM4;
-    // Add translation
-    addps XMM3,  XMM2;
-    movups [ESI], XMM3;
-    add ESI, 16;
-    sub ECX, 2;
-  loopa:
-    jmp dotwoa;
+    epilog:
+      cmp ECX, 1;
+      jb end;
+      movlps XMM3, [ESI];
+      movaps XMM4, XMM3;
+      shufps XMM4, XMM3, 0b10_11_00_01;
+      mulps XMM3, XMM0;
+      mulps XMM4, XMM1;
+      addps XMM3, XMM4;
+      // Add translation
+      addps XMM3, XMM2;
+      movlps [ESI], XMM3;
+      add ESI, 8;
+      sub ECX, 1;
 
-  epilog:
-    cmp ECX, 1;
-    jb end;
-    movlps XMM3, [ESI];
-    movaps XMM4, XMM3;
-    shufps XMM4, XMM3, 0b10_11_00_01;
-    mulps XMM3, XMM0;
-    mulps XMM4, XMM1;
-    addps XMM3, XMM4;
-    // Add translation
-    addps XMM3, XMM2;
-    movlps [ESI], XMM3;
-    add ESI, 8;
-    sub ECX, 1;
+    end:
+      mov len, ECX;
+      mov ppts, ESI;
+      ;
+    }
+  } else version (D_InlineAsm_X86_64) {
+    asm {
+      mov RAX, row1;
+      mov RBX, row2;
+      mov RCX, len;
+      mov RSI, ppts;
 
-  end:
-    mov len, ECX;
-    mov ppts, ESI;
-    ;
+      // XMMO m00 m01 m10 m11
+      // XMM1 m10 m11 m00 m01
+      movlps XMM0, [RAX];
+      movhps XMM0, [RBX];
+      movaps XMM1, XMM0;
+      shufps XMM0, XMM0, 0b11_00_11_00;
+      shufps XMM1, XMM1, 0b10_01_10_01;
+      mov RAX, pTrans;
+      movlps XMM2, [RAX];
+      movhps XMM2, [RAX];
+
+    dotwoa:
+      cmp ECX, 2;
+      jb epilog;
+      movups XMM3, [RSI];
+      movaps XMM4, XMM3;
+      shufps XMM4, XMM3, 0b10_11_00_01;
+      mulps XMM3, XMM0;
+      mulps XMM4, XMM1;
+      addps XMM3, XMM4;
+      // Add translation
+      addps XMM3,  XMM2;
+      movups [RSI], XMM3;
+      add RSI, 16;
+      sub RCX, 2;
+    loopa:
+      jmp dotwoa;
+
+    epilog:
+      cmp RCX, 1;
+      jb end;
+      movlps XMM3, [RSI];
+      movaps XMM4, XMM3;
+      shufps XMM4, XMM3, 0b10_11_00_01;
+      mulps XMM3, XMM0;
+      mulps XMM4, XMM1;
+      addps XMM3, XMM4;
+      // Add translation
+      addps XMM3, XMM2;
+      movlps [RSI], XMM3;
+      add RSI, 8;
+      sub RCX, 1;
+
+    end:
+      mov len, RCX;
+      mov ppts, RSI;
+      ;
+    }
   }
   assert(len == 0);
   assert(ppts == pts.ptr + pts.length);
