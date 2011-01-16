@@ -6,6 +6,7 @@ private {
   version(unittest) import std.array : appender;
   import std.conv : to;
   import std.math : isNaN;
+  import std.numeric : FPTemporary;
 
   import skia.core.edge_detail.algo;
   import skia.core.edge_detail.edge;
@@ -94,7 +95,7 @@ T updateCubic(T)(ref Edge!T pthis, T y, T Step){
   assert(Step > 0);
   assert(pthis.type == EdgeType.Cubic);
   auto a = pthis.cubic.oldT;
-  auto ya = calcBezier!("y")(pthis.cubic.pts, a) - y;
+  FPTemporary!T ya = calcBezier!("y")(pthis.cubic.pts, a) - y;
   if (ya > -1e-5) {
     assert(ya < Edge!T.tol, "tolerance " ~ to!string(ya));
     return pthis.curX;
@@ -107,8 +108,8 @@ T updateCubic(T)(ref Edge!T pthis, T y, T Step){
   if (slope > 1e-3) {
     b = min(1.0, pthis.cubic.oldT + 1.5 * Step / slope);
   }
-  auto yb = calcBezier!("y")(pthis.cubic.pts, b) - y;
-  auto t = updateCubicImpl(pthis.cubic.pts, y, a, ya, b, yb);
+  FPTemporary!T yb = calcBezier!("y")(pthis.cubic.pts, b) - y;
+  auto t = updateCubicImpl!(T)(pthis.cubic.pts, y, a, ya, b, yb);
   pthis.cubic.oldT = t;
   pthis.curX = calcBezier!("x")(pthis.cubic.pts, t);
   return pthis.curX;
@@ -128,7 +129,7 @@ T updateCubic(T)(ref Edge!T pthis, T y) {
 T getTCubic(T)(ref Edge!T pthis, T y) {
   assert(pthis.type == EdgeType.Cubic);
   auto a = pthis.cubic.oldT;
-  auto ya = calcBezier!("y")(pthis.cubic.pts, a) - y;
+  FPTemporary!T ya = calcBezier!("y")(pthis.cubic.pts, a) - y;
   if (ya > -1e-5) {
     assert(ya < Edge!T.tol);
     return pthis.curX;
@@ -138,27 +139,26 @@ T getTCubic(T)(ref Edge!T pthis, T y) {
          formatString("ya over zero ya:%.7f a:%.7f", ya, a));
 
   T b = 1.0;
-  auto yb = calcBezier!("y")(pthis.cubic.pts, b) - y;
-  auto newT =updateCubicImpl(pthis.cubic.pts, y, a, ya, b, yb);
+  FPTemporary!T yb = calcBezier!("y")(pthis.cubic.pts, b) - y;
+  auto newT =updateCubicImpl!(T)(pthis.cubic.pts, y, a, ya, b, yb);
   pthis.cubic.oldT = newT;
-  debug(Illinois) writeln("converged after: ", i,
-                          " at: ", pthis.cubic.oldT);
   return newT;
 }
 
 T getTCubic(T)(in Point!T[4] pts, T y) {
   T a = 0;
-  auto ya = calcBezier!("y")(pts, a) - y;
+  FPTemporary!T ya = calcBezier!("y")(pts, a) - y;
   T b = 1.0;
-  auto yb = calcBezier!("y")(pts, b) - y;
-  return updateCubicImpl(pts, y, a, ya, b, yb);
+  FPTemporary!T yb = calcBezier!("y")(pts, b) - y;
+  return updateCubicImpl!(T)(pts, y, a, ya, b, yb);
 }
 
 private:
 
 // TODO: have a look at std.numeric.findRoot, does it apply to this
 // problem, is it even a better numerical approach?
-T updateCubicImpl(T)(ref Point!T[4] pts, T y, T a, T ya, T b, T yb) {
+T updateCubicImpl(T)(ref Point!T[4] pts, T y, T a, FPTemporary!T ya,
+                     T b, FPTemporary!T yb) {
   debug(Illinois) writeln("updateCubicImpl:", "y ", y,
                         " a ", a, " ya ", ya,
                         " b " , b, " yb ", yb);
@@ -174,11 +174,11 @@ T updateCubicImpl(T)(ref Point!T[4] pts, T y, T a, T ya, T b, T yb) {
   assert(yb > 0);
   assert(ya < 0);
   debug(Illinois) int i;
-  T gamma = 1.0;
-  for (;;) {
+  FPTemporary!T gamma = 1.0;
+  while (true) {
     debug(Illinois) i += 1;
-    auto c = (gamma*b*ya - a*yb) / (gamma*ya - yb);
-    auto yc = calcBezier!("y")(pts, c) - y;
+    FPTemporary!T c = (gamma*b*ya - a*yb) / (gamma*ya - yb);
+    FPTemporary!T yc = calcBezier!("y")(pts, c) - y;
     debug(Illinois) writeln("illinois step: ", i,
                           " a: ", a, " ya: ", ya,
                           " b: ", b, " yb: ", yb,
@@ -196,6 +196,7 @@ T updateCubicImpl(T)(ref Point!T[4] pts, T y, T a, T ya, T b, T yb) {
       }
       else {
         gamma = 0.5;
+        //gamma = yb / (yb + yc);
       }
       b = c;
       yb = yc;
@@ -234,7 +235,6 @@ void fixRoundingErrors(T)(ref Point!T[4] pts) {
  */
 void appendMonoCubic(R, T)(ref R appender, Point!T[4] pts, const(IRect*) clip=null) {
   auto w = sortPoints(pts);
-  auto edge = makeCubic(pts, w);
 
   if (!clip || clipPoints(pts, *clip))
     appender.put(makeCubic(pts, w));
@@ -259,7 +259,7 @@ bool clipPoints(T)(ref Point!T[4] pts, in IRect clip) {
 
 Edge!T makeCubic(T)(in Point!T[4] pts, byte winding) {
   if (isLine(pts)) {
-    makeLine(fixedAry!2(pts[0], pts[3]), winding);
+    return makeLine(fixedAry!2(pts[0], pts[3]), winding);
   }
 
   auto res = Edge!T(pts.front.x, pts.back.y);

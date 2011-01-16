@@ -109,7 +109,6 @@ void appendSplittedQuad(R, T)(ref R appender, Point!T[3] pts, const (IRect*) cli
  */
 void appendMonoQuad(R, T)(ref R appender, Point!T[3] pts, const(IRect*) clip=null) {
   auto w = sortPoints(pts);
-  auto edge = makeQuad(pts, w);
 
   if (!clip || clipPoints(pts, *clip))
     appender.put(makeQuad(pts, w));
