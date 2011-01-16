@@ -38,6 +38,8 @@ class Blitter
       this.blitFH(y++, x, x + width);
   }
   abstract void blitFH(float y, float xStart, float xEnd);
+  //! TODO: should be constant 'in Bitmap mask'
+  abstract void blitMask(float x, float y, in Bitmap mask);
 
   static Blitter Choose(Bitmap bitmap, in Matrix matrix, Paint paint)
   {
@@ -55,8 +57,7 @@ class Blitter
   }
 
   final protected int round(float f) {
-    //! TODO: investigate faster, but correct rounding modes.
-    return roundTo!int(f);
+    return checkedTo!int(lrint(f));
   }
   debug(WHITEBOX) auto opDispatch(string m, Args...)(Args a) {
     throw new Exception("Unimplemented property "~m);
@@ -68,6 +69,8 @@ class Blitter
 
 class NullBlitter : Blitter {
   override void blitFH(float y, float xStart, float xEnd) {
+  }
+  override void blitMask(float x, float y, in Bitmap mask) {
   }
 }
 
@@ -88,13 +91,24 @@ class RasterBlitter : Blitter {
 ////////////////////////////////////////////////////////////////////////////////
 
 class ARGB32Blitter : RasterBlitter {
+  Color color;
   PMColor pmColor;
   this(Bitmap bitmap, Paint paint) {
     super(bitmap);
-    pmColor = PMColor(paint.color);
+    this.color = paint.color;
+    this.pmColor = PMColor(this.color);
   }
   override void blitFH(float y, float xStart, float xEnd) {
     Color32(this.getBitmapRange(xStart, xEnd, y), pmColor);
+  }
+  override void blitMask(float x, float y, in Bitmap mask) {
+    assert(mask.config == Bitmap.Config.A8);
+    auto ix = checkedTo!int(truncate(x));
+    auto iy = checkedTo!int(truncate(y));
+    for (auto h = 0; h < mask.height; ++h) {
+      BlitAASpan(this.bitmap.getRange(ix, ix + mask.width, iy + h),
+                 (cast(Bitmap)mask).getRange!ubyte(0, mask.width, h), this.color);
+    }
   }
 }
 
@@ -121,7 +135,6 @@ struct AARun {
 class ARGB32BlitterAA(byte S) : ARGB32Blitter {
   enum Shift = binShift!S;
   enum FullCovVal = ushort.max / S;
-  Color color;
   static AARun[] aaRuns;
   int curIY = int.min;
 
@@ -154,7 +167,7 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
       FPTemporary!float covEnd = xEnd - ixEnd;
       auto aaEnd = checkedTo!ushort(lrint(covEnd * FullCovVal));
       const ushort middleCount = checkedTo!ushort(ixEnd - ixStart - 1);
-      this.addAASpan(ixStart, aaStart, middleCount, aaEnd);
+      this.addAASpan(ixStart, aaStart, middleCount, FullCovVal, aaEnd);
     }
   }
 
@@ -163,7 +176,8 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
     assert(this.aaRuns[x].length == 1, to!string(this.aaRuns[x+1].length));
     this.aaRuns[x].aaSum += aaVal;
   }
-  void addAASpan(ushort x, ushort aaStart, ushort middleCount, ushort aaEnd) {
+  void addAASpan(ushort x, ushort aaStart, ushort middleCount, ushort aaMiddle,
+                 ushort aaEnd) {
     auto runs = this.aaRuns.save;
     if (aaStart) {
       breakSpan(runs, x, cast(ushort)1);
@@ -178,7 +192,7 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
       runs.popFrontN(x);
       x = 0;
       while (middleCount > 0) {
-        runs.front.aaSum += FullCovVal;
+        runs.front.aaSum += aaMiddle;
         auto n = runs.front.length;
         runs.popFrontN(n);
         middleCount -= n;

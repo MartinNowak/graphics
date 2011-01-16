@@ -5,6 +5,7 @@ private {
  import std.algorithm : reduce;
  debug(PRINTF) import std.stdio : writeln;
 
+ import skia.core.bitmap;
  import skia.core.blitter;
  import skia.core.path;
  import skia.core.region;
@@ -27,6 +28,10 @@ class RgnBuilder : Blitter
   override void blitFH(float y, float xStart, float xEnd) {
     debug(PRINTF) writeln("RgnBuilder.blitH", "x:", x, "y:",y, "w:",width);
     this.scanLines.appendSpan(this.round(y), this.round(xStart), this.round(xEnd - xStart));
+  }
+  //! TODO: implement function
+  override void blitMask(float x, float y, in Bitmap mask) {
+    assert(0, "unimplemented");
   }
 
   void done() {

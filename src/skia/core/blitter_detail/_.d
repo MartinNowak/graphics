@@ -6,3 +6,4 @@ version(NO_SSE) {
   import skia.core.blitter_detail.blit_row_sse : Color32;
 }
 import skia.core.blitter_detail.clipping_blitter;
+import skia.core.blitter_detail.blit_aa_span : BlitAASpan;
