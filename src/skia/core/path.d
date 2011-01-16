@@ -12,9 +12,13 @@ private {
   import skia.core.matrix;
   import skia.core.point;
   import skia.core.edge_detail.algo : splitBezier;
+  import skia.core.path_detail._;
   import skia.core.rect;
   import skia.math.fixed_ary;
 }
+
+public import skia.core.path_detail._ : QuadCubicFlattener;
+
 //debug=WHITEBOX;
 debug import std.stdio : writeln, printf;
 version=CUBIC_ARC;
@@ -56,7 +60,7 @@ public:
   string toString() const {
     string res;
     res ~= "Path, bounds: " ~ to!string(this._bounds) ~ "\n";
-    this.forEach((Verb verb, const FPoint[] pts) {
+    this.forEach((Verb verb, in FPoint[] pts) {
         res ~= verbToString(verb) ~ ": ";
         foreach(FPoint pt; pts) {
           res ~= to!string(pt) ~ ", ";
@@ -138,8 +142,8 @@ public:
     Close = 4,
   }
 
-  //  alias void delegate(const Verb, const FPoint[]) IterDg;
-  void forEach(IterDg)(IterDg dg) const {
+  alias void delegate(Verb, in FPoint[]) IterDg;
+  void forEach(Flattener=NoopFlattener)(IterDg dg) const {
     if (this.empty)
       return;
 
@@ -148,19 +152,20 @@ public:
 
     auto vs = this.verbs.save;
     auto points = this.points.save;
+    auto flattener = Flattener(dg);
 
     while (!vs.empty) {
       Verb verb = cast(Verb)vs.front; vs.popFront();
 
       final switch (verb) {
       case Verb.Move:
-	dg(Verb.Move, [points.front]);
+	flattener.call(Verb.Move, [points.front]);
         moveTo = points.front;
 	lastPt = points.front; points.popFront;
 	break;
 
       case Verb.Line, Verb.Quad, Verb.Cubic:
-	dg(verb, [lastPt] ~ take(points, verb));
+	flattener.call(verb, [lastPt] ~ take(points, verb));
 	auto popped = popFrontN(points, verb - 1);
  	assert(popped == verb - 1);
 	lastPt = points.front; points.popFront;
@@ -169,10 +174,10 @@ public:
       case Verb.Close:
         if (lastPt != moveTo)
         {
-          dg(Verb.Line, [lastPt, moveTo]);
+          flattener.call(Verb.Line, [lastPt, moveTo]);
           lastPt = moveTo;
         }
-        dg(Verb.Close, []);
+        flattener.call(Verb.Close, []);
       }
     }
   }
@@ -193,10 +198,10 @@ public:
     return false;
   }
 
-  @property package Retro!(const(FPoint[])) pointsRetro() const {
+  @property Retro!(const(FPoint[])) pointsRetro() const {
     return this.points.retro;
   }
-  @property package const(FPoint[]) points() const {
+  @property const(FPoint[]) points() const {
     return (cast(Path)this)._points.data.save;
   }
 
@@ -535,7 +540,7 @@ public:
     if (matrix.perspective) {
       Path tmp;
       //! Bezier curves are only invariant to affine transformations.
-      void iterate(const Verb verb, const FPoint[] pts) {
+      void iterate(Verb verb, in FPoint[] pts) {
         final switch (verb) {
         case Verb.Move:
           tmp.moveTo(pts[0]);
@@ -610,7 +615,7 @@ public:
       [],
 			 ];
 
-    void iterate(const Verb verb, const FPoint[] pts) {
+    void iterate(Verb verb, in FPoint[] pts) {
       assert(verb == verbExp[0]);
       assert(pts == ptsExp[0]);
       verbExp.popFront();

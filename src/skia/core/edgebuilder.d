@@ -23,7 +23,7 @@ static Appender!(FEdge[]) app;
 
 FEdge[] buildEdges(in Path path) {
   app.clear();
-  path.forEach((const Path.Verb verb, const FPoint[] pts) {
+  path.forEach((Path.Verb verb, in FPoint[] pts) {
       final switch(verb) {
       case Path.Verb.Move, Path.Verb.Close:
         break;
@@ -43,7 +43,7 @@ FEdge[] buildEdges(in Path path) {
 
 FEdge[] buildEdges(in Path path, in IRect clip) {
   app.clear();
-  path.forEach((const Path.Verb verb, const FPoint[] pts) {
+  path.forEach((Path.Verb verb, in FPoint[] pts) {
       final switch(verb) {
       case Path.Verb.Move, Path.Verb.Close:
         break;

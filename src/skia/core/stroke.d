@@ -37,12 +37,12 @@ struct Stroke {
   }
 
   void done() {
-    if (!this.outer.empty) {
+    if (!this.outer.empty)
       this.finishContour(true);
-    }
   }
 
   void close(bool capClose) {
+    assert(!this.outer.empty);
     this.finishContour(capClose);
   }
 
@@ -57,7 +57,7 @@ struct Stroke {
     if (radius <= 0)
       return Path();
 
-    path.forEach((const Path.Verb verb, const FPoint[] pts) {
+    path.forEach!QuadCubicFlattener((Path.Verb verb, in FPoint[] pts) {
       final switch(verb) {
       case Path.Verb.Move:
         this.moveTo(pts[0]);
@@ -126,85 +126,47 @@ struct Stroke {
   }
 
   void lineTo(FPoint[2] pts) {
-    //! degenerate line
-    if (degenerate(pts[0], pts[1])) {
-      return;
-    }
+    assert(!degenerate(pts[0], pts[1]));
+
     auto normal = getNormal(pts[0], pts[1]);
     this.join(pts[0], normal);
-    this.prevNormal = this.__lineTo(pts, normal);
-  }
 
-  FVector __lineTo(FPoint[2] pts, FVector normal) {
     this.outer.lineTo(pts[1] + normal);
     this.inner.lineTo(pts[1] - normal);
-    return normal;
+
+    this.prevNormal = normal;
   }
 
   void quadTo(FPoint[3] pts) {
-    //! degenerate line
-    if (degenerate(pts[0], pts[1])) {
-      this.lineTo(fixedAry!2(pts[0], pts[2]));
-      return;
-    }
+    assert(!degenerate(pts[0], pts[1]));
+    assert(!degenerate(pts[1], pts[2]));
 
     auto normalAB = getNormal(pts[0], pts[1]);
     this.join(pts[0], normalAB);
-    this.prevNormal = this.__quadTo(pts, normalAB);
-  }
-
-  FVector __quadTo(FPoint[3] pts, FVector normalAB) {
-    if (degenerate(pts[1], pts[2])) {
-      return this.__lineTo(fixedAry!2(pts[0], pts[1]), normalAB);
-    }
 
     auto normalBC = getNormal(pts[1], pts[2]);
-    if (normalsTooCurvy(normalAB, normalBC)) {
-      auto ptss = splitBezier(pts, 0.5f);
-      auto normal1BC = this.__quadTo(ptss[0], normalAB);
-      return this.__quadTo(ptss[1], normal1BC);
-    } else {
-      auto normalB = getNormal(pts[0], pts[2]);
-      this.outer.quadTo(pts[1] + normalB, pts[2] + normalBC);
-      this.inner.quadTo(pts[1] - normalB, pts[2] - normalBC);
-      return normalBC;
-    }
+    auto normalB = getNormal(pts[0], pts[2]);
+
+    this.outer.quadTo(pts[1] + normalB, pts[2] + normalBC);
+    this.inner.quadTo(pts[1] - normalB, pts[2] - normalBC);
+
+    this.prevNormal = normalBC;
   }
 
   void cubicTo(FPoint[4] pts) {
-    if (degenerate(pts[0], pts[1])) {
-      this.quadTo(fixedAry!3(pts[0], pts[2], pts[3]));
-      return;
-    }
+    assert(!degenerate(pts[0], pts[1]));
+    assert(!degenerate(pts[2], pts[3]));
 
     auto normalAB = getNormal(pts[0], pts[1]);
     this.join(pts[0], normalAB);
-    this.prevNormal = this.__cubicTo(pts, normalAB);
-  }
-
-  FVector __cubicTo(FPoint[4] pts, FVector normalAB) {
-    if (degenerate(pts[2], pts[3])) {
-      this.__quadTo(fixedAry!3(pts[0], pts[1], pts[2]), normalAB);
-    }
 
     auto normalCD = getNormal(pts[2], pts[3]);
     auto normalB = getNormal(pts[0], pts[2]);
     auto normalC = getNormal(pts[1], pts[3]);
-    if (normalsTooCurvy(normalAB, normalCD)
-        || normalsTooCurvy(normalAB, normalB)
-        || normalsTooCurvy(normalC, normalCD)) {
-      auto ptss = splitBezier(pts, 0.5f);
-      auto normal1CD = this.__cubicTo(ptss[0], normalAB);
-      return this.__cubicTo(ptss[1], normal1CD);
-    } else {
-      this.outer.cubicTo(pts[1] + normalB, pts[2] + normalC, pts[3] + normalCD);
-      this.inner.cubicTo(pts[1] - normalB, pts[2] - normalC, pts[3] - normalCD);
-      return normalCD;
-    }
-  }
 
-  static bool normalsTooCurvy(FVector normal1, FVector normal2) {
-    const limit = SQRT1_2 * normal1.length * normal2.length;
-    return dotProduct(normal1, normal2) <= limit;
+    this.outer.cubicTo(pts[1] + normalB, pts[2] + normalC, pts[3] + normalCD);
+    this.inner.cubicTo(pts[1] - normalB, pts[2] - normalC, pts[3] - normalCD);
+
+    this.prevNormal = normalCD;
   }
 }
