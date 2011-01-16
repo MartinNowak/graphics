@@ -1,17 +1,24 @@
 module skia.core.draw;
 
 private {
+  import std.array;
+
   import skia.core.bitmap;
   import skia.core.bounder;
   import skia.core.blitter;
   import skia.core.color;
   import skia.core.device;
+  import skia.core.glyph;
   import skia.core.matrix;
   import skia.core.paint;
   import skia.core.path;
+  import skia.core.point;
   import skia.core.region;
   import skia.core.rect;
+  import skia.core.size;
   import Scan = skia.core.scan;
+
+  import skia.math.fixed_ary;
 }
 
 // debug=PRINTF;
@@ -27,7 +34,6 @@ public:
   // DrawProcs drawProcs;
 
   this(Bitmap bitmap) {
-    assert(bitmap);
     this.bitmap = bitmap;
   }
 
@@ -78,6 +84,11 @@ public:
   void drawPath(in Path path, Paint paint) {
     if (this.clip.empty)
       return;
+
+    if (path.empty) {
+      assert(!path.inverseFillType);
+      return;
+    }
 
     bool doFill;
     Path toBlit;
