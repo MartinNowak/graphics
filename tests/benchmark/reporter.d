@@ -15,9 +15,9 @@ enum LogLevel {
 class BenchmarkReporter {
   size_t testCount;
   LogLevel logLevel;
-  const size_t numHint;
+  const uint numHint;
 
-  this(size_t numHint = 50) {
+  this(uint numHint = 50) {
     this.numHint = numHint;
     this.logLevel = LogLevel.Info;
   }
@@ -30,7 +30,7 @@ class BenchmarkReporter {
   void bench(alias func)() {
     this.bench!(func)(this.numHint);
   }
-  void bench(alias func)(size_t times) {
+  void bench(alias func)(uint times) {
     enum name = __traits(identifier, func);
     this.log!(LogLevel.Info)("Bench %s count:%s", name, times);
     auto results = Date.benchmark!(func)(times);

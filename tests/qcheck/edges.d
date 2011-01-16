@@ -6,7 +6,6 @@ private {
   import std.random : uniform;
   import std.typecons;
   import std.typetuple;
-  import std.format : formattedWrite;
   import std.array : appender;
   import std.math : abs;
 
@@ -15,7 +14,10 @@ private {
   import skia.core.edge_detail.edge : EdgeType;
   import skia.core.edge_detail.algo;
   import skia.core.point;
-  import quickcheck._;
+
+  import skia.util.format;
+
+  import qcheck._;
 }
 
 // debug=SPLIT;
@@ -133,12 +135,6 @@ unittest {
 }
 
 
-private string formatString(TL...)(string fmt, TL tl) {
-  auto writer = appender!string();
-  formattedWrite(writer, fmt, tl);
-  return writer.data;
-}
-
 bool monotonicEdge(T)(Edge!T edge) {
   auto ts = iota(0.0, 1.0, 0.001);
   auto curY = edge.firstY;
@@ -164,12 +160,17 @@ bool verifyLines(T)(Edge!T edge) {
     && (edge.lastY > edge.firstY ? verifyXYT(edge) : true);
 }
 
-bool verifyQuads(T)(Edge!T edge) {
-  return (edge.type == EdgeType.Quad
-          || edge.type == EdgeType.Line)
+QCheckResult verifyQuads(T)(Edge!T edge) {
+  if (edge.type == EdgeType.Line) {
+    return QCheckResult.Reject;
+  }
+  const Success =
+    (edge.type == EdgeType.Quad)
     && edge.lastY >= edge.firstY
     && monotonicEdge(edge)
     && verifyXYT(edge);
+
+  return Success ? QCheckResult.Success : QCheckResult.Fail;
 }
 bool verifyCubics(T)(Edge!T edge) {
   return (edge.type == EdgeType.Cubic

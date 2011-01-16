@@ -1,4 +1,4 @@
-module sineview;
+module SampleApp.sineview;
 
 private {
   debug private import std.stdio : writeln;

@@ -2,9 +2,9 @@ Import('env skia_lib qcheck_lib qcheck_imp')
 
 _srcs = Glob('*.d')
 
-_d_link_flags=['-m32', '-lphobos2', '-lpthread', '-lm']
+_d_link_flags=env['LINKFLAGS'] + ['-lphobos2', '-lpthread', '-lm']
 
-app = env.Program('benchmark',
+app = env.Program('QuickCheck',
                   _srcs,
 #                  LINKCOM=env['DLINKCOM'],
                   LINKFLAGS=_d_link_flags,

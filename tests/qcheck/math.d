@@ -3,7 +3,7 @@ module skia.math.quickCheck;
 private {
   import skia.math._;
   import skia.math.rounding;
-  import quickcheck._;
+  import qcheck._;
   import std.stdio;
 }
 
@@ -38,7 +38,7 @@ QCheckResult checkFitsIntoRange(T)(T value, T left, T right) {
 }
 
 struct Comparable {
-  this(size_t val) { this.val = val; }
+  this(uint val) { this.val = val; }
   int opCmp(in Comparable rhs) {
     return rhs.val - this.val;
   }
@@ -46,7 +46,7 @@ struct Comparable {
 }
 
 class ComparableClass {
-  this(size_t val) { this.val = val; }
+  this(uint val) { this.val = val; }
   int opCmp(in ComparableClass rhs) {
     return rhs.val - this.val;
   }
