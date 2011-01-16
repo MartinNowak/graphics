@@ -499,7 +499,7 @@ void testDrawOrder() {
 
     void testDraw(View v, int[] exp) {
       if (!this.canvas) {
-        auto bitmap = new Bitmap(Bitmap.Config.ARGB_8888, 100, 100);
+        auto bitmap = Bitmap(Bitmap.Config.ARGB_8888, 100, 100);
         this.canvas = new Canvas(bitmap);
       }
       v.draw(canvas);

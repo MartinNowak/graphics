@@ -31,7 +31,7 @@ class ColorTable
 /**
    Bitmap
  */
-class Bitmap {
+struct Bitmap {
   enum Config {
     NoConfig,   //!< bitmap has not been configured
     A1,         //!< 1-bit per pixel, (0 is transparent, 1 is opaque)
