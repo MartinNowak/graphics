@@ -179,6 +179,21 @@ public:
     this.drawPath(path, paint);
   }
 
+  void drawText(string text, float x, float y, Paint paint) {
+    return this.drawText(text, FPoint(x, y), paint);
+  }
+  void drawText(string text, FPoint pt, Paint paint) {
+    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
+    foreach(ref draw; cycle) {
+      draw.drawText(text, pt, paint);
+    }
+  }
+  void drawTextAsPaths(string text, FPoint pt, Paint paint) {
+    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
+    foreach(ref draw; cycle) {
+      draw.drawTextAsPaths(text, pt, paint);
+    }
+  }
   /****************************************
    * Stub
    */

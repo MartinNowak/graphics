@@ -134,9 +134,56 @@ public:
     }
     +/
   }
-  //  void drawPath(in Path path, in Paint paint, in Matrix matrix, bool pathMutable) {
-  //  }
 
+  void drawText(string text, FPoint pt, Paint paint) {
+    if (text.empty || this.clip.empty ||
+        (paint.color.a == 0 && paint.xferMode is null))
+      return;
+
+    // TODO: underline handling
+
+    FPoint start = this.matrix.mapPoint(pt);
+    if (paint.textAlign != Paint.TextAlign.Left) {
+      auto length = measureText!BitmapGlyphStream(text);
+      if (paint.textAlign == Paint.TextAlign.Center)
+        length *= 0.5;
+      start.x = start.x - length;
+    }
+    scope Blitter blitter = this.getBlitter(paint);
+    foreach(pos, glyph; BitmapGlyphStream(text, start)) {
+      blitter.blitMask(pos.x, pos.y, glyph);
+    }
+  }
+
+  void drawTextAsPaths(string text, FPoint pt, Paint paint) {
+    if (text.empty || this.clip.empty ||
+        (paint.color.a == 0 && paint.xferMode is null))
+      return;
+
+    auto backUp = this.matrix;
+    scope(exit) this.matrix = backUp;
+
+    float hOffset = 0;
+    if (paint.textAlign != Paint.TextAlign.Left) {
+      auto length = measureText!PathGlyphStream(text);
+      if (paint.textAlign == Paint.TextAlign.Center)
+        length *= 0.5;
+      hOffset = length;
+    }
+
+    this.matrix.preTranslate(pt.x, pt.y);
+    Matrix scaledMatrix = this.matrix;
+    // TODO: scale matrix according to freetype outline relation
+    // auto scale = PathGlyphStream.getScale();
+    // scaledMatrix.preScale(scale, scale);
+
+    foreach(pos, glyphPath; PathGlyphStream(text, FPoint(0, 0))) {
+      Matrix m;
+      m.setTranslate(pos.x - hOffset, 0);
+      this.matrix = scaledMatrix * m;
+      this.drawPath(glyphPath, paint);
+    }
+  }
 
   /++
 
