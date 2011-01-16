@@ -23,7 +23,7 @@ class Paint
 {
   Color color;
   DrawLooper drawLooper;
-  XferMode xfermode;
+  XferMode xferMode;
   //! TODO: review alignment
   PathEffect pathEffect;
   float strokeWidth;
@@ -117,6 +117,7 @@ class Paint
 
 unittest {
   scope auto paint = new Paint(Red);
+  assert(paint.xferMode is null);
   assert(paint.antiAlias == DefaultAntiAlias);
   assert(!paint.filterBitmap);
   assert(!paint.dither);
