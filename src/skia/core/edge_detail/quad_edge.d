@@ -10,6 +10,8 @@ private {
   import skia.core.rect;
   import skia.core.point;
   import skia.math.fixed_ary;
+
+  import skia.util.format;
 }
 
 void quadraticEdge(R, T)(ref R appender, Point!T[3] pts) {

@@ -14,7 +14,13 @@ private {
   import skia.core.point;
   import skia.math.fast_sqrt;
   import skia.math.fixed_ary;
+
+  import skia.util.format;
+
+  debug import std.stdio;
 }
+
+// debug=Illinois; // verbose tracing for Illinois algo.
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -178,6 +184,8 @@ T updateCubicImpl(T)(ref Point!T[4] pts, T y, T a, T ya, T b, T yb) {
                           " b: ", b, " yb: ", yb,
                           " c: ", c, " yc: ", yc);
     if (abs(yc) < Edge!T.tol) {
+      debug(Illinois) writeln("converged after: ", i,
+                              " at: ", c);
       return c;
     }
     else {
