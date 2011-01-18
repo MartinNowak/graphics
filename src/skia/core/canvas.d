@@ -194,6 +194,14 @@ public:
       draw.drawTextAsPaths(text, pt, paint);
     }
   }
+  void drawTextOnPath(string text, in Path path, Paint paint) {
+    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
+    foreach(ref draw; cycle) {
+      draw.drawTextOnPath(text, path, paint);
+    }
+  }
+
+
   /****************************************
    * Stub
    */
