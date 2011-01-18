@@ -137,7 +137,7 @@ unittest {
                              FPoint(4.38304, 0.389878));
   auto app = appender!(Edge!float[])();
   quadraticEdge(app, pts);
-  assert(app.data.length == 2);
+  assert(app.data.length == 2, to!string(app.data));
 }
 
 Edge!T makeQuad(T)(in Point!T[3] pts, byte winding) {

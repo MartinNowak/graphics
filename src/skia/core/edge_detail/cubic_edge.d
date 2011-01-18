@@ -101,7 +101,7 @@ T updateCubic(T)(ref Edge!T pthis, T y, T Step){
     return pthis.curX;
   }
 
-  auto slope = cubicDerivate(pthis.cubic.pts, pthis.cubic.oldT);
+  auto slope = calcBezierDerivative!("y")(pthis.cubic.pts, pthis.cubic.oldT);
   assert(slope >= 0);
 
   T b = 1.0;
@@ -282,10 +282,6 @@ T[3] cubicDerivateCoeffs(T)(in Point!T[4] pts) {
   return coeffs;
 }
 
-T cubicDerivate(T)(in Point!T[4] pts, T t) {
-  auto coeffs = cubicDerivateCoeffs(pts);
-  return 3*(t*t*coeffs[0] + t*coeffs[1] + coeffs[2]);
-}
 
 /**
  * Find roots of the derivative dy(t)/dt, keeping only those that fit
@@ -306,8 +302,8 @@ unittest {
   auto edge2 = app.data[1];
 
 
-  auto slope1 = cubicDerivate(edge1.cubic.pts, 0.0f);
-  auto slope2 = cubicDerivate(edge2.cubic.pts, 0.0f);
+  auto slope1 = calcBezierDerivative!("y")(edge1.cubic.pts, 0.0f);
+  auto slope2 = calcBezierDerivative!("y")(edge2.cubic.pts, 0.0f);
   assert(slope1 >= 0);
   assert(slope2 >= 0);
 }

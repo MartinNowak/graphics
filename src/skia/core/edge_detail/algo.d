@@ -169,3 +169,22 @@ T2 calcBezier(string v, T, T2)(in Point!T[4] pts, T2 t) {
                      v, v, v, v);
   return mixin(cmd);
 }
+
+T2 calcBezierDerivative(string v, T, T2)(in Point!T[4] pts, T2 t) {
+  FPTemporary!T2 c0 = mixin(Format!("pts[3].%s - pts[0].%s + 3*(pts[1].%s - pts[2].%s)", v, v, v, v));
+  FPTemporary!T2 c1 = mixin(Format!("2*(pts[0].%s - 2 * pts[1].%s + pts[2].%s)", v, v, v));
+  FPTemporary!T2 c2 = mixin(Format!("pts[1].%s - pts[0].%s", v, v));
+  return c0 * t * t + c1 * t + c2;
+}
+
+T2 calcBezierDerivative(string v, T, T2)(in Point!T[3] pts, T2 t) {
+  FPTemporary!T2 c0 = mixin(Format!("2*(pts[0].%s - 2 * pts[1].%s + pts[2].%s)", v, v, v));
+  FPTemporary!T2 c1 = mixin(Format!("2*(pts[1].%s - pts[0].%s)", v, v));
+  return c0 * t + c1;
+}
+
+T2 calcBezierDerivative(string v, T, T2)(in Point!T[2] pts, T2 t) {
+  FPTemporary!T2 c0 = mixin(Format!("pts[1].%s - pts[0].%s", v, v));
+  return c0;
+}
+
