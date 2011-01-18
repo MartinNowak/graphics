@@ -1,15 +1,16 @@
 module skia.core.paint;
 
 private {
+  import std.array : appender;
   import std.bitmanip;
   import std.format : formattedWrite;
-  import std.array : appender;
 
   import skia.core.color;
   import skia.core.drawlooper;
   import skia.core.path;
   import skia.core.patheffect;
   import skia.core.stroke;
+  import skia.core.xfermode;
 
   version(No_DefaultAntiAlias) {
     enum DefaultAntiAlias = false;
@@ -22,7 +23,7 @@ class Paint
 {
   Color color;
   DrawLooper drawLooper;
-
+  XferMode xferMode;
   //! TODO: review alignment
   PathEffect pathEffect;
   float strokeWidth;
@@ -47,12 +48,12 @@ class Paint
   enum Fill { Fill, Stroke, FillAndStroke, }
   enum Cap { Butt, Square, Round, }
   enum Join { Miter, Round, Bevel, }
-  enum Align { Left, Center, Right, }
+  enum TextAlign { Left, Center, Right, }
   mixin(bitfields!(
       Fill, "fillStyle", 2,
       Cap, "capStyle", 2,
       Join, "joinStyle", 2,
-      Align, "alignment", 2));
+      TextAlign, "textAlign", 2));
 
   enum TextEncoding { UTF8, UTF16, GlyphId, }
   enum TextBufferDirection : bool { Forward, Backward, }
@@ -116,6 +117,7 @@ class Paint
 
 unittest {
   scope auto paint = new Paint(Red);
+  assert(paint.xferMode is null);
   assert(paint.antiAlias == DefaultAntiAlias);
   assert(!paint.filterBitmap);
   assert(!paint.dither);
@@ -128,7 +130,7 @@ unittest {
   assert(paint.fillStyle == Paint.Fill.Fill);
   assert(paint.capStyle == Paint.Cap.Butt);
   assert(paint.joinStyle == Paint.Join.Miter);
-  assert(paint.alignment == Paint.Align.Left);
+  assert(paint.textAlign == Paint.TextAlign.Left);
 
   assert(paint.textEncoding == Paint.TextEncoding.UTF8);
   assert(paint.textBufferDirection == Paint.TextBufferDirection.Forward);
@@ -146,5 +148,5 @@ unittest {
   assert(paint.fillStyle == Paint.Fill.FillAndStroke);
   assert(paint.capStyle == Paint.Cap.Butt);
   assert(paint.joinStyle == Paint.Join.Bevel);
-  assert(paint.alignment == Paint.Align.Left);
+  assert(paint.textAlign == Paint.TextAlign.Left);
 }

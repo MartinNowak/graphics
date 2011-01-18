@@ -1,4 +1,4 @@
-module quadview;
+module SampleApp.quadview;
 
 private {
   debug private import std.stdio : writeln;
@@ -62,7 +62,7 @@ class QuadView : View
     foreach(idx, ctrlPt; this.controlPts) {
       checkRect.center = ctrlPt;
       if (checkRect.contains(fpt))
-        this.dragIdx = idx;
+        this.dragIdx = cast(int)idx;
     }
   }
   override void onButtonRelease(IPoint pt) {

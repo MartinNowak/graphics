@@ -1,7 +1,0 @@
-Import('env')
-
-skia_srcs = Glob('*/*.d') + Glob('*/*/*.d')
-skia_lib = env.Library('skia', skia_srcs, DPATH=['#/src'],
-         DLIBFLAGS='-p64')
-
-Return('skia_lib')

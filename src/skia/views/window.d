@@ -28,7 +28,6 @@ class Window : View
 public:
   this() {
     this.config = Bitmap.Config.ARGB_8888;
-    this.bitmap = new Bitmap();
     this._flags.visible = true;
     this._flags.enabled = true;
     this._layout = new SquashChildrenZLayout();
@@ -235,7 +234,7 @@ version(FreeBSD)
       auto depth = X11.XDefaultDepth(this.dpy, screen);
       assert(depth == 24);
       this.ximage =X11.XCreateImage(this.dpy, visual,
-                                           depth, X11.ZPixmap, 0, cast(byte*)bitmap.buffer.ptr,
+                                    depth, X11.ZPixmap, 0, cast(byte*)bitmap.getBuffer().ptr,
                                            bitmap.width, bitmap.height, 8, 0);
       assert(this.ximage);
     }

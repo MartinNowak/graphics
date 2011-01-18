@@ -8,13 +8,9 @@ private {
   import skia.core.matrix;
   import skia.core.point;
 
-  import quickcheck._;
-}
+  import skia.util.format;
 
-private string formatString(TL...)(string fmt, TL tl) {
-  auto writer = appender!string();
-  formattedWrite(writer, fmt, tl);
-  return writer.data;
+  import qcheck._;
 }
 
 FPoint Multiply(in Matrix m, FPoint pt) {

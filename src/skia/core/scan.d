@@ -151,7 +151,7 @@ private void walkEdges(alias blitLineFunc, Range)(
 
   auto iCurY = yStart;
   auto superCnt = 0;
-  auto fInc = 1.0 / stepScale;
+  auto fInc = 1.0f / stepScale;
   auto fCurY = iCurY + superCnt * fInc;
 
   while (fCurY < yEnd) {
@@ -186,7 +186,10 @@ static auto takeNextEdges(T, Range)(T curY, ref Range sortedEdges) {
 
 static R1 updateWorkingSet(R1, T)(R1 curWorkingSet, T curY, T step)
 {
-  curWorkingSet = remove!((edg){return edg.lastY <= curY;})(curWorkingSet);
+  bool pred(Edge!T edge) {
+    return edge.lastY <= curY;
+  }
+  curWorkingSet = remove!(pred, SwapStrategy.unstable)(curWorkingSet);
 
   foreach(ref edge; curWorkingSet) {
     edge.updateEdge(curY, step);

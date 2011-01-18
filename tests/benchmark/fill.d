@@ -42,7 +42,7 @@ static Paint paintHairLineAA;
 static IRect rect;
 
 static this() {
-  bitmap = new Bitmap(Bitmap.Config.ARGB_8888, xSize, ySize);
+  bitmap = Bitmap(Bitmap.Config.ARGB_8888, xSize, ySize);
   canvas = new Canvas(bitmap);
   paintFill = new Paint(Black);
   paintFill.antiAlias = false;

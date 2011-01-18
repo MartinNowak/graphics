@@ -179,6 +179,29 @@ public:
     this.drawPath(path, paint);
   }
 
+  void drawText(string text, float x, float y, Paint paint) {
+    return this.drawText(text, FPoint(x, y), paint);
+  }
+  void drawText(string text, FPoint pt, Paint paint) {
+    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
+    foreach(ref draw; cycle) {
+      draw.drawText(text, pt, paint);
+    }
+  }
+  void drawTextAsPaths(string text, FPoint pt, Paint paint) {
+    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
+    foreach(ref draw; cycle) {
+      draw.drawTextAsPaths(text, pt, paint);
+    }
+  }
+  void drawTextOnPath(string text, in Path path, Paint paint) {
+    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
+    foreach(ref draw; cycle) {
+      draw.drawTextOnPath(text, path, paint);
+    }
+  }
+
+
   /****************************************
    * Stub
    */
@@ -237,10 +260,10 @@ public:
   /****************************************
    * Stub
    */
-  int save(SaveFlags flags = SaveFlags.MatrixClip) {
+  size_t save(SaveFlags flags = SaveFlags.MatrixClip) {
     return this.internalSave(flags);
   }
-  private final int internalSave(SaveFlags flags) {
+  private final size_t internalSave(SaveFlags flags) {
     this.mcRecs ~= this.curMCRec;
     return this.mcRecs.length - 1;
   }
@@ -257,7 +280,7 @@ public:
     assert(this.mcRecs.length > 0);
     this.mcRecs = this.mcRecs[0 .. $-1];
   }
-  void restoreCount(uint sc) {
+  void restoreCount(size_t sc) {
     assert(sc <= this.mcRecs.length);
     this.mcRecs = this.mcRecs[0 .. sc];
   }

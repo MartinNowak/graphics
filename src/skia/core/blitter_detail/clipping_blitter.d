@@ -1,6 +1,7 @@
 module skia.core.blitter_detail.clipping_blitter;
 
 private {
+  import skia.core.bitmap;
   import skia.core.blitter;
   import skia.core.region;
   import skia.core.rect;
@@ -27,6 +28,10 @@ class RectBlitter : Blitter {
     if (xStart < xEnd)
       this.blitter.blitFH(y, xStart, xEnd);
   }
+
+  override void blitMask(float x, float y, in Bitmap mask) {
+    assert(0, "unimplemented");
+  }
 }
 
 class RegionBlitter : Blitter {
@@ -39,6 +44,9 @@ class RegionBlitter : Blitter {
   void blitFH(float y, float xStart, float xEnd)
   {
     //! TODO: regionblitter
+    assert(0, "unimplemented");
+  }
+  override void blitMask(float x, float y, in Bitmap mask) {
     assert(0, "unimplemented");
   }
 }

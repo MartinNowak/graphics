@@ -1,17 +1,25 @@
 module skia.core.draw;
 
 private {
+  import std.array;
+
   import skia.core.bitmap;
   import skia.core.bounder;
   import skia.core.blitter;
   import skia.core.color;
   import skia.core.device;
+  import skia.core.glyph;
   import skia.core.matrix;
   import skia.core.paint;
   import skia.core.path;
+  import skia.core.path_detail.path_measure;
+  import skia.core.point;
   import skia.core.region;
   import skia.core.rect;
+  import skia.core.size;
   import Scan = skia.core.scan;
+
+  import skia.math.fixed_ary;
 }
 
 // debug=PRINTF;
@@ -27,7 +35,6 @@ public:
   // DrawProcs drawProcs;
 
   this(Bitmap bitmap) {
-    assert(bitmap);
     this.bitmap = bitmap;
   }
 
@@ -78,6 +85,11 @@ public:
   void drawPath(in Path path, Paint paint) {
     if (this.clip.empty)
       return;
+
+    if (path.empty) {
+      assert(!path.inverseFillType);
+      return;
+    }
 
     bool doFill;
     Path toBlit;
@@ -134,24 +146,135 @@ public:
     }
     +/
   }
-  //  void drawPath(in Path path, in Paint paint, in Matrix matrix, bool pathMutable) {
-  //  }
 
+  void drawText(string text, FPoint pt, Paint paint) {
+    if (text.empty || this.clip.empty ||
+        (paint.color.a == 0 && paint.xferMode is null))
+      return;
 
+    // TODO: underline handling
+
+    FPoint start = this.matrix.mapPoint(pt);
+    if (paint.textAlign != Paint.TextAlign.Left) {
+      auto length = measureText!BitmapGlyphStream(text);
+      if (paint.textAlign == Paint.TextAlign.Center)
+        length *= 0.5;
+      start.x = start.x - length;
+    }
+    scope Blitter blitter = this.getBlitter(paint);
+    foreach(pos, glyph; BitmapGlyphStream(text, start)) {
+      blitter.blitMask(pos.x, pos.y, glyph);
+    }
+  }
+
+  void drawTextAsPaths(string text, FPoint pt, Paint paint) {
+    if (text.empty || this.clip.empty ||
+        (paint.color.a == 0 && paint.xferMode is null))
+      return;
+
+    auto backUp = this.matrix;
+    scope(exit) this.matrix = backUp;
+
+    float hOffset = 0;
+    if (paint.textAlign != Paint.TextAlign.Left) {
+      auto length = measureText!PathGlyphStream(text);
+      if (paint.textAlign == Paint.TextAlign.Center)
+        length *= 0.5;
+      hOffset = length;
+    }
+
+    this.matrix.preTranslate(pt.x, pt.y);
+    Matrix scaledMatrix = this.matrix;
+    // TODO: scale matrix according to freetype outline relation
+    // auto scale = PathGlyphStream.getScale();
+    // scaledMatrix.preScale(scale, scale);
+
+    foreach(pos, glyphPath; PathGlyphStream(text, FPoint(0, 0))) {
+      Matrix m;
+      m.setTranslate(pos.x - hOffset, 0);
+      this.matrix = scaledMatrix * m;
+      this.drawPath(glyphPath, paint);
+    }
+  }
+
+  void drawTextOnPath(string text, in Path follow, Paint paint) {
+    auto meas = PathMeasure(follow);
+
+    float hOffset = 0;
+    if (paint.textAlign != Paint.TextAlign.Left) {
+      auto length = meas.length;
+      if (paint.textAlign == Paint.TextAlign.Center)
+        length *= 0.5;
+      hOffset = length;
+    }
+
+    //! TODO: scaledMatrix
+
+    foreach(pos, glyphPath; PathGlyphStream(text, FPoint(0, 0))) {
+      Matrix m;
+      m.setTranslate(pos.x + hOffset, 0);
+      this.drawPath(morphPath(glyphPath, meas, m), paint);
+    }
+  }
+
+  private Path morphPath(in Path path, in PathMeasure meas, in Matrix matrix) {
+    Path dst;
+
+    path.forEach((Path.Verb verb, in FPoint[] pts) {
+        final switch(verb) {
+        case Path.Verb.Move:
+          FPoint[1] mpts = morphPoints(fixedAry!1(pts), meas, matrix);
+          dst.moveTo(mpts[0]);
+          break;
+
+        case Path.Verb.Line:
+          //! use quad to allow curvature
+          FPoint[2] mpts = fixedAry!2(pts);
+          mpts[0] = (mpts[0] + mpts[1]) * 0.5f;
+          mpts = morphPoints(mpts, meas, matrix);
+          dst.quadTo(mpts[0], mpts[1]);
+          break;
+
+        case Path.Verb.Quad:
+          FPoint[2] mpts = morphPoints(fixedAry!2(pts[1..$]), meas, matrix);
+          dst.quadTo(mpts[0], mpts[1]);
+          break;
+
+        case Path.Verb.Cubic:
+          FPoint[3] mpts = morphPoints(fixedAry!3(pts[1..$]), meas, matrix);
+          dst.cubicTo(mpts[0], mpts[1], mpts[2]);
+          break;
+
+        case Path.Verb.Close:
+          dst.close();
+          break;
+        }
+      });
+    return dst;
+  }
+
+  private FPoint[K] morphPoints(size_t K)(FPoint[K] pts, in PathMeasure meas, in Matrix matrix) {
+    FPoint[K] dst;
+    FPoint[K] trans = pts;
+
+    matrix.mapPoints(trans);
+
+    for (auto i = 0; i < K; ++i) {
+      FVector normal;
+      auto pos = meas.getPosAndNormalAtDistance(trans[i].x, normal);
+      dst[i] = pos + normal * trans[i].y;
+    }
+    return dst;
+  }
   /++
 
   void    drawPoints(SkCanvas::PointMode, size_t count, const SkPoint[],
 		     const SkPaint&) const;
-  void    drawRect(const SkRect&, const SkPaint&) const;
   /*  To save on mallocs, we allow a flag that tells us that srcPath is
       mutable, so that we don't have to make copies of it as we transform it.
   */
-  void    drawPath(const SkPath& srcPath, const SkPaint&,
-		   const SkMatrix* prePathMatrix, bool pathIsMutable) const;
   void    drawBitmap(const SkBitmap&, const SkMatrix&, const SkPaint&) const;
   void    drawSprite(const SkBitmap&, int x, int y, const SkPaint&) const;
-  void    drawText(const char text[], size_t byteLength, SkScalar x,
-		   SkScalar y, const SkPaint& paint) const;
   void    drawPosText(const char text[], size_t byteLength,
 		      const SkScalar pos[], SkScalar constY,
 		      int scalarsPerPosition, const SkPaint& paint) const;
@@ -163,9 +286,6 @@ public:
 		       const uint16_t indices[], int ptCount,
 		       const SkPaint& paint) const;
 
-  void drawPath(const SkPath& src, const SkPaint& paint) const {
-    this->drawPath(src, paint, NULL, false);
-  }
 
   /** Helper function that creates a mask from a path and an optional maskfilter.
       Note however, that the resulting mask will not have been actually filtered,

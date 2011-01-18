@@ -1,4 +1,4 @@
-module rectview;
+module SampleApp.rectview;
 
 private {
   debug private import std.stdio : writeln;

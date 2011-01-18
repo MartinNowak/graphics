@@ -1,9 +1,9 @@
 private {
-  import quickcheck._;
-  import quickcheck.unittestrunner;
+  import qcheck._;
+  import qcheck.unittestrunner;
 
   import skia.core.edgebuilder;
-  import edges;
+  import qcheck.edges;
 }
 
 int main(string[] argv) {

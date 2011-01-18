@@ -10,6 +10,8 @@ private {
   import skia.core.rect;
   import skia.core.point;
   import skia.math.fixed_ary;
+
+  import skia.util.format;
 }
 
 void quadraticEdge(R, T)(ref R appender, Point!T[3] pts) {
@@ -107,7 +109,6 @@ void appendSplittedQuad(R, T)(ref R appender, Point!T[3] pts, const (IRect*) cli
  */
 void appendMonoQuad(R, T)(ref R appender, Point!T[3] pts, const(IRect*) clip=null) {
   auto w = sortPoints(pts);
-  auto edge = makeQuad(pts, w);
 
   if (!clip || clipPoints(pts, *clip))
     appender.put(makeQuad(pts, w));
@@ -136,7 +137,7 @@ unittest {
                              FPoint(4.38304, 0.389878));
   auto app = appender!(Edge!float[])();
   quadraticEdge(app, pts);
-  assert(app.data.length == 2);
+  assert(app.data.length == 2, to!string(app.data));
 }
 
 Edge!T makeQuad(T)(in Point!T[3] pts, byte winding) {

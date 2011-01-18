@@ -99,11 +99,11 @@ public:
   @property bool rectStaysRect() const
   { return (this.typeMask & Type.RectStaysRect) != 0; }
 
-  public ref typeof(this.data[0]) opIndex(int idx) {
+  public ref typeof(this.data[0]) opIndex(size_t idx) {
     assert(0 <= idx && idx <= 2);
     return this.data[idx];
   }
-  public ref const typeof(this.data[0]) opIndex(int idx) const {
+  public ref const typeof(this.data[0]) opIndex(size_t idx) const {
     assert(0 <= idx && idx <= 2);
     return this.data[idx];
   }

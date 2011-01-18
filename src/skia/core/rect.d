@@ -22,17 +22,6 @@ alias Rect!(float) FRect;
 */
 struct Rect(T)
 {
-  enum Corner
-  {
-    Left,
-    Top,
-    Right,
-    Bottom,
-  }
-  alias Corner.Left Left;
-  alias Corner.Top Top;
-  alias Corner.Right Right;
-  alias Corner.Bottom Bottom;
   T left, top, right, bottom;
   alias left x;
   alias top  y;
@@ -256,10 +245,10 @@ struct Rect(T)
   */
   bool intersect(bool check=true)(in Rect b) {
     if (this.intersects!check(b)) {
-      this.left   = getSmaller!Left(this, b);
-      this.top    = getSmaller!Top(this, b);
-      this.right  = getSmaller!Right(this, b);
-      this.bottom = getSmaller!Bottom(this, b);
+      this.left = max(this.left, b.left);
+      this.top = max(this.top, b.top);
+      this.right = min(this.right, b.right);
+      this.bottom = min(this.bottom, b.bottom);
       return true;
     }
     return false;
@@ -329,10 +318,10 @@ struct Rect(T)
       this = b;
     else
     {
-      this.left   = getBigger!Left(this, b);
-      this.top    = getBigger!Top(this, b);
-      this.right  = getBigger!Right(this, b);
-      this.bottom = getBigger!Bottom(this, b);
+      this.left = min(this.left, b.left);
+      this.top = min(this.top, b.top);
+      this.right = max(this.right, b.right);
+      this.bottom = max(this.bottom, b.bottom);
     }
   }
 
@@ -355,47 +344,17 @@ struct Rect(T)
     assert(pts.length > 0);
   }
   body {
-    Rect!T res = Rect!T.invalidRect();
+    T left = T.max;
+    T top = T.max;
+    T right = T.min;
+    T bottom = T.min;
     foreach(pt; pts) {
-      res.left = getBigger!Left(res, pt.x);
-      res.top = getBigger!Top(res, pt.y);
-      res.right = getBigger!Right(res, pt.x);
-      res.bottom = getBigger!Bottom(res, pt.y);
+      left = min(left, pt.x);
+      right = max(right, pt.x);
+      top = min(top, pt.y);
+      bottom = max(bottom, pt.y);
     }
-    return res;
-  }
-
-  private static T getBigger(Corner c)(in Rect a, T v) {
-    static if (c == Left)
-      return min(a.left, v);
-    else if (c == Right)
-      return max(a.right, v);
-    else if (c == Top)
-      return min(a.top, v);
-    else if (c == Bottom)
-      return max(a.bottom, v);
-  }
-
-  private static T getBigger(Corner c)(in Rect a, in Rect b) {
-    static if (c == Left)
-      return min(a.left, b.left);
-    else if (c == Right)
-      return max(a.right, b.right);
-    else if (c == Top)
-      return min(a.top, b.top);
-    else if (c == Bottom)
-      return max(a.bottom, b.bottom);
-  }
-
-  private static T getSmaller(Corner c)(in Rect a, in Rect b) {
-    static if (c == Left)
-      return max(a.left, b.left);
-    else if (c == Right)
-      return min(a.right, b.right);
-    else if (c == Top)
-      return max(a.top, b.top);
-    else if (c == Bottom)
-      return min(a.bottom, b.bottom);
+    return Rect!T(left, top, right, bottom);
   }
 
   /** Set the dst integer rectangle by rounding this rectangle's

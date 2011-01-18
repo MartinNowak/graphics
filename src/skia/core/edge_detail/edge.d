@@ -3,7 +3,6 @@ module skia.core.edge_detail.edge;
 private {
   import std.algorithm : min;
   import std.array : appender;
-  import std.format : formattedWrite;
   import std.traits : isFloatingPoint;
 
   import skia.core.edge_detail.algo;
@@ -16,12 +15,6 @@ private {
 }
 
 package:
-
-string formatString(TL...)(string fmt, TL tl) {
-  auto writer = appender!string();
-  formattedWrite(writer, fmt, tl);
-  return writer.data;
-}
 
 enum EdgeType : byte { Line, Quad, Cubic }
 

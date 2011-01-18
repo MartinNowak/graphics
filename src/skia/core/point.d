@@ -4,9 +4,11 @@ private {
   import std.math;
   import std.conv : to;
   import std.traits : isSigned, isAssignable, isFloatingPoint;
-  debug import std.stdio : writeln, writefln;
+  debug import std.stdio;
 
   import skia.core.size;
+
+  import skia.util.format;
 }
 
 alias Point!(int) IPoint;
@@ -51,9 +53,7 @@ struct Point (T)
   }
 
   @property string toString() const {
-    return "Point!"~to!string(typeid(T))
-      ~" x: "~to!string(this.x)
-      ~" y: "~to!string(this.y);
+    return formatString("Point x:%.7f y:%.7f", this.x, this.y);
   }
   /** Set the point's X and Y coordinates */
   void set(T x, T y) { this.x = x; this.y = y; }
@@ -177,7 +177,6 @@ struct Point (T)
 
   } /** static if (isSigned!T) */
 
-
   /** Returns a new point whose coordinates are the difference/sum
    * between a's and b's (a -/+ b).
    */
@@ -197,16 +196,15 @@ struct Point (T)
   {
     T resx = mixin("this.x" ~ op ~ "val");
     T resy = mixin("this.y" ~ op ~ "val");
-    return Point(resx, resy);
+    return Point!T(resx, resy);
   }
-
 
   Point!T opBinary(string op)(Size!T size) const
     if (op == "-" || op == "+")
   {
     T resx = mixin("this.x" ~ op ~ "size.width");
     T resy = mixin("this.y" ~ op ~ "size.height");
-    return point(resx, resy);
+    return Point!T(resx, resy);
   }
 
   ref Point!T opAssign(T2)(Point!T2 rhs) {
@@ -214,10 +212,10 @@ struct Point (T)
     this.y = rhs.y;
     return this;
   }
+
   /** Add/Subtract v's coordinates to the point's
    */
   ref Point opOpAssign(string op)(Point rhs)
-  //if (op == "-" || op == "+")
  {
     mixin("this.x" ~ op ~ "=rhs.x;");
     mixin("this.y" ~ op ~ "=rhs.y;");
@@ -225,7 +223,6 @@ struct Point (T)
   }
 
   ref Point opOpAssign(string op)(T val)
-  //if (op == "*" || op == "/")
  {
     mixin("this.x" ~ op ~ "=val;");
     mixin("this.y" ~ op ~ "=val;");

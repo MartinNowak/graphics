@@ -1,4 +1,4 @@
-module circlesview;
+module SampleApp.circlesview;
 
 private {
   debug private import std.stdio : writeln;

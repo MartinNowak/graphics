@@ -1,8 +1,0 @@
-Import('env')
-
-x11_srcs = Glob('*.d')
-_x11_libs = ['X11', 'xcb', 'Xau', 'Xdmcp']
-
-_x11_lib_bundle = _x11_libs
-
-Return('_x11_lib_bundle')

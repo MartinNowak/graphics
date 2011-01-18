@@ -50,10 +50,21 @@ int quadIntersection(T)(in Point!T[3] pts, T y, out T[2] roots) {
   return quadUnitRoots(fixedAry!3(a, b, c), roots);
 }
 
+unittest {
+  FPoint[3] pts = [FPoint(259.0262146, 240.6711578),
+                   FPoint(258.9932251, 240.7579803),
+                   FPoint(258.9933167, 240.8448029)];
+  float[2] roots;
+  assert(quadIntersection(pts, 240.75f, roots) == 1);
+}
+
 int quadUnitRoots(T1, T2)(in T1[3] coeffs, out T2[2] roots) {
   FPTemporary!T1 a = coeffs[0];
   FPTemporary!T1 b = coeffs[1];
   FPTemporary!T1 c = coeffs[2];
+
+  if (a == 0)
+    return valid_unit_divide(-c, b, roots[0]);
 
   FPTemporary!T1 r = b*b - 4*a*c;
   if (r < 0)
@@ -137,24 +148,43 @@ byte sortPoints(T, size_t N)(ref Point!T[N] pts) {
 /**
  * Overloads to calc x/y of given bezier control points.
  */
-T calcBezier(string v, T)(in Point!T[2] pts, T t) {
+T2 calcBezier(string v, T, T2)(in Point!T[2] pts, T2 t) {
   fitsIntoRange!("[]")(t, 0.0, 1.0);
-  auto mt = 1 - t;
+  FPTemporary!T2 mt = 1 - t;
   enum cmd = Format!("mt*pts[0].%s + t*pts[1].%s", v, v);
   return mixin(cmd);
 }
 
-T calcBezier(string v, T)(in Point!T[3] pts, T t) {
+T2 calcBezier(string v, T, T2)(in Point!T[3] pts, T2 t) {
   fitsIntoRange!("[]")(t, 0.0, 1.0);
-  auto mt = 1 - t;
+  FPTemporary!T2 mt = 1 - t;
   enum cmd = Format!("mt*mt*pts[0].%s + 2*t*mt*pts[1].%s + t*t*pts[2].%s", v, v, v);
   return mixin(cmd);
 }
 
-T calcBezier(string v, T)(in Point!T[4] pts, T t) {
+T2 calcBezier(string v, T, T2)(in Point!T[4] pts, T2 t) {
   fitsIntoRange!("[]")(t, 0.0, 1.0);
-  auto mt = 1 - t;
+  FPTemporary!T2 mt = 1 - t;
   enum cmd = Format!("mt*mt*mt*pts[0].%s + 3*t*mt*mt*pts[1].%s + 3*t*t*mt*pts[2].%s + t*t*t*pts[3].%s",
                      v, v, v, v);
   return mixin(cmd);
 }
+
+T2 calcBezierDerivative(string v, T, T2)(in Point!T[4] pts, T2 t) {
+  FPTemporary!T2 c0 = mixin(Format!("pts[3].%s - pts[0].%s + 3*(pts[1].%s - pts[2].%s)", v, v, v, v));
+  FPTemporary!T2 c1 = mixin(Format!("2*(pts[0].%s - 2 * pts[1].%s + pts[2].%s)", v, v, v));
+  FPTemporary!T2 c2 = mixin(Format!("pts[1].%s - pts[0].%s", v, v));
+  return c0 * t * t + c1 * t + c2;
+}
+
+T2 calcBezierDerivative(string v, T, T2)(in Point!T[3] pts, T2 t) {
+  FPTemporary!T2 c0 = mixin(Format!("2*(pts[0].%s - 2 * pts[1].%s + pts[2].%s)", v, v, v));
+  FPTemporary!T2 c1 = mixin(Format!("2*(pts[1].%s - pts[0].%s)", v, v));
+  return c0 * t + c1;
+}
+
+T2 calcBezierDerivative(string v, T, T2)(in Point!T[2] pts, T2 t) {
+  FPTemporary!T2 c0 = mixin(Format!("pts[1].%s - pts[0].%s", v, v));
+  return c0;
+}
+

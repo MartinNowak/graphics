@@ -26,7 +26,7 @@ public:
   Device newDevice(Bitmap.Config config, int width, int height,
 		   bool isOpaque, bool isForLayer) const
   {
-    Bitmap bitmap = new Bitmap();
+    auto bitmap = Bitmap();
     bitmap.opaque = isOpaque;
     bitmap.setConfig(config, width, height);
 

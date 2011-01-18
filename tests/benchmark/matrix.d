@@ -7,7 +7,7 @@ private {
   import skia.core.point;
 
   import benchmark._;
-  import quickcheck._;
+  import qcheck._;
   import std.stdio;
 }
 
@@ -21,7 +21,7 @@ static this() {
 Matrix[] ms;
 FPoint[] pts;
 static this() {
-  ms = getArbitrary!(Matrix[], size(100_000), Policies.RandomizeMembers)();
+  ms = getArbitrary!(Matrix[], size(1_000), Policies.RandomizeMembers)();
   pts = getArbitrary!(FPoint[], size(10_000), Policies.RandomizeMembers)();
 }
 

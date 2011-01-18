@@ -1,4 +1,4 @@
-module cubicview;
+module SampleApp.cubicview;
 
 private {
   debug private import std.stdio : writeln;
@@ -47,7 +47,7 @@ class CubicView : View
     scope auto paintLine = new Paint(Orange.a = 80);
     paintLine.strokeWidth = 10;
     paintLine.fillStyle = Paint.Fill.Stroke;
-    paintLine.joinStyle = Paint.Join.Round;
+    paintLine.joinStyle = Paint.Join.Miter;
     paintLine.capStyle = Paint.Cap.Round;
     canvas.drawPath(path, paintLine);
 
@@ -65,7 +65,7 @@ class CubicView : View
     foreach(idx, ctrlPt; this.controlPts) {
       checkRect.center = ctrlPt;
       if (checkRect.contains(fpt))
-        this.dragIdx = idx;
+        this.dragIdx = cast(int)idx;
     }
   }
   override void onButtonRelease(IPoint pt) {

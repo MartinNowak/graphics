@@ -1,4 +1,4 @@
-module X11Main;
+module SampleApp.X11Main;
 
 private {
   import std.stdio;
@@ -10,12 +10,13 @@ private {
 
   // Set's default fpu exceptions on
   import skia.math.fpu;
-  import circlesview;
-  import quadview;
-  import cubicview;
-  import sineview;
-  import rectview;
-  import quickcheck.unittestrunner;
+  import SampleApp.circlesview;
+  import SampleApp.quadview;
+  import SampleApp.cubicview;
+  import SampleApp.sineview;
+  import SampleApp.rectview;
+  import SampleApp.textview;
+  import qcheck.unittestrunner;
 }
 
 //debug=PRINTF;
@@ -78,11 +79,12 @@ X11.Display* InitWindow() {
   auto win = MakeWindow(dpy);
 
   gWindow = new OsWindow(dpy, win);
-  //  gWindow.attachChildTo!FrontPos(new SineView());
-  gWindow.attachChildTo!FrontPos(new CirclesView());
+  gWindow.attachChildTo!FrontPos(new SineView());
+  //  gWindow.attachChildTo!FrontPos(new CirclesView());
   gWindow.attachChildTo!FrontPos(new RectView());
   //  gWindow.attachChildTo!FrontPos(new QuadView());
   gWindow.attachChildTo!FrontPos(new CubicView());
+  gWindow.attachChildTo!FrontPos(new TextView());
 
   X11.XMapWindow(dpy, win);
   return dpy;

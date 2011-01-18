@@ -1,4 +1,4 @@
-module skia.core.math.fixed_ary;
+module skia.math.fixed_ary;
 
 private {
   import std.traits : Unqual, CommonType, isDynamicArray, isTypeTuple;
