@@ -163,15 +163,14 @@ public:
    *     y = new y position
    */
   void setLoc(IPoint pt) {
-    this.setLoc(pt.x, pt.y);
-  }
-  void setLoc(uint x, uint y) {
-    if (this.x != x || this.y != y) {
+    if (this.loc != pt) {
       this.inval();
-      this.x = x;
-      this.y = y;
+      this._bounds.position = pt;
       this.inval();
     }
+  }
+  void setLoc(uint x, uint y) {
+    this.setLoc(IPoint(x, y));
   }
 
   /****************************************

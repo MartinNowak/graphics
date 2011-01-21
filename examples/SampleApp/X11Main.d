@@ -10,6 +10,7 @@ private {
 
   // Set's default fpu exceptions on
   import skia.math.fpu;
+  import SampleApp.bitmapview;
   import SampleApp.circlesview;
   import SampleApp.quadview;
   import SampleApp.cubicview;
@@ -79,12 +80,13 @@ X11.Display* InitWindow() {
   auto win = MakeWindow(dpy);
 
   gWindow = new OsWindow(dpy, win);
-  gWindow.attachChildTo!FrontPos(new SineView());
+  //  gWindow.attachChildTo!FrontPos(new SineView());
   //  gWindow.attachChildTo!FrontPos(new CirclesView());
   gWindow.attachChildTo!FrontPos(new RectView());
   //  gWindow.attachChildTo!FrontPos(new QuadView());
   gWindow.attachChildTo!FrontPos(new CubicView());
   gWindow.attachChildTo!FrontPos(new TextView());
+  gWindow.attachChildTo!FrontPos(new BitmapView());
 
   X11.XMapWindow(dpy, win);
   return dpy;

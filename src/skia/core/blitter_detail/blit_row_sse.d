@@ -3,6 +3,7 @@ module skia.core.blitter_detail.blit_row_sse;
 private {
   import std.range : popFront, front, empty, isRandomAccessRange;
   import skia.core.color;
+  import skia.core.blitter_detail.blit_row_factory;
 }
 
 static void Color32(Range)(Range srcDst, PMColor pmColor) {
@@ -178,4 +179,44 @@ static void Color32(Range)(Range dstR, Range srcR, PMColor pmColor)
         --count;
     }
   }
+}
+
+//! TODO: implement SSE versions for these
+void S32_Opaque_BlitRow32(PMColor[] dst, const(PMColor)[] src, ubyte alpha) {
+  assert(alpha == 255);
+  dst[0 .. src.length] = src[];
+}
+
+void S32_Blend_BlitRow32(PMColor[] dst, const (PMColor)[] src, ubyte alpha) {
+  assert(alpha <= 255);
+  if (!src.empty) {
+    uint srcScale = Color.getAlphaFactor(alpha);
+    uint dstScale = Color.getInvAlphaFactor(alpha);
+    do {
+      dst.front = src.front.mulAlpha(srcScale) + dst.front.mulAlpha(dstScale);
+      src.popFront;
+      dst.popFront;
+    } while (!src.empty);
+  }
+}
+
+void S32A_Opaque_BlitRow32(PMColor[] dst, const (PMColor)[] src, ubyte alpha) {
+  assert(255 == alpha);
+  if (!src.empty) {
+    do {
+      if (src.front.a == 255)
+        dst.front = src.front;
+      else {
+        dst.front = src.front.mulAlpha(Color.getAlphaFactor(src.front.a))
+          + dst.front.mulAlpha(Color.getInvAlphaFactor(src.front.a));
+      }
+      src.popFront;
+      dst.popFront;
+    } while (!src.empty);
+    }
+}
+
+void S32A_Blend_BlitRow32(PMColor[] dst, const (PMColor)[] src, ubyte alpha) {
+  //stub
+  dst[0 .. src.length] = src[];
 }

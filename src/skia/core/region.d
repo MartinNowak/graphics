@@ -234,7 +234,7 @@ public:
     return this.scanLines.bounds().empty;
   }
 
-  alias void delegate(in IRect rect) IterDg;
+  alias void delegate(IRect rect) IterDg;
   void forEach(IterDg dg) const {
     if (this.empty) {
       return;

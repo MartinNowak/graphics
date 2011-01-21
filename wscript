@@ -14,13 +14,14 @@ def configure(conf):
         conf.setenv('debug')
 	conf.load('compiler_d')
         conf.env.LIB_FREETYPE = ['freetype']
+        conf.env.LIB_PNG = ['png']
         conf.env.DFLAGS = ['-debug', '-gc', '-unittest']
         conf.check(features='d dprogram', fragment='void main() {}', compile_filename='test.d')
 
         conf.setenv('release')
 	conf.load('compiler_d')
         conf.env.LIB_FREETYPE = ['freetype']
-        conf.env.LIB_X = ['X11 xcb Xau Xdmcp']
+        conf.env.LIB_PNG = ['png']
         conf.env['DFLAGS'] = ['-release', '-O', '-inline', '-nofloat']
         conf.check(features='d dprogram', fragment='void main() {}', compile_filename='test.d')
 
@@ -52,7 +53,7 @@ def build(bld):
                 target = 'SampleApp',
                 includes = 'src examples',
                 lib = ['X11', 'xcb', 'Xau', 'Xdmcp', 'qcheck'],
-                use = 'skia FREETYPE')
+                use = 'skia FREETYPE PNG')
 
 from waflib.Build import BuildContext, CleanContext, \
         InstallContext, UninstallContext

@@ -78,6 +78,10 @@ public:
     return Blitter.Choose(this.bitmap, this.matrix, paint);
   }
 
+  private Blitter getBlitter(Paint paint, in Bitmap source, IPoint topLeft) {
+    return Blitter.ChooseSprite(this.bitmap, paint, source, topLeft);
+  }
+
   void drawColor(in Color c) {
     this.bitmap.eraseColor(PMColor(c));
   }
@@ -116,6 +120,24 @@ public:
         Scan.antiHairPath(toBlit, this.clip, blitter)
         : Scan.hairPath(toBlit, this.clip, blitter);
     }
+  }
+
+  void drawBitmap(in Bitmap source, in Matrix preMatrix, Paint paint) {
+    if (this.clip.empty || source.bounds.empty ||
+        source.config == Bitmap.Config.NoConfig ||
+        (paint.color.a == 0 && paint.xferMode is null)) {
+        return;
+    }
+
+    Matrix matrix = this.matrix * preMatrix;
+    //! TODO: handle non translating matrices
+
+    auto ix = to!int(matrix[0][2]);
+    auto iy = to!int(matrix[1][2]);
+    scope auto blitter = this.getBlitter(paint, source, IPoint(ix, iy));
+    auto ir = IRect(ix, iy, ix + source.width, iy + source.height);
+    //! TODO: clip to source rect ir
+    blitter.blitRegion(this.clip);
   }
 
   void drawRect(in IRect rect, Paint paint) {

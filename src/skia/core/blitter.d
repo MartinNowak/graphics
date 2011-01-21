@@ -16,6 +16,7 @@ private {
   import skia.core.device;
   import skia.core.matrix;
   import skia.core.paint;
+  import skia.core.point;
   import skia.core.rect;
   import skia.core.region;
   import skia.core.scan : AAScale;
@@ -30,10 +31,10 @@ class Blitter
     clip.forEach(&this.blitRect);
   }
 
-  void blitRect(in IRect rect) {
+  void blitRect(IRect rect) {
     this.blitRect(rect.x, rect.y, rect.width, rect.height);
   }
-  void blitRect(int x, int y, int width, int height) {
+  final void blitRect(int x, int y, int width, int height) {
     while (--height >= 0)
       this.blitFH(y++, x, x + width);
   }
@@ -41,19 +42,36 @@ class Blitter
   //! TODO: should be constant 'in Bitmap mask'
   abstract void blitMask(float x, float y, in Bitmap mask);
 
-  static Blitter Choose(Bitmap bitmap, in Matrix matrix, Paint paint)
-  {
-    switch(bitmap.config) {
+  static Blitter Choose(Bitmap device, in Matrix matrix, Paint paint) {
+    switch(device.config) {
     case Bitmap.Config.NoConfig:
       return new NullBlitter();
     case Bitmap.Config.ARGB_8888:
       {
         if (paint.antiAlias)
-          return new ARGB32BlitterAA!(AAScale)(bitmap, paint);
+          return new ARGB32BlitterAA!(AAScale)(device, paint);
         else
-          return new ARGB32Blitter(bitmap, paint);
+          return new ARGB32Blitter(device, paint);
       }
     }
+  }
+
+  static Blitter ChooseSprite(Bitmap device, Paint paint, in Bitmap source, IPoint topLeft) {
+    SpriteBlitter blitter;
+
+    switch (device.config) {
+    case Bitmap.Config.RGB_565:
+      blitter = SpriteBlitter.CreateD16(device, source, paint, topLeft);
+      break;
+    case Bitmap.Config.ARGB_8888:
+      blitter = SpriteBlitter.CreateD32(device, source, paint, topLeft);
+      break;
+    default:
+      blitter = null;
+      break;
+    }
+
+    return blitter;
   }
 
   final protected int round(float f) {

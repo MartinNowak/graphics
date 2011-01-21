@@ -66,7 +66,7 @@ struct Color
     assert(alpha <= 255);
     return cast(ubyte)(256 - getAlphaFactor(alpha));
   }
-  Color mulAlpha(uint scale) {
+  Color mulAlpha(uint scale) const {
     assert(scale <= 256);
     enum rb_mask = ColorMask!("rb");
 
@@ -75,7 +75,7 @@ struct Color
     auto ag = ((c >> 8) & rb_mask) * scale;
     return Color((rb & rb_mask) | (ag & ~rb_mask));
   }
-  Color opBinary(string op)(Color rhs)
+  Color opBinary(string op)(Color rhs) const
     if (op == "+") {
       return Color(this.argb + rhs.argb);
   }

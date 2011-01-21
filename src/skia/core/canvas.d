@@ -145,6 +145,25 @@ public:
     }
   }
 
+void drawBitmap(in Bitmap bitmap, float x, float y, Paint paint) {
+  //! TODO: quickReject
+
+  if (bitmap.width <= 0 || bitmap.height <= 0)
+    return;
+
+  Matrix matrix;
+  matrix.setTranslate(x, y);
+
+  scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Bitmap);
+  foreach(ref draw; cycle) {
+    draw.drawBitmap(bitmap, matrix, paint);
+  }
+}
+
+void drawBitmap(in Bitmap bitmap, FPoint pt, Paint paint) {
+  this.drawBitmap(bitmap, pt.x, pt.y, paint);
+}
+
   void drawRect(in IRect rect, Paint paint) {
     scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Path);
     foreach(ref draw; cycle) {

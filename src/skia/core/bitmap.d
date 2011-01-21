@@ -69,6 +69,10 @@ struct Bitmap {
     this._buffer.length = width * height * BytesPerPixel(config);
   }
 
+  const(T)[] getRangeConst(T=PMColor)(uint xStart, uint xEnd, uint y) const {
+    return (cast(Bitmap)this).getRange!(T)(xStart, xEnd, y);
+  }
+
   T[] getRange(T=PMColor)(uint xStart, uint xEnd, uint y) {
     assert(xEnd - xStart <= this.width,
            "start:" ~ to!string(xStart) ~ "end: "~ to!string(xEnd) ~ "width:"~to!string(this.width));
