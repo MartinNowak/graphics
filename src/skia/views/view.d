@@ -52,9 +52,9 @@ class VerticalSplit : Layout
 {
   void onLayoutChildren(View parent) {
     auto Start = parent.loc;
-    auto Shift = IPoint(0, parent.height / parent.children.length);
+    auto Shift = IPoint(0, cast(int)(parent.height / parent.children.length));
     auto size = parent.size;
-    size.height = size.height / parent.children.length;
+    size.height = cast(int)(size.height / parent.children.length);
     foreach(child; parent.children) {
       child.loc = Start;
       child.size = size;
