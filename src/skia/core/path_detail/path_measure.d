@@ -41,9 +41,12 @@ private:
 
   Segment getSegmentFromDistance(float distance, out float t) const {
     assert(distance >= 0);
+
     distance = clampToRange!float(distance, 0.0f, this.length);
+
     auto sorted = assumeSorted!("a.distance < b.distance")(this.constSegments);
-    auto lowerHalf = sorted.lowerBoundPred!("a.distance < b")(distance);
+    auto lowerHalf = sorted.lowerBound(distComparable(distance));
+
     auto segment = this.constSegments[lowerHalf.length];
 
     if (lowerHalf.length == this.constSegments.length)
@@ -150,6 +153,12 @@ Segment getSegment(Path.Verb verb)(float distance, size_t pointIndex) {
   seg.distance = distance;
   seg.type = segmentType!verb;
   seg.pointIndex = pointIndex;
+  return seg;
+}
+
+Segment distComparable(float dist) {
+  Segment seg;
+  seg.distance = dist;
   return seg;
 }
 

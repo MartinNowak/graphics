@@ -179,9 +179,16 @@ private void walkEdges(alias blitLineFunc, Range)(
 // join at e.g. (10.0, 10.0). Currently these are closed intervals in
 // both directions and leeds to cancelation.
 static auto takeNextEdges(T, Range)(T curY, ref Range sortedEdges) {
-  auto newEdges = sortedEdges.lowerBoundPred!("a.firstY <= b")(curY);
-  sortedEdges = sortedEdges[newEdges.length .. sortedEdges.length];
+  auto remaining = sortedEdges.upperBound(firstYComparable(curY));
+  auto newEdges = sortedEdges[0 .. sortedEdges.length - remaining.length];
+  sortedEdges = remaining;
   return newEdges.release;
+}
+
+private static Edge!T firstYComparable(T)(T firstY) {
+  Edge!T edge;
+  edge.p0.y = firstY;
+  return edge;
 }
 
 static R1 updateWorkingSet(R1, T)(R1 curWorkingSet, T curY, T step)
