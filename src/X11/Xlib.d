@@ -2,6 +2,8 @@ module X11.Xlib;
 
 public import X11.X;
 
+private import core.stdc.config;
+
 extern(C):
 
 struct Display {}
@@ -11,16 +13,9 @@ alias XID Window;
 alias XID Drawable;
 alias XID Pixmap;
 alias XID Font;
-
 enum Bool : int { False = 0, True = 1 }
-static if (size_t.sizeof == 4) {
-  alias int Long;
-} else {
-static assert(size_t.sizeof == 8);
-  alias long Long;
-}
 alias size_t Time;
-alias uint Atom;
+alias size_t Atom;
 alias int Status;
 alias byte* XPointer;
 
@@ -62,7 +57,7 @@ struct XImage {
   int width, height;		/* size of image */
   int xoffset;		/* number of pixels offset in X direction */
   int format;			/* XYBitmap, XYPixmap, ZPixmap */
-  byte* data;			/* pointer to image data */
+  ubyte* data;			/* pointer to image data */
   int byte_order;		/* data byte order, LSBFirst, MSBFirst */
   int bitmap_unit;		/* quant. of scanline 8, 16, 32 */
   int bitmap_bit_order;	/* LSBFirst, MSBFirst */
@@ -82,7 +77,7 @@ struct XImage {
     size_t function(XImage*, int, int) get_pixel;
     int function(XImage*, int, int, size_t) put_pixel;
     XImage* function(XImage*, int, int, uint, uint) sub_image;
-    int function(XImage *, Long) add_pixel;
+    int function(XImage *, c_long) add_pixel;
   };
   funcs f;
 };
@@ -120,6 +115,22 @@ struct XButtonEvent {
   int x_root, y_root;	/* coordinates relative to root */
   uint state;	/* key or button mask */
   uint button;	/* detail */
+  Bool same_screen;	/* same screen flag */
+};
+
+struct XMotionEvent {
+  int type;		/* of event */
+  size_t serial;	/* # of last request processed by server */
+  Bool send_event;	/* true if this came from a SendEvent request */
+  Display *display;	/* Display the event was read from */
+  Window window;	        /* "event" window reported relative to */
+  Window root;	        /* root window that the event occurred on */
+  Window subwindow;	/* child window */
+  Time time;		/* milliseconds */
+  int x, y;		/* pointer x, y coordinates in event window */
+  int x_root, y_root;	/* coordinates relative to root */
+  uint state;	/* key or button mask */
+  ubyte is_hint;		/* detail */
   Bool same_screen;	/* same screen flag */
 };
 
@@ -173,7 +184,8 @@ struct XClientMessageEvent {
   union _data {
     byte b[20];
     short s[10];
-    Long l[5];
+    int i[5];
+    long l[5];
   };
   _data data;
 };
@@ -193,7 +205,7 @@ union XEvent {
   //XAnyEvent xany;
   XKeyEvent xkey;
   XButtonEvent xbutton;
-  //XMotionEvent xmotion;
+  XMotionEvent xmotion;
   //XCrossingEvent xcrossing;
   //XFocusChangeEvent xfocus;
   XExposeEvent xexpose;
@@ -223,7 +235,7 @@ union XEvent {
   //XKeymapEvent xkeymap;
   //XGenericEvent xgeneric;
   //XGenericEventCookie xcookie;
-  Long pad[24];
+  c_long pad[24];
 };
 
 
@@ -329,7 +341,7 @@ struct Screen {
   int max_maps, min_maps;	/* max and min color maps */
   int backing_store;	/* Never, WhenMapped, Always */
   Bool save_unders;
-  long root_input_mask;	/* initial root input mask */
+  c_long root_input_mask;	/* initial root input mask */
 };
 
 
@@ -355,6 +367,8 @@ Display* XOpenDisplay(const(char*) display_name);
 void XDestroyWindow(Display* display, Window win);
 
 Atom XInternAtom(Display*, const(char*), Bool);
+char *XGetAtomName(Display*, Atom);
+Status XGetAtomNames(Display*, Atom* atoms, int cnt, char** outNames);
 
 GC XCreateGC(Display*, Drawable, size_t valuemask, XGCValues*);
 
@@ -375,16 +389,20 @@ int XStoreName(
   Window		/* w */,
   const(char*)	/* window_name */
 );
+
+int XSync(
+  Display*		/* display */,
+  Bool		/* discard */
+);
+
 int XSelectInput(
   Display*		/* display */,
   Window		/* w */,
-  long		/* event_mask */
+  c_long		/* event_mask */
 );
 
-int XMapWindow(
-  Display*		/* display */,
-  Window		/* w */
-);
+int XMapWindow(Display*, Window);
+int XUnmapWindow(Display*, Window);
 
 int XNextEvent(
   Display*		/* display */,
@@ -402,6 +420,7 @@ void XUnlockDisplay(Display*);
 ////////////////////////////////////////////////////////////////////////////////
 
 Status XSetWMProtocols(Display*, Window, Atom*, int count);
+Status XGetWMProtocols(Display*, Window, Atom**, int* count);
 
 Status XInitImage(XImage* image);
 XImage* XCreateImage(Display* display, Visual* visual, uint depth, int format, int offset,
@@ -424,6 +443,7 @@ int XClearWindow(
   Window		/* w */
 );
 
+int XFree(void*);
 
 /*****************************************************************
  * RESERVED RESOURCE AND CONSTANT DEFINITIONS
