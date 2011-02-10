@@ -1,10 +1,10 @@
 module skia.core.blitter;
 
 //debug = WHITEBOX;
-debug import std.stdio : writefln, writef;
+debug import std.stdio;
 
 private {
-  import std.algorithm : max;
+  import std.algorithm;
   import std.conv : to, roundTo;
   import std.math : lrint, round, nearbyint;
   import std.numeric : FPTemporary;
@@ -22,6 +22,8 @@ private {
   import skia.core.scan : AAScale;
   import skia.core.blitter_detail._;
 
+  import skia.util.span;
+  import skia.util.format;
   import skia.math._;
 }
 
@@ -152,14 +154,16 @@ struct AARun {
 
 class ARGB32BlitterAA(byte S) : ARGB32Blitter {
   enum Shift = binShift!S;
-  enum FullCovVal = ushort.max / S;
-  static AARun[] aaRuns;
+  enum ushort FullCovVal = ushort.max / S;
+  alias SpanAccumulator!(ushort, ushort, Policy.PreAllocate) AAAcc;
+  alias Span!(ushort, ushort) AASpan;
+  static AAAcc aaAcc;
+  //  AAAcc aaAcc;
   int curIY = int.min;
 
   this(Bitmap bitmap, Paint paint) {
     super(bitmap, paint);
     this.color = paint.color;
-    this.aaRuns.length = bitmap.width;
     this.resetRuns();
   }
 
@@ -168,6 +172,7 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
   }
 
   override void blitFH(float y, float xStart, float xEnd) {
+    assert(xEnd > xStart);
     auto iy = to!uint(truncate(y));
     if (iy != this.curIY) {
       this.flush();
@@ -176,98 +181,64 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
 
     auto ixStart = checkedTo!ushort(truncate(xStart));
     auto ixEnd = checkedTo!ushort(truncate(xEnd));
-    if (ixStart == ixEnd)
-      this.addAADot(ixStart, checkedTo!ushort(
-                      lrint((xEnd - xStart) * FullCovVal)));
-    else {
-      FPTemporary!float covStart = 1.0 - (xStart - ixStart);
-      auto aaStart = checkedTo!ushort(lrint(covStart * FullCovVal));
-      FPTemporary!float covEnd = xEnd - ixEnd;
-      auto aaEnd = checkedTo!ushort(lrint(covEnd * FullCovVal));
-      const ushort middleCount = checkedTo!ushort(ixEnd - ixStart - 1);
-      this.addAASpan(ixStart, aaStart, middleCount, FullCovVal, aaEnd);
-    }
-  }
 
-  void addAADot(ushort x, ushort aaVal) {
-    breakSpan(this.aaRuns, x, cast(ushort)1);
-    assert(this.aaRuns[x].length == 1, to!string(this.aaRuns[x+1].length));
-    this.aaRuns[x].aaSum += aaVal;
-  }
-  void addAASpan(ushort x, ushort aaStart, ushort middleCount, ushort aaMiddle,
-                 ushort aaEnd) {
-    auto runs = this.aaRuns.save;
-    if (aaStart) {
-      breakSpan(runs, x, cast(ushort)1);
-      runs.popFrontN(x);
-      assert(runs.front.length == 1);
-      runs.front.aaSum += aaStart;
-      runs.popFront;
-      x = 0;
-    }
-    if (middleCount) {
-      breakSpan(runs, x, middleCount);
-      runs.popFrontN(x);
-      x = 0;
-      while (middleCount > 0) {
-        runs.front.aaSum += aaMiddle;
-        auto n = runs.front.length;
-        runs.popFrontN(n);
-        middleCount -= n;
+    if (ixStart == ixEnd) {
+      auto aaVal = checkedTo!ushort((xEnd - xStart) * FullCovVal);
+      this.aaAcc += AASpan(ixStart, checkedTo!ushort(ixStart + 1), aaVal);
+    } else {
+      if (xStart > ixStart) {
+        auto aaVal = checkedTo!ushort((1 + ixStart - xStart) * FullCovVal);
+        this.aaAcc += AASpan(ixStart, checkedTo!ushort(ixStart + 1), aaVal);
+        ++ixStart;
       }
-      assert(middleCount == 0);
-    }
-    if (aaEnd) {
-      breakSpan(runs, x, cast(ushort)1);
-      runs.popFrontN(x);
-      assert(runs.front.length == 1);
-      runs.front.aaSum += aaEnd;
-    }
-  }
-
-  static void breakSpan(Range)(Range range, ushort x, ushort count) {
-    assert(count > 0);
-    auto runs = range.save;
-
-    void splitRuns(size_t pos) {
-      while (pos > 0) {
-        auto n = runs.front.length;
-        assert(n > 0);
-        if (pos < n) {
-          runs.front.length = to!ushort(pos);
-          runs[pos].length = to!ushort(n - pos);
-          runs[pos].aaSum = runs.front.aaSum;
-          runs.popFrontN(pos);
-          break;
-        }
-        pos -= n;
-        runs.popFrontN(n);
+      if (xEnd > ixEnd) {
+        auto aaVal = checkedTo!ushort((xEnd - ixEnd) * FullCovVal);
+        this.aaAcc += AASpan(ixEnd, checkedTo!ushort(ixEnd + 1), aaVal);
+      }
+      if (ixEnd > ixStart) {
+        this.aaAcc += AASpan(ixStart, ixEnd, FullCovVal);
       }
     }
-
-    splitRuns(x);
-    splitRuns(count);
   }
 
   void flush() {
-    auto runs = this.aaRuns.save;
-    uint x = 0;
-    while (!runs.empty && runs.front.length) {
-      auto n = runs.front.length;
-      auto alpha = to!ubyte(runs.front.aaSum >> 8);
+    foreach(AASpan sp; aaAcc[]) {
+      auto alpha = checkedTo!ubyte(sp.value >> 8);
       if (alpha) {
         auto color = this.color;
         color.a = to!ubyte((color.a * Color.getAlphaFactor(alpha)) >> 8);
-        Color32(this.bitmap.getRange(x, x + n, this.curIY), PMColor(color));
+        Color32(this.bitmap.getRange(sp.start, sp.end, this.curIY), PMColor(color));
       }
-      runs.popFrontN(n);
-      x += n;
     }
     this.resetRuns();
   }
 
   void resetRuns() {
-    this.aaRuns.front.length = to!ushort(this.bitmap.width);
-    this.aaRuns.front.aaSum = 0;
+    this.aaAcc.reset(AASpan(0, to!ushort(this.bitmap.width), 0));
   }
 }
+
+unittest {
+  auto bitmap = Bitmap(Bitmap.Config.ARGB_8888, 10, 1);
+  bitmap.eraseColor(PMColor(Black));
+  auto paint = new Paint(White);
+  scope auto aaBlitter = new ARGB32BlitterAA!4(bitmap, paint);
+
+  aaBlitter.blitFH(0.f, 0.f, 10.f);
+  aaBlitter.flush();
+  // TODO: should be 0xFF3F3F3F
+  assert(equal(bitmap.getLine(0), repeat(Color("0xFE3F3F3F"), 10)));
+
+  bitmap.eraseColor(PMColor(Black));
+  aaBlitter.blitFH(0.f, 1.f, 8.f);
+  aaBlitter.blitFH(0.25f, 1.25f, 7.75f);
+  aaBlitter.blitFH(0.5f, 1.5f, 7.5f);
+  aaBlitter.blitFH(0.75f, 1.75f, 7.25f);
+
+  aaBlitter.flush();
+  // TODO: should be 0xFF9F9F9F
+  auto exp = [Black, Color("0xFE9F9F9F")]
+    ~ array(repeat(White, 5)) ~ [Color("0xFE9F9F9F"), Black, Black];
+  assert(equal(bitmap.getLine(0), exp));
+}
+

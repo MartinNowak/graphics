@@ -3,7 +3,9 @@ module skia.core.color;
 private {
   debug import std.stdio;
   import std.conv : to;
-
+  import std.algorithm;
+  import std.string : toupper;
+  import std.ctype : isxdigit;
 }
 
 uint getShift(char m) {
@@ -36,18 +38,54 @@ unittest {
   static assert(ColorMask!("ag") == 0xff00ff00);
 }
 
+private enum hexLetters = "0123456789ABCDEF";
+
+private char[2] toHexDigit(ubyte n) {
+  return [hexLetters[(n >> 4) & 0xF], hexLetters[n & 0xF]];
+}
+
+uint fromHexDigit(dchar c) {
+  assert(isxdigit(c));
+  return c <= '9' ? (c & 0xF) : 9 + (c & 0xF);
+}
+
 struct Color
 {
   uint argb;
 
   @property string toString() const {
-    return "Color a: " ~ to!string(this.a) ~
-      " r: " ~ to!string(this.r) ~
-      " g: " ~ to!string(this.g) ~
-      " b: " ~ to!string(this.b);
+    version (VERBOSE) {
+      return "Color a: " ~ to!string(this.a) ~
+        " r: " ~ to!string(this.r) ~
+        " g: " ~ to!string(this.g) ~
+        " b: " ~ to!string(this.b);
+    } else {
+      auto ret = "0x" ~ toHexDigit(this.a) ~ toHexDigit(this.r)
+        ~ toHexDigit(this.g) ~ toHexDigit(this.b);
+      return ret.idup;
+    }
   }
   this(uint argb) {
     this.argb = argb;
+  }
+
+  this(string argbHex) {
+    argbHex = argbHex.toupper();
+    if (argbHex.startsWith("0X")) {
+      argbHex = argbHex[2 .. $];
+    }
+    assert(argbHex.length == 8);
+    this.argb = cast(uint)reduce!("(a << 4) + b")(
+      0, map!fromHexDigit(argbHex));
+  }
+
+  unittest {
+    auto argbHex = "80000000";
+    assert(Color("00000001").argb == 1);
+    assert(Color("80000000").argb == (1u << 31));
+    const uint exp = 10u * (1<<28) + 10u * (1<<24) + 11u * (1<<20) + 11u * (1<<16)
+      + 12u * (1<<12) + 12u * (1<<8) + 13u * (1<<4) + 13u;
+    assert(Color("AABBCCDD").argb == exp);
   }
 
   this(ubyte a, ubyte r, ubyte g, ubyte b) {
