@@ -1,6 +1,7 @@
 module skia.util.span;
 
 private {
+  import std.algorithm : move;
   import std.array;
   import std.range;
   import std.conv : to;
@@ -32,21 +33,6 @@ struct Span(T, Index = size_t) {
   T value;
 }
 
-struct Span(T : void, Index = size_t) {
-  this(Index start, Index end) {
-    this.start = start;
-    this.end = end;
-  }
-  @property string toString() const {
-    return formatString("Span: start: %s end: %s", this.start, this.end);
-  }
-  @property Index length() const {
-    return checkedTo!Index(this.end - this.start);
-  }
-  Index start;
-  Index end;
-}
-
 
 //==============================================================================
 
@@ -57,44 +43,47 @@ enum Policy {
 
 struct SpanAccumulator(T, Index = size_t, Policy policy = Policy.Sparse) {
 private:
-  static if (is(T == void))
-    alias Tuple!(Index, "dist") Node;
-  else
-    alias Tuple!(Index, "dist", T, "value") Node;
+  struct Node {
+    Tuple!(Index, "dist", T, "value") _node;
+    alias _node this;
+    this(Index dist, in T value) {
+      this.dist = dist;
+      this.value = value;
+    }
+    @property string toString() const {
+      return formatString("Node dist:%s val:%s", this.dist, this.value);
+    }
+  }
   alias Span!(T, Index) TSpan;
 
   Index start;
-  debug Index end;
+  Index end;
+  static if (!is(T == void)) T bottom;
   Node[] nodes;
 
 public:
 
-  this(Index start, Index end) {
+  this(Index start, Index end, T init = T.init) {
     assert(end > start);
     this.start = start;
-    debug this.end = end;
+    this.end = end;
 
     static if (policy == Policy.Sparse) {
       this.nodes.length = 1;
     } else {
       this.nodes.length = end - start;
     }
-    this.nodes.front.dist = checkedTo!Index(end - start);
-  }
-
-  static if (!is(T == void)) {
-    this(Index start, Index end, T init = T.init) {
-      this(start, end);
-      this.nodes.front.value = init;
-    }
+    this.nodes.front = Node(checkedTo!Index(end - start), init);
+    this.bottom = init;
   }
 
   this(in SpanAccumulator other) {
     this = other;
   }
+
   ref SpanAccumulator opAssign(in SpanAccumulator other) {
     this.start = other.start;
-    debug this.end = other.end;
+    this.end = other.end;
     this.nodes = other.nodes.dup;
     return this;
   }
@@ -105,15 +94,20 @@ public:
     auto slice = this[span.start .. span.end];
     assert(slice.nodes.length);
 
-    static if (!is(T == void)) {
-      foreach(ref Node node; slice) {
-        mixin("node.value" ~ op ~ "= span.value;");
-      }
+    foreach(ref Node node; slice) {
+      mixin("node.value" ~ op ~ "= span.value;");
     }
   }
 
   @property string toString() const {
-    return formatString("SpanAccumulator!(%s) start: %s \n\tnodes:%s", typeid(T), this.start, this.nodes);
+    return formatString("SpanAccumulator!(%s) start: %s \n\tnodes:%s",
+                        typeid(T), this.start, this.nodes);
+  }
+
+  bool opEquals(ref const SpanAccumulator other) const {
+    return this.start == other.start
+      && this.end == other.end
+      && this.nodes == other.nodes;
   }
 
   Range opSlice() {
@@ -126,13 +120,37 @@ public:
     return Range(x, this.nodes[start .. end]);
   }
 
+  //! join consecutive spans with same values
+  void collapse() {
+    //! recursive collapse
+    static if(__traits(compiles, this.nodes.front.value.collapse())) {
+      foreach(ref Node node; this[])
+        node.value.collapse();
+    }
+
+    if (this.nodes.length <= 1)
+      return;
+
+    auto result = this.nodes.save;
+    auto src = this.nodes.save;
+    src.popFront;
+    while (!src.empty) {
+      if (src.front.value != result.front.value) {
+        result.popFront;
+        move(src.front, result.front);
+      } else {
+        result.front.dist += src.front.dist;
+      }
+      src.popFront;
+    };
+    this.nodes = this.nodes[0 .. 1 + $ - result.length];
+  }
+
   void reset(in TSpan init) {
     this.nodes.length = init.length;
     this.start = init.start;
-    debug this.end = init.end;
-    this.nodes.front.dist = init.length;
-    static if (!is(T == void))
-      this.nodes.front.value = init.value;
+    this.end = init.end;
+    this.nodes.front = Node(init.length, init.value);
   }
 
 private:
@@ -149,11 +167,7 @@ private:
     int opApply(SpanIterDg dg) {
       auto pos = this.start;
       foreach(ref Node node; this) {
-        static if (is(T == void))
-          auto span = TSpan(pos, checkedTo!Index(pos + node.dist));
-        else
-          auto span = TSpan(pos, checkedTo!Index(pos + node.dist), node.value);
-        auto ret = dg(span);
+        auto ret = dg(TSpan(pos, checkedTo!Index(pos + node.dist), node.value));
         if (ret) return ret;
         pos += node.dist;
       }
@@ -182,14 +196,22 @@ private:
     assert(where >= this.start);
   }
   out (ret) {
-    this.check();
+    debug this.check();
     assert(ret <= this.nodes.length);
   }
   body {
-    if (where == this.start)
+    if (where <= this.start) {
+      if (auto length = this.start - where)
+        this.extendLeft(checkedTo!(Index)(length));
       return 0;
+    }
 
-    auto where_bak = where;
+    if (where >= this.end) {
+      if (auto length = where - this.end)
+        this.extendRight(checkedTo!(Index)(length));
+      return this.nodes.length;
+    }
+
     size_t idx = 0;
     while (where > nodes[idx].dist) {
       where -= nodes[idx].dist;
@@ -197,8 +219,7 @@ private:
         ++idx;
       else
         idx += nodes[idx].dist;
-      assert(idx < this.nodes.length, formatString("where:%s idx:%s len:%s",
-                                                   where_bak, idx, this.nodes.length));
+      assert(idx < this.nodes.length);
     }
     auto oldLen = this.nodes[idx].dist;
     auto newLen = where;
@@ -212,10 +233,7 @@ private:
     this.nodes[idx].dist = newLen;
 
     auto remaining = checkedTo!(Index)(oldLen - newLen);
-    static if (is(T == void))
-      auto newNode = Node(remaining);
-    else
-      auto newNode = Node(remaining, this.nodes[idx].value);
+    auto newNode = Node(remaining, this.nodes[idx].value);
 
     static if (policy == Policy.Sparse) {
       this.nodes.insert(idx + 1, newNode);
@@ -226,9 +244,36 @@ private:
     }
   }
 
+  void extendLeft(Index length) {
+    assert(length > 0);
+
+    auto newNode = Node(length, this.bottom);
+
+    static if (policy == Policy.Sparse)
+      this.nodes.insert(0, newNode);
+    else
+      this.nodes.insert(0, chain([newNode], repeat(Node.init, length - 1)));
+
+    this.start = checkedTo!(Index)(this.start - length);
+  }
+
+  void extendRight(Index length) {
+    assert(length > 0);
+
+    auto newNode = Node(length, this.bottom);
+
+    static if (policy == Policy.Sparse)
+      this.nodes.insert(this.nodes.length, newNode);
+    else
+      this.nodes.insert(this.nodes.length, chain(repeat(Node.init, length - 1), [newNode]));
+
+    this.end = checkedTo!(Index)(this.end + length);
+  }
+
   debug void check() {
     auto pos = this.start;
     auto nodesR = this.nodes.save;
+
     while (!nodesR.empty) {
       pos += nodesR.front.dist;
       static if (policy == Policy.Sparse)
@@ -244,26 +289,26 @@ private:
 
 version(unittest):
 
+void checkExpectations(Acc, Span)(Acc acc, Span[] exp) {
+  foreach(Span span; acc[]) {
+    assert(!exp.empty && span == exp.front, formatString("exp:%s act:%s", exp, span));
+    exp.popFront;
+  }
+}
+
 void checkFor(T, Idx, Policy policy)() {
 
   auto acc = SpanAccumulator!(T, Idx, policy)(0, 100, 1);
   acc += Span!(T, Idx)(20, 80, 2);
 
-  void checkExpectations(Span!(T, Idx)[] exp) {
-    foreach(Span!(T, Idx) span; acc[]) {
-      assert(!exp.empty && span == exp.front, formatString("exp:%s act:%s", exp, span));
-      exp.popFront;
-    }
-  }
-
-  checkExpectations([
+  checkExpectations(acc, [
                       Span!(T, Idx)(0, 20, 1),
                       Span!(T, Idx)(20, 80, 3),
                       Span!(T, Idx)(80, 100, 1),
                     ]);
 
   acc *= Span!(T, Idx)(15, 25, 2);
-  checkExpectations([
+  checkExpectations(acc, [
                       Span!(T, Idx)(0, 15, 1),
                       Span!(T, Idx)(15, 20, 2),
                       Span!(T, Idx)(20, 25, 6),
@@ -272,7 +317,7 @@ void checkFor(T, Idx, Policy policy)() {
                     ]);
 
   acc = SpanAccumulator!(T, Idx, policy)(0, 100, 1);
-  checkExpectations([
+  checkExpectations(acc, [
                       Span!(T, Idx)(0, 100, 1),
                     ]);
 }
@@ -284,16 +329,6 @@ unittest {
   checkFor!(int, long, Policy.PreAllocate)();
 }
 
-
-unittest {
-  auto acc = SpanAccumulator!(void)(0, 100);
-  acc += Span!void(20, 80);
-  auto exps = [Span!void(0, 20), Span!void(20, 80), Span!void(80, 100)];
-  foreach(Span!void sp; acc[]) {
-    assert(sp == exps.front);
-    exps.popFront;
-  }
-}
 
 unittest {
   auto acc = SpanAccumulator!(SpanAccumulator!int)(0, 5, SpanAccumulator!int(0, 10, 111));
@@ -317,21 +352,77 @@ unittest {
 }
 
 unittest {
-  auto acc = SpanAccumulator!(SpanAccumulator!void)(0, 5, SpanAccumulator!void(0, 10));
-  acc += Span!(Span!void)(2, 4, Span!void(0, 5));
+  auto acc = SpanAccumulator!(bool)();
+  acc |= Span!(bool)(0, 20, true);
+  acc |= Span!(bool)(30, 50, true);
+  Span!(bool)[] exp;
 
-  void checkExpectations(Tuple!(int, int, Span!(void))[] exp) {
-    foreach(Span!(SpanAccumulator!(void)) accsp; acc[]) {
-      foreach(Span!void sp; accsp.value[]) {
-        assert(tuple(accsp.start, accsp.end, sp) == exp.front, to!string(exp.front));
-        exp.popFront;
-      }
-    }
-  }
-  checkExpectations([
-                      tuple(0, 2, Span!(void)(0, 10)),
-                      tuple(2, 4, Span!(void)(0, 5)),
-                      tuple(2, 4, Span!(void)(5, 10)),
-                      tuple(4, 5, Span!(void)(0, 10)),
+  exp ~= Span!(bool)(0, 20, true);
+  auto span = Span!(bool)(20, 30, false);
+  //! BUG 5564 workaround
+  span.value = false;
+  exp ~= span;
+  exp ~= Span!(bool)(30, 50, true);
+  checkExpectations(acc, exp);
+
+  acc |= Span!(bool)(20, 30, true);
+  exp[1].value = true;
+  checkExpectations(acc, exp);
+
+  acc.collapse();
+  assert(acc.nodes.length == 1);
+  checkExpectations(acc, [Span!(bool)(0, 50, true)]);
+
+  acc.check();
+
+  acc ^= Span!(bool)(10, 15, true);
+  acc ^= Span!(bool)(45, 50, true);
+  acc &= Span!(bool)(50, 55, true);
+  exp = [Span!bool(0, 10, true)];
+  span = Span!bool(10, 15, false); span.value = false; exp ~= span;
+  exp ~= Span!bool(15, 45, true);
+  span = Span!bool(45, 50, false); span.value = false; exp ~= span;
+  span = Span!bool(50, 55, false); span.value = false; exp ~= span;
+  checkExpectations(acc, exp);
+
+  acc.collapse();
+  exp = exp[0 .. 3];
+  span = Span!bool(45, 55, false); span.value = false; exp ~= span;
+  checkExpectations(acc, exp);
+
+
+  /*
+  checkExpectations(acc, [
+                      Span!(bool)(0, 20, true),
+                      Span!(bool)(20, 30, false),
+                      Span!(bool)(30, 50, true),
+                    ]);
+  */
+}
+
+unittest {
+  auto acc = SpanAccumulator!(bool)();
+  acc |= Span!(bool)(0, 20, true);
+  acc |= Span!(bool)(20, 50, true);
+  acc.collapse();
+  checkExpectations(acc, [Span!bool(0, 50, true)]);
+}
+
+unittest {
+  auto acc1 = SpanAccumulator!(bool)(0, 8, true);
+  auto acc2 = SpanAccumulator!(bool)(0, 8, true);
+  assert(acc1 == acc2);
+}
+
+unittest {
+  writeln("COLFAIL");
+  auto acc = SpanAccumulator!(SpanAccumulator!bool)();
+  acc |= Span!(Span!bool)(0, 20, Span!bool(0, 5, true));
+  acc |= Span!(Span!bool)(0, 20, Span!bool(5, 8, true));
+  acc |= Span!(Span!bool)(20, 50, Span!bool(0, 5, true));
+  acc |= Span!(Span!bool)(20, 50, Span!bool(5, 8, true));
+  acc.collapse();
+  checkExpectations(acc, [
+                      Span!(SpanAccumulator!bool)(0, 50, SpanAccumulator!bool(0, 8, true))
                     ]);
 }
