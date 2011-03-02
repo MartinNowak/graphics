@@ -31,13 +31,12 @@ class RectView : View
     scope auto paintLine = new Paint(Green.a = 60);
     paintLine.fillStyle = Paint.Fill.Stroke;
     paintLine.strokeWidth = 5;
-    auto area = this.bounds;
-    area.inset(10, 10);
+    auto area = this.bounds.inset(10, 10);
     canvas.drawRoundRect(area, 30, 30, paintLine);
 
     paintLine.fillStyle = Paint.Fill.Fill;
     paintLine.color = Blue.a = 20;
-    area.inset(10, 10);
+    area = area.inset(10, 10);
     canvas.drawRoundRect(area, 30, 30, paintLine);
   }
 }

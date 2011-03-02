@@ -3,13 +3,14 @@ module SampleApp.X11Main;
 private {
   import std.stdio;
   import std.c.stdlib : exit;
-  import X11 = X11.Xlib;
+  static import cstdio = core.stdc.stdio;
+  import xlib = xlib.xlib;
 
   import skia.views.view;
   import skia.views.window;
 
   // Set's default fpu exceptions on
-  import skia.math.fpu;
+  //  import skia.math.fpu;
   import SampleApp.bitmapview;
   import SampleApp.circlesview;
   import SampleApp.quadview;
@@ -27,7 +28,7 @@ private {
 ////////////////////////////////////////////////////////////////////////////////
 
 OsWindow gWindow;
-X11.Atom[string] gAtoms;
+xlib.Atom[string] gAtoms;
 
 ////////////////////////////////////////////////////////////////////////////////
 // application entry
@@ -46,20 +47,20 @@ int main() {
 // event loop
 ////////////////////////////////////////////////////////////////////////////////
 
-int RunMainLoop(X11.Display* dpy) {
-  X11.XEvent e;
+int RunMainLoop(xlib.Display* dpy) {
+  xlib.XEvent e;
 
  msg_loop: while(true) {
-    X11.XNextEvent(dpy, &e);
+    xlib.XNextEvent(dpy, &e);
     debug(PRINTF) cstdio.fprintf(cstdio.stderr, "EventType %u\n", e.type);
 
     switch (e.type) {
-    case X11.ClientMessage:
+    case xlib.ClientMessage:
       if (e.xclient.message_type == gAtoms["WM_PROTOCOLS"]) {
         if (e.xclient.data.l[0] == gAtoms["WM_DELETE_WINDOW"])
           break msg_loop;
         else if (e.xclient.data.l[0] == gAtoms["NET_WM_PING"]) {
-          // TODO: X11.XSendMessage(rootwindow ...)
+          // TODO: xlib.XSendMessage(rootwindow ...)
         }
       }
       break;
@@ -76,32 +77,32 @@ int RunMainLoop(X11.Display* dpy) {
 
 //------------------------------------------------------------------------------
 
-X11.Display* InitWindow() {
+xlib.Display* InitWindow() {
 
-  X11.Display* dpy = X11.XOpenDisplay(null);
+  xlib.Display* dpy = xlib.XOpenDisplay(null);
   if(!dpy) {
     throw new Exception("ERROR: Could not open display\n");
   }
   auto win = MakeWindow(dpy);
 
   gWindow = new OsWindow(dpy, win);
-  //  gWindow.attachChildTo!FrontPos(new SineView());
-  //  gWindow.attachChildTo!FrontPos(new CirclesView());
-  //  gWindow.attachChildTo!FrontPos(new RectView());
+  gWindow.attachChildTo!FrontPos(new SineView());
+  // gWindow.attachChildTo!FrontPos(new CirclesView());
+  gWindow.attachChildTo!FrontPos(new RectView());
   //  gWindow.attachChildTo!FrontPos(new QuadView());
   gWindow.attachChildTo!FrontPos(new CubicView());
-  //  gWindow.attachChildTo!FrontPos(new TextView());
+  gWindow.attachChildTo!FrontPos(new TextView());
   gWindow.attachChildTo!FrontPos(new BitmapView());
 
-  X11.XMapWindow(dpy, win);
+  xlib.XMapWindow(dpy, win);
   return dpy;
 }
 
 
 //------------------------------------------------------------------------------
 
-X11.Atom getAtom(X11.Display* dpy, string name) {
-  auto atom = X11.XInternAtom(dpy, name.ptr, X11.Bool.False);
+xlib.Atom getAtom(xlib.Display* dpy, string name) {
+  auto atom = xlib.XInternAtom(dpy, name.ptr, xlib.Bool.False);
   debug(PRINTF) writefln("getAtom %s %s", name, atom);
   gAtoms[name] = atom;
   return atom;
@@ -110,24 +111,24 @@ X11.Atom getAtom(X11.Display* dpy, string name) {
 
 //------------------------------------------------------------------------------
 
-void registerAtoms(X11.Display* dpy, X11.Window win) {
+void registerAtoms(xlib.Display* dpy, xlib.Window win) {
   auto atoms = gAtoms.values;
-  auto status = X11.XSetWMProtocols(dpy, win, atoms.ptr, cast(int)atoms.length);
+  auto status = xlib.XSetWMProtocols(dpy, win, atoms.ptr, cast(int)atoms.length);
   assert(status == 1);
 }
 
 
 //------------------------------------------------------------------------------
 
-X11.Window MakeWindow(X11.Display* dpy) {
-  auto scr = X11.XDefaultScreen(dpy);
-  auto rootwin = X11.XRootWindow(dpy, scr);
+xlib.Window MakeWindow(xlib.Display* dpy) {
+  auto scr = xlib.XDefaultScreen(dpy);
+  auto rootwin = xlib.XRootWindow(dpy, scr);
 
   const uint SizeX = 500;
   const uint SizeY = 500;
-  auto win = X11.XCreateSimpleWindow(dpy, rootwin, 1, 1, SizeX, SizeY, 0,
-                                     X11.XBlackPixel(dpy, scr), X11.XBlackPixel(dpy, scr));
-  X11.XStoreName(dpy, win, "MyWindow");
+  auto win = xlib.XCreateSimpleWindow(dpy, rootwin, 1, 1, SizeX, SizeY, 0,
+                                     xlib.XBlackPixel(dpy, scr), xlib.XBlackPixel(dpy, scr));
+  xlib.XStoreName(dpy, win, "MyWindow");
 
   getAtom(dpy, "WM_PROTOCOLS");
   getAtom(dpy, "WM_DELETE_WINDOW");
@@ -136,52 +137,53 @@ X11.Window MakeWindow(X11.Display* dpy) {
   registerAtoms(dpy, win);
 
   enum WantedEvents =
-    X11.ExposureMask |
-    X11.ButtonPressMask |
-    X11.ButtonReleaseMask |
-    X11.PointerMotionMask |
-    X11.KeyPressMask |
-    X11.KeyReleaseMask |
-    X11.StructureNotifyMask |
-    X11.VisibilityChangeMask;
+    xlib.ExposureMask |
+    xlib.ButtonPressMask |
+    xlib.ButtonReleaseMask |
+    xlib.PointerMotionMask |
+    //    xlib.PointerMotionHintMask |
+    xlib.KeyPressMask |
+    xlib.KeyReleaseMask |
+    xlib.StructureNotifyMask |
+    xlib.VisibilityChangeMask;
 
-  X11.XSelectInput(dpy, win, WantedEvents);
+  xlib.XSelectInput(dpy, win, WantedEvents);
   return win;
 }
 
 
 //------------------------------------------------------------------------------
 
-void DestroyWindow(X11.Display* dpy) {
-  X11.XUnmapWindow(dpy, gWindow.win);
+void DestroyWindow(xlib.Display* dpy) {
+  xlib.XUnmapWindow(dpy, gWindow.win);
   delete gWindow;
-  X11.XCloseDisplay(dpy);
+  xlib.XCloseDisplay(dpy);
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
 
 class ErrorHandler {
-  static X11.XErrorHandler errorHandler;
-  static X11.XIOErrorHandler ioErrorHandler;
+  static xlib.XErrorHandler errorHandler;
+  static xlib.XIOErrorHandler ioErrorHandler;
   this() {
-    errorHandler = X11.XSetErrorHandler(&XErrorHandler);
-    ioErrorHandler = X11.XSetIOErrorHandler(&XIOErrorHandler);
+    errorHandler = xlib.XSetErrorHandler(&XErrorHandler);
+    ioErrorHandler = xlib.XSetIOErrorHandler(&XIOErrorHandler);
   }
 
   ~this() {
-    errorHandler = X11.XSetErrorHandler(errorHandler);
-    ioErrorHandler = X11.XSetIOErrorHandler(ioErrorHandler);
+    errorHandler = xlib.XSetErrorHandler(errorHandler);
+    ioErrorHandler = xlib.XSetIOErrorHandler(ioErrorHandler);
     assert(errorHandler == &XErrorHandler);
     assert(ioErrorHandler == &XIOErrorHandler);
   }
 
-  extern(C) static int XErrorHandler(X11.Display* dpy, X11.XErrorEvent* e) {
+  extern(C) static int XErrorHandler(xlib.Display* dpy, xlib.XErrorEvent* e) {
     writefln("XError code:%s", e.error_code);
     return ErrorHandler.errorHandler(dpy, e);
   }
 
-  extern(C) static int XIOErrorHandler(X11.Display* dpy) {
+  extern(C) static int XIOErrorHandler(xlib.Display* dpy) {
     writefln("XIOError display:%s", dpy);
     auto res = ErrorHandler.ioErrorHandler(dpy);
     writefln("former routine ret:%s", res);

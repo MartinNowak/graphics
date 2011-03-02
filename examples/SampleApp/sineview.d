@@ -26,7 +26,7 @@ class SineView : View
   override void onDraw(Canvas canvas) {
     scope auto paintBG = new Paint(White);
     auto y = to!int(this.height * 0.3);
-    auto bg = IRect(0, y, this.width, this.height - y);
+    auto bg = IRect(0, y, this.width - 1, this.height - y);
     canvas.drawRect(bg, paintBG);
 
     auto path = Path();

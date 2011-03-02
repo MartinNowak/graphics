@@ -1,7 +1,7 @@
 module SampleApp.cubicview;
 
 private {
-  debug private import std.stdio : writeln;
+  debug private import std.stdio;
   import std.math : floor;
   import std.conv : to;
 
@@ -24,11 +24,11 @@ class CubicView : View
     this._flags.visible = true;
     this._flags.enabled = true;
     this.dragIdx = -1;
+    this.onSizeChange();
   }
 
   override void onSizeChange() {
-    auto bounds = this.bounds;
-    bounds.inset(40, 40);
+    auto bounds = this.bounds.inset(40, 40);
     this.controlPts = fRect(bounds).toQuad();
   }
 
@@ -46,8 +46,9 @@ class CubicView : View
     }
     scope auto paintLine = new Paint(Orange.a = 80);
     paintLine.strokeWidth = 10;
+    paintLine.antiAlias = true;
     paintLine.fillStyle = Paint.Fill.Stroke;
-    paintLine.joinStyle = Paint.Join.Miter;
+    paintLine.joinStyle = Paint.Join.Round;
     paintLine.capStyle = Paint.Cap.Round;
     canvas.drawPath(path, paintLine);
 
@@ -68,12 +69,24 @@ class CubicView : View
         this.dragIdx = cast(int)idx;
     }
   }
+
+  override void onPointerMove(IPoint pt) {
+    this.moveControlPoint(fPoint(pt));
+  }
+
   override void onButtonRelease(IPoint pt) {
-    auto fpt = fPoint(pt);
-    if (this.dragIdx >= 0 && this.controlPts[this.dragIdx] != fpt) {
-        this.controlPts[this.dragIdx] = fpt;
-        this.inval(this.bounds);
-    }
+    this.moveControlPoint(fPoint(pt));
     this.dragIdx = -1;
+  }
+
+  void moveControlPoint(FPoint fpt) {
+    if (this.dragIdx != -1 && this.controlPts[this.dragIdx] != fpt) {
+      auto dirty = FRect.calcBounds(this.controlPts).inset(-6, -6);
+
+      this.controlPts[this.dragIdx] = fpt;
+
+      dirty.join(FRect.calcBounds(this.controlPts).inset(-6, -6));
+      this.inval(dirty.roundOut());
+    }
   }
 }

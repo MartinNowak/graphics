@@ -55,8 +55,7 @@ class TextView : View
     }
     case PathText: {
       Path path;
-      auto frame = this.bounds;
-      frame.inset(10, 10);
+      auto frame = this.bounds.inset(10, 10);
       path.addRoundRect(fRect(frame), 50.0f, 50.0f);
       canvas.drawTextOnPath("TextRenderedOnPaths", path, paintText);
 

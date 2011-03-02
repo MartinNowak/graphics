@@ -22,24 +22,40 @@ private {
 
 class BitmapView : View
 {
-  Bitmap bitmap;
+  Bitmap bitmap, bg;
+  IPoint topLeft;
+
   this() {
     this._flags.visible = true;
     this._flags.enabled = true;
     this.bitmap = decodeBitmapPNG("logo.png");
+    this.bg = decodeBitmapPNG("texture.png");
   }
 
-  override void onSizeChange() {
-    this.size = bitmap.size;
-    //    this.bitmap.setConfig(Bitmap.Config.ARGB_8888, this.width, this.height);
-    //    this.bitmap.eraseColor(PMColor(Green));
-  }
   override void onDraw(Canvas canvas) {
     scope auto paint = new Paint(Black);
-    canvas.drawBitmap(this.bitmap, FPoint(0, 0), paint);
+    auto cnt = canvas.save();
+    canvas.translate(fPoint(this.topLeft));
+    canvas.drawBitmap(this.bitmap, paint);
+    canvas.restore();
+
+    canvas.translate(fPoint(this.bounds.center - this.bg.bounds.center));
+    paint.color.a = 50;
+    canvas.drawBitmap(this.bg, paint);
   }
-  override void onButtonPress(IPoint pt) {
-    this.loc = pt;
+  override void onPointerMove(IPoint pt) {
+    this.moveBitmap(pt);
+  }
+
+private:
+  void moveBitmap(IPoint pt) {
+    if ((distance(this.topLeft, pt)) < 5)
+      return;
+
+    auto dirty = IRect(this.topLeft, this.bitmap.size);
+    this.topLeft = pt;
+    dirty.join(IRect(this.topLeft, this.bitmap.size));
+    this.inval(dirty);
   }
 }
 
