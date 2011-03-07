@@ -199,9 +199,16 @@ public:
       child.onButtonPress(pt - child.loc);
     }
   }
+
   void onButtonRelease(IPoint pt) {
     foreach(child; this.children) {
       child.onButtonRelease(pt - child.loc);
+    }
+  }
+
+  void onPointerMove(IPoint pt) {
+    foreach(child; this.children) {
+      child.onPointerMove(pt - child.loc);
     }
   }
 
