@@ -294,8 +294,7 @@ void hairPathImpl(in Path path, in Region clip,
     return;
   }
 
-  auto ir = path.ibounds;
-  ir.inset(-1, -1);
+  auto ir = path.ibounds.inset(-1, -1);
 
   blitter = getClippingBlitter(blitter, clip, ir);
 

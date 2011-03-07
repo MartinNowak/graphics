@@ -187,11 +187,8 @@ struct Rect(T)
       making the rectangle narrower. If dx is negative, then the sides are moved outwards,
       making the rectangle wider. The same hods true for dy and the top and bottom.
   */
-  void inset(T dx, T dy) {
-    this.left   += dx;
-    this.top    += dy;
-    this.right  -= dx;
-    this.bottom -= dy;
+  Rect inset(T dx, T dy) {
+    return Rect(this.left + dx, this.top + dy, this.right - dx, this.bottom - dy);
   }
 
   /** Returns true if (x,y) is inside the rectangle and the rectangle is not
