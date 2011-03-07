@@ -242,7 +242,7 @@ struct Point (T)
 
 /** Returns the euclidian distance between a and b
  */
-T distance(T)(Point!T a, Point!T b) {
+real distance(T)(Point!T a, Point!T b) {
   Point!T tmp = a - b;
   return tmp.length();
 }
