@@ -18,7 +18,11 @@ private {
   import SampleApp.sineview;
   import SampleApp.rectview;
   import SampleApp.textview;
-  import qcheck.unittestrunner;
+  import test.utrunner;
+}
+
+static this() {
+  installutrunner();
 }
 
 // debug=PRINTF;
