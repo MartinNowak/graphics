@@ -162,29 +162,29 @@ version(Windows)
 
 version(FreeBSD)
 {
-  import X11 = X11.Xlib;
-  import Xutil = X11.Xutil;
+  import xlib = xlib.xlib;
+  import xutil = xlib.xutil;
 
   class OsWindow : Window {
-    X11.Display* dpy;
-    X11.Window win;
-    X11.XImage* ximage;
-    X11.GC gc;
+    xlib.Display* dpy;
+    xlib.Window win;
+    xlib.XImage* ximage;
+    xlib.GC gc;
 
-    this(X11.Display* dpy, X11.Window win) {
+    this(xlib.Display* dpy, xlib.Window win) {
       this.dpy = dpy;
       this.win = win;
     }
 
     ~this() {
       // crashes ??
-      // Xutil.XDestroyImage(ximage);
-      X11.XDestroyWindow(this.dpy, this.win);
+      // xutil.XDestroyImage(ximage);
+      xlib.XDestroyWindow(this.dpy, this.win);
     }
 
-    bool windowProc(X11.XEvent e) {
+    bool windowProc(xlib.XEvent e) {
       switch(e.type) {
-      case X11.Expose:
+      case xlib.Expose:
         if (e.xexpose.count < 1) {
           auto area = IRect(IPoint(e.xexpose.x, e.xexpose.y),
                             ISize(e.xexpose.width, e.xexpose.height));
@@ -192,18 +192,18 @@ version(FreeBSD)
         }
         break;
 
-      case X11.ButtonPress:
+      case xlib.ButtonPress:
         this.onButtonPress(IPoint(e.xbutton.x, e.xbutton.y));
         break;
 
-      case X11.ButtonRelease:
+      case xlib.ButtonRelease:
         this.onButtonRelease(IPoint(e.xbutton.x, e.xbutton.y));
         break;
 
-      case X11.VisibilityNotify:
+      case xlib.VisibilityNotify:
         break;
 
-      case X11.ConfigureNotify:
+      case xlib.ConfigureNotify:
         this.resize(e.xconfigure.width, e.xconfigure.height);
         break;
 
@@ -220,21 +220,21 @@ version(FreeBSD)
 
     void blitBitmap() {
       if (this.gc is null) {
-        X11.XGCValues gcv;
-        this.gc = X11.XCreateGC(this.dpy, this.win, 0, &gcv);
+        xlib.XGCValues gcv;
+        this.gc = xlib.XCreateGC(this.dpy, this.win, 0, &gcv);
       }
       XImageFromBitmap();
-      X11.XPutImage(this.dpy, this.win, this.gc, this.ximage, 0, 0, 0, 0,
+      xlib.XPutImage(this.dpy, this.win, this.gc, this.ximage, 0, 0, 0, 0,
                     this.ximage.width, this.ximage.height);
     }
 
     void XImageFromBitmap() {
-      auto screen = X11.XDefaultScreen(this.dpy);
-      auto visual = X11.XDefaultVisual(this.dpy, screen);
-      auto depth = X11.XDefaultDepth(this.dpy, screen);
+      auto screen = xlib.XDefaultScreen(this.dpy);
+      auto visual = xlib.XDefaultVisual(this.dpy, screen);
+      auto depth = xlib.XDefaultDepth(this.dpy, screen);
       assert(depth == 24);
-      this.ximage =X11.XCreateImage(this.dpy, visual,
-                                    depth, X11.ZPixmap, 0, cast(byte*)bitmap.getBuffer().ptr,
+      this.ximage =xlib.XCreateImage(this.dpy, visual,
+                                    depth, xlib.ZPixmap, 0, cast(byte*)bitmap.getBuffer().ptr,
                                            bitmap.width, bitmap.height, 8, 0);
       assert(this.ximage);
     }
@@ -242,8 +242,8 @@ version(FreeBSD)
     bool handleInval(in IRect area) {
       //! TODO: correctly join
       this.dirtyRegion = area;
-      X11.XClearArea(this.dpy, this.win, area.x, area.y,
-                     area.width, area.height, X11.Bool.True);
+      xlib.XClearArea(this.dpy, this.win, area.x, area.y,
+                     area.width, area.height, xlib.Bool.True);
       return true;
     }
 
