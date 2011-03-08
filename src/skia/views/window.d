@@ -199,6 +199,10 @@ version(FreeBSD)
         this.onButtonRelease(IPoint(e.xbutton.x, e.xbutton.y));
         break;
 
+      case xlib.MotionNotify:
+        this.onPointerMove(IPoint(e.xmotion.x, e.xmotion.y));
+        break;
+
       case xlib.VisibilityNotify:
         break;
 
