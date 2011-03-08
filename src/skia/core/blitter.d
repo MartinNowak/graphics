@@ -18,7 +18,6 @@ private {
   import skia.core.paint;
   import skia.core.point;
   import skia.core.rect;
-  import skia.core.region;
   import skia.core.scan : AAScale;
   import skia.core.blitter_detail._;
 
@@ -29,10 +28,6 @@ private {
 
 class Blitter
 {
-  void blitRegion(in Region clip) {
-    clip.forEach(&this.blitRect);
-  }
-
   void blitRect(IRect rect) {
     this.blitRect(rect.x, rect.y, rect.width, rect.height);
   }

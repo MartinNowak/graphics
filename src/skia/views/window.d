@@ -9,7 +9,6 @@ private {
   import skia.core.rect;
   import skia.core.point;
   import skia.core.size;
-  import skia.core.region;
   import skia.views.view;
 
   //debug=PRINTF;
@@ -24,7 +23,7 @@ class Window : View
 {
   @property Bitmap bitmap;
   Bitmap.Config config;
-  Region dirtyRegion;
+  IRect dirtyRegion;
 public:
   this() {
     this.config = Bitmap.Config.ARGB_8888;
@@ -38,10 +37,10 @@ public:
     if (!this.dirtyRegion.empty)
     {
       scope auto canvas = new Canvas(this.bitmap);
-      canvas.clipRegion(this.dirtyRegion);
+      canvas.clipRect(this.dirtyRegion);
 
       if (updateArea != null)
-        *updateArea = this.dirtyRegion.bounds;
+        *updateArea = this.dirtyRegion;
       this.dirtyRegion.setEmpty();
 
       this.draw(canvas);

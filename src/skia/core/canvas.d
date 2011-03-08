@@ -13,7 +13,6 @@ private {
   import skia.core.path;
   import skia.core.point;
   import skia.core.rect;
-  import skia.core.region;
 
   debug private import std.stdio : writeln, writef;
 }
@@ -94,12 +93,9 @@ public:
     this.device = device;
     auto bounds = device ? device.bounds : IRect();
     foreach(ref mcRec; this.mcRecs) {
-      // TODO: should use clip.op(intersect);
-      auto clipBounds = mcRec.clip.bounds;
-      clipBounds.intersect(bounds);
-      mcRec.clip.setRect(clipBounds);
+      mcRec.clip.intersect(bounds);
     }
-    this.curMCRec.clip.setRect(bounds);
+    this.curMCRec.clip = bounds;
   }
 
   void setMatrix(in Matrix matrix) {
@@ -229,12 +225,12 @@ void drawBitmap(in Bitmap bitmap, FPoint pt, Paint paint) {
       return true;
 
     if (!this.curMCRec.matrix.perspective)
-      return !rect.intersects(this.clipBounds);
+      return !rect.intersects(this.curMCRec.clip);
     else {
       FRect mapped;
       this.curMCRec.matrix.mapRect(fRect(rect), mapped);
       auto ir = mapped.roundOut();
-      return !ir.intersects(this.clipBounds);
+      return !ir.intersects(this.curMCRec.clip);
     }
   }
 
@@ -242,19 +238,8 @@ void drawBitmap(in Bitmap bitmap, FPoint pt, Paint paint) {
     return path.empty || this.quickReject(path.bounds.roundOut(), et);
   }
 
-  bool clipRegion(in Region rgn, Region.Op op=Region.Op.Intersect) {
-    return this.curMCRec.clip.op(rgn, op);
-  }
-
-  bool clipRect(in IRect rect, Region.Op op=Region.Op.Intersect) {
-    auto clipBounds = this.clipBounds;
-    clipBounds.intersect(rect);
-    this.curMCRec.clip.setRect(clipBounds);
-    return true;
-  }
-
-  @property IRect clipBounds() const {
-    return this.curMCRec.clip.bounds;
+  bool clipRect(in IRect rect) {
+    return this.curMCRec.clip.intersect(rect);
   }
 
   void translate(FPoint pt) {
@@ -1140,13 +1125,13 @@ private:
 };
 
 struct MCRec {
-  this(in Matrix matrix, in Region clip, DrawFilter filter = null) {
+  this(in Matrix matrix, in IRect clip, DrawFilter filter = null) {
     this.matrix = matrix;
     this.clip = clip;
     this.filter = filter;
   }
   Matrix matrix;
-  Region clip;
+  IRect clip;
   DrawFilter filter;
 }
 

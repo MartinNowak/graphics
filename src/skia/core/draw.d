@@ -14,7 +14,6 @@ private {
   import skia.core.path;
   import skia.core.path_detail.path_measure;
   import skia.core.point;
-  import skia.core.region;
   import skia.core.rect;
   import skia.core.size;
   import Scan = skia.core.scan;
@@ -29,7 +28,7 @@ struct Draw {
 public:
   Bitmap bitmap;
   Matrix matrix;
-  Region clip;
+  IRect clip;
   Device device;
   Bounder bounder;
   // DrawProcs drawProcs;
@@ -38,7 +37,7 @@ public:
     this.bitmap = bitmap;
   }
 
-  this(Bitmap bitmap, in Matrix matrix, in Region clip) {
+  this(Bitmap bitmap, in Matrix matrix, in IRect clip) {
     this(bitmap);
     this.matrix = matrix;
     this.clip = clip;
@@ -78,8 +77,8 @@ public:
     return Blitter.Choose(this.bitmap, this.matrix, paint);
   }
 
-  private Blitter getBlitter(Paint paint, in Bitmap source, IPoint topLeft) {
-    return Blitter.ChooseSprite(this.bitmap, paint, source, topLeft);
+  private Blitter getBlitter(Paint paint, in Bitmap source, IRect part) {
+    return Blitter.ChooseSprite(this.bitmap, paint, source, part);
   }
 
   void drawColor(in Color c) {

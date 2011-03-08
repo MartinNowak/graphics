@@ -7,9 +7,7 @@ private {
   import skia.core.blitter;
   import skia.core.blitter_detail.clipping_blitter;
   import skia.core.path;
-  import skia.core.region;
   import skia.core.rect;
-  import skia.core.regionpath;
   import skia.core.edgebuilder;
   import skia.core.edge_detail._;
   debug import std.stdio;
@@ -17,30 +15,28 @@ private {
 
 // debug=WALK_EDGES; // verbose tracing for walk_edges
 
-void fillIRect(Blitter)(IRect rect, in Region clip, Blitter blitter) {
+void fillIRect(Blitter)(IRect rect, in IRect clip, Blitter blitter) {
   if (rect.empty)
     return;
 
-  if (clip.isRect()) {
-    if (rect.intersect(clip.bounds))
-      blitter.blitRect(rect);
-  } else {
-    assert(false);
-  }
+  if (rect.intersect(clip))
+    blitter.blitRect(rect);
+  else
+    assert(0);
 }
 
 enum AAScale = 4;
 enum AAStep = 1.0f / AAScale;
 
-void antiFillPath(in Path path, in Region clip,
+void antiFillPath(in Path path, in IRect clip,
                   Blitter blitter) {
   return fillPathImpl(path, clip, blitter, AAScale);
 }
-void fillPath(in Path path, in Region clip,
+void fillPath(in Path path, in IRect clip,
               Blitter blitter) {
   return fillPathImpl(path, clip, blitter, 1);
 }
-void fillPathImpl(in Path path, in Region clip,
+void fillPathImpl(in Path path, in IRect clip,
                      Blitter blitter, uint stepScale) {
   if (clip.empty) {
     return;
@@ -50,7 +46,7 @@ void fillPathImpl(in Path path, in Region clip,
 
   if (ir.empty) {
     if (path.inverseFillType) {
-      blitter.blitRegion(clip);
+      blitter.blitRect(clip);
     }
     return;
   }
@@ -62,36 +58,31 @@ void fillPathImpl(in Path path, in Region clip,
       blitAboveAndBelow(blitter, ir, clip);
     }
     else {
-      blitEdges!(fillLine)(path, clip.bounds, blitter,
-                           ir.top, ir.bottom, stepScale, clip);
+      blitEdges!(fillLine)(path, clip, blitter,
+                           ir.top, ir.bottom, stepScale);
     }
   }
 }
 
-Blitter getClippingBlitter(Blitter blitter, in Region clip, in IRect ir) {
-  if (clip.quickReject(ir))
+Blitter getClippingBlitter(Blitter blitter, in IRect clip, in IRect ir) {
+  if (!clip.intersects(ir))
     return null;
 
-  if (clip.isRect()) {
-    // only need a wrapper blitter if we're horizontally clipped
-    if (clip.bounds.left >= ir.left || clip.bounds.right <= ir.right)
-      return new RectBlitter(blitter, clip.bounds);
-  } else {
-    assert(clip.isComplex());
-    return new RegionBlitter(blitter, clip);
-  }
-  return blitter;
+  if (clip.left >= ir.left || clip.right <= ir.right)
+    return new RectBlitter(blitter, clip);
+  else
+    return blitter;
 }
 
 private void blitEdges(alias blitLineFunc)(
-  in Path path, in IRect clipRect,
+  in Path path, in IRect clip,
   Blitter blitter,
   int yStart, int yEnd,
-  int stepScale, in Region clip) {
+  int stepScale) {
 
-  auto edges = buildEdges(path, clipRect);
-  yStart = max(yStart, clipRect.top);
-  yEnd = min(yEnd, clipRect.bottom);
+  auto edges = buildEdges(path, clip);
+  yStart = max(yStart, clip.top);
+  yEnd = min(yEnd, clip.bottom);
 
   // TODO: handle inverseFillType, path.FillType
   walkEdges!(blitLineFunc)(edges, path.fillType, blitter, stepScale, yStart, yEnd);
@@ -242,53 +233,23 @@ static void dotLine(Range, T)(
   }
 }
 
-void blitAboveAndBelow(Blitter blitter, in IRect ir, in Region clip) {}
-
-unittest
-{
-  auto path = Path();
-  path.toggleInverseFillType();
-  auto clip = Region(IRect(100, 100));
-  scope auto blitter = new RgnBuilder();
-
-  fillPath(path, clip, blitter);
-  blitter.done();
-
-  assert(blitter.scanLines.bounds == IRect(100, 100));
-}
+void blitAboveAndBelow(Blitter blitter, in IRect ir, in IRect clip) {}
 
 version(unittest) {
   private import skia.core.point;
 }
 
 
-unittest
-{
-  auto path = Path();
-  path.moveTo(point(0.0f, 0.0f));
-  path.rLineTo(point(10.0f, 10.0f));
-  path.cubicTo(point(30.0f, 20.0f), point(50.0f, 10.0f), point(60.0f, -10.0f));
-  path.fillType = Path.FillType.EvenOdd;
-  auto clip = Region(IRect(100, 100));
-  scope auto blitter = new RgnBuilder();
-
-  fillPath(path, clip, blitter);
-  blitter.done();
-
-  assert(blitter.scanLines.bounds == IRect(0, 0, 53, 14), to!string(blitter.scanLines.bounds));
-}
-
-
-void antiHairPath(in Path path, in Region clip,
+void antiHairPath(in Path path, in IRect clip,
                   Blitter blitter) {
   return hairPathImpl(path, clip, blitter, AAScale);
 }
-void hairPath(in Path path, in Region clip,
+void hairPath(in Path path, in IRect clip,
               Blitter blitter) {
   return hairPathImpl(path, clip, blitter, 1);
 }
 
-void hairPathImpl(in Path path, in Region clip,
+void hairPathImpl(in Path path, in IRect clip,
                      Blitter blitter, int stepScale) {
   if (path.empty) {
     return;
@@ -305,8 +266,8 @@ void hairPathImpl(in Path path, in Region clip,
       // blitAboveAndBelow(blitter, ir, clip);
     }
     else {
-      blitEdges!(dotLine)(path, clip.bounds, blitter,
-                          ir.top, ir.bottom, stepScale, clip);
+      blitEdges!(dotLine)(path, clip, blitter,
+                          ir.top, ir.bottom, stepScale);
     }
   }
 }
