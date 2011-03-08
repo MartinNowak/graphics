@@ -3,6 +3,7 @@ module skia.core.edge_detail.quad_edge;
 private {
   import std.array : front, back;
   import std.conv : to;
+  import std.math : approxEqual;
 
   import skia.core.edge_detail.algo;
   import skia.core.edge_detail.edge;
@@ -125,7 +126,7 @@ bool clipPoints(T)(ref Point!T[3] pts, in IRect clip) {
     pts = ptss[1];
 
     //! avoid rounding errors;
-    assert(abs(pts.front.y - clip.top) < 10 * float.epsilon);
+    assert(approxEqual(pts.front.y, clip.top), to!string(pts.front.y - clip.top));
     pts[0].y = clip.top;
   }
   return true;
