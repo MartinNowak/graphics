@@ -10,31 +10,16 @@ private {
   import skia.core.rect;
 }
 
-static SpriteBlitter createSpriteBlitter_D32_S32(Bitmap device, in Bitmap source,
-                                   IPoint topLeft, ubyte alpha) {
-  if (alpha == 255) {
-    if (!source.opaque)
-      return new Sprite_D32_S32!(S32A_Opaque_BlitRow32)(device, source, topLeft, alpha);
-    else
-      return new Sprite_D32_S32!(S32_Opaque_BlitRow32)(device, source, topLeft, alpha);
-  } else {
-    if (!source.opaque)
-      return new Sprite_D32_S32!(S32A_Blend_BlitRow32)(device, source, topLeft, alpha);
-    else
-      return new Sprite_D32_S32!(S32_Blend_BlitRow32)(device, source, topLeft, alpha);
-  }
-}
-
 class SpriteBlitter : Blitter {
   //! TODO: stub
   static SpriteBlitter CreateD16(Bitmap device, in Bitmap source,
-                                 Paint paint, IPoint topLeft) {
+                                 Paint paint, IPoint ioff) {
     assert(device.config == Bitmap.Config.RGB_565);
     assert(0, "unimplemented");
   }
 
   static SpriteBlitter CreateD32(Bitmap device, in Bitmap source,
-                                 Paint paint, IPoint topLeft) {
+                                 Paint paint, IPoint ioff) {
     assert(device.config == Bitmap.Config.ARGB_8888);
 
     auto alpha = paint.color.a;
@@ -44,7 +29,7 @@ class SpriteBlitter : Blitter {
           && (alpha == 255)) {
         // return new Sprite_D32_S32A_XferFilter(source, paint);
       } else
-        return createSpriteBlitter_D32_S32(device, source, topLeft, alpha);
+        return createSpriteBlitter_D32_S32(device, source, ioff, alpha);
       break;
 
     default:
@@ -53,10 +38,10 @@ class SpriteBlitter : Blitter {
     return null;
   }
 
-  this (Bitmap device, in Bitmap source, IPoint topLeft, ubyte alpha) {
+  this (Bitmap device, in Bitmap source, IPoint ioff, ubyte alpha) {
     this.device = device;
     this.source = source;
-    this.topLeft = topLeft;
+    this.ioff = ioff;
     this.alpha = alpha;
   }
 
@@ -71,14 +56,29 @@ protected:
 
   Bitmap device;
   const Bitmap source;
-  IPoint topLeft;
+  IPoint ioff;
   ubyte alpha;
+}
+
+static SpriteBlitter createSpriteBlitter_D32_S32(Bitmap device, in Bitmap source,
+                                   IPoint ioff, ubyte alpha) {
+  if (alpha == 255) {
+    if (!source.opaque)
+      return new Sprite_D32_S32!(S32A_Opaque_BlitRow32)(device, source, ioff, alpha);
+    else
+      return new Sprite_D32_S32!(S32_Opaque_BlitRow32)(device, source, ioff, alpha);
+  } else {
+    if (!source.opaque)
+      return new Sprite_D32_S32!(S32A_Blend_BlitRow32)(device, source, ioff, alpha);
+    else
+      return new Sprite_D32_S32!(S32_Blend_BlitRow32)(device, source, ioff, alpha);
+  }
 }
 
 class Sprite_D32_S32(alias blitRow) : SpriteBlitter {
 public:
-  this (Bitmap device, in Bitmap source, IPoint topLeft, ubyte alpha) {
-    super(device, source, topLeft, alpha);
+  this (Bitmap device, in Bitmap source, IPoint ioff, ubyte alpha) {
+    super(device, source, ioff, alpha);
     assert(this.source.config == Bitmap.Config.ARGB_8888);
   }
 
@@ -88,7 +88,7 @@ public:
     while (curTop < rect.bottom) {
       auto dst = this.device.getRange!(PMColor)(rect.left, rect.right, curTop);
       auto src = this.source.getRangeConst!(const(PMColor))(
-        rect.left - this.topLeft.x, rect.right - this.topLeft.x, curTop - this.topLeft.y);
+        rect.left - this.ioff.x, rect.right - this.ioff.x, curTop - this.ioff.y);
       blitRow(dst, src, this.alpha);
       ++curTop;
     }

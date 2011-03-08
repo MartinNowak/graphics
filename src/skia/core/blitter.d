@@ -53,15 +53,15 @@ class Blitter
     }
   }
 
-  static Blitter ChooseSprite(Bitmap device, Paint paint, in Bitmap source, IPoint topLeft) {
+  static Blitter ChooseSprite(Bitmap device, Paint paint, in Bitmap source, IPoint ioff) {
     SpriteBlitter blitter;
 
     switch (device.config) {
     case Bitmap.Config.RGB_565:
-      blitter = SpriteBlitter.CreateD16(device, source, paint, topLeft);
+      blitter = SpriteBlitter.CreateD16(device, source, paint, ioff);
       break;
     case Bitmap.Config.ARGB_8888:
-      blitter = SpriteBlitter.CreateD32(device, source, paint, topLeft);
+      blitter = SpriteBlitter.CreateD32(device, source, paint, ioff);
       break;
     default:
       blitter = null;

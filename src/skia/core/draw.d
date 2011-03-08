@@ -77,8 +77,8 @@ public:
     return Blitter.Choose(this.bitmap, this.matrix, paint);
   }
 
-  private Blitter getBlitter(Paint paint, in Bitmap source, IRect part) {
-    return Blitter.ChooseSprite(this.bitmap, paint, source, part);
+  private Blitter getBlitter(Paint paint, in Bitmap source, IPoint ioff) {
+    return Blitter.ChooseSprite(this.bitmap, paint, source, ioff);
   }
 
   void drawColor(in Color c) {
@@ -121,22 +121,28 @@ public:
     }
   }
 
-  void drawBitmap(in Bitmap source, in Matrix preMatrix, Paint paint) {
+  void drawBitmap(in Bitmap source, Paint paint) {
     if (this.clip.empty || source.bounds.empty ||
         source.config == Bitmap.Config.NoConfig ||
         (paint.color.a == 0 && paint.xferMode is null)) {
         return;
     }
 
-    Matrix matrix = this.matrix * preMatrix;
-    //! TODO: handle non translating matrices
+    auto ioff = IPoint(to!int(this.matrix[0][2]), to!int(this.matrix[1][2]));
+    auto ir = IRect(ioff, ioff + source.size);
 
-    auto ix = to!int(matrix[0][2]);
-    auto iy = to!int(matrix[1][2]);
-    scope auto blitter = this.getBlitter(paint, source, IPoint(ix, iy));
-    auto ir = IRect(ix, iy, ix + source.width, iy + source.height);
-    //! TODO: clip to source rect ir
-    blitter.blitRegion(this.clip);
+    if (this.bounder !is null && !this.bounder.doIRect(ir, paint))
+      return;
+
+    if (this.matrix.rectStaysRect) {
+      if (ir.intersect(this.clip)) {
+        scope auto blitter = this.getBlitter(paint, source, ioff);
+        blitter.blitRect(ir);
+      }
+    } else {
+      //! TODO: handle non translating matrices
+      assert(0, "non-translating bitmap transformations unsupported.");
+    }
   }
 
   void drawRect(in IRect rect, Paint paint) {
