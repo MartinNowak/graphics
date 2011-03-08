@@ -18,7 +18,7 @@ void BlitAASpan(R1, R2)(R1 output, R2 aa, Color color) {
     auto equalCnt = 1;
 
     if (curA)  {
-      ubyte resA = checkedTo!ubyte(colA * (Color.getAlphaFactor(curA)) >> 8);
+      ubyte resA = alphaMul(colA, alphaScale(curA));
       Color32(output[0 .. equalCnt], PMColor(color.a = resA));
     }
     aa.popFrontN(equalCnt);

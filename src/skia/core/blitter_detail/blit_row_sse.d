@@ -6,6 +6,9 @@ private {
   import skia.core.blitter_detail.blit_row_factory;
 }
 
+public import skia.core.blitter_detail.blit_row : S32_Opaque_BlitRow32, S32_Blend_BlitRow32,
+  S32A_Opaque_BlitRow32, S32A_Blend_BlitRow32;
+
 static void Color32(Range)(Range srcDst, PMColor pmColor) {
   return Color32(srcDst, srcDst, pmColor);
 }
@@ -24,7 +27,7 @@ static void Color32(Range)(Range dstR, Range srcR, PMColor pmColor)
     dstR[] = pmColor;
   } else {
     size_t count = srcR.length;
-    uint scale = Color.getInvAlphaFactor(pmColor.a);
+    uint scale = invAlphaScale(pmColor.a);
     PMColor* src = srcR.ptr;
     PMColor* dst = dstR.ptr;
 
@@ -181,42 +184,4 @@ static void Color32(Range)(Range dstR, Range srcR, PMColor pmColor)
   }
 }
 
-//! TODO: implement SSE versions for these
-void S32_Opaque_BlitRow32(PMColor[] dst, const(PMColor)[] src, ubyte alpha) {
-  assert(alpha == 255);
-  dst[0 .. src.length] = src[];
-}
-
-void S32_Blend_BlitRow32(PMColor[] dst, const (PMColor)[] src, ubyte alpha) {
-  assert(alpha <= 255);
-  if (!src.empty) {
-    uint srcScale = Color.getAlphaFactor(alpha);
-    uint dstScale = Color.getInvAlphaFactor(alpha);
-    do {
-      dst.front = src.front.mulAlpha(srcScale) + dst.front.mulAlpha(dstScale);
-      src.popFront;
-      dst.popFront;
-    } while (!src.empty);
-  }
-}
-
-void S32A_Opaque_BlitRow32(PMColor[] dst, const (PMColor)[] src, ubyte alpha) {
-  assert(255 == alpha);
-  if (!src.empty) {
-    do {
-      if (src.front.a == 255)
-        dst.front = src.front;
-      else {
-        dst.front = src.front.mulAlpha(Color.getAlphaFactor(src.front.a))
-          + dst.front.mulAlpha(Color.getInvAlphaFactor(src.front.a));
-      }
-      src.popFront;
-      dst.popFront;
-    } while (!src.empty);
-    }
-}
-
-void S32A_Blend_BlitRow32(PMColor[] dst, const (PMColor)[] src, ubyte alpha) {
-  //stub
-  dst[0 .. src.length] = src[];
-}
+//! TODO: implement SSE versions for blend rows

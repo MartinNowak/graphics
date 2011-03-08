@@ -6,48 +6,10 @@ private {
   import std.algorithm;
   import std.string : toupper;
   import std.ctype : isxdigit;
+
+  import skia.math.clamp;
 }
 
-uint getShift(char m) {
-  final switch(m) {
-  case 'a': return 24;
-  case 'r': return 16;
-  case 'g': return 8;
-  case 'b': return 0;
-  }
-}
-template Shift(char m) {
-  enum Shift = getShift(m);
-}
-
-template StringToMask(string s) {
-  static if (s.length)
-    enum StringToMask = (0xFF << Shift!(s[0])) | StringToMask!(s[1..$]);
-  else
-    enum StringToMask = 0;
-}
-
-template ColorMask(string s) {
-  static assert(s.length <=4 && s.length > 0);
-  enum ColorMask = StringToMask!(s);
-}
-
-unittest {
-  static assert(ColorMask!("rb") == 0x00ff00ff);
-  static assert(ColorMask!("ab") == 0xff0000ff);
-  static assert(ColorMask!("ag") == 0xff00ff00);
-}
-
-private enum hexLetters = "0123456789ABCDEF";
-
-private char[2] toHexDigit(ubyte n) {
-  return [hexLetters[(n >> 4) & 0xF], hexLetters[n & 0xF]];
-}
-
-uint fromHexDigit(dchar c) {
-  assert(isxdigit(c));
-  return c <= '9' ? (c & 0xF) : 9 + (c & 0xF);
-}
 
 struct Color
 {
@@ -95,15 +57,6 @@ struct Color
     this.b = b;
   }
 
-  static ushort getAlphaFactor(uint alpha) {
-    assert(alpha <= 255);
-    // This allows to shiftR 8 instead of divide by 255.
-    return cast(ushort)(alpha + 1);
-  }
-  static ubyte getInvAlphaFactor(uint alpha) {
-    assert(alpha <= 255);
-    return cast(ubyte)(256 - getAlphaFactor(alpha));
-  }
   Color mulAlpha(uint scale) const {
     assert(scale <= 256);
     enum rb_mask = ColorMask!("rb");
@@ -154,12 +107,34 @@ struct PMColor
   }
 
   this(Color color) {
-    this._color = color.mulAlpha(Color.getAlphaFactor(color.a));
+    this._color = color.mulAlpha(alphaScale(color.a));
     this.a = color.a;
   }
 }
 
 alias ubyte Alpha;
+
+// This allows to shiftR 8 instead of divide by 255.
+ushort alphaScale(uint alpha) {
+  return alphaScale(checkedTo!ubyte(alpha));
+}
+
+ushort alphaScale(ubyte alpha) {
+  return cast(ushort)(alpha + 1);
+}
+
+ushort invAlphaScale(uint alpha) {
+  return invAlphaScale(checkedTo!ubyte(alpha));
+}
+
+ushort invAlphaScale(ubyte alpha) {
+  return alphaScale(cast(ubyte)(255 - alpha));
+}
+
+ubyte alphaMul(ubyte alpha, uint scale) {
+  assert(scale <= 256);
+  return cast(ubyte)((alpha * scale) >> 8);
+}
 
 enum : Color
 {
@@ -211,4 +186,49 @@ unittest
   assert(Green.g == 255);
   assert(Blue.b == 255);
   assert(Magenta.g == 0);
+}
+
+private:
+
+template ColorMask(string s) {
+  static assert(s.length <=4 && s.length > 0);
+  enum ColorMask = StringToMask!(s);
+}
+
+template StringToMask(string s) {
+  static if (s.length)
+    enum StringToMask = (0xFF << Shift!(s[0])) | StringToMask!(s[1..$]);
+  else
+    enum StringToMask = 0;
+}
+
+template Shift(char m) {
+  enum Shift = getShift(m);
+}
+
+uint getShift(char m) {
+  final switch(m) {
+  case 'a': return 24;
+  case 'r': return 16;
+  case 'g': return 8;
+  case 'b': return 0;
+  }
+}
+
+unittest {
+  static assert(ColorMask!("rb") == 0x00ff00ff);
+  static assert(ColorMask!("ab") == 0xff0000ff);
+  static assert(ColorMask!("ag") == 0xff00ff00);
+}
+
+
+enum hexLetters = "0123456789ABCDEF";
+
+public uint fromHexDigit(dchar c) {
+  assert(isxdigit(c));
+  return c <= '9' ? (c & 0xF) : 9 + (c & 0xF);
+}
+
+char[2] toHexDigit(ubyte n) {
+  return [hexLetters[(n >> 4) & 0xF], hexLetters[n & 0xF]];
 }

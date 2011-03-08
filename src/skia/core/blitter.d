@@ -201,7 +201,7 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
       auto alpha = checkedTo!ubyte(sp.value >> 8);
       if (alpha) {
         auto color = this.color;
-        color.a = to!ubyte((color.a * Color.getAlphaFactor(alpha)) >> 8);
+        color.a = alphaMul(color.a, alphaScale(alpha));
         Color32(this.bitmap.getRange(sp.start, sp.end, this.curIY), PMColor(color));
       }
     }
