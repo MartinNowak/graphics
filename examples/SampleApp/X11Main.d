@@ -21,10 +21,6 @@ private {
   import test.utrunner;
 }
 
-static this() {
-  installutrunner();
-}
-
 // debug=PRINTF;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -87,11 +83,12 @@ xlib.Display* InitWindow() {
   if(!dpy) {
     throw new Exception("ERROR: Could not open display\n");
   }
-  auto win = MakeWindow(dpy);
+  auto scr = xlib.XDefaultScreen(dpy);
+  auto win = makeWindow(dpy, scr);
 
-  gWindow = new OsWindow(dpy, win);
+  gWindow = new OsWindow(dpy, scr, win);
   gWindow.attachChildTo!FrontPos(new SineView());
-  // gWindow.attachChildTo!FrontPos(new CirclesView());
+  //  gWindow.attachChildTo!FrontPos(new CirclesView());
   gWindow.attachChildTo!FrontPos(new RectView());
   //  gWindow.attachChildTo!FrontPos(new QuadView());
   gWindow.attachChildTo!FrontPos(new CubicView());
@@ -124,14 +121,13 @@ void registerAtoms(xlib.Display* dpy, xlib.Window win) {
 
 //------------------------------------------------------------------------------
 
-xlib.Window MakeWindow(xlib.Display* dpy) {
-  auto scr = xlib.XDefaultScreen(dpy);
+xlib.Window makeWindow(xlib.Display* dpy, int scr) {
   auto rootwin = xlib.XRootWindow(dpy, scr);
 
   const uint SizeX = 500;
   const uint SizeY = 500;
-  auto win = xlib.XCreateSimpleWindow(dpy, rootwin, 1, 1, SizeX, SizeY, 0,
-                                     xlib.XBlackPixel(dpy, scr), xlib.XBlackPixel(dpy, scr));
+  auto win = xlib.XCreateSimpleWindow(dpy, rootwin, 1, 1, SizeX, SizeY, 5,
+                                     xlib.XBlackPixel(dpy, scr), xlib.XWhitePixel(dpy, scr));
   xlib.XStoreName(dpy, win, "MyWindow");
 
   getAtom(dpy, "WM_PROTOCOLS");

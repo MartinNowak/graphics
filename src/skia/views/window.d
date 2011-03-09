@@ -9,6 +9,7 @@ private {
   import skia.core.rect;
   import skia.core.point;
   import skia.core.size;
+  import skia.util.format;
   import skia.views.view;
 
   //debug=PRINTF;
@@ -32,22 +33,18 @@ public:
     this._layout = new SquashChildrenZLayout();
   }
 
-  bool update(IRect* updateArea = null)
+  IRect update()
   {
+    IRect updated;
     if (!this.dirtyRegion.empty)
     {
       scope auto canvas = new Canvas(this.bitmap);
-      canvas.clipRect(this.dirtyRegion);
-
-      if (updateArea != null)
-        *updateArea = this.dirtyRegion;
+      updated = this.dirtyRegion;
       this.dirtyRegion.setEmpty();
-
+      canvas.clipRect(updated);
       this.draw(canvas);
-
-      return true;
     }
-    return false;
+    return updated;
   }
 
   override void onDraw(Canvas canvas) {
@@ -166,18 +163,21 @@ version(FreeBSD)
 
   class OsWindow : Window {
     xlib.Display* dpy;
+    int scr;
     xlib.Window win;
-    xlib.XImage* ximage;
     xlib.GC gc;
 
-    this(xlib.Display* dpy, xlib.Window win) {
+    this(xlib.Display* dpy, int scr, xlib.Window win) {
       this.dpy = dpy;
+      this.scr = scr;
       this.win = win;
+      this.gc = xlib.XCreateGC(this.dpy, this.win, 0, null);
+      assert(this.gc !is null);
     }
 
     ~this() {
       // crashes ??
-      // xutil.XDestroyImage(ximage);
+      xlib.XFreeGC(this.dpy, this.gc);
       xlib.XDestroyWindow(this.dpy, this.win);
     }
 
@@ -218,35 +218,35 @@ version(FreeBSD)
 
     void doPaint(in IRect rect) {
       this.update();
-      blitBitmap();
+      blitBitmap(rect);
     }
 
-    void blitBitmap() {
-      if (this.gc is null) {
-        xlib.XGCValues gcv;
-        this.gc = xlib.XCreateGC(this.dpy, this.win, 0, &gcv);
-      }
-      XImageFromBitmap();
-      xlib.XPutImage(this.dpy, this.win, this.gc, this.ximage, 0, 0, 0, 0,
-                    this.ximage.width, this.ximage.height);
-    }
-
-    void XImageFromBitmap() {
-      auto screen = xlib.XDefaultScreen(this.dpy);
-      auto visual = xlib.XDefaultVisual(this.dpy, screen);
-      auto depth = xlib.XDefaultDepth(this.dpy, screen);
-      assert(depth == 24);
-      this.ximage =xlib.XCreateImage(this.dpy, visual,
-                                    depth, xlib.ZPixmap, 0, cast(byte*)bitmap.getBuffer().ptr,
-                                           bitmap.width, bitmap.height, 8, 0);
-      assert(this.ximage);
+    void blitBitmap(IRect rgn) {
+      auto visual = xlib.XDefaultVisual(this.dpy, this.scr);
+      auto depth = xlib.XDefaultDepth(this.dpy, this.scr);
+      auto xi = xlib.XCreateImage(this.dpy, visual, 24, xlib.ZPixmap,
+                                     0, cast(byte*)bitmap.getBuffer().ptr,
+                                     bitmap.width, bitmap.height, 8, 0);
+      assert(rgn.right <= xi.width, fmtString("region:%s xiw:%s xih:%s", rgn, xi.width, xi.height));
+      assert(rgn.bottom <= xi.height);
+      xlib.XPutImage(this.dpy, this.win, this.gc, xi, rgn.x, rgn.y, rgn.x, rgn.y,
+                     rgn.width, rgn.height);
+      xi.data = null; //! data is owned by bitmap buffer
+      xutil.XDestroyImage(xi);
     }
 
     bool handleInval(in IRect area) {
-      //! TODO: correctly join
-      this.dirtyRegion = area;
-      xlib.XClearArea(this.dpy, this.win, area.x, area.y,
-                     area.width, area.height, xlib.Bool.True);
+      this.dirtyRegion.join(area);
+
+      xlib.XEvent e;
+      e.type = xlib.Expose;
+      e.xexpose.display = this.dpy;
+      e.xexpose.window = this.win;
+      e.xexpose.x = area.x;
+      e.xexpose.y = area.y;
+      e.xexpose.width = area.width;
+      e.xexpose.height = area.height;
+      xlib.XSendEvent(this.dpy, this.win, xlib.Bool.True, xlib.ExposureMask, &e);
       return true;
     }
 
