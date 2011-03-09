@@ -23,7 +23,7 @@ struct Span(T, Index = size_t) {
     this.value = value;
   }
   @property string toString() const {
-    return formatString("Span: start: %s end: %s value: %s", this.start, this.end, this.value);
+    return fmtString("Span: start: %s end: %s value: %s", this.start, this.end, this.value);
   }
   @property Index length() const {
     return checkedTo!Index(this.end - this.start);
@@ -51,7 +51,7 @@ private:
       this.value = value;
     }
     @property string toString() const {
-      return formatString("Node dist:%s val:%s", this.dist, this.value);
+      return fmtString("Node dist:%s val:%s", this.dist, this.value);
     }
   }
   alias Span!(T, Index) TSpan;
@@ -100,7 +100,7 @@ public:
   }
 
   @property string toString() const {
-    return formatString("SpanAccumulator!(%s) start: %s \n\tnodes:%s",
+    return fmtString("SpanAccumulator!(%s) start: %s \n\tnodes:%s",
                         typeid(T), this.start, this.nodes);
   }
 
@@ -291,7 +291,7 @@ version(unittest):
 
 void checkExpectations(Acc, Span)(Acc acc, Span[] exp) {
   foreach(Span span; acc[]) {
-    assert(!exp.empty && span == exp.front, formatString("exp:%s act:%s", exp, span));
+    assert(!exp.empty && span == exp.front, fmtString("exp:%s act:%s", exp, span));
     exp.popFront;
   }
 }
@@ -338,7 +338,7 @@ unittest {
     foreach(Span!(SpanAccumulator!(int)) accsp; acc[]) {
       foreach(Span!int sp; accsp.value[]) {
         assert(tuple(accsp.start, accsp.end, sp) == exp.front,
-               formatString("exp:%s act:%s", exp.front, tuple(accsp.start, accsp.end, sp)));
+               fmtString("exp:%s act:%s", exp.front, tuple(accsp.start, accsp.end, sp)));
         exp.popFront;
       }
     }

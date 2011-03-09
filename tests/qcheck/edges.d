@@ -145,7 +145,7 @@ bool monotonicEdge(T)(Edge!T edge) {
       hold = min(hold, curY);
       if (abs(newY - hold) > abs(10 * Edge!T.tol * hold))
         throw new Exception(
-          formatString("failed newY:%.8f curY:%.8f curT:%.8f hold:%.8f tol:%.8f",
+          fmtString("failed newY:%.8f curY:%.8f curT:%.8f hold:%.8f tol:%.8f",
                        newY, curY, t, hold, abs(Edge!T.tol * hold)));
     } else
       hold = T.max;
@@ -188,7 +188,7 @@ bool verifyXYT(T)(Edge!T edge, double tol=5e-2) {
     auto y = edge.calcT!("y")(te);
     auto t = edge.getT(y);
     assert(abs(t - te) <= tol,
-           formatString("t:%.7f te:%.7f y:%.7f tol:%.7f", t, te, y, tol));
+           fmtString("t:%.7f te:%.7f y:%.7f tol:%.7f", t, te, y, tol));
   }
   return true;
 }

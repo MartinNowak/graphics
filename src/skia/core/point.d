@@ -53,7 +53,7 @@ struct Point (T)
   }
 
   @property string toString() const {
-    return formatString("Point x:%.7f y:%.7f", this.x, this.y);
+    return fmtString("Point x:%.7f y:%.7f", this.x, this.y);
   }
   /** Set the point's X and Y coordinates */
   void set(T x, T y) { this.x = x; this.y = y; }

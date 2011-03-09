@@ -32,8 +32,8 @@ void doRun() {
   void assertPointsEquality() {
     foreach(i, pt; ptsB) {
       auto mpt = Multiply(m, pt);
-      assert(abs(mpt.x - pts[i].x) < 10*float.epsilon, formatString("unequal pts SSEM:%s FPUM:%s", pts[i], mpt));
-      assert(abs(mpt.y - pts[i].y) < 10*float.epsilon, formatString("unequal pts SSEM:%s FPUM:%s", pts[i], mpt));
+      assert(abs(mpt.x - pts[i].x) < 10*float.epsilon, fmtString("unequal pts SSEM:%s FPUM:%s", pts[i], mpt));
+      assert(abs(mpt.y - pts[i].y) < 10*float.epsilon, fmtString("unequal pts SSEM:%s FPUM:%s", pts[i], mpt));
     }
   }
   m.setRotate(45);

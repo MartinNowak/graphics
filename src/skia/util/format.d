@@ -5,7 +5,7 @@ private {
   import std.format : formattedWrite;
 }
 
-string formatString(TL...)(string fmt, TL tl) {
+string fmtString(TL...)(string fmt, TL tl) {
   auto writer = appender!string();
   formattedWrite(writer, fmt, tl);
   return writer.data;

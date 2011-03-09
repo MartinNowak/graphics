@@ -136,7 +136,7 @@ T getTCubic(T)(ref Edge!T pthis, T y) {
   }
 
   assert(ya <= 0 && ya < y,
-         formatString("ya over zero ya:%.7f a:%.7f", ya, a));
+         fmtString("ya over zero ya:%.7f a:%.7f", ya, a));
 
   T b = 1.0;
   FPTemporary!T yb = calcBezier!("y")(pthis.cubic.pts, b) - y;
@@ -217,13 +217,13 @@ void fixRoundingErrors(T)(ref Point!T[4] pts) {
 
   if (pts[2].y > pts[3].y) {
     assert(pts[2].y - pts[3].y <= tol,
-           formatString("failed pts: %s diff: %s tol: %s",
+           fmtString("failed pts: %s diff: %s tol: %s",
                           pts, pts[2].y - pts[3].y, tol));
     swap(pts[2].y, pts[3].y);
   }
   if (pts[0].y > pts[1].y) {
     assert(pts[0].y - pts[1].y <= tol,
-           formatString("failed pts: %s diff: %s tol: %s",
+           fmtString("failed pts: %s diff: %s tol: %s",
                         pts, pts[0].y - pts[1].y, tol));
     swap(pts[1].y, pts[0].y);
   }

@@ -72,7 +72,7 @@ T getTQuad(T)(ref Point!T[3] pts, T y) {
 
   T[2] roots;
   auto nRoots = quadIntersection(pts, y, roots);
-  assert(nRoots == 1, formatString("y:%.7f quadPts:%s roots:%s",
+  assert(nRoots == 1, fmtString("y:%.7f quadPts:%s roots:%s",
                                    y, pts, roots));
   return roots[0];
 }
