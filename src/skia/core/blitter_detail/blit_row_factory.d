@@ -1,7 +1,7 @@
 module skia.core.blitter_detail.blit_row_factory;
 
 private {
-  import skia.core.color;
+  import skia.core.pmcolor;
 }
 version(NO_SSE) {
   public import skia.core.blitter_detail.blit_row;

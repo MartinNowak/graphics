@@ -6,7 +6,7 @@ private {
   import skia.core.bitmap;
   import skia.core.bounder;
   import skia.core.blitter;
-  import skia.core.color;
+  import skia.core.pmcolor;
   import skia.core.device;
   import skia.core.glyph;
   import skia.core.matrix;

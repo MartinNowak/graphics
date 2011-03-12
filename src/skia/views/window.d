@@ -3,7 +3,7 @@ module skia.views.window;
 private {
   import skia.core.bitmap;
   import skia.core.canvas;
-  import skia.core.color : White, Black;
+  import skia.core.pmcolor : White, Black;
   import skia.core.draw;
   import skia.core.paint : Paint;
   import guip.rect;

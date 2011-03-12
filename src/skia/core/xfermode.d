@@ -1,7 +1,7 @@
 module skia.core.xfermode;
 
 private {
-  import skia.core.color;
+  import skia.core.pmcolor;
 }
 
 /**

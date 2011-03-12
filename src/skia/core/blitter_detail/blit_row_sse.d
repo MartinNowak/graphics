@@ -2,7 +2,7 @@ module skia.core.blitter_detail.blit_row_sse;
 
 private {
   import std.range : popFront, front, empty, isRandomAccessRange;
-  import skia.core.color;
+  import skia.core.pmcolor;
   import skia.core.blitter_detail.blit_row_factory;
 }
 
@@ -37,7 +37,7 @@ static void Color32(Range)(Range dstR, Range srcR, PMColor pmColor)
     while (count > 0) {
       if ((cast(size_t)dst & 0x0F) == 0)
         break;
-      *dst = pmColor + src.mulAlpha(scale);
+      *dst = pmColor + alphaMul(*src, scale);
       ++src; ++dst;
       --count;
     }
@@ -177,9 +177,9 @@ static void Color32(Range)(Range dstR, Range srcR, PMColor pmColor)
     }
 
     while (count > 0) {
-        *dst = pmColor + src.mulAlpha(scale);
-        ++src; ++dst;
-        --count;
+      *dst = pmColor + alphaMul(*src, scale);
+      ++src; ++dst;
+      --count;
     }
   }
 }

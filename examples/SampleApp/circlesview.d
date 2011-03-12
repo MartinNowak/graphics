@@ -7,7 +7,7 @@ private {
   import std.math : PI;
 
   import skia.core.canvas;
-  import skia.core.color : Black, Red, Green, Cyan;
+  import skia.core.pmcolor : Black, Red, Green, Cyan;
   import skia.core.paint;
   import guip.point;
   import guip.rect;

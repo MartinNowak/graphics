@@ -3,7 +3,7 @@ module skia.core.canvas;
 private {
   import skia.core.bitmap;
   import skia.core.bounder;
-  import skia.core.color;
+  import skia.core.pmcolor;
   import skia.core.device;
   import skia.core.draw;
   import skia.core.drawfilter;

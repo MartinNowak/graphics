@@ -5,7 +5,7 @@ private {
 
   import guip.size;
   import skia.core.canvas;
-  import skia.core.color;
+  import skia.core.pmcolor;
   import skia.core.matrix;
 
   import skia.core.paint;

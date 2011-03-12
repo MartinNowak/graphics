@@ -2,7 +2,7 @@ module skia.core.device;
 
 private import skia.core.bitmap;
 // import skia.core.canvas; // circular dependency
-import skia.core.color;
+import skia.core.pmcolor;
 import skia.core.draw;
 import guip.rect;
 

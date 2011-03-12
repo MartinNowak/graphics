@@ -5,7 +5,7 @@ private {
   import std.range;
 
   import skia.math.clamp : checkedTo;
-  import skia.core.color;
+  import skia.core.pmcolor;
   import skia.core.blitter_detail._;
 }
 

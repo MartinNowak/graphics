@@ -4,7 +4,7 @@ private {
   import skia.core.bitmap;
   import skia.core.blitter;
   import skia.core.blitter_detail.blit_row_factory;
-  import skia.core.color;
+  import skia.core.pmcolor;
   import skia.core.paint;
   import guip.point;
   import guip.rect;

@@ -8,7 +8,7 @@ private {
 
   import skia.core.bitmap;
   import skia.core.canvas;
-  import skia.core.color : Red, Black;
+  import skia.core.pmcolor : Red, Black;
   import skia.core.paint;
   import skia.core.path;
   import guip.point;

@@ -12,7 +12,7 @@ private {
   import std.range;
 
   import skia.core.bitmap;
-  import skia.core.color;
+  import skia.core.pmcolor;
   import skia.core.device;
   import skia.core.matrix;
   import skia.core.paint;

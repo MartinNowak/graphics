@@ -5,7 +5,7 @@ private {
   import std.bitmanip;
   import std.format : formattedWrite;
 
-  import skia.core.color;
+  import skia.core.pmcolor;
   import skia.core.drawlooper;
   import skia.core.path;
   import skia.core.patheffect;

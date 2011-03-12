@@ -1,9 +1,10 @@
 module skia.core.bitmap;
 
 private {
+  import std.conv : to;
   import std.range : outputRangeObject;
 
-  import skia.core.color;
+  import skia.core.pmcolor;
   import guip.rect;
   import guip.size;
 }

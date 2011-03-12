@@ -3,7 +3,7 @@ module skia.core.blitter_detail.blit_row;
 private {
   import std.array;
   import std.range : popFront, front, empty;
-  import skia.core.color;
+  import skia.core.pmcolor;
   import skia.core.blitter_detail.blit_row_factory;
 }
 
@@ -28,7 +28,7 @@ static void Color32(Range)(Range range, PMColor pmColor) {
   } else {
     auto scale = invAlphaScale(pmColor.a);
     while (!range.empty) {
-      range.front = range.front.mulAlpha(scale) + pmColor;
+      range.front = alphaMul(range.front, scale) + pmColor;
       range.popFront;
     }
   }
@@ -45,7 +45,7 @@ void S32_Blend_BlitRow32(PMColor[] dst, const (PMColor)[] src, ubyte alpha) {
     uint srcScale = alphaScale(alpha);
     uint dstScale = invAlphaScale(alpha);
     do {
-      dst.front = src.front.mulAlpha(srcScale) + dst.front.mulAlpha(dstScale);
+      dst.front = alphaMul(src.front, srcScale) + alphaMul(dst.front, dstScale);
       src.popFront;
       dst.popFront;
     } while (!src.empty);
@@ -58,8 +58,8 @@ void S32A_Opaque_BlitRow32(PMColor[] dst, const (PMColor)[] src, ubyte alpha) {
     if (src.front.a == 255)
       dst.front = src.front;
     else
-      dst.front = src.front.mulAlpha(alphaScale(src.front.a))
-        + dst.front.mulAlpha(invAlphaScale(src.front.a));
+      dst.front = alphaMul(src.front, alphaScale(src.front.a))
+        + alphaMul(dst.front, invAlphaScale(src.front.a));
     src.popFront;
     dst.popFront;
   }
@@ -70,7 +70,7 @@ void S32A_Blend_BlitRow32(PMColor[] dst, const (PMColor)[] src, ubyte alpha) {
 
   while (!src.empty) {
     auto dstScale = invAlphaScale(alphaMul(src.front.a, srcScale));
-    dst.front = dst.front.mulAlpha(dstScale) + src.front.mulAlpha(srcScale);
+    dst.front = alphaMul(dst.front, dstScale) + alphaMul(src.front, srcScale);
     src.popFront;
     dst.popFront;
   }
