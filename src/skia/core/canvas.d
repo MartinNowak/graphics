@@ -1,7 +1,7 @@
 module skia.core.canvas;
 
 private {
-  import skia.core.bitmap;
+  import guip.bitmap;
   import skia.core.bounder;
   import skia.core.pmcolor;
   import skia.core.device;

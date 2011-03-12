@@ -3,7 +3,7 @@ module skia.core.glyph;
 private {
   import std.conv;
 
-  import skia.core.bitmap;
+  import guip.bitmap;
   import skia.core.path;
   import guip.point;
 

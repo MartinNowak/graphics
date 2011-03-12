@@ -1,7 +1,7 @@
 module skia.core.blitter_detail.sprite_blitter;
 
 private {
-  import skia.core.bitmap;
+  import guip.bitmap;
   import skia.core.blitter;
   import skia.core.blitter_detail.blit_row_factory;
   import skia.core.pmcolor;

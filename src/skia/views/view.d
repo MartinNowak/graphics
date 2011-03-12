@@ -451,7 +451,7 @@ version (unittest)
 {
   static if (!is(Bitmap))
   {
-    import skia.core.bitmap;
+    import guip.bitmap;
   }
 
   static if (!is(Canvas))

@@ -6,7 +6,7 @@ private {
   import std.array;
   import std.stdio;
 
-  import skia.core.bitmap;
+  import guip.bitmap;
   import skia.core.canvas;
   import skia.core.pmcolor : Red, Black;
   import skia.core.paint;

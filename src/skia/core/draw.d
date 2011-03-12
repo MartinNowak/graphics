@@ -3,7 +3,7 @@ module skia.core.draw;
 private {
   import std.array;
 
-  import skia.core.bitmap;
+  import guip.bitmap;
   import skia.core.bounder;
   import skia.core.blitter;
   import skia.core.pmcolor;

@@ -6,7 +6,7 @@ private {
   import std.conv : to;
   import std.stream;
 
-  import skia.core.bitmap;
+  import guip.bitmap;
   import skia.core.canvas;
   import skia.core.pmcolor;
   import skia.core.path;
@@ -101,7 +101,7 @@ Bitmap decodeBitmapPNG(string fileName) {
   auto w = png_get_image_width(png_ptr, info_ptr);
   auto bitmap = Bitmap(Bitmap.Config.ARGB_8888, w, h);
   for (auto row = 0; row < h; ++row) {
-    auto dst = bitmap.getRange(0, w, row);
+    auto dst = bitmap.getRange!PMColor(0, w, row);
     dst[] = rows[row][0 .. w];
   }
   png_destroy_read_struct(&png_ptr, &info_ptr, null);

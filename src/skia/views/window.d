@@ -1,7 +1,7 @@
 module skia.views.window;
 
 private {
-  import skia.core.bitmap;
+  import guip.bitmap;
   import skia.core.canvas;
   import skia.core.pmcolor : White, Black;
   import skia.core.draw;

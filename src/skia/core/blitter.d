@@ -11,7 +11,7 @@ private {
   import std.array;
   import std.range;
 
-  import skia.core.bitmap;
+  import guip.bitmap;
   import skia.core.pmcolor;
   import skia.core.device;
   import skia.core.matrix;
@@ -98,7 +98,7 @@ class RasterBlitter : Blitter {
     this.bitmap = bitmap;
   }
   final auto getBitmapRange(float xS, float xE, float y) {
-    return this.bitmap.getRange(this.round(xS), this.round(xE), this.round(y));
+    return this.bitmap.getRange!PMColor(this.round(xS), this.round(xE), this.round(y));
   }
 }
 
@@ -121,7 +121,7 @@ class ARGB32Blitter : RasterBlitter {
     auto ix = checkedTo!int(truncate(x));
     auto iy = checkedTo!int(truncate(y));
     for (auto h = 0; h < mask.height; ++h) {
-      BlitAASpan(this.bitmap.getRange(ix, ix + mask.width, iy + h),
+      BlitAASpan(this.bitmap.getRange!PMColor(ix, ix + mask.width, iy + h),
                  (cast(Bitmap)mask).getRange!ubyte(0, mask.width, h), this.color);
     }
   }
@@ -202,7 +202,7 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
       if (alpha) {
         auto color = this.color;
         color.a = alphaMul(color.a, alphaScale(alpha));
-        Color32(this.bitmap.getRange(sp.start, sp.end, this.curIY), PMColor(color));
+        Color32(this.bitmap.getRange!PMColor(sp.start, sp.end, this.curIY), PMColor(color));
       }
     }
     this.resetRuns();

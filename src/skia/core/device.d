@@ -1,6 +1,6 @@
 module skia.core.device;
 
-private import skia.core.bitmap;
+private import guip.bitmap;
 // import skia.core.canvas; // circular dependency
 import skia.core.pmcolor;
 import skia.core.draw;
