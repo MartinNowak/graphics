@@ -14,7 +14,7 @@ private {
   import skia.core.path;
   import skia.core.path_detail.path_measure;
   import guip.point;
-  import skia.core.rect;
+  import guip.rect;
   import guip.size;
   import Scan = skia.core.scan;
 

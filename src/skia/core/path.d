@@ -13,7 +13,7 @@ private {
   import guip.point;
   import skia.core.edge_detail.algo : splitBezier;
   import skia.core.path_detail._;
-  import skia.core.rect;
+  import guip.rect;
   import skia.math.fixed_ary;
 }
 

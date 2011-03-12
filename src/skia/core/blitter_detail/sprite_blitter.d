@@ -7,7 +7,7 @@ private {
   import skia.core.color;
   import skia.core.paint;
   import guip.point;
-  import skia.core.rect;
+  import guip.rect;
 }
 
 class SpriteBlitter : Blitter {

@@ -4,7 +4,7 @@ private {
   import std.range : outputRangeObject;
 
   import skia.core.color;
-  import skia.core.rect;
+  import guip.rect;
   import guip.size;
 }
 

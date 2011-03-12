@@ -10,7 +10,7 @@ private {
   import skia.core.edge_detail.line_edge;
   import skia.core.edge_detail.quad_edge;
   import guip.point;
-  import skia.core.rect;
+  import guip.rect;
   import skia.math.fixed_ary;
 }
 

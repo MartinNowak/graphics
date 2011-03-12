@@ -2,9 +2,10 @@ module skia.core.matrix;
 
 private {
   import std.bitmanip;
+  import std.conv : to;
   import std.math;
 
-  import skia.core.rect;
+  import guip.rect;
   import guip.point;
   debug import std.stdio : writefln;
   import Detail = skia.core.matrix_detail._;

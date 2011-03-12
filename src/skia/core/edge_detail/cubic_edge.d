@@ -11,7 +11,7 @@ private {
   import skia.core.edge_detail.algo;
   import skia.core.edge_detail.edge;
   import skia.core.edge_detail.line_edge;
-  import skia.core.rect;
+  import guip.rect;
   import guip.point;
   import skia.math.fast_sqrt;
   import skia.math.fixed_ary;

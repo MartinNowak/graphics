@@ -12,7 +12,7 @@ private {
   import skia.core.paint;
   import skia.core.path;
   import guip.point;
-  import skia.core.rect;
+  import guip.rect;
 
   import skia.core.edgebuilder;
   import benchmark._;

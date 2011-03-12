@@ -7,7 +7,7 @@ private {
 
   import skia.core.edge_detail.edge;
   import skia.core.edge_detail.algo;
-  import skia.core.rect;
+  import guip.rect;
   import guip.point;
   import skia.math.clamp;
 }

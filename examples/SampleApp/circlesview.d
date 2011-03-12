@@ -3,13 +3,14 @@ module SampleApp.circlesview;
 private {
   debug private import std.stdio : writeln;
   import std.algorithm : min, max;
+  import std.conv : to;
   import std.math : PI;
 
   import skia.core.canvas;
   import skia.core.color : Black, Red, Green, Cyan;
   import skia.core.paint;
   import guip.point;
-  import skia.core.rect;
+  import guip.rect;
   import guip.size;
   import skia.views.view;
 }

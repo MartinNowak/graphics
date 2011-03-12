@@ -4,7 +4,7 @@ private import skia.core.bitmap;
 // import skia.core.canvas; // circular dependency
 import skia.core.color;
 import skia.core.draw;
-import skia.core.rect;
+import guip.rect;
 
 
 /****************************************

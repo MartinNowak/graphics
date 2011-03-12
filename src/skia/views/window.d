@@ -6,7 +6,7 @@ private {
   import skia.core.color : White, Black;
   import skia.core.draw;
   import skia.core.paint : Paint;
-  import skia.core.rect;
+  import guip.rect;
   import guip.point;
   import guip.size;
   import skia.util.format;

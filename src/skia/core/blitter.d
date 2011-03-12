@@ -17,7 +17,7 @@ private {
   import skia.core.matrix;
   import skia.core.paint;
   import guip.point;
-  import skia.core.rect;
+  import guip.rect;
   import skia.core.scan : AAScale;
   import skia.core.blitter_detail._;
 

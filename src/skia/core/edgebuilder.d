@@ -7,7 +7,7 @@ private {
 
   import skia.core.path;
   import guip.point;
-  import skia.core.rect;
+  import guip.rect;
   import skia.core.edge_detail._;
   import skia.math.fast_sqrt;
   import skia.math.fixed_ary;

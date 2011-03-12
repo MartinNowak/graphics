@@ -7,7 +7,7 @@ private {
   import skia.core.blitter;
   import skia.core.blitter_detail.clipping_blitter;
   import skia.core.path;
-  import skia.core.rect;
+  import guip.rect;
   import skia.core.edgebuilder;
   import skia.core.edge_detail._;
   debug import std.stdio;

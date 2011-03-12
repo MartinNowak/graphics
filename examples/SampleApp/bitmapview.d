@@ -12,7 +12,7 @@ private {
   import skia.core.path;
   import skia.core.paint;
   import guip.point;
-  import skia.core.rect;
+  import guip.rect;
   import guip.size;
   import skia.views.view;
 

@@ -3,7 +3,7 @@ module skia.core.blitter_detail.clipping_blitter;
 private {
   import skia.core.bitmap;
   import skia.core.blitter;
-  import skia.core.rect;
+  import guip.rect;
   import skia.math.clamp;
 }
 

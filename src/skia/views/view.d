@@ -7,7 +7,7 @@ private {
   debug import std.stdio : writeln, writefln;
 
   import skia.core.canvas;
-  import skia.core.rect;
+  import guip.rect;
   import guip.size;
   import guip.point;
 }
