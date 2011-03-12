@@ -16,7 +16,7 @@ private {
   import skia.core.size;
   import skia.views.view;
 
-  import libpng.png;
+  import png.png;
 }
 
 
