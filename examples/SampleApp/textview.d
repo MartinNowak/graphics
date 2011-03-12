@@ -3,7 +3,7 @@ module SampleApp.textview;
 private {
   debug private import std.stdio : writeln;
 
-  import skia.core.size;
+  import guip.size;
   import skia.core.canvas;
   import skia.core.color;
   import skia.core.matrix;

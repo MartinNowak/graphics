@@ -5,7 +5,7 @@ private {
 
   import skia.core.color;
   import skia.core.rect;
-  import skia.core.size;
+  import guip.size;
 }
 
 

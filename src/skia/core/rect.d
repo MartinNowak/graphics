@@ -7,7 +7,7 @@ private {
   import std.traits : isIntegral, isFloatingPoint, Unsigned;
 
   import skia.core.point;
-  import skia.core.size;
+  import guip.size;
 }
 
 alias Rect!(int) IRect;

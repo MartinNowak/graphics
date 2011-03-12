@@ -8,7 +8,7 @@ private {
   import skia.core.paint : Paint;
   import skia.core.rect;
   import skia.core.point;
-  import skia.core.size;
+  import guip.size;
   import skia.util.format;
   import skia.views.view;
 

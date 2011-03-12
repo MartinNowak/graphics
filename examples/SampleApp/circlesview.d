@@ -10,7 +10,7 @@ private {
   import skia.core.paint;
   import skia.core.point;
   import skia.core.rect;
-  import skia.core.size;
+  import guip.size;
   import skia.views.view;
 }
 

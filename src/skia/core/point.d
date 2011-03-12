@@ -6,7 +6,7 @@ private {
   import std.traits : isSigned, isAssignable, isFloatingPoint;
   debug import std.stdio;
 
-  import skia.core.size;
+  import guip.size;
 
   import skia.util.format;
 }
