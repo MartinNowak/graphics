@@ -103,7 +103,7 @@ public:
     assert(0 <= idx && idx <= 2);
     return this.data[idx];
   }
-  public ref const typeof(this.data[0]) opIndex(size_t idx) const {
+  public ref typeof(this.data[0]) opIndex(size_t idx) const {
     assert(0 <= idx && idx <= 2);
     return this.data[idx];
   }
