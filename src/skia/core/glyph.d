@@ -5,7 +5,7 @@ private {
 
   import skia.core.bitmap;
   import skia.core.path;
-  import skia.core.point;
+  import guip.point;
 
   import skia.core.fonthost.freetype;
   import freetype.freetype;

@@ -11,7 +11,7 @@ private {
   import skia.core.color : Red, Black;
   import skia.core.paint;
   import skia.core.path;
-  import skia.core.point;
+  import guip.point;
   import skia.core.rect;
 
   import skia.core.edgebuilder;

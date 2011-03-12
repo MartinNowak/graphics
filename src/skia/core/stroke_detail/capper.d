@@ -3,7 +3,7 @@ module skia.core.stroke_detail.capper;
 private {
   import skia.core.paint;
   import skia.core.path;
-  import skia.core.point;
+  import guip.point;
 }
 alias void function(FPoint pt, FVector normal, ref Path path) Capper;
 Capper getCapper(Paint.Cap capStyle) {

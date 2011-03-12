@@ -4,7 +4,7 @@ private {
   import std.array : appender;
   import std.random : uniform;
   import skia.core.edge_detail._;
-  import skia.core.point;
+  import guip.point;
 
   import benchmark._;
   import qcheck._;

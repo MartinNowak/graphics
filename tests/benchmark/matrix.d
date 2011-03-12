@@ -4,7 +4,7 @@ private {
   import skia.core.matrix;
   import FLOAT = skia.core.matrix_detail.multiply;
   import SSE = skia.core.matrix_detail.multiply_sse;
-  import skia.core.point;
+  import guip.point;
 
   import benchmark._;
   import qcheck._;

@@ -8,7 +8,7 @@ private {
   import skia.core.canvas;
   import skia.core.color : Black, Red, Green, Cyan;
   import skia.core.paint;
-  import skia.core.point;
+  import guip.point;
   import skia.core.rect;
   import guip.size;
   import skia.views.view;

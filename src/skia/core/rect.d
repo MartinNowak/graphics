@@ -6,7 +6,7 @@ private {
   import std.math : nearbyint, ceil, floor;
   import std.traits : isIntegral, isFloatingPoint, Unsigned;
 
-  import skia.core.point;
+  import guip.point;
   import guip.size;
 }
 

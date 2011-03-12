@@ -6,7 +6,7 @@ private {
   import skia.core.blitter_detail.blit_row_factory;
   import skia.core.color;
   import skia.core.paint;
-  import skia.core.point;
+  import guip.point;
   import skia.core.rect;
 }
 

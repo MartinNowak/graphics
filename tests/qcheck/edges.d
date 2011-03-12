@@ -13,7 +13,7 @@ private {
   import skia.core.edge_detail._;
   import skia.core.edge_detail.edge : EdgeType;
   import skia.core.edge_detail.algo;
-  import skia.core.point;
+  import guip.point;
 
   import skia.util.format;
 

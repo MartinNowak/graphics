@@ -236,7 +236,7 @@ static void dotLine(Range, T)(
 void blitAboveAndBelow(Blitter blitter, in IRect ir, in IRect clip) {}
 
 version(unittest) {
-  private import skia.core.point;
+  private import guip.point;
 }
 
 

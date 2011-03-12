@@ -9,7 +9,7 @@ private {
   import skia.core.canvas;
   import skia.core.rect;
   import guip.size;
-  import skia.core.point;
+  import guip.point;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

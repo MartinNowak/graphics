@@ -1,8 +1,9 @@
 module skia.core.matrix_detail.map_points;
 
 private {
+  import std.conv : to;
   import skia.core.matrix;
-  import skia.core.point;
+  import guip.point;
 }
 
 alias void function(in Matrix, FPoint[]) MapPtsFunc;

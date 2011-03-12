@@ -7,7 +7,7 @@ private {
 
   import skia.core.bitmap;
   import skia.core.path;
-  import skia.core.point;
+  import guip.point;
 }
 
 // TODO: Fix immutable cache objects

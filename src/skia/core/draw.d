@@ -13,7 +13,7 @@ private {
   import skia.core.paint;
   import skia.core.path;
   import skia.core.path_detail.path_measure;
-  import skia.core.point;
+  import guip.point;
   import skia.core.rect;
   import guip.size;
   import Scan = skia.core.scan;

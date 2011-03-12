@@ -3,13 +3,14 @@ module skia.core.edge_detail.algo;
 private {
   import std.algorithm : swap;
   import std.array : front, back;
+  import std.conv : to;
   import std.math : isNaN, abs, sqrt;
   import std.numeric : FPTemporary;
   import std.traits : isFloatingPoint;
   import std.metastrings : Format;
 
   import skia.math._;
-  import skia.core.point;
+  import guip.point;
 }
 
 bool isLine(T)(in Point!T[] pts) {

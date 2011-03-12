@@ -9,7 +9,7 @@ private {
   import skia.core.color;
   import skia.core.path;
   import skia.core.paint;
-  import skia.core.point;
+  import guip.point;
   import skia.core.rect;
   import guip.size;
   import skia.views.view;

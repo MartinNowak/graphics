@@ -11,7 +11,7 @@ private {
   import skia.core.matrix;
   import skia.core.paint;
   import skia.core.path;
-  import skia.core.point;
+  import guip.point;
   import skia.core.rect;
 
   debug private import std.stdio : writeln, writef;

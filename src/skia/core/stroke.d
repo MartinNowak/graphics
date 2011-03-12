@@ -6,7 +6,7 @@ private {
 
   import skia.core.paint;
   import skia.core.path;
-  import skia.core.point;
+  import guip.point;
   import skia.core.stroke_detail._;
   import skia.core.edge_detail.algo;
   import skia.math.fixed_ary;

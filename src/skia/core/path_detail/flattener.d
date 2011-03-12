@@ -5,7 +5,7 @@ private {
   import std.math : cos, PI;
 
   import skia.core.path;
-  import skia.core.point;
+  import guip.point;
   import skia.math.fixed_ary;
   import skia.core.edge_detail.algo : splitBezier;
   debug import std.stdio;

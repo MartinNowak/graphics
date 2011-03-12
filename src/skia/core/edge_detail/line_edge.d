@@ -8,7 +8,7 @@ private {
   import skia.core.edge_detail.edge;
   import skia.core.edge_detail.algo;
   import skia.core.rect;
-  import skia.core.point;
+  import guip.point;
   import skia.math.clamp;
 }
 

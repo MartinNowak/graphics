@@ -5,7 +5,7 @@ private {
   import std.math;
 
   import skia.core.rect;
-  import skia.core.point;
+  import guip.point;
   debug import std.stdio : writefln;
   import Detail = skia.core.matrix_detail._;
 }

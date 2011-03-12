@@ -10,7 +10,7 @@ private {
   import std.traits;
 
   import skia.core.matrix;
-  import skia.core.point;
+  import guip.point;
   import skia.core.edge_detail.algo : splitBezier;
   import skia.core.path_detail._;
   import skia.core.rect;

@@ -6,7 +6,7 @@ private {
   import std.math : abs;
 
   import skia.core.matrix;
-  import skia.core.point;
+  import guip.point;
 
   import skia.util.format;
 

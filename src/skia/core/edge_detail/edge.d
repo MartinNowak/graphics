@@ -9,7 +9,7 @@ private {
   import skia.core.edge_detail.cubic_edge;
   import skia.core.edge_detail.line_edge;
   import skia.core.edge_detail.quad_edge;
-  import skia.core.point;
+  import guip.point;
   import skia.core.rect;
   import skia.math.fixed_ary;
 }

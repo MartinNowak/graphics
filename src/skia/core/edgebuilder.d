@@ -6,7 +6,7 @@ private {
   import std.array : Appender, array, back, front, save;
 
   import skia.core.path;
-  import skia.core.point;
+  import guip.point;
   import skia.core.rect;
   import skia.core.edge_detail._;
   import skia.math.fast_sqrt;
