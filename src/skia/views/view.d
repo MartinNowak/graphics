@@ -165,7 +165,7 @@ public:
   void setLoc(IPoint pt) {
     if (this.loc != pt) {
       this.inval();
-      this._bounds.position = pt;
+      this._bounds.pos = pt;
       this.inval();
     }
   }
