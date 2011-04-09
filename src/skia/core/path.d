@@ -198,7 +198,7 @@ public:
     return false;
   }
 
-  @property Retro!(const(FPoint[])) pointsRetro() const {
+  @property typeof(retro!(const(FPoint[]))([])) pointsRetro() const {
     return this.points.retro;
   }
   @property const(FPoint[]) points() const {

@@ -95,7 +95,6 @@ Range truncateOutOfRange(Range, T)(Range edges, T yStart, T yEnd) {
 }
 
 version(unittest) {
-  private import std.range : iota;
   struct TestElem
   {
     @property string toString() const {
@@ -113,12 +112,16 @@ version(unittest) {
     int y;
   }
 }
+
 unittest {
-  auto arr = assumeSorted!("a.firstY < b.firstY")(map!(TestElem)(iota(0,10,1)));
-  auto exp = assumeSorted!("a.firstY < b.firstY")(map!(TestElem)(iota(4,6,1)));
+  TestElem[] elms;
+  foreach(i; 0 .. 10)
+    elms ~= TestElem(i);
+  auto arr = assumeSorted!("a.firstY < b.firstY")(elms);
   auto trunc = truncateOutOfRange(arr, 3, 5);
-  assert(trunc.length == exp.length);
-  assert(trunc[0] == exp[0]);
+  assert(trunc.length == 2);
+  assert(trunc[0].y == 4);
+  assert(trunc[1].y == 5);
 }
 
 private void walkEdges(alias blitLineFunc, Range)(
