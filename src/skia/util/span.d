@@ -415,7 +415,6 @@ unittest {
 }
 
 unittest {
-  writeln("COLFAIL");
   auto acc = SpanAccumulator!(SpanAccumulator!bool)();
   acc |= Span!(Span!bool)(0, 20, Span!bool(0, 5, true));
   acc |= Span!(Span!bool)(0, 20, Span!bool(5, 8, true));

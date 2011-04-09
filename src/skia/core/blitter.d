@@ -221,8 +221,7 @@ unittest {
 
   aaBlitter.blitFH(0.f, 0.f, 10.f);
   aaBlitter.flush();
-  // TODO: should be 0xFF3F3F3F
-  assert(equal(bitmap.getLine(0), repeat(Color("0xFE3F3F3F"), 10)));
+  assert(equal(bitmap.getLine(0), repeat(Color("0xFF3F3F3F"), 10)));
 
   bitmap.eraseColor(PMColor(Black));
   aaBlitter.blitFH(0.f, 1.f, 8.f);
@@ -231,9 +230,8 @@ unittest {
   aaBlitter.blitFH(0.75f, 1.75f, 7.25f);
 
   aaBlitter.flush();
-  // TODO: should be 0xFF9F9F9F
-  auto exp = [Black, Color("0xFE9F9F9F")]
-    ~ array(repeat(White, 5)) ~ [Color("0xFE9F9F9F"), Black, Black];
+  auto exp = [Black, Color("0xFF9F9F9F")]
+    ~ array(repeat(White, 5)) ~ [Color("0xFF9F9F9F"), Black, Black];
   assert(equal(bitmap.getLine(0), exp));
 }
 
