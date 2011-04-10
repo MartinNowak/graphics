@@ -9,10 +9,9 @@ private {
   import skia.core.canvas;
   import skia.core.pmcolor : Black, Red, Green, Cyan;
   import skia.core.paint;
-  import guip.point;
-  import guip.rect;
-  import guip.size;
+  import guip.event, guip.point, guip.rect, guip.size;
   import skia.views.view2;
+  import layout.hint;
 }
 
 
@@ -55,6 +54,10 @@ class CirclesView : View
       canvas.rotate(degInc, fPoint(bounds.center));
       //      writefln("matrix:%s", canvas.curMatrix);
     } while(scaled > 1e-2f);
+  }
+
+  override SizeHint sizeHint() const {
+    return SizeHint(Hint(10, 250, 2000), Hint(10, 250, 2000));
   }
 }
 

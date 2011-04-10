@@ -1,7 +1,7 @@
 module SampleApp.main;
 
 private {
-  import skia.core.canvas, skia.views.view2, skia.views.cached;
+  import skia.core.canvas, skia.views.view2, skia.views.cached, skia.views.layout;
   import appf.appf, appf.window;
   import guip.color, guip.event, guip.point, guip.rect, guip.size;
 //  import SampleApp.bitmapview;
@@ -11,12 +11,13 @@ private {
 //  import SampleApp.sineview;
 //  import SampleApp.rectview;
 //  import SampleApp.textview;
+  import layout.hint;
   import test.utrunner;
 }
 
 int main() {
   auto app = new AppF();
-  auto handler = new Handler(new WindowView(new CirclesView));
+  auto handler = new Handler(new WindowView(hbox([new CirclesView, new CirclesView])));
   auto win1 = app.makeWindow(IRect(IPoint(40, 40), ISize(200, 200)), handler);
   win1.name("Window1");
   win1.show();
@@ -73,6 +74,9 @@ class WindowView : CachedView {
 }
 
 class Simple : View {
+  this(Color bg) {
+    this.bg = bg;
+  }
   override void onButton(ButtonEvent e, ISize size) {
     if (e.button.left && e.isdown)
       requestResize(size * 2);
@@ -85,10 +89,16 @@ class Simple : View {
   }
 
   override void onDraw(Canvas canvas, IRect area, ISize size) {
-    canvas.clipRect(area);
     if (area.size == size)
-      canvas.drawColor(WarmGray);
+      canvas.drawColor(bg);
     else
-      canvas.drawColor(Yellow);
+      canvas.drawColor(Black);
   }
+
+  override SizeHint sizeHint() const {
+    return SizeHint(Hint(0, 100, 5000), Hint(0, 100, 5000));
+  }
+
+  ISize size;
+  Color bg;
 }

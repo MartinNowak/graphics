@@ -2,6 +2,7 @@ module skia.views.view2;
 
 import skia.core.canvas;
 import guip.event, guip.point, guip.rect, guip.size;
+import layout.hint;
 
 /**
    View base class with do nothing implementation.
@@ -11,6 +12,8 @@ class View {
   void onButton(ButtonEvent e, ISize size) {}
   void onMouse(MouseEvent e, ISize size) {}
   void onKey(KeyEvent e, ISize size) {}
+
+  SizeHint sizeHint() const { return SizeHint.init; }
 
   // system events
   void onResize(ResizeEvent e) {}
