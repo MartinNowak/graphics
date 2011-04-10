@@ -125,6 +125,7 @@ public:
 
   void drawColor(in Color c) {
     scope auto paint = new Paint(c);
+    paint.antiAlias = false;
     // TODO: TransferMode.SrcOver
     this.drawPaint(paint);
   }
