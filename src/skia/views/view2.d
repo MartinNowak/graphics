@@ -19,14 +19,25 @@ class View {
 
   // system up handlers
   void requestResize(ISize size, View child) {
+    requestResize(size);
+  }
+  final void requestResize(ISize size) {
     if(parent !is null)
       parent.requestResize(size, this);
   }
+
   void requestRedraw(IRect area, View child) {
+    requestRedraw(area);
+  }
+  final void requestRedraw(IRect area) {
     if(parent !is null)
       parent.requestRedraw(area, this);
   }
+
   void requestState(bool visible, View child) {
+    requestState(visible);
+  }
+  final void requestState(bool visible) {
     if(parent !is null)
       parent.requestState(visible, this);
   }
