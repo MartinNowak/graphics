@@ -5,7 +5,7 @@ private {
   import appf.appf, appf.window;
   import guip.color, guip.event, guip.point, guip.rect, guip.size;
 //  import SampleApp.bitmapview;
-//  import SampleApp.circlesview;
+  import SampleApp.circlesview;
 //  import SampleApp.quadview;
 //  import SampleApp.cubicview;
 //  import SampleApp.sineview;
@@ -16,7 +16,7 @@ private {
 
 int main() {
   auto app = new AppF();
-  auto handler = new Handler(new WindowView(new Simple));
+  auto handler = new Handler(new WindowView(new CirclesView));
   auto win1 = app.makeWindow(IRect(IPoint(40, 40), ISize(200, 200)), handler);
   win1.name("Window1");
   win1.show();

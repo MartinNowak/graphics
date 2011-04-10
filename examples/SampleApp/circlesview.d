@@ -12,7 +12,7 @@ private {
   import guip.point;
   import guip.rect;
   import guip.size;
-  import skia.views.view;
+  import skia.views.view2;
 }
 
 
@@ -21,18 +21,18 @@ class CirclesView : View
   const float cRad;
   this(float cRad = 10.0f) {
     this.cRad = cRad;
-    this._flags.visible = true;
-    this._flags.enabled = true;
   }
 
-  override void onDraw(Canvas canvas) {
+  override void onDraw(Canvas canvas, IRect area, ISize size) {
     /*
     auto matrix = canvas.getMatrix();
     matrix[2][0] = 0.05f;
     canvas.setMatrix(matrix);
     */
-    canvas.translate(fPoint(this.bounds.center));
-    const auto dist = to!int(max(this.bounds.centerX, this.bounds.centerY)
+    auto bounds = IRect(size);
+
+    canvas.translate(fPoint(bounds.center));
+    const auto dist = to!int(max(bounds.centerX, bounds.centerY)
                              - 2 * this.cRad);
     auto steps = 2 * PI * dist / (3*this.cRad);
     auto degInc = 360 / steps;
@@ -52,7 +52,7 @@ class CirclesView : View
       canvas.drawCircle(IPoint(0, -dist), 0.2*this.cRad, paintR);
       canvas.scale(scaleFac, scaleFac);
       scaled *= scaleFac;
-      canvas.rotate(degInc, fPoint(this.loc + this.bounds.center));
+      canvas.rotate(degInc, fPoint(bounds.center));
       //      writefln("matrix:%s", canvas.curMatrix);
     } while(scaled > 1e-2f);
   }
