@@ -5,7 +5,9 @@ import skia.views.view2, skia.core.canvas, skia.core.paint;
 import guip._;
 
 class CachedView : ParentView {
-  this(View child) {
+  this(View child, Color bg = White) {
+    assert(bg.a == 255);
+    this.bg = bg;
     super(child);
   }
 
@@ -55,6 +57,8 @@ class CachedView : ParentView {
     if (!dirty.empty) {
       scope auto canvas = new Canvas(bmp);
       swap(dirty, updated);
+      canvas.clipRect(updated);
+      canvas.drawColor(bg);
       child.onDraw(canvas, updated, bmp.size);
     }
     return updated;
@@ -65,5 +69,6 @@ class CachedView : ParentView {
   }
 
   Bitmap bmp;
+  Color bg;
   IRect dirty;
 }
