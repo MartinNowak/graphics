@@ -1,5 +1,6 @@
 module skia.views.cached;
 
+import std.algorithm : swap;
 import skia.views.view2, skia.core.canvas, skia.core.paint;
 import guip._;
 
@@ -49,13 +50,14 @@ class CachedView : ParentView {
     dirty.join(area);
   }
 
-  void update() {
+  protected IRect update() {
+    IRect updated;
     if (!dirty.empty) {
       scope auto canvas = new Canvas(bmp);
-      auto save = dirty;
-      dirty = IRect();
-      child.onDraw(canvas, save, bmp.size);
+      swap(dirty, updated);
+      child.onDraw(canvas, updated, bmp.size);
     }
+    return updated;
   }
 
   bool clean(ISize size) const {
