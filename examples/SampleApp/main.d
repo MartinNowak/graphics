@@ -16,7 +16,7 @@ private {
 
 int main() {
   auto app = new AppF();
-  auto handler = new Handler(new CachedView(new Simple));
+  auto handler = new Handler(new WindowView(new Simple));
   auto win1 = app.makeWindow(IRect(IPoint(40, 40), ISize(200, 200)), handler);
   win1.name("Window1");
   win1.show();
@@ -25,16 +25,15 @@ int main() {
 
 
 class Handler : WindowHandler {
-  CachedView root;
-  Window win;
+  WindowView root;
   ISize size;
 
-  this(CachedView root) {
+  this(WindowView root) {
     this.root = root;
   }
 
   override void onEvent(Event e, Window win) {
-    this.win = win;
+    root.win = win;
     visitEvent(e, this);
   }
 
@@ -47,16 +46,49 @@ class Handler : WindowHandler {
     root.onResize(e);
   }
   void visit(RedrawEvent e) {
-    win.blitToWindow(root.bmp, e.area.pos, e.area.pos, e.area.size);
+    root.win.blitToWindow(root.bmp, e.area.pos, e.area.pos, e.area.size);
   }
   void visit(StateEvent e) {
     root.onState(e, size);
   }
 }
 
+class WindowView : CachedView {
+  Window win;
+  this(View child) {
+    super(child);
+  }
+
+  override IRect update() {
+    auto upd = super.update();
+    if (!upd.empty)
+      win.blitToWindow(bmp, upd.pos, upd.pos, upd.size);
+    return upd;
+  }
+
+  override void requestResize(ISize size, View child) {
+    if (win !is null)
+      win.resize(size);
+  }
+}
+
 class Simple : View {
+  override void onButton(ButtonEvent e, ISize size) {
+    if (e.button.left && e.isdown)
+      requestResize(size * 2);
+    else if (e.button.right && e.isdown)
+      requestResize(size / 2);
+  }
+
+  override void onMouse(MouseEvent e, ISize size) {
+    requestRedraw(IRect(e.pos, ISize(2, 2)));
+  }
+
   override void onDraw(Canvas canvas, IRect area, ISize size) {
     canvas.clipRect(area);
-    canvas.drawColor(WarmGray);
+    if (area.size == size)
+      canvas.drawColor(WarmGray);
+    else
+      canvas.drawColor(Yellow);
   }
 }
