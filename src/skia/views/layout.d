@@ -24,20 +24,26 @@ class Layout(Container) : View {
   // user events
   override void onButton(ButtonEvent e, ISize size) {
     auto it = items.itemByPos(e.pos);
-    e.pos = it.toLocal(e.pos);
-    it.node.onButton(e, it.size);
+    if (!it.empty) {
+      e.pos = it.toLocal(e.pos);
+      it.node.onButton(e, it.size);
+    }
   }
 
   override void onMouse(MouseEvent e, ISize size) {
     auto it = items.itemByPos(e.pos);
-    e.pos = it.toLocal(e.pos);
-    it.node.onMouse(e, it.size);
+    if (!it.empty) {
+      e.pos = it.toLocal(e.pos);
+      it.node.onMouse(e, it.size);
+    }
   }
 
   override void onKey(KeyEvent e, ISize size) {
     auto it = items.itemByPos(e.pos);
-    e.pos = it.toLocal(e.pos);
-    it.node.onKey(e, it.size);
+    if (!it.empty) {
+      e.pos = it.toLocal(e.pos);
+      it.node.onKey(e, it.size);
+    }
   }
 
   override SizeHint sizeHint() const { return items.sizeHint; }
