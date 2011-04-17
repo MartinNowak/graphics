@@ -24,6 +24,7 @@ class Layout(Container) : View {
   // user events
   override void onButton(ButtonEvent e, ISize size) {
     auto it = items.itemByPos(e.pos);
+    switchFocus(it);
     if (!it.empty) {
       e.pos = it.toLocal(e.pos);
       it.node.onButton(e, it.size);
@@ -31,7 +32,7 @@ class Layout(Container) : View {
   }
 
   override void onMouse(MouseEvent e, ISize size) {
-    auto it = items.itemByPos(e.pos);
+    auto it = e.button.any ? findItem(focus) : items.itemByPos(e.pos);
     if (!it.empty) {
       e.pos = it.toLocal(e.pos);
       it.node.onMouse(e, it.size);
@@ -39,7 +40,7 @@ class Layout(Container) : View {
   }
 
   override void onKey(KeyEvent e, ISize size) {
-    auto it = items.itemByPos(e.pos);
+    auto it = findItem(focus);
     if (!it.empty) {
       e.pos = it.toLocal(e.pos);
       it.node.onKey(e, it.size);
@@ -55,8 +56,16 @@ class Layout(Container) : View {
       it.node.onResize(ResizeEvent(IRect(it.size)));
   }
   override void onState(StateEvent e, ISize size) {
-    foreach(it; items)
-      it.node.onState(e, it.size);
+    if (auto f = e.peek!FocusEvent) {
+      if (!f.focus)
+        deFocus();
+      focus = null;
+    } else if (auto v = e.peek!VisibilityEvent) {
+      foreach(it; items)
+        it.node.onState(e, it.size);
+    } else {
+      assert(0);
+    }
   }
   override void onDraw(Canvas canvas, IRect area, ISize size) {
     foreach(it; items) {
@@ -93,8 +102,29 @@ private:
     foreach(it; items)
       if (it.node == child)
         return it;
-    assert(0);
+    return LayoutItem!View();
+  }
+
+  void switchFocus(LayoutItem!View it) {
+    if (focus == it.node)
+      return;
+
+    deFocus();
+    focus = it.node;
+
+    if (focus !is null) {
+      auto ev = StateEvent();
+      it.node.onState(StateEvent(FocusEvent(true)), it.size);
+    }
+  }
+
+  void deFocus() {
+    if (focus !is null) {
+      auto old = findItem(focus);
+      old.node.onState(StateEvent(FocusEvent(false)), old.size);
+    }
   }
 
   Container items;
+  View focus;
 }
