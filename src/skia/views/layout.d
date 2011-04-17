@@ -18,6 +18,8 @@ VBox vbox(View[] views) {
 class Layout(Container) : View {
   this(View[] children) {
     items = Container(children);
+    foreach(ch; children)
+      ch.parent = this;
   }
   // user events
   override void onButton(ButtonEvent e, ISize size) {
