@@ -218,14 +218,10 @@ public:
     if (this.curMCRec.clip.empty)
       return true;
 
-    if (!this.curMCRec.matrix.perspective)
-      return !rect.intersects(this.curMCRec.clip);
-    else {
-      FRect mapped;
-      this.curMCRec.matrix.mapRect(fRect(rect), mapped);
-      auto ir = mapped.roundOut();
-      return !ir.intersects(this.curMCRec.clip);
-    }
+    FRect mapped;
+    this.curMCRec.matrix.mapRect(fRect(rect), mapped);
+    auto ir = mapped.roundOut();
+    return !ir.intersects(this.curMCRec.clip);
   }
 
   bool quickReject(in Path path, EdgeType et) const {
@@ -233,7 +229,10 @@ public:
   }
 
   bool clipRect(in IRect rect) {
-    return this.curMCRec.clip.intersect(rect);
+    FRect mapped;
+    this.curMCRec.matrix.mapRect(fRect(rect), mapped);
+    auto ir = mapped.round();
+    return this.curMCRec.clip.intersect(ir);
   }
 
   void translate(FPoint pt) {
