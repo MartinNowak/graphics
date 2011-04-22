@@ -57,7 +57,7 @@ class CirclesView : View
   }
 
   override SizeHint sizeHint() const {
-    return SizeHint(Hint(10, 250, 2000), Hint(10, 250, 2000));
+    return SizeHint(Hint(2000, 4.), Hint(2000, 4.));
   }
 }
 
