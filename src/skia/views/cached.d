@@ -12,17 +12,20 @@ class CachedView : ParentView {
   }
 
   override void onButton(ButtonEvent e, ISize size) {
-    assert(clean(size));
+    if (!clean(size))
+      return;
     super.onButton(e, size);
     update();
   }
   override void onMouse(MouseEvent e, ISize size) {
-    assert(clean(size));
+    if (!clean(size))
+      return;
     super.onMouse(e, size);
     update();
   }
   override void onKey(KeyEvent e, ISize size) {
-    assert(clean(size));
+    if (!clean(size))
+      return;
     super.onKey(e, size);
     update();
   }
