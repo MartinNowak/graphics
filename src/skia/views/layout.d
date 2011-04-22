@@ -1,5 +1,6 @@
 module skia.views.layout;
 
+import std.math : abs;
 import skia.views.view2, skia.core.canvas;
 import layout.box, layout.flow, layout.hint, layout.item;
 import guip.event, guip.point, guip.rect, guip.size;
@@ -64,6 +65,7 @@ class Layout(Container) : View {
 
   // system events
   override void onResize(ResizeEvent e) {
+    curSize = e.area.size;
     items.resize(e.area.size);
     foreach(it; items)
       it.node.onResize(ResizeEvent(IRect(it.size)));
@@ -96,7 +98,15 @@ class Layout(Container) : View {
   // system up handlers
   override void requestResize(ISize size, View child) {
     auto sh = sizeHint;
-    super.requestResize(ISize(sh.w.pref, sh.h.pref));
+
+    auto wthr = (curSize.width >> 2);
+    auto hthr = (curSize.height >> 2);
+    if (abs(curSize.width - sh.w.pref) > wthr || abs(curSize.height - sh.w.pref) > hthr)
+      super.requestResize(ISize(sh.w.pref, sh.h.pref));
+    else {
+      onResize(ResizeEvent(IRect(curSize)));
+      super.requestRedraw(IRect(curSize));
+    }
   }
 
   override void requestRedraw(IRect area, View child) {
@@ -140,4 +150,5 @@ private:
 
   Container items;
   View focus;
+  ISize curSize;
 }
