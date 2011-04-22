@@ -1,7 +1,7 @@
 module skia.views.layout;
 
 import skia.views.view2, skia.core.canvas;
-import layout.box, layout.hint, layout.item;
+import layout.box, layout.flow, layout.hint, layout.item;
 import guip.event, guip.point, guip.rect, guip.size;
 
 alias Layout!(BoxLayout!(View, Orientation.Horizontal)) HBox;
@@ -13,6 +13,19 @@ HBox hbox(View[] views) {
 
 VBox vbox(View[] views) {
   return new VBox(views);
+}
+
+View varBox(View[] chs) {
+  switch (chs.length) {
+  case 2:
+    return new Layout!(VarBoxLayout!(View, 2))(chs);
+  case 3:
+    return new Layout!(VarBoxLayout!(View, 3))(chs);
+  case 4:
+    return new Layout!(VarBoxLayout!(View, 4))(chs);
+  default:
+    assert(0);
+  }
 }
 
 class Layout(Container) : View {
