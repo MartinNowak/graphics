@@ -5,6 +5,9 @@ import skia.views.view2, skia.core.canvas;
 import layout.box, layout.flow, layout.hint, layout.item;
 import guip.event, guip.point, guip.rect, guip.size;
 
+//debug=FRAME;
+debug(FRAME) import skia.core.paint, guip.color;
+
 alias Layout!(BoxLayout!(View, Orientation.Horizontal)) HBox;
 alias Layout!(BoxLayout!(View, Orientation.Vertical)) VBox;
 
@@ -83,6 +86,12 @@ class Layout(Container) : View {
     }
   }
   override void onDraw(Canvas canvas, IRect area, ISize size) {
+    debug(FRAME) {
+      scope auto paint = new Paint(Gray);
+      paint.fillStyle = Paint.Fill.Stroke;
+      paint.strokeWidth = 2.0;
+      canvas.drawRect(IRect(size).inset(2, 2), paint);
+    }
     foreach(it; items) {
       auto sect = it.intersect(area);
       if (!sect.empty) {
