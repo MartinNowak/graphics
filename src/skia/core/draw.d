@@ -174,7 +174,7 @@ public:
     +/
   }
 
-  void drawText(string text, FPoint pt, Paint paint) {
+  void drawText(string text, FPoint pt, TextPaint paint) {
     if (text.empty || this.clip.empty ||
         (paint.color.a == 0 && paint.xferMode is null))
       return;
@@ -182,9 +182,9 @@ public:
     // TODO: underline handling
 
     FPoint start = this.matrix.mapPoint(pt);
-    if (paint.textAlign != Paint.TextAlign.Left) {
+    if (paint.textAlign != TextPaint.TextAlign.Left) {
       auto length = measureText!BitmapGlyphStream(text);
-      if (paint.textAlign == Paint.TextAlign.Center)
+      if (paint.textAlign == TextPaint.TextAlign.Center)
         length *= 0.5;
       start.x = start.x - length;
     }
@@ -194,7 +194,7 @@ public:
     }
   }
 
-  void drawTextAsPaths(string text, FPoint pt, Paint paint) {
+  void drawTextAsPaths(string text, FPoint pt, TextPaint paint) {
     if (text.empty || this.clip.empty ||
         (paint.color.a == 0 && paint.xferMode is null))
       return;
@@ -203,9 +203,9 @@ public:
     scope(exit) this.matrix = backUp;
 
     float hOffset = 0;
-    if (paint.textAlign != Paint.TextAlign.Left) {
+    if (paint.textAlign != TextPaint.TextAlign.Left) {
       auto length = measureText!PathGlyphStream(text);
-      if (paint.textAlign == Paint.TextAlign.Center)
+      if (paint.textAlign == TextPaint.TextAlign.Center)
         length *= 0.5;
       hOffset = length;
     }
@@ -224,13 +224,13 @@ public:
     }
   }
 
-  void drawTextOnPath(string text, in Path follow, Paint paint) {
+  void drawTextOnPath(string text, in Path follow, TextPaint paint) {
     auto meas = PathMeasure(follow);
 
     float hOffset = 0;
-    if (paint.textAlign != Paint.TextAlign.Left) {
+    if (paint.textAlign != TextPaint.TextAlign.Left) {
       auto length = meas.length;
-      if (paint.textAlign == Paint.TextAlign.Center)
+      if (paint.textAlign == TextPaint.TextAlign.Center)
         length *= 0.5;
       hOffset = length;
     }

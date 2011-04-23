@@ -188,22 +188,22 @@ public:
     this.drawPath(path, paint);
   }
 
-  void drawText(string text, float x, float y, Paint paint) {
+  void drawText(string text, float x, float y, TextPaint paint) {
     return this.drawText(text, FPoint(x, y), paint);
   }
-  void drawText(string text, FPoint pt, Paint paint) {
+  void drawText(string text, FPoint pt, TextPaint paint) {
     scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
     foreach(ref draw; cycle) {
       draw.drawText(text, pt, paint);
     }
   }
-  void drawTextAsPaths(string text, FPoint pt, Paint paint) {
+  void drawTextAsPaths(string text, FPoint pt, TextPaint paint) {
     scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
     foreach(ref draw; cycle) {
       draw.drawTextAsPaths(text, pt, paint);
     }
   }
-  void drawTextOnPath(string text, in Path path, Paint paint) {
+  void drawTextOnPath(string text, in Path path, TextPaint paint) {
     scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
     foreach(ref draw; cycle) {
       draw.drawTextOnPath(text, path, paint);

@@ -37,17 +37,17 @@ class TextView : View
   }
 
   override void onDraw(Canvas canvas) {
-    scope auto paintText = new Paint(Black);
+    scope auto paintText = new TextPaint(Black);
     switch (this.which) {
     case Left: {
-      paintText.textAlign = Paint.TextAlign.Right;
+      paintText.textAlign = TextPaint.TextAlign.Right;
       auto pt = fPoint(this.bounds.center);
       canvas.drawTextAsPaths("TextRenderedFromOutlines", pt, paintText);
 
       break;
     }
     case Right: {
-      paintText.textAlign = Paint.TextAlign.Right;
+      paintText.textAlign = TextPaint.TextAlign.Right;
       auto pt = fPoint(this.bounds.center);
       canvas.drawText("TextRenderedFromBitmaps", pt, paintText);
 

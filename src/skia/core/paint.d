@@ -22,52 +22,38 @@ private {
 class Paint
 {
   Color color;
-  DrawLooper drawLooper;
-  XferMode xferMode;
-  //! TODO: review alignment
-  PathEffect pathEffect;
   float strokeWidth;
 
-  @property string toString() const {
-    auto writer = appender!string();
-    auto fmt = "Paint aa: %s fillStyle: %s enc: %s color: %col looper: %s";
-    formattedWrite(writer, fmt, this.antiAlias, this.fillStyle,
-                   this.textEncoding, this.color, this.drawLooper);
-    return writer.data;
-  }
+  DrawLooper drawLooper;
+  XferMode xferMode;
+  PathEffect pathEffect;
+
   mixin(bitfields!(
-      bool, "antiAlias", 1,
-      bool, "filterBitmap", 1,
-      bool, "dither", 1,
-      bool, "underlineText", 1,
-      bool, "strikeThruText", 1,
-      bool, "fakeBoldText", 1,
-      bool, "embeddedBitmapText", 1,
-      bool, "autoHinting", 1));
+          bool, "antiAlias", 1,
+          bool, "filterBitmap", 1,
+          //      bool, "dither", 1,
+          Fill, "fillStyle", 2,
+          Cap, "capStyle", 2,
+          Join, "joinStyle", 2,
+        ));
 
   enum Fill { Fill, Stroke, FillAndStroke, }
   enum Cap { Butt, Square, Round, }
   enum Join { Miter, Round, Bevel, }
-  enum TextAlign { Left, Center, Right, }
-  mixin(bitfields!(
-      Fill, "fillStyle", 2,
-      Cap, "capStyle", 2,
-      Join, "joinStyle", 2,
-      TextAlign, "textAlign", 2));
-
-  enum TextEncoding { UTF8, UTF16, GlyphId, }
-  enum TextBufferDirection : bool { Forward, Backward, }
-  mixin(bitfields!(
-      TextEncoding, "textEncoding", 2,
-      TextBufferDirection, "textBufferDirection", 1,
-      uint, "", 5));
-
 
   this(Color color) {
     this.color = color;
     this.capStyle = Cap.Butt;
     this.joinStyle = Join.Miter;
     this.antiAlias = DefaultAntiAlias;
+  }
+
+  @property string toString() const {
+    auto writer = appender!string();
+    auto fmt = "Paint aa: %s fillStyle: %s color: %col looper: %s";
+    formattedWrite(writer, fmt, this.antiAlias, this.fillStyle,
+                   this.color, this.drawLooper);
+    return writer.data;
   }
 
   Path getFillPath(in Path src, out bool doFill) const {
@@ -115,12 +101,43 @@ class Paint
   }
 }
 
+class TextPaint : Paint {
+
+  mixin(bitfields!(
+          TextAlign, "textAlign", 2,
+          bool, "underlineText", 1,
+          bool, "strikeThruText", 1,
+          bool, "fakeBoldText", 1,
+          bool, "embeddedBitmapText", 1,
+          bool, "autoHinting", 1,
+          uint, "", 1,
+        ));
+
+  // Text direction not implemented. Encoding should always be utf string.
+  version(none) {
+    mixin(bitfields!(
+            TextEncoding, "textEncoding", 2,
+            TextBufferDirection, "textBufferDirection", 1,
+            uint, "", 5));
+
+    enum TextEncoding { UTF8, UTF16, GlyphId, }
+    enum TextBufferDirection : bool { Forward, Backward, }
+  }
+
+  enum TextAlign { Left, Center, Right, }
+
+  this(Color color) {
+    super(color);
+  }
+}
+
 unittest {
-  scope auto paint = new Paint(Red);
+  scope auto paint = new TextPaint(Red);
+
   assert(paint.xferMode is null);
   assert(paint.antiAlias == DefaultAntiAlias);
   assert(!paint.filterBitmap);
-  assert(!paint.dither);
+  //  assert(!paint.dither);
   assert(!paint.underlineText);
   assert(!paint.strikeThruText);
   assert(!paint.fakeBoldText);
@@ -130,23 +147,20 @@ unittest {
   assert(paint.fillStyle == Paint.Fill.Fill);
   assert(paint.capStyle == Paint.Cap.Butt);
   assert(paint.joinStyle == Paint.Join.Miter);
-  assert(paint.textAlign == Paint.TextAlign.Left);
-
-  assert(paint.textEncoding == Paint.TextEncoding.UTF8);
-  assert(paint.textBufferDirection == Paint.TextBufferDirection.Forward);
+  assert(paint.textAlign == TextPaint.TextAlign.Left);
 
   paint.antiAlias = true;
-  paint.dither = true;
+  //  paint.dither = true;
   paint.fillStyle = Paint.Fill.FillAndStroke;
   paint.joinStyle = Paint.Join.Bevel;
 
   assert(paint.antiAlias);
   assert(!paint.filterBitmap);
-  assert(paint.dither);
+  //  assert(paint.dither);
   assert(!paint.underlineText);
 
   assert(paint.fillStyle == Paint.Fill.FillAndStroke);
   assert(paint.capStyle == Paint.Cap.Butt);
   assert(paint.joinStyle == Paint.Join.Bevel);
-  assert(paint.textAlign == Paint.TextAlign.Left);
+  assert(paint.textAlign == TextPaint.TextAlign.Left);
 }
