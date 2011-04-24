@@ -1,17 +1,9 @@
 module skia.core.glyph;
 
-private {
-  import std.conv;
-
-  import guip.bitmap;
-  import skia.core.path;
-  import guip.point;
-
-  import skia.core.fonthost.freetype;
-  import freetype.freetype;
-
-  debug import std.stdio;
-}
+import std.conv;
+import skia.core.path, skia.core.fonthost._;
+import freetype.freetype, guip.bitmap, guip.point, guip.size;
+debug import std.stdio;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -37,7 +29,7 @@ struct BitmapGlyphStream {
   alias int delegate(ref FPoint loc, ref STBitmapGlyph glyph) GlyphStreamDg;
   int opApply(GlyphStreamDg dg) {
 
-    if ((face.face_flags & FT_Face_Flag.KERNING) == 0) {
+    if ((_face.face_flags & FT_Face_Flag.KERNING) == 0) {
       foreach(dchar ch; text) {
         auto bitmapGlyph = getBitmapGlyph(ch);
 
@@ -57,7 +49,7 @@ struct BitmapGlyphStream {
 
         if (prev && bitmapGlyph.faceIndex) {
           FT_Vector delta;
-          FT_Get_Kerning(cast(FT_Face)face, prev,
+          FT_Get_Kerning(_face, prev,
                          bitmapGlyph.faceIndex, FT_Kerning_Mode.Default, &delta);
           this.loc += ScaleFT_Vector(delta);
         }
@@ -91,7 +83,7 @@ struct PathGlyphStream {
   alias int delegate(ref FPoint pos, ref const Path path) GlyphPathStreamDg;
   int opApply(GlyphPathStreamDg dg) {
 
-    if ((face.face_flags & FT_Face_Flag.KERNING) == 0) {
+    if ((_face.face_flags & FT_Face_Flag.KERNING) == 0) {
       foreach(dchar ch; text) {
         auto pathGlyph = getPathGlyph(ch);
         auto res = dg(this.loc, pathGlyph._path);
@@ -105,7 +97,7 @@ struct PathGlyphStream {
 
         if (prev && pathGlyph.faceIndex) {
           FT_Vector delta;
-          FT_Get_Kerning(cast(FT_Face)face, prev,
+          FT_Get_Kerning(_face, prev,
                          pathGlyph.faceIndex, FT_Kerning_Mode.Default, &delta);
           this.loc += ScaleFT_Vector(delta);
         }

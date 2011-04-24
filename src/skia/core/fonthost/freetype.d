@@ -1,15 +1,8 @@
 module skia.core.fonthost.freetype;
 
-private {
-  import std.c.string : memcpy;
-  import freetype.freetype;
-  import freetype.outline;
-  import skia.core.fonthost.fontconfig;
-
-  import guip.bitmap;
-  import skia.core.path;
-  import guip.point;
-}
+import core.atomic, core.sync.mutex, core.sync.rwmutex, std.exception, std.c.string : memcpy;
+import freetype.freetype, freetype.outline, guip.bitmap, guip.point;
+import skia.core.glyph, skia.core.fonthost.fontconfig, skia.core.path;
 
 // TODO: Fix immutable cache objects
 //alias immutable(BitmapGlyph) STBitmapGlyph;
@@ -18,21 +11,34 @@ private {
 alias BitmapGlyph STBitmapGlyph;
 alias PathGlyph STPathGlyph;
 
-STBitmapGlyph[dchar] bitmapGlyphCache;
-STPathGlyph[dchar] pathGlyphCache;
-FT_Library library;
-FT_Face face;
+__gshared STBitmapGlyph[dchar] bitmapGlyphCache;
+__gshared STPathGlyph[dchar] pathGlyphCache;
+shared FT_Library library;
+__gshared FT_Face _face;
+shared(Mutex) ftMtx;
 
-// TODO: Add font loading interface
+void initFreeType() {
+  if (ftMtx is null) {
+    auto mtx = new Mutex;
+    mtx.lock();
+    scope(exit) { mtx.unlock(); }
+    if (cas(&ftMtx, cast(Mutex)null, mtx)) {
+      enforce(!FT_Init_FreeType(cast(FT_Library*)&library),
+        new Exception("Error during initialization of FreeType"));
+
+      auto typeface = findFace("DejaVu Sans");
+      enforce(!FT_New_Face(
+            cast(FT_Library)library,
+            toStringz(typeface.filename),
+            0,
+            &_face));
+      enforce(!FT_Set_Char_Size(_face, 0, 10*64, 96, 96));
+    }
+  }
+}
+
 static this() {
-  FT_Error error = FT_Init_FreeType(cast(FT_Library*)&library);
-  auto typeface = findFace("DejaVu Sans Mono", TypeFace.Style.Bold);
-  error = FT_New_Face(cast(FT_Library)library,
-                      toStringz(typeface.filename),
-                      0,
-                      cast(FT_Face*)&face);
-  error = FT_Set_Pixel_Sizes(cast(FT_Face)face, 0, 12);
-  assert(!error);
+  initFreeType();
 }
 
 enum Scale26D6 = 1.0f / 64;
@@ -97,10 +103,10 @@ struct PathGlyph
 private:
 
 STBitmapGlyph loadBitmapGlyph(dchar ch) {
-  auto glyphIndex = FT_Get_Char_Index(cast(FT_Face)face, ch);
-  auto error = FT_Load_Glyph(cast(FT_Face)face, glyphIndex, FT_LOAD.Render);
+  auto glyphIndex = FT_Get_Char_Index(_face, ch);
+  auto error = FT_Load_Glyph(_face, glyphIndex, FT_LOAD.Render);
   if (!error) {
-    auto bitmapGlyph = cast(STBitmapGlyph)BitmapGlyph(face.glyph, glyphIndex);
+    auto bitmapGlyph = cast(STBitmapGlyph)BitmapGlyph(_face.glyph, glyphIndex);
     bitmapGlyphCache[ch] = bitmapGlyph;
     return bitmapGlyph;
   } else {
@@ -112,16 +118,16 @@ STPathGlyph loadPathGlyph(dchar ch) {
   uint flags;
   flags &= ~FT_LOAD.Render;
   flags |= FT_LOAD.NO_BITMAP;
-  auto glyphIndex = FT_Get_Char_Index(cast(FT_Face)face, ch);
-  auto error = FT_Load_Glyph(cast(FT_Face)face, glyphIndex, flags);
+  auto glyphIndex = FT_Get_Char_Index(_face, ch);
+  auto error = FT_Load_Glyph(_face, glyphIndex, flags);
 
   if (!error)
   {
-    auto pathGlyph = PathGlyph(face.glyph, glyphIndex);
+    auto pathGlyph = PathGlyph(_face.glyph, glyphIndex);
     auto funcs = getCallbacks();
 
     Path path;
-    if (FT_Outline_Decompose(&face.glyph.outline, &funcs, &pathGlyph._path) != 0) {
+    if (FT_Outline_Decompose(&_face.glyph.outline, &funcs, &pathGlyph._path) != 0) {
       assert(false, "Failed to render glyph as path");
       path.reset();
     } else

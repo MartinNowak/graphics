@@ -1,6 +1,5 @@
 module skia.core.fonthost.fontconfig;
 
-import skia.core.typeface;
 import std.conv, std.exception, std.string : toStringz;
 import core.sync.mutex, core.atomic;
 import fontconfig.fontconfig;
