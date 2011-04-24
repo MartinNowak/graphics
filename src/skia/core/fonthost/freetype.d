@@ -4,6 +4,7 @@ private {
   import std.c.string : memcpy;
   import freetype.freetype;
   import freetype.outline;
+  import skia.core.fonthost.fontconfig;
 
   import guip.bitmap;
   import skia.core.path;
@@ -25,12 +26,11 @@ FT_Face face;
 // TODO: Add font loading interface
 static this() {
   FT_Error error = FT_Init_FreeType(cast(FT_Library*)&library);
+  auto typeface = findFace("DejaVu Sans Mono", TypeFace.Style.Bold);
   error = FT_New_Face(cast(FT_Library)library,
-                      //"/usr/local/lib/X11/fonts/bitstream-vera/VeraSe.ttf".ptr,
-                      //"/usr/local/lib/X11/fonts/TrueType/bkai00mp.ttf".ptr,
-                      //"/usr/local/lib/X11/fonts/dejavu/DejaVuSansCondensed.ttf".ptr,
-                      "/home/dawg/RUNNING ON EMPTY.ttf".ptr,
-                      0, cast(FT_Face*)&face);
+                      toStringz(typeface.filename),
+                      0,
+                      cast(FT_Face*)&face);
   error = FT_Set_Pixel_Sizes(cast(FT_Face)face, 0, 12);
   assert(!error);
 }
