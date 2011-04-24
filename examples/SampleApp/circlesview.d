@@ -4,7 +4,7 @@ private {
   debug private import std.stdio : writeln;
   import std.algorithm : min, max;
   import std.conv : to;
-  import std.math : PI;
+  import std.math : PI, cos, sin;
 
   import skia.core.canvas;
   import skia.core.pmcolor : Black, Red, Green, Cyan;
@@ -34,7 +34,7 @@ class CirclesView : View
     const auto dist = to!int(max(bounds.centerX, bounds.centerY)
                              - 2 * this.cRad);
     auto steps = 2 * PI * dist / (3*this.cRad);
-    auto degInc = 360 / steps;
+    auto degInc = 2 * PI / steps;
 
     auto cyan = Cyan; cyan.a = 100; cyan.g = 100;
     scope auto paintC = new Paint(Black);
@@ -46,18 +46,29 @@ class CirclesView : View
 
     auto scaled = 1.0f;
     auto const scaleFac = 0.998;
+    auto center = FPoint(0, dist);
+
+    double[2][2] rot;
+    rot[0][0] = cos(degInc);
+    rot[0][1] = -sin(degInc);
+    rot[1][0] = -rot[0][1];
+    rot[1][1] = rot[0][0];
     do {
-      canvas.drawCircle(IPoint(0, -dist), this.cRad, paintC);
-      canvas.drawCircle(IPoint(0, -dist), 0.2*this.cRad, paintR);
-      canvas.scale(scaleFac, scaleFac);
+      canvas.drawCircle(center, this.cRad * scaled, paintC);
+      canvas.drawCircle(center, 0.2*this.cRad * scaled, paintR);
+
+      center = FPoint(
+          center.x * rot[0][0] + center.y * rot[0][1],
+          center.x * rot[1][0] + center.y * rot[1][1]);
+
+      center.setLength(dist * scaled);
+
       scaled *= scaleFac;
-      canvas.rotate(degInc, fPoint(bounds.center));
-      //      writefln("matrix:%s", canvas.curMatrix);
     } while(scaled > 1e-2f);
   }
 
   override SizeHint sizeHint() const {
-    return SizeHint(Hint(2000, 4.), Hint(2000, 4.));
+    return SizeHint(Hint(1200, 0.2), Hint(1200, 0.2));
   }
 }
 
