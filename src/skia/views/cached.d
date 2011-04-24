@@ -31,6 +31,8 @@ class CachedView : ParentView {
   }
 
   override void onResize(ResizeEvent e) {
+    if (e.area.size == bmp.size)
+      return;
     bmp.setConfig(Bitmap.Config.ARGB_8888, e.area.width, e.area.height);
     dirty = IRect(e.area.size);
     super.onResize(e);
