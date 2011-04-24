@@ -29,7 +29,7 @@ struct BitmapGlyphStream {
   alias int delegate(ref FPoint loc, ref STBitmapGlyph glyph) GlyphStreamDg;
   int opApply(GlyphStreamDg dg) {
 
-    if ((_face.face_flags & FT_Face_Flag.KERNING) == 0) {
+    if (((cast(FT_Face)_face).face_flags & FT_Face_Flag.KERNING) == 0) {
       foreach(dchar ch; text) {
         auto bitmapGlyph = getBitmapGlyph(ch);
 
@@ -49,7 +49,7 @@ struct BitmapGlyphStream {
 
         if (prev && bitmapGlyph.faceIndex) {
           FT_Vector delta;
-          FT_Get_Kerning(_face, prev,
+          FT_Get_Kerning(cast(FT_Face)_face, prev,
                          bitmapGlyph.faceIndex, FT_Kerning_Mode.Default, &delta);
           this.loc += ScaleFT_Vector(delta);
         }
@@ -97,7 +97,7 @@ struct PathGlyphStream {
 
         if (prev && pathGlyph.faceIndex) {
           FT_Vector delta;
-          FT_Get_Kerning(_face, prev,
+          FT_Get_Kerning(cast(FT_Face)_face, prev,
                          pathGlyph.faceIndex, FT_Kerning_Mode.Default, &delta);
           this.loc += ScaleFT_Vector(delta);
         }
