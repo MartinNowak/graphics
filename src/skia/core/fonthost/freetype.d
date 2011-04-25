@@ -174,6 +174,7 @@ struct GlyphRange {
       return 0;
     auto reader = (cast(ReadWriteMutex)cache.data.mtx).reader;
     reader.lock();
+    scope(exit) { reader.unlock(); }
     auto glyphs = cast(Glyph[dchar])cache.data.glyphs;
 
     foreach(dchar c; text) {
