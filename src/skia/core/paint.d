@@ -115,7 +115,7 @@ class TextPaint : Paint {
         ));
 
   TypeFace typeFace;
-  float fontSize;
+  float fontSize=10.0f;
 
   // Text direction not implemented. Encoding should always be utf string.
   version(none) {
@@ -130,11 +130,7 @@ class TextPaint : Paint {
 
   enum TextAlign { Left, Center, Right, }
 
-  this(Color color) {
-    super(color);
-  }
-
-  this(TypeFace typeFace, Color color = Black) {
+  this(Color color = Black, TypeFace typeFace = TypeFace.defaultFace()) {
     super(color);
     this.typeFace = typeFace;
   }

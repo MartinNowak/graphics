@@ -1,14 +1,9 @@
 module skia.core.fonthost.freetype;
 
-import core.atomic, core.sync.mutex, core.sync.rwmutex, std.exception, std.c.string : memcpy;
-import freetype.freetype, freetype.outline, guip.bitmap, guip.point;
+import core.atomic, core.sync.mutex, core.sync.rwmutex, std.exception, std.traits, std.c.string : memcpy;
+import freetype.freetype, freetype.outline, guip.bitmap, guip.point, guip.size;
 import skia.core.glyph, skia.core.fonthost.fontconfig, skia.core.paint, skia.core.path;
 
-alias BitmapGlyph STBitmapGlyph;
-alias PathGlyph STPathGlyph;
-
-__gshared STBitmapGlyph[dchar] bitmapGlyphCache;
-__gshared STPathGlyph[dchar] pathGlyphCache;
 shared FT_Face _face;
 shared FreeType _freeType;
 
@@ -49,69 +44,9 @@ private synchronized class FreeType {
   FT_Face[string] faces;
 }
 
-static this() {
-  auto typeface = TypeFace.defaultFace();
-  _face = freeType.getFace(typeface.filename);
-  enforce(!FT_Set_Char_Size(cast(FT_Face)_face, 0, 10*64, 96, 96));
-}
-
 enum Scale26D6 = 1.0f / 64;
 FPoint ScaleFT_Vector(FT_Vector vec) {
   return FPoint(vec.x, vec.y) * Scale26D6;
-}
-
-STBitmapGlyph getBitmapGlyph(dchar ch) {
-  return cast(STBitmapGlyph)bitmapGlyphCache.get(ch, loadBitmapGlyph(ch));
-}
-
-STPathGlyph getPathGlyph(dchar ch) {
-  return cast(STPathGlyph)pathGlyphCache.get(ch, loadPathGlyph(ch));
-}
-
-struct BitmapGlyph {
-  FPoint topLeftOffset;
-  FPoint advance;
-  Bitmap _bitmap;
-  FT_UInt faceIndex;
-  alias _bitmap this;
-
-  this(FT_GlyphSlot glyph, FT_UInt faceIndex) {
-    this.setConfig(Bitmap.Config.A8, glyph.bitmap.width, glyph.bitmap.rows);
-    memcpy(this.getBuffer!(ubyte)().ptr, glyph.bitmap.buffer,
-           this.width * this.height * ubyte.sizeof);
-
-    this.topLeftOffset = FPoint(glyph.bitmap_left, -glyph.bitmap_top);
-    this.advance = ScaleFT_Vector(glyph.advance);
-    this.faceIndex = faceIndex;
-  }
-
-  @property string toString() {
-    string res;
-    for(auto h = 0; h < this.height; ++h) {
-      for(auto w = 0; w < this.width; ++w)
-        res ~= to!string(this.getBuffer!ubyte()[h*w + w]) ~ "|";
-      res ~= "\n";
-    }
-    return res;
-  }
-}
-
-
-struct PathGlyph
-{
-  FPoint advance;
-  FT_UInt faceIndex;
-  Path _path;
-  alias _path this;
-
-  this(FT_GlyphSlot glyph, FT_UInt faceIndex) {
-    this.advance = ScaleFT_Vector(glyph.advance);
-    this.faceIndex = faceIndex;
-  }
-
-  @property string toString() {
-    return this.advance.toString() ~ this._path.toString();
-  }
 }
 
 shared(GlyphStore) _glyphStore;
@@ -125,16 +60,18 @@ shared(GlyphStore) _glyphStore;
 }
 
 synchronized class GlyphStore {
-  shared(Data) getData(TypeFace face) {
-    return data.get(face.filename, newData(face));
+  shared(Data) getData(TextPaint paint) {
+    // TODO: @@BUG@@ need paint.fontSize in hash
+    return data.get(paint.typeFace.filename, newData(paint));
   }
 
-  shared(Data) newData(TypeFace face) {
+  shared(Data) newData(TextPaint paint) {
     shared(Data) d;
     d.glyphs[0] = Glyph(); // HACK needed to force creation of internal AA
-    d.face = freeType.getFace(face.filename);
+    d.face = freeType.getFace(paint.typeFace.filename);
+    enforce(!FT_Set_Char_Size(cast(FT_Face)d.face, 0, to!FT_F26Dot6(paint.fontSize*64), 96, 96));
     d.mtx = new shared(ReadWriteMutex)();
-    data[face.filename] = d;
+    data[paint.typeFace.filename] = d;
     return d;
   }
 
@@ -153,20 +90,19 @@ GlyphCache getGlyphCache(TextPaint paint) {
     ? paint.typeFace
     : TypeFace.defaultFace();
   assert(typeFace.valid());
-  return GlyphCache(paint, glyphStore.getData(typeFace));
+  return GlyphCache(paint, glyphStore.getData(paint));
 }
 
 struct GlyphCache {
   TextPaint paint;
   shared(GlyphStore.Data) data;
 
-  enum LoadFlag { Advance, Metrics, Bitmap, Path }
-  GlyphRange glyphRange(string text, LoadFlag loadFlag) {
-    return GlyphRange(text, loadFlag, &this);
+  GlyphStream glyphStream(string text, Glyph.LoadFlag loadFlags) {
+    return GlyphStream(text, loadFlags, &this);
   }
 }
 
-struct GlyphRange {
+struct GlyphStream {
   alias int delegate(const ref Glyph) GlyphDg;
 
   int opApply(GlyphDg dg) {
@@ -175,88 +111,86 @@ struct GlyphRange {
     auto reader = (cast(ReadWriteMutex)cache.data.mtx).reader;
     reader.lock();
     scope(exit) { reader.unlock(); }
-    auto glyphs = cast(Glyph[dchar])cache.data.glyphs;
 
     foreach(dchar c; text) {
-      auto gl = glyphs.get(c, loadGlyph(c, reader));
+      auto gl = getGlyph(c, reader);
       auto res = dg(gl); if (res) return res;
     }
     return 0;
   }
 
-  Glyph loadGlyph(dchar c, ref ReadWriteMutex.Reader reader) {
-    reader.unlock();
-    auto writer = (cast(ReadWriteMutex)cache.data.mtx).writer;
-    writer.lock();
-    scope(exit) { writer.unlock(); reader.lock(); }
+  Glyph getGlyph(dchar c, ref ReadWriteMutex.Reader reader) {
+    auto cached = cast(Glyph*)(c in cache.data.glyphs);
 
-    // TODO: loadFlag
-    BitmapGlyph bmpGlyph;
-    synchronized(freeType) {
-      bmpGlyph = getBitmapGlyph(c);
-      //        auto glyph = freeType.loadGlyph(cache.data.face, c);
+    if (cached is null || (cached.loaded & loadFlags) != 0) {
+      reader.unlock();
+      auto writer = (cast(ReadWriteMutex)cache.data.mtx).writer;
+      writer.lock();
+      scope(exit) { writer.unlock(); reader.lock(); }
+
+      if (cached is null) {
+        std.stdio.writeln("new glyph ", c);
+        cache.data.glyphs[c] = Glyph();
+        cached = cast(Glyph*)(c in cache.data.glyphs);
+      }
+
+      auto charIdx = FT_Get_Char_Index(cast(FT_Face)cache.data.face, c);
+      foreach(e; EnumMembers!(Glyph.LoadFlag)) {
+        if ((loadFlags & e) && !(cached.loaded & e))
+          updateGlyph!(e)(cast(FT_Face)cache.data.face, cached, charIdx);
+      }
     }
-    Glyph glyph;
-    glyph.topLeft = bmpGlyph.topLeftOffset;
-    glyph.advance = bmpGlyph.advance;
-    glyph.bmp = bmpGlyph._bitmap;
-    //      glyph.size =
-    //      glyph.rsbDelta =
-
-    cache.data.glyphs[c] = cast(shared)glyph;
-    return glyph;
+    return *cached;
   }
 
   string text;
-  GlyphCache.LoadFlag loadFlag;
+  Glyph.LoadFlag loadFlags;
   private GlyphCache* cache;
 }
 
 private:
 
-STBitmapGlyph loadBitmapGlyph(dchar ch) {
-  auto glyphIndex = FT_Get_Char_Index(cast(FT_Face)_face, ch);
-  auto error = FT_Load_Glyph(cast(FT_Face)_face, glyphIndex, FT_LOAD.Render);
-  if (!error) {
-    auto bitmapGlyph = cast(STBitmapGlyph)BitmapGlyph((cast(FT_Face)_face).glyph, glyphIndex);
-    bitmapGlyphCache[ch] = bitmapGlyph;
-    return bitmapGlyph;
-  } else {
-    return BitmapGlyph();
-  }
+void updateGlyph(Glyph.LoadFlag f : Glyph.LoadFlag.NoFlag)(FT_Face face, Glyph* glyph, FT_UInt charIdx) {
 }
 
-STPathGlyph loadPathGlyph(dchar ch) {
-  uint flags;
-  flags &= ~FT_LOAD.Render;
-  flags |= FT_LOAD.NO_BITMAP;
-  auto glyphIndex = FT_Get_Char_Index(cast(FT_Face)_face, ch);
-  auto error = FT_Load_Glyph(cast(FT_Face)_face, glyphIndex, flags);
+void updateGlyph(Glyph.LoadFlag f : Glyph.LoadFlag.Metrics)(FT_Face face, Glyph* glyph, FT_UInt charIdx) {
+  enforce(!FT_Load_Glyph(face, charIdx, FT_LOAD.NO_BITMAP));
 
-  if (!error)
-  {
-    auto pathGlyph = PathGlyph((cast(FT_Face)_face).glyph, glyphIndex);
-    auto funcs = getCallbacks();
+  glyph.advance = ScaleFT_Vector(face.glyph.advance);
+  glyph.lsbDelta = face.glyph.lsb_delta * Scale26D6;
+  glyph.rsbDelta = face.glyph.rsb_delta * Scale26D6;
+  glyph.size = FSize(face.glyph.metrics.width * Scale26D6, face.glyph.metrics.height * Scale26D6);
+  std.stdio.writeln("glyph adv", glyph.rsbDelta, "|", glyph.size.width);
+  glyph.loaded |= Glyph.LoadFlag.Metrics;
+}
 
-    Path path;
-    if (FT_Outline_Decompose(&(cast(FT_Face)_face).glyph.outline, &funcs, &pathGlyph._path) != 0) {
-      assert(false, "Failed to render glyph as path");
-      path.reset();
-    } else
-      path.close();
+void updateGlyph(Glyph.LoadFlag f : Glyph.LoadFlag.Bitmap)(FT_Face face, Glyph* glyph, FT_UInt charIdx) {
+  enforce(!FT_Load_Glyph(face, charIdx, FT_LOAD.Render));
 
-    auto immPathGlyph = cast(STPathGlyph)pathGlyph;
-    pathGlyphCache[ch] = immPathGlyph;
-    return immPathGlyph;
-  } else {
-    return PathGlyph();
-  }
+  auto w = face.glyph.bitmap.width;
+  auto h = face.glyph.bitmap.rows;
+  glyph.bmp.setConfig(Bitmap.Config.A8, w, h);
+  glyph.bmp.getBuffer!(ubyte)()[] = face.glyph.bitmap.buffer[0 .. w * h];
+  glyph.bmpPos = FPoint(face.glyph.bitmap_left, -face.glyph.bitmap_top);
+
+  glyph.loaded |= Glyph.LoadFlag.Bitmap;
+}
+
+void updateGlyph(Glyph.LoadFlag f : Glyph.LoadFlag.Path)(FT_Face face, Glyph* glyph, FT_UInt charIdx) {
+  enforce(!FT_Load_Glyph(face, charIdx, FT_LOAD.NO_BITMAP));
+
+  glyph.path.reset();
+  auto cbs = outlineCallbacks();
+  enforce(!FT_Outline_Decompose(&face.glyph.outline, &cbs, &glyph.path));
+  glyph.path.close();
+
+  glyph.loaded |= Glyph.LoadFlag.Path;
 }
 
 /*
  * Callback for transforming freetype outlines to paths.
  */
-FT_Outline_Funcs getCallbacks() {
+FT_Outline_Funcs outlineCallbacks() {
     FT_Outline_Funcs funcs;
 
     funcs.move_to = &moveTo;

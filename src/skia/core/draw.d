@@ -182,20 +182,21 @@ public:
 
     // TODO: underline handling
 
+    auto cache = getGlyphCache(paint);
+
     FPoint start = this.matrix.mapPoint(pt);
     if (paint.textAlign != TextPaint.TextAlign.Left) {
-      auto length = measureText!BitmapGlyphStream(text);
+      auto length = measureText(text, cache);
       if (paint.textAlign == TextPaint.TextAlign.Center)
         length *= 0.5;
       start.x = start.x - length;
     }
     scope Blitter blitter = this.getBlitter(paint);
 
-    auto cache = getGlyphCache(paint);
-    foreach(glyph; cache.glyphRange(text, GlyphCache.LoadFlag.Bitmap)) {
-      auto pos = start + glyph.topLeft;
-      blitter.blitMask(pos.x, pos.y, glyph.bmp);
-      start += glyph.advance;
+    foreach(gl; cache.glyphStream(text, Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Bitmap)) {
+      auto pos = start + gl.bmpPos;
+      blitter.blitMask(pos.x, pos.y, gl.bmp);
+      start += gl.advance;
     }
   }
 
@@ -207,9 +208,11 @@ public:
     auto backUp = this.matrix;
     scope(exit) this.matrix = backUp;
 
+    auto cache = getGlyphCache(paint);
+
     float hOffset = 0;
     if (paint.textAlign != TextPaint.TextAlign.Left) {
-      auto length = measureText!PathGlyphStream(text);
+      auto length = measureText(text, cache);
       if (paint.textAlign == TextPaint.TextAlign.Center)
         length *= 0.5;
       hOffset = length;
@@ -221,11 +224,13 @@ public:
     // auto scale = PathGlyphStream.getScale();
     // scaledMatrix.preScale(scale, scale);
 
-    foreach(pos, glyphPath; PathGlyphStream(text, FPoint(0, 0))) {
+    FPoint pos = FPoint(0, 0);
+    foreach(gl; cache.glyphStream(text, Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path)) {
       Matrix m;
       m.setTranslate(pos.x - hOffset, 0);
       this.matrix = scaledMatrix * m;
-      this.drawPath(glyphPath, paint);
+      this.drawPath(gl.path, paint);
+      pos += gl.advance;
     }
   }
 
@@ -242,10 +247,13 @@ public:
 
     //! TODO: scaledMatrix
 
-    foreach(pos, glyphPath; PathGlyphStream(text, FPoint(0, 0))) {
+    auto cache = getGlyphCache(paint);
+    FPoint pos = FPoint(0, 0);
+    foreach(gl; cache.glyphStream(text, Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path)) {
       Matrix m;
       m.setTranslate(pos.x + hOffset, 0);
-      this.drawPath(morphPath(glyphPath, meas, m), paint);
+      this.drawPath(morphPath(gl.path, meas, m), paint);
+      pos += gl.advance;
     }
   }
 

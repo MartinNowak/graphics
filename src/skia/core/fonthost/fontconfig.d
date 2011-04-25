@@ -5,6 +5,9 @@ import core.sync.mutex, core.atomic;
 import fontconfig.fontconfig;
 import skia.util.format;
 
+//debug=PRINTF;
+debug(PRINTF) import std.stdio;
+
 struct TypeFace {
 
   @property string toString() const {
@@ -93,6 +96,7 @@ synchronized class FontConfig {
     result.slant = tfSlant(slant);
 
     result.filename = to!string(filename);
+    debug(PRINTF) writeln("found font ", result.filename);
     return result;
   }
 
