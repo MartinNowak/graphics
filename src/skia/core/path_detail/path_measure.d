@@ -51,6 +51,12 @@ private:
 
     if (lowerHalf.length == this.constSegments.length)
       t = 1.0f;
+    else if (lowerHalf.length == 0) {
+      // TODO: review case where distance == 0 and does not compare
+      // smaller than the initial move segment
+      t = 0.0f;
+      return this.constSegments[1];
+    }
     else {
       auto prevSegment = this.constSegments[lowerHalf.length - 1];
       auto segLength = segment.distance - prevSegment.distance;
@@ -128,7 +134,7 @@ private:
       break;
 
     default:
-      assert(false);
+      assert(0, to!string(segment.type));
     }
   }
 
