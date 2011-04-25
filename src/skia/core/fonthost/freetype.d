@@ -50,7 +50,7 @@ private synchronized class FreeType {
 }
 
 static this() {
-  auto typeface = findFace("DejaVu Sans");
+  auto typeface = TypeFace.defaultFace();
   _face = freeType.getFace(typeface.filename);
   enforce(!FT_Set_Char_Size(cast(FT_Face)_face, 0, 10*64, 96, 96));
 }
