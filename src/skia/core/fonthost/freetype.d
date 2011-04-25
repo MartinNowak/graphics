@@ -125,16 +125,15 @@ shared(GlyphStore) _glyphStore;
 }
 
 synchronized class GlyphStore {
-  // TODO: hash more TextPaint members
   shared(Data) getData(TypeFace face) {
-    return data.get(face, newData(face));
+    return data.get(face.filename, newData(face));
   }
 
   shared(Data) newData(TypeFace face) {
     shared(Data) d;
     d.face = freeType.getFace(face.filename);
     d.mtx = new shared(ReadWriteMutex)();
-    data[face] = d;
+    data[face.filename] = d;
     return d;
   }
 
@@ -144,7 +143,8 @@ synchronized class GlyphStore {
     ReadWriteMutex mtx;
   }
 
-  Data[TypeFace] data;
+  // TODO: need full hash, TypeFace doesn't work as key
+  Data[string] data;
 }
 
 GlyphCache getGlyphCache(TextPaint paint) {
