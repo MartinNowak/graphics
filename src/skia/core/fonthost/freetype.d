@@ -18,8 +18,6 @@ shared FreeType _freeType;
 
 private synchronized class FreeType {
   ~this() {
-    foreach(k, v; faces)
-      FT_Done_Face(cast(FT_Face)v);
     FT_Done_FreeType(cast(FT_Library)library);
     _freeType = null;
   }
@@ -29,19 +27,13 @@ private synchronized class FreeType {
       new Exception("Error during initialization of FreeType"));
   }
 
-  shared(FT_Face) getFace(string path) {
-    return faces.get(path, loadFace(path));
-  }
-
-  shared(FT_Face) loadFace(string path) {
-    shared(FT_Face) face;
-    enforce(!FT_New_Face(cast(FT_Library)library, toStringz(path), 0, cast(FT_Face*)&face));
-    faces[path] = face;
+  FT_Face newFace(string path) {
+    FT_Face face;
+    enforce(!FT_New_Face(cast(FT_Library)library, toStringz(path), 0, &face));
     return face;
   }
 
   FT_Library library;
-  FT_Face[string] faces;
 }
 
 enum Scale26D6 = 1.0f / 64;
@@ -60,6 +52,12 @@ shared(GlyphStore) _glyphStore;
 }
 
 synchronized class GlyphStore {
+
+  ~this() {
+    foreach(d; data)
+      FT_Done_Face(cast(FT_Face)d.face);
+  }
+
   shared(Data) getData(TextPaint paint) {
     // TODO: @@BUG@@ need paint.fontSize in hash
     return data.get(paint.typeFace.filename, newData(paint));
@@ -68,7 +66,7 @@ synchronized class GlyphStore {
   shared(Data) newData(TextPaint paint) {
     shared(Data) d;
     d.glyphs[0] = Glyph(); // HACK needed to force creation of internal AA
-    d.face = freeType.getFace(paint.typeFace.filename);
+    d.face = cast(shared)freeType.newFace(paint.typeFace.filename);
     enforce(!FT_Set_Char_Size(cast(FT_Face)d.face, 0, to!FT_F26Dot6(paint.fontSize*64), 96, 96));
     d.mtx = new shared(ReadWriteMutex)();
     data[paint.typeFace.filename] = d;
