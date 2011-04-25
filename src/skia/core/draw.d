@@ -13,6 +13,7 @@ private {
   import skia.core.paint;
   import skia.core.path;
   import skia.core.path_detail.path_measure;
+  import skia.core.fonthost._;
   import guip.point;
   import guip.rect;
   import guip.size;
@@ -189,8 +190,12 @@ public:
       start.x = start.x - length;
     }
     scope Blitter blitter = this.getBlitter(paint);
-    foreach(pos, glyph; BitmapGlyphStream(text, start)) {
-      blitter.blitMask(pos.x, pos.y, glyph);
+
+    auto cache = getGlyphCache(paint);
+    foreach(glyph; cache.glyphRange(text, GlyphCache.LoadFlag.Bitmap)) {
+      auto pos = start + glyph.topLeft;
+      blitter.blitMask(pos.x, pos.y, glyph.bmp);
+      start += glyph.advance;
     }
   }
 

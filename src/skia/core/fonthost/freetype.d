@@ -2,7 +2,7 @@ module skia.core.fonthost.freetype;
 
 import core.atomic, core.sync.mutex, core.sync.rwmutex, std.exception, std.c.string : memcpy;
 import freetype.freetype, freetype.outline, guip.bitmap, guip.point;
-import skia.core.glyph, skia.core.fonthost.fontconfig, skia.core.path;
+import skia.core.glyph, skia.core.fonthost.fontconfig, skia.core.paint, skia.core.path;
 
 alias BitmapGlyph STBitmapGlyph;
 alias PathGlyph STPathGlyph;
@@ -112,6 +112,102 @@ struct PathGlyph
   @property string toString() {
     return this.advance.toString() ~ this._path.toString();
   }
+}
+
+shared(GlyphStore) _glyphStore;
+
+@property shared(GlyphStore) glyphStore() {
+  if (_glyphStore is null) {
+    auto gs = new GlyphStore();
+    cas(&_glyphStore, cast(GlyphStore)null, gs);
+  }
+  return _glyphStore;
+}
+
+synchronized class GlyphStore {
+  // TODO: hash more TextPaint members
+  shared(Data) getData(TypeFace face) {
+    return data.get(face, newData(face));
+  }
+
+  shared(Data) newData(TypeFace face) {
+    shared(Data) d;
+    d.face = freeType.getFace(face.filename);
+    d.mtx = new shared(ReadWriteMutex)();
+    data[face] = d;
+    return d;
+  }
+
+  struct Data {
+    Glyph[dchar] glyphs;
+    FT_Face face;
+    ReadWriteMutex mtx;
+  }
+
+  Data[TypeFace] data;
+}
+
+GlyphCache getGlyphCache(TextPaint paint) {
+  auto typeFace = paint.typeFace.valid()
+    ? paint.typeFace
+    : TypeFace.defaultFace();
+  assert(typeFace.valid());
+  return GlyphCache(paint, glyphStore.getData(typeFace));
+}
+
+struct GlyphCache {
+  TextPaint paint;
+  shared(GlyphStore.Data) data;
+
+  enum LoadFlag { Advance, Metrics, Bitmap, Path }
+  GlyphRange glyphRange(string text, LoadFlag loadFlag) {
+    return GlyphRange(text, loadFlag, &this);
+  }
+}
+
+struct GlyphRange {
+  alias int delegate(const ref Glyph) GlyphDg;
+
+  int opApply(GlyphDg dg) {
+    if (text.length == 0)
+      return 0;
+    auto reader = (cast(ReadWriteMutex)cache.data.mtx).reader;
+    reader.lock();
+    auto glyphs = cast(Glyph[dchar])cache.data.glyphs;
+
+    foreach(dchar c; text) {
+      auto gl = glyphs.get(c, loadGlyph(c, reader));
+      auto res = dg(gl); if (res) return res;
+    }
+    return 0;
+  }
+
+  Glyph loadGlyph(dchar c, ref ReadWriteMutex.Reader reader) {
+    reader.unlock();
+    auto writer = (cast(ReadWriteMutex)cache.data.mtx).writer;
+    writer.lock();
+    scope(exit) { writer.unlock(); reader.lock(); }
+
+    // TODO: loadFlag
+    BitmapGlyph bmpGlyph;
+    synchronized(freeType) {
+      bmpGlyph = getBitmapGlyph(c);
+      //        auto glyph = freeType.loadGlyph(cache.data.face, c);
+    }
+    Glyph glyph;
+    glyph.topLeft = bmpGlyph.topLeftOffset;
+    glyph.advance = bmpGlyph.advance;
+    glyph.bmp = bmpGlyph._bitmap;
+    //      glyph.size =
+    //      glyph.rsbDelta =
+
+    cache.data.glyphs[c] = cast(shared)glyph;
+    return glyph;
+  }
+
+  string text;
+  GlyphCache.LoadFlag loadFlag;
+  private GlyphCache* cache;
 }
 
 private:

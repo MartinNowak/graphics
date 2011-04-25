@@ -16,6 +16,14 @@ static float measureText(GlyphStream)(string text) {
   return end.x;
 }
 
+struct Glyph {
+  Bitmap bmp;
+  Path path;
+  FPoint advance;
+  FPoint topLeft;
+  FSize size;
+  float rsbDelta, lsbDelta;
+}
 
 struct BitmapGlyphStream {
   string text;

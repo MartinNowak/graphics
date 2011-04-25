@@ -11,6 +11,7 @@ private {
   import skia.core.patheffect;
   import skia.core.stroke;
   import skia.core.xfermode;
+  import skia.core.fonthost._;
 
   version(No_DefaultAntiAlias) {
     enum DefaultAntiAlias = false;
@@ -113,6 +114,9 @@ class TextPaint : Paint {
           uint, "", 1,
         ));
 
+  TypeFace typeFace;
+  float fontSize;
+
   // Text direction not implemented. Encoding should always be utf string.
   version(none) {
     mixin(bitfields!(
@@ -129,6 +133,12 @@ class TextPaint : Paint {
   this(Color color) {
     super(color);
   }
+
+  this(TypeFace typeFace, Color color = Black) {
+    super(color);
+    this.typeFace = typeFace;
+  }
+
 }
 
 unittest {
