@@ -131,6 +131,7 @@ synchronized class GlyphStore {
 
   shared(Data) newData(TypeFace face) {
     shared(Data) d;
+    d.glyphs[0] = Glyph(); // HACK needed to force creation of internal AA
     d.face = freeType.getFace(face.filename);
     d.mtx = new shared(ReadWriteMutex)();
     data[face.filename] = d;
