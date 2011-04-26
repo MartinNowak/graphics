@@ -87,7 +87,7 @@ class Layout(Container) : View {
   }
   override void onDraw(Canvas canvas, IRect area, ISize size) {
     debug(FRAME) {
-      scope auto paint = new Paint(Gray);
+      scope auto paint = new Paint(Color(lookupAttr("border-color")));
       paint.fillStyle = Paint.Fill.Stroke;
       paint.strokeWidth = 2.0;
       canvas.drawRect(IRect(size).inset(2, 2), paint);

@@ -45,6 +45,27 @@ class View {
       parent.requestState(visible, this);
   }
 
+  string lookupAttr(string key) {
+    enum defaultAttr =
+      [
+          "color" : "0xFF000000",
+          "background-color" : "0xFFFFFFFF",
+
+          "border-color" : "0xFFAAAAAA",
+          "border-width" : "2px",
+          "border-style" : "dotted",
+
+          //          "padding" : "2px",
+          //          "margin" : "2px",
+      ];
+    if (parent !is null)
+      return parent.lookupAttr(key);
+    else if (auto val = key in defaultAttr)
+      return *val;
+    else
+      return null;
+  }
+
   View parent;
 }
 
