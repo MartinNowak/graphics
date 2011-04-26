@@ -182,7 +182,7 @@ public:
 
     // TODO: underline handling
 
-    auto cache = getGlyphCache(paint);
+    auto cache = getGlyphCache(paint.typeFace, paint.textSize);
 
     FPoint start = this.matrix.mapPoint(pt);
     if (paint.textAlign != TextPaint.TextAlign.Left) {
@@ -208,7 +208,7 @@ public:
     auto backUp = this.matrix;
     scope(exit) this.matrix = backUp;
 
-    auto cache = getGlyphCache(paint);
+    auto cache = getGlyphCache(paint.typeFace, paint.textSize);
 
     float hOffset = 0;
     if (paint.textAlign != TextPaint.TextAlign.Left) {
@@ -247,7 +247,7 @@ public:
 
     //! TODO: scaledMatrix
 
-    auto cache = getGlyphCache(paint);
+    auto cache = getGlyphCache(paint.typeFace, paint.textSize);
     FPoint pos = FPoint(0, 0);
     foreach(gl; cache.glyphStream(text, Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path)) {
       Matrix m;

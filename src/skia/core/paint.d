@@ -156,8 +156,8 @@ class TextPaint : Paint {
     float underlineThickness;
   };
 
-  FontMetrics fontMetrics() /*const*/ {
-    auto cache = getGlyphCache(this);
+  FontMetrics fontMetrics() const {
+    auto cache = getGlyphCache(typeFace, textSize);
     return cache.fontMetrics();
   }
 }

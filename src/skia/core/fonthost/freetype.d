@@ -55,22 +55,35 @@ shared(GlyphStore) _glyphStore;
 synchronized class GlyphStore {
 
   ~this() {
-    foreach(d; data)
-      FT_Done_Face(cast(FT_Face)d.face);
+    foreach(faceData; data)
+      foreach(sizeData; faceData)
+        FT_Done_Face(cast(FT_Face)sizeData.face);
   }
 
-  shared(Data) getData(TextPaint paint) {
-    // TODO: @@BUG@@ need paint.textSize in hash
-    return data.get(paint.typeFace.filename, newData(paint));
+  shared(Data) getData(TypeFace typeFace, float textSize) {
+    if (auto faceData = typeFace.filename in data) {
+      if (auto sizeData = textSize in *faceData)
+        return *sizeData;
+      else {
+        auto sizeData = newData(typeFace.filename, textSize);
+        (*faceData)[textSize] = sizeData;
+        return sizeData;
+      }
+    } else {
+      shared(Data[float]) faceData;
+      auto sizeData = newData(typeFace.filename, textSize);
+      faceData[textSize] = sizeData;
+      data[typeFace.filename] = faceData;
+      return sizeData;
+    }
   }
 
-  shared(Data) newData(TextPaint paint) {
+  shared(Data) newData(string path, float textSize) {
     shared(Data) d;
     d.glyphs[0] = Glyph(); // HACK needed to force creation of internal AA
-    d.face = cast(shared)freeType.newFace(paint.typeFace.filename);
-    enforce(!FT_Set_Char_Size(cast(FT_Face)d.face, 0, to!FT_F26Dot6(paint.textSize*64), 72, 72));
+    d.face = cast(shared)freeType.newFace(path);
+    enforce(!FT_Set_Char_Size(cast(FT_Face)d.face, 0, to!FT_F26Dot6(textSize*64), 72, 72));
     d.mtx = new shared(ReadWriteMutex)();
-    data[paint.typeFace.filename] = d;
     return d;
   }
 
@@ -80,21 +93,17 @@ synchronized class GlyphStore {
     ReadWriteMutex mtx;
   }
 
-  // TODO: need full hash, TypeFace doesn't work as key
-  Data[string] data;
+  Data[float][string] data;
 }
 
-GlyphCache getGlyphCache(TextPaint paint) {
-  auto typeFace = paint.typeFace.valid()
-    ? paint.typeFace
-    : TypeFace.defaultFace();
+GlyphCache getGlyphCache(TypeFace typeFace, float textSize) {
+  if (!typeFace.valid())
+    typeFace = TypeFace.defaultFace();
   assert(typeFace.valid());
-  return GlyphCache(paint, glyphStore.getData(paint));
+  return GlyphCache(glyphStore.getData(typeFace, textSize));
 }
 
 struct GlyphCache {
-  // TODO: maybe copy paint so that it can be constant
-  TextPaint paint;
   shared(GlyphStore.Data) data;
 
   GlyphStream glyphStream(string text, Glyph.LoadFlag loadFlags) {
