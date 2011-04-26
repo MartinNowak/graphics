@@ -50,7 +50,7 @@ class CachedView : ParentView {
     assert(child == this.child);
     bmp.setConfig(Bitmap.Config.ARGB_8888, 0, 0);
     dirty = IRect();
-    super.requestResize(size, this);
+    super.requestResize(size, child);
   }
   override void requestRedraw(IRect area, View child) {
     assert(child == this.child);
