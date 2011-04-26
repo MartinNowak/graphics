@@ -146,9 +146,9 @@ public:
     }
   }
 
-  void drawRect(in IRect rect, Paint paint) {
+  void drawRect(in FRect rect, Paint paint) {
     Path path;
-    path.addRect(fRect(rect));
+    path.addRect(rect);
     this.drawPath(path, paint);
     /+
     FRect transRect;

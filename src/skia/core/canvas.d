@@ -153,21 +153,27 @@ public:
     }
   }
 
-  void drawRect(in IRect rect, Paint paint) {
+  void drawRect(in FRect rect, Paint paint) {
     scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Path);
     foreach(ref draw; cycle) {
       draw.drawRect(rect, paint);
     }
   }
+  void drawRect(in IRect rect, Paint paint) {
+    drawRect(fRect(rect), paint);
+  }
 
-  void drawRoundRect(in IRect rect, int rx, int ry, Paint paint) {
+  void drawRoundRect(in FRect rect, float rx, float ry, Paint paint) {
     if (rx > 0 && ry > 0) {
       Path path;
-      path.addRoundRect(fRect(rect), rx, ry, Path.Direction.CW);
+      path.addRoundRect(rect, rx, ry, Path.Direction.CW);
       this.drawPath(path, paint);
     } else {
       this.drawRect(rect, paint);
     }
+  }
+  void drawRoundRect(in IRect rect, int rx, int ry, Paint paint) {
+    drawRoundRect(fRect(rect), rx, ry, paint);
   }
 
   void drawOval(in IRect rect, Paint paint) {
