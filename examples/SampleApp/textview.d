@@ -1,19 +1,9 @@
 module SampleApp.textview;
 
-private {
-  debug private import std.stdio : writeln;
-
-  import guip.size;
-  import skia.core.canvas;
-  import skia.core.pmcolor;
-  import skia.core.matrix;
-
-  import skia.core.paint;
-  import skia.core.path;
-  import guip.point;
-  import guip.rect;
-  import skia.views.view;
-}
+debug import std.stdio : writeln;
+import skia.core.canvas, skia.core.pmcolor, skia.core.matrix, skia.core.paint, skia.core.path, skia.views.view2, skia.core.fonthost._;
+import guip.event, guip.point, guip.rect, guip.size, layout.hint;
+import std.range, std.array;
 
 
 class TextView : View
@@ -24,45 +14,68 @@ class TextView : View
   int which;
 
   this() {
-    this._flags.visible = true;
-    this._flags.enabled = true;
     this.texts = ["Dann folgte ein Tag", "dem anderen", "ohne",
                   "dasz die Grundfragen des Lebens", "gelöst worden wären.", "VA"];
     this.text = "abcdefghijklmnopqrstuvwxyz";
   }
 
-  override void onButtonPress(IPoint pt) {
-    this.which = (this.which + 1) % EnumLimit;
-    this.inval(this.bounds);
+  override void onButton(ButtonEvent e, ISize size) {
+    if (e.isRelease()) {
+      this.which = (this.which + 1) % EnumLimit;
+      this.requestRedraw(IRect(size));
+    }
   }
 
-  override void onDraw(Canvas canvas) {
-    scope auto paintText = new TextPaint(Black);
+  override void onDraw(Canvas canvas, IRect area, ISize size) {
+    scope auto textPaint = new TextPaint(Black, TypeFace.findFace("DejaVu Sans"));
+    scope auto framePaint = new Paint(Orange);
+    framePaint.fillStyle = Paint.Fill.Stroke;
+    framePaint.strokeWidth = 1.0;
+    framePaint.antiAlias = true;
+
+    auto bounds = IRect(size);
+
     switch (this.which) {
     case Left: {
-      paintText.textAlign = TextPaint.TextAlign.Right;
-      auto pt = fPoint(this.bounds.center);
-      canvas.drawTextAsPaths("TextRenderedFromOutlines", pt, paintText);
+      textPaint.textAlign = TextPaint.TextAlign.Right;
+      auto pt = fPoint(bounds.center);
+      canvas.drawTextAsPaths("text rendered from outlines", pt, textPaint);
 
       break;
     }
     case Right: {
-      paintText.textAlign = TextPaint.TextAlign.Right;
-      auto pt = fPoint(this.bounds.center);
-      canvas.drawText("TextRenderedFromBitmaps", pt, paintText);
+      textPaint.textAlign = TextPaint.TextAlign.Right;
+      auto pt = fPoint(bounds.center);
+      auto metrics = textPaint.fontMetrics();
+      canvas.drawRect(
+          FRect(0.5f, pt.y + metrics.ascent, size.width - 0.5f, pt.y + metrics.descent),
+          framePaint);
+      canvas.drawText("text rendered from bitmaps", pt, textPaint);
 
       break;
     }
     case PathText: {
+      auto metrics = textPaint.fontMetrics();
+      auto baseline = fRect(bounds).inset(-metrics.top, -metrics.top);
+
+      auto up = metrics.underlinePos;
+      framePaint.strokeWidth = metrics.underlineThickness;
+      framePaint.color = Black;
+      canvas.drawRoundRect(baseline.inset(up, up), 50.0f, 50.0f, framePaint);
+
       Path path;
-      auto frame = this.bounds.inset(10, 10);
-      path.addRoundRect(fRect(frame), 50.0f, 50.0f);
-      canvas.drawTextOnPath("TextRenderedOnPaths", path, paintText);
+      path.addRoundRect(baseline, 50.0f, 50.0f);
+      auto t = to!string(take(cycle("text rendered on path"), 200));
+      canvas.drawTextOnPath(t, path, textPaint);
 
       break;
     }
     default:
       assert(0);
     }
+  }
+
+  override SizeHint sizeHint() const {
+    return SizeHint(Hint(1200, 0.2), Hint(1200, 0.2));
   }
 }
