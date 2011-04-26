@@ -10,18 +10,18 @@ class TextView : View
 {
   string[] texts;
   string text;
-  enum { Left, Right, PathText, EnumLimit }
-  int which;
+  enum State { One, Two, Three, Four }
+  State state;
 
   this() {
     this.texts = ["Dann folgte ein Tag", "dem anderen", "ohne",
-                  "dasz die Grundfragen des Lebens", "gelöst worden wären.", "VA"];
+                  "dasz die Grundfragen des Lebens", "gelöst worden wären."];
     this.text = "abcdefghijklmnopqrstuvwxyz";
   }
 
   override void onButton(ButtonEvent e, ISize size) {
     if (e.isRelease()) {
-      this.which = (this.which + 1) % EnumLimit;
+      this.state = cast(State)((this.state + 1) % (State.max + 1));
       this.requestRedraw(IRect(size));
     }
   }
@@ -35,33 +35,33 @@ class TextView : View
 
     auto bounds = IRect(size);
 
-    switch (this.which) {
-    case Left: {
+    final switch (this.state) {
+    case State.One:
       textPaint.textAlign = TextPaint.TextAlign.Right;
       auto pt = fPoint(bounds.center);
       canvas.drawTextAsPaths("text rendered from outlines", pt, textPaint);
 
       break;
-    }
-    case Right: {
+
+    case State.Two:
       textPaint.textAlign = TextPaint.TextAlign.Right;
       auto pt = fPoint(bounds.center);
       auto metrics = textPaint.fontMetrics();
       canvas.drawRect(
-          FRect(0.5f, pt.y + metrics.ascent, size.width - 0.5f, pt.y + metrics.descent),
+          FRect(0.5f, pt.y - metrics.ascent, size.width - 0.5f, pt.y - metrics.descent),
           framePaint);
       canvas.drawText("text rendered from bitmaps", pt, textPaint);
 
       break;
-    }
-    case PathText: {
+
+    case State.Three:
       auto metrics = textPaint.fontMetrics();
-      auto baseline = fRect(bounds).inset(-metrics.top, -metrics.top);
+      auto baseline = fRect(bounds).inset(metrics.top, metrics.top);
 
       auto up = metrics.underlinePos;
       framePaint.strokeWidth = metrics.underlineThickness;
       framePaint.color = Black;
-      canvas.drawRoundRect(baseline.inset(up, up), 50.0f, 50.0f, framePaint);
+      canvas.drawRoundRect(baseline.inset(-up, -up), 50.0f, 50.0f, framePaint);
 
       Path path;
       path.addRoundRect(baseline, 50.0f, 50.0f);
@@ -69,9 +69,20 @@ class TextView : View
       canvas.drawTextOnPath(t, path, textPaint);
 
       break;
-    }
-    default:
-      assert(0);
+
+    case State.Four:
+      textPaint.textAlign = TextPaint.TextAlign.Center;
+      auto metrics = textPaint.fontMetrics();
+      auto cnt = texts.length;
+      auto space = size.height - cnt * (metrics.ascent - metrics.descent);
+      space /= cnt + 1;
+      auto pt = FPoint(bounds.center.x, metrics.ascent + space);
+      auto lineInc = metrics.ascent - metrics.descent + space;
+      foreach(line; texts) {
+        canvas.drawText(line, pt, textPaint);
+        pt.y = pt.y + lineInc;
+      }
+      break;
     }
   }
 
