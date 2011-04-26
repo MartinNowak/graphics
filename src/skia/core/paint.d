@@ -13,6 +13,8 @@ private {
   import skia.core.xfermode;
   import skia.core.fonthost._;
 
+  import skia.util.format;
+
   version(No_DefaultAntiAlias) {
     enum DefaultAntiAlias = false;
   } else {
@@ -115,7 +117,7 @@ class TextPaint : Paint {
         ));
 
   TypeFace typeFace;
-  float fontSize=10.0f;
+  float textSize = 12.0f;
 
   // Text direction not implemented. Encoding should always be utf string.
   version(none) {
@@ -135,6 +137,29 @@ class TextPaint : Paint {
     this.typeFace = typeFace;
   }
 
+  struct FontMetrics {
+    @property string toString() const {
+      return fmtString(
+          "FontMetrics top:%f ascent:%f descent:%f bottom:%f leading:%f \n" ~
+          "\txmin:%f xmax:%f underlinePos:%f underlineThickness:%f",
+          top, ascent, descent, bottom, leading,
+          xmin, xmax, underlinePos, underlineThickness);
+    }
+    float top;
+    float ascent;
+    float descent;
+    float bottom;
+    float leading;
+    float xmin;
+    float xmax;
+    float underlinePos;
+    float underlineThickness;
+  };
+
+  FontMetrics fontMetrics() /*const*/ {
+    auto cache = getGlyphCache(this);
+    return cache.fontMetrics();
+  }
 }
 
 unittest {

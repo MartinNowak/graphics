@@ -1,6 +1,7 @@
 module skia.core.fonthost.freetype;
 
 import core.atomic, core.sync.mutex, core.sync.rwmutex, std.exception, std.traits, std.c.string : memcpy;
+import std.algorithm : max;
 import freetype.freetype, freetype.outline, guip.bitmap, guip.point, guip.size;
 import skia.core.glyph, skia.core.fonthost.fontconfig, skia.core.paint, skia.core.path;
 
@@ -59,7 +60,7 @@ synchronized class GlyphStore {
   }
 
   shared(Data) getData(TextPaint paint) {
-    // TODO: @@BUG@@ need paint.fontSize in hash
+    // TODO: @@BUG@@ need paint.textSize in hash
     return data.get(paint.typeFace.filename, newData(paint));
   }
 
@@ -67,7 +68,7 @@ synchronized class GlyphStore {
     shared(Data) d;
     d.glyphs[0] = Glyph(); // HACK needed to force creation of internal AA
     d.face = cast(shared)freeType.newFace(paint.typeFace.filename);
-    enforce(!FT_Set_Char_Size(cast(FT_Face)d.face, 0, to!FT_F26Dot6(paint.fontSize*64), 96, 96));
+    enforce(!FT_Set_Char_Size(cast(FT_Face)d.face, 0, to!FT_F26Dot6(paint.textSize*64), 72, 72));
     d.mtx = new shared(ReadWriteMutex)();
     data[paint.typeFace.filename] = d;
     return d;
@@ -92,11 +93,32 @@ GlyphCache getGlyphCache(TextPaint paint) {
 }
 
 struct GlyphCache {
+  // TODO: maybe copy paint so that it can be constant
   TextPaint paint;
   shared(GlyphStore.Data) data;
 
   GlyphStream glyphStream(string text, Glyph.LoadFlag loadFlags) {
     return GlyphStream(text, loadFlags, &this);
+  }
+
+  TextPaint.FontMetrics fontMetrics() {
+    auto face = data.face;
+    auto emScale = 1.0 / face.units_per_EM;
+    auto xscale = face.size.metrics.x_ppem * emScale;
+    auto yscale = face.size.metrics.y_ppem * emScale;
+
+    TextPaint.FontMetrics result;
+    result.top = yscale * -face.bbox.yMax;
+    result.ascent = yscale * -face.ascender;
+    result.descent = yscale * -face.descender;
+    result.bottom = yscale * -face.bbox.yMin;
+    result.leading = yscale * max(0, face.height - (face.ascender - face.descender));
+    result.xmin = xscale * face.bbox.xMin;
+    result.xmax = xscale * face.bbox.xMax;
+    result.underlinePos = yscale * -face.underline_position;
+    result.underlineThickness = yscale * face.underline_thickness;
+
+    return result;
   }
 }
 
@@ -127,7 +149,6 @@ struct GlyphStream {
       scope(exit) { writer.unlock(); reader.lock(); }
 
       if (cached is null) {
-        std.stdio.writeln("new glyph ", c);
         cache.data.glyphs[c] = Glyph();
         cached = cast(Glyph*)(c in cache.data.glyphs);
       }
@@ -158,12 +179,11 @@ void updateGlyph(Glyph.LoadFlag f : Glyph.LoadFlag.Metrics)(FT_Face face, Glyph*
   glyph.lsbDelta = face.glyph.lsb_delta * Scale26D6;
   glyph.rsbDelta = face.glyph.rsb_delta * Scale26D6;
   glyph.size = FSize(face.glyph.metrics.width * Scale26D6, face.glyph.metrics.height * Scale26D6);
-  std.stdio.writeln("glyph adv", glyph.rsbDelta, "|", glyph.size.width);
   glyph.loaded |= Glyph.LoadFlag.Metrics;
 }
 
 void updateGlyph(Glyph.LoadFlag f : Glyph.LoadFlag.Bitmap)(FT_Face face, Glyph* glyph, FT_UInt charIdx) {
-  enforce(!FT_Load_Glyph(face, charIdx, FT_LOAD.Render));
+  enforce(!FT_Load_Glyph(face, charIdx, FT_LOAD.RENDER));
 
   auto w = face.glyph.bitmap.width;
   auto h = face.glyph.bitmap.rows;
