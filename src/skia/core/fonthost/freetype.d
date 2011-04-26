@@ -108,14 +108,14 @@ struct GlyphCache {
     auto yscale = face.size.metrics.y_ppem * emScale;
 
     TextPaint.FontMetrics result;
-    result.top = yscale * -face.bbox.yMax;
-    result.ascent = yscale * -face.ascender;
-    result.descent = yscale * -face.descender;
-    result.bottom = yscale * -face.bbox.yMin;
+    result.top = yscale * face.bbox.yMax;
+    result.ascent = yscale * face.ascender;
+    result.descent = yscale * face.descender;
+    result.bottom = yscale * face.bbox.yMin;
     result.leading = yscale * max(0, face.height - (face.ascender - face.descender));
     result.xmin = xscale * face.bbox.xMin;
     result.xmax = xscale * face.bbox.xMax;
-    result.underlinePos = yscale * -face.underline_position;
+    result.underlinePos = yscale * face.underline_position;
     result.underlineThickness = yscale * face.underline_thickness;
 
     return result;
