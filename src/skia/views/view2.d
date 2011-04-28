@@ -88,6 +88,8 @@ class ParentView : View {
   override void onMouse(MouseEvent e, ISize size) { child.onMouse(e, size); }
   override void onKey(KeyEvent e, ISize size) { child.onKey(e, size); }
 
+  override SizeHint sizeHint() const { return child.sizeHint(); }
+
   // system events
   override void onResize(ResizeEvent e) { child.onResize(e); }
   override void onDraw(Canvas canvas, IRect area, ISize size) { child.onDraw(canvas, area, size); }
