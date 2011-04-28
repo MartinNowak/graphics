@@ -75,25 +75,25 @@ private:
     path.forEach!(QuadCubicFlattener)((Path.Verb verb, in FPoint[] pts){
         final switch(verb) {
         case Path.Verb.Move:
-          this.segments.put(getSegment!(Path.Verb.Move)(this.curDist, this.points.length));
+          this.segments.put(getSegment(this.curDist, verb, this.points.length));
           this.moveTo(pts[0]);
           break;
 
         case Path.Verb.Line:
           auto dist = this.curDist + curveLength(fixedAry!2(pts));
-          this.segments.put(getSegment!(Path.Verb.Line)(dist, this.points.length - 1));
+          this.segments.put(getSegment(dist, verb, this.points.length - 1));
           this.lineTo(pts[1]);
           break;
 
         case Path.Verb.Quad:
           auto dist = this.curDist + curveLength(fixedAry!3(pts));
-          this.segments.put(getSegment!(Path.Verb.Quad)(dist, this.points.length - 1));
+          this.segments.put(getSegment(dist, verb, this.points.length - 1));
           this.quadTo(pts[1], pts[2]);
           break;
 
         case Path.Verb.Cubic:
           auto dist = this.curDist + curveLength(fixedAry!4(pts));
-          this.segments.put(getSegment!(Path.Verb.Cubic)(dist, this.points.length - 1));
+          this.segments.put(getSegment(dist, verb, this.points.length - 1));
           this.cubicTo(pts[1], pts[2], pts[3]);
           break;
 
@@ -109,24 +109,23 @@ private:
     return distance(pts.front, pts.back);
   }
 
-  //! TODO: add real derivative functions to edge_detail.algo and use them here
   void calcPosNormal(in Segment segment, float t, out FPoint pos, out FVector normal) const {
     switch (segment.type) {
-    case Segment.Line:
+    case Path.Verb.Line:
       auto pts = fixedAry!2(this.points[segment.pointIndex .. segment.pointIndex + 2]);
       pos = FPoint(calcBezier!("x")(pts, t), calcBezier!("y")(pts, t));
       normal.setNormalize(calcBezierDerivative!("x")(pts, t), calcBezierDerivative!("y")(pts, t));
       normal.rotateCW();
       break;
 
-    case Segment.Quad:
+    case Path.Verb.Quad:
       auto pts = fixedAry!3(this.points[segment.pointIndex .. segment.pointIndex + 3]);
       pos = FPoint(calcBezier!("x")(pts, t), calcBezier!("y")(pts, t));
       normal.setNormalize(calcBezierDerivative!("x")(pts, t), calcBezierDerivative!("y")(pts, t));
       normal.rotateCW();
       break;
 
-    case Segment.Cubic:
+    case Path.Verb.Cubic:
       auto pts = fixedAry!4(this.points[segment.pointIndex .. segment.pointIndex + 4]);
       pos = FPoint(calcBezier!("x")(pts, t), calcBezier!("y")(pts, t));
       normal.setNormalize(calcBezierDerivative!("x")(pts, t), calcBezierDerivative!("y")(pts, t));
@@ -147,17 +146,17 @@ private:
 
 struct Segment {
   float distance;
-  enum { Move = 0, Line = 1, Quad = 2, Cubic = 3, }
+  alias Path.Verb Verb;
   mixin(bitfields!(
-      uint, "type", 2,
+      Verb, "type", 2,
       size_t, "pointIndex", 30));
 }
 
-Segment getSegment(Path.Verb verb)(float distance, size_t pointIndex) {
+Segment getSegment(float distance, Path.Verb verb, size_t pointIndex) {
   assert(pointIndex >= 0, "invalid point index");
   Segment seg;
   seg.distance = distance;
-  seg.type = segmentType!verb;
+  seg.type = verb;
   seg.pointIndex = pointIndex;
   return seg;
 }
@@ -166,15 +165,4 @@ Segment distComparable(float dist) {
   Segment seg;
   seg.distance = dist;
   return seg;
-}
-
-template segmentType(Path.Verb verb) {
-  static if (verb == Path.Verb.Move)
-    enum segmentType = Segment.Move;
-  else static if (verb == Path.Verb.Line)
-    enum segmentType = Segment.Line;
-  else static if (verb == Path.Verb.Quad)
-    enum segmentType = Segment.Quad;
-  else static if (verb == Path.Verb.Cubic)
-    enum segmentType = Segment.Cubic;
 }
