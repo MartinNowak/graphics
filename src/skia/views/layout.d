@@ -2,7 +2,7 @@ module skia.views.layout;
 
 import std.math : abs;
 import skia.views.view2, skia.core.canvas;
-import layout.box, layout.flow, layout.hint, layout.item;
+import layout.box, layout.flex, layout.hint, layout.item;
 import guip.event, guip.point, guip.rect, guip.size;
 
 //debug=FRAME;
@@ -19,17 +19,8 @@ VBox vbox(View[] views) {
   return new VBox(views);
 }
 
-View varBox(View[] chs) {
-  switch (chs.length) {
-  case 2:
-    return new Layout!(VarBoxLayout!(View, 2))(chs);
-  case 3:
-    return new Layout!(VarBoxLayout!(View, 3))(chs);
-  case 4:
-    return new Layout!(VarBoxLayout!(View, 4))(chs);
-  default:
-    assert(0);
-  }
+View flexBox(View[] chs) {
+  return new Layout!(FlexLayout!(View))(chs);
 }
 
 class Layout(Container) : View {
