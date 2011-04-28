@@ -302,7 +302,7 @@ public:
     for (auto i = 0; i < K; ++i) {
       FVector normal;
       auto pos = meas.getPosAndNormalAtDistance(trans[i].x, normal);
-      dst[i] = pos + normal * trans[i].y;
+      dst[i] = pos - normal * trans[i].y;
     }
     return dst;
   }
