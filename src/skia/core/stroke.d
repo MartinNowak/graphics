@@ -12,7 +12,6 @@ private {
   import skia.math.fixed_ary;
 }
 
-//! TODO: implement joiner
 struct Stroke {
   const Paint paint;
   float radius;
@@ -38,12 +37,12 @@ struct Stroke {
 
   void done() {
     if (!this.outer.empty)
-      this.finishContour(true);
+      this.finishContour(false);
   }
 
-  void close(bool capClose) {
+  void close() {
     assert(!this.outer.empty);
-    this.finishContour(capClose);
+    this.finishContour(true);
   }
 
   FVector getNormal(FPoint pt1, FPoint pt2) {
@@ -72,7 +71,7 @@ struct Stroke {
         this.cubicTo(fixedAry!4(pts));
         break;
       case Path.Verb.Close:
-        this.close(pts.length != 0);
+        this.close();
       }
       });
 
@@ -92,22 +91,28 @@ struct Stroke {
     }
   }
 
-  void finishContour(bool capClose) {
-    if (capClose) {
+  void finishContour(bool close) {
+    if (close) {
+      auto firstNormal = this.getNormal(this.outer.points[0], this.outer.points[1]);
+      FPoint pt = (this.inner.lastPoint + this.outer.lastPoint) * 0.5;
+      this.join(pt, firstNormal);
+      this.outer.close();
+
+      this.outer.moveTo(this.inner.lastPoint);
+      this.outer.reversePathTo(this.inner);
+      this.outer.close();
+    } else {
       FVector normal = this.getNormal(this.outer.pointsRetro[0], this.outer.pointsRetro[1]);
       FPoint pt = (this.inner.lastPoint + this.outer.lastPoint) * 0.5;
       this.capper(pt, normal, this.outer);
 
       this.outer.reversePathTo(this.inner);
 
-      normal = this.getNormal(this.outer.points[0], this.outer.points[1]);
+      auto firstNormal = this.getNormal(this.outer.points[0], this.outer.points[1]);
       pt = (this.outer.pointsRetro[0] + this.outer.points[0]) * 0.5;
-      this.capper(pt, normal, this.outer);
-    } else {
-      this.outer.moveTo(this.inner.lastPoint);
-      this.outer.reversePathTo(this.inner);
+      this.capper(pt, firstNormal, this.outer);
+      this.outer.close();
     }
-    this.outer.close();
 
     this.result.addPath(this.outer);
     this.inner.reset();
@@ -116,7 +121,7 @@ struct Stroke {
 
   void moveTo(FPoint pt) {
     if (!this.outer.empty) {
-      this.finishContour(true);
+      this.finishContour(false);
     }
   }
 
