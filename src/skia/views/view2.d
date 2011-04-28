@@ -52,11 +52,11 @@ class View {
           "background-color" : "0xFFFFFFFF",
 
           "border-color" : "0xFFAAAAAA",
-          "border-width" : "2px",
+          "border-width" : "2", // px
           "border-style" : "dotted",
 
-          //          "padding" : "2px",
-          //          "margin" : "2px",
+          "padding" : "1", // px
+          "margin" : "1", // px
       ];
     if (parent !is null)
       return parent.lookupAttr(key);
