@@ -9,6 +9,7 @@ private {
   import skia.core.canvas;
   import skia.core.pmcolor : Black, Red, Green, Cyan;
   import skia.core.paint;
+  import skia.effect.dashpatheffect;
   import guip.event, guip.point, guip.rect, guip.size;
   import skia.views.view2;
   import layout.hint;
@@ -36,11 +37,13 @@ class CirclesView : View
     auto steps = 2 * PI * dist / (3*this.cRad);
     auto degInc = 2 * PI / steps;
 
-    auto cyan = Cyan; cyan.a = 100; cyan.g = 100;
-    scope auto paintC = new Paint(Black);
+    auto cyan = Cyan; cyan.a = 180; cyan.g = 100;
+    scope auto paintC = new Paint(cyan);
     paintC.antiAlias = true;
     paintC.fillStyle = Paint.Fill.Stroke;
-    paintC.strokeWidth = 0.1;
+    paintC.strokeWidth = 0.2;
+    paintC.pathEffect = new DashPathEffect([2.f, 1.f]);
+
     scope auto paintR = new Paint(Red);
     paintR.antiAlias = true;
 
@@ -64,7 +67,7 @@ class CirclesView : View
       center.setLength(dist * scaled);
 
       scaled *= scaleFac;
-    } while(scaled > 1e-2f);
+    } while(scaled > 1e-1f);
   }
 
   override SizeHint sizeHint() const {
