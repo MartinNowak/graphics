@@ -62,12 +62,17 @@ struct PathMeasure {
       path._points.put(stopPts);
     } else {
       // startD and stopD are in different segments
-      path._points.put(startPts);
+      path._points.put(startPts[0 .. $ -1]);
       path._points.put(this.points[start.front.pointIndex + verbs.front .. stop.front.pointIndex]);
-      auto stopPts = stopT < 1.0
-        ? chopBezier(segPoints(stop.front, verbs.back), stopT, false)
-        : segPoints(stop.front, verbs.back);
-      path._points.put(stopPts);
+      if (stopT > 0.0) {
+        auto stopPts = stopT < 1.0
+          ? chopBezier(segPoints(stop.front, verbs.back), stopT, false)
+          : segPoints(stop.front, verbs.back);
+        path._points.put(stopPts);
+      } else {
+        path._points.put(this.points[stop.front.pointIndex]);
+        verbs.popBack;
+      }
     }
     path._verbs.put(Path.Verb.Move);
     path._verbs.put(verbs);
@@ -79,8 +84,8 @@ struct PathMeasure {
   } body {
     switch (pts.length) {
     case 2: return splitBezier(fixedAry!2(pts), t)[returnRight].idup;
-    case 3: return splitBezier(fixedAry!2(pts), t)[returnRight].idup;
-    case 4: return splitBezier(fixedAry!2(pts), t)[returnRight].idup;
+    case 3: return splitBezier(fixedAry!3(pts), t)[returnRight].idup;
+    case 4: return splitBezier(fixedAry!4(pts), t)[returnRight].idup;
     default: assert(0);
     }
   }
