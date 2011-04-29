@@ -5,7 +5,7 @@ private {
   import std.array : front, back, save;
   version(unittest) import std.array : appender;
   import std.conv : to;
-  import std.math : isNaN;
+  import std.math : approxEqual, isNaN;
   import std.numeric : FPTemporary;
 
   import skia.core.edge_detail.algo;
@@ -53,7 +53,7 @@ void cubicEdge(R, T)(ref R appender, Point!T[4] pts, const(IRect*) clip=null) {
       if (numRoots > 0) {
         debug(PRINTF) writefln("2nd pass n:%s roots: %s orig 2nd root: %s",
                                numRoots, unitRoots, sndRoot);
-        assert(abs(unitRoots[numRoots - 1] - sndRoot) < 1e-3);
+        assert(approxEqual(unitRoots[numRoots - 1], sndRoot));
       } else {
         assert(abs(sndRoot - 1) < 5e-4);
       }
