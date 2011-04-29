@@ -26,10 +26,10 @@ version=CUBIC_ARC;
 // TODO: FPoint -> Point!T
 struct Path
 {
-private:
   Appender!(FPoint[]) _points;
   Appender!(Verb[]) _verbs;
 
+private:
   FRect _bounds;
   bool boundsIsClean;
   FillType _fillType;

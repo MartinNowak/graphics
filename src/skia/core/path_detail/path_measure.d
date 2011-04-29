@@ -1,16 +1,8 @@
 module skia.core.path_detail.path_measure;
 
-private {
-  import std.array : Appender, front, back;
-  import std.range : assumeSorted;
-
-  import skia.core.path;
-  import guip.point;
-  import skia.core.edge_detail.algo;
-
-  import skia.math.fixed_ary;
-  import skia.math.clamp;
-}
+import std.array, std.range : assumeSorted;
+import skia.core.path, skia.core.edge_detail.algo, skia.math.fixed_ary, skia.math.clamp;
+import guip.point;
 
 struct PathMeasure {
   Path _path;
@@ -42,12 +34,75 @@ struct PathMeasure {
     return pos;
   }
 
+  void appendRangeToPath(float startD, float stopD, ref Path path) {
+    startD = clampToRange!float(startD, 0.0f, this.length);
+    stopD = clampToRange!float(stopD, 0.0f, this.length);
+    if (startD >= stopD)
+      return;
+
+    FPoint[] ptApp;
+    auto start = segmentRange(startD);
+    auto startT = calcT(startD, start.front, start[1]);
+    //    std.stdio.stderr.writeln(constSegments, "|", startD, "|", startT, "|", start[0].distance, "|", start[1].distance);
+    start.popFront;
+    auto stop = segmentRange(stopD);
+    auto stopT = calcT(stopD, stop.front, stop[1]);
+    stop.popFront;
+
+    auto verbs = this.verbs[$ - start.length .. $ - stop.length + 1];
+
+    auto startPts = startT > 0.0
+      ? chopBezier(segPoints(start.front, verbs.front), startT, true)
+      : segPoints(start.front, verbs.front);
+
+    if (start.length == stop.length) {
+      // startD and stopD are in same segment
+      assert(stopT > startT);
+      auto stopPts = stopT < 1.0
+        ? chopBezier(startPts, (stopT - startT) / (1.0 - startT), false)
+        : startPts;
+      //      path._points.put(stopPts);
+      ptApp ~= stopPts;
+    } else {
+      // startD and stopD are in different segments
+      //    path._points.put(startPts);
+      ptApp ~= startPts;
+      //      path._points.put(this.points[start.front.pointIndex + verbs.front .. stop.front.pointIndex]);
+      ptApp ~= this.points[start.front.pointIndex + verbs.front .. stop.front.pointIndex];
+      auto stopPts = stopT < 1.0
+        ? chopBezier(segPoints(stop.front, verbs.back), stopT, false)
+        : segPoints(stop.front, verbs.back);
+      //      path._points.put(stopPts);
+      ptApp ~= stopPts;
+    }
+    std.stdio.writeln(ptApp);
+    path._points.put(ptApp);
+    path._verbs.put(Path.Verb.Move);
+    path._verbs.put(verbs);
+  }
+
+  FPoint[] chopBezier(in FPoint[] pts, float t, bool returnRight)
+  in {
+    assert(fitsIntoRange!("()")(t, 0.0f, 1.0f), to!string(t));
+  } body {
+    switch (pts.length) {
+    case 2: return splitBezier(fixedAry!2(pts), t)[returnRight];
+    case 3: return splitBezier(fixedAry!2(pts), t)[returnRight];
+    case 4: return splitBezier(fixedAry!2(pts), t)[returnRight];
+    default: assert(0);
+    }
+  }
+
+  const(FPoint[]) segPoints(in Segment seg, Path.Verb verb) const {
+    return this.points[seg.pointIndex .. seg.pointIndex + verb + 1];
+  }
+
 private:
 
   /**
      Returns the range of segments starting with the one before distance.
    */
-  const(Segment[]) segmentRange(float distance) const
+  const(Segment)[] segmentRange(float distance) const
   in {
     assert(fitsIntoRange!("[]")(distance, 0.0, this.length));
   } out(range) {
@@ -55,10 +110,10 @@ private:
   } body {
 
     auto sorted = assumeSorted!("a.distance < b.distance")(constSegments);
-    auto lowerHalf = sorted.lowerBound(distComparable(distance));
-    assert(lowerHalf.length < constSegments.length);
-    auto start = lowerHalf.length == 0 ? 0 : lowerHalf.length - 1;
-    return constSegments[start .. $];
+    auto upperHalf = sorted.upperBound(distComparable(distance));
+    assert(upperHalf.length < constSegments.length);
+    auto count = upperHalf.length == 0 ? 2 : upperHalf.length + 1;
+    return constSegments[$ - count.. $];
   }
 
   float calcT(float distance, in Segment left, in Segment right) const
@@ -161,6 +216,9 @@ private:
 private:
 
 struct Segment {
+  @property string toString() const {
+    return "Segment " ~ to!string(distance);
+  }
   float distance;
   uint pointIndex;
 }
