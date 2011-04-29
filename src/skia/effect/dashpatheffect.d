@@ -23,9 +23,10 @@ class DashPathEffect : PathEffect {
     auto dist = 0.0;
     while (dist < meas.length) {
       foreach(i, dash; intervals) {
+        auto newDist = dist + dash * scale;
         if ((i & 0x1) == 0)
-          meas.appendRangeToPath(dist, dist + dash, result);
-        dist += dash * scale;
+          meas.appendRangeToPath(dist, newDist, result);
+        dist = newDist;
       }
     }
     return result;
