@@ -139,6 +139,7 @@ class ARGB32Blitter : RasterBlitter {
 class ShaderARGB32Blitter : ARGB32Blitter {
   Shader shader;
   const void function(PMColor[], const(PMColor)[], ubyte) blitRow;
+  PMColor[] data;
 
   this(Bitmap bitmap, Paint paint) {
     super(bitmap, paint);
@@ -151,9 +152,10 @@ class ShaderARGB32Blitter : ARGB32Blitter {
     auto ixStart = this.round(xStart);
     auto ixEnd = this.round(xEnd);
     auto iy = this.round(y);
+    data.length = ixEnd - ixStart;
     PMColor[] dst = this.bitmap.getRange!PMColor(ixStart, ixEnd, iy);
-    const(PMColor)[] src = this.shader.getRange(ixStart, ixEnd, iy);
-    this.blitRow(dst, src, 255);
+    this.shader.getRange(ixStart, iy, data);
+    this.blitRow(dst, data, 255);
   }
 }
 

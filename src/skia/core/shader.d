@@ -3,7 +3,7 @@ module skia.core.shader;
 import skia.core.pmcolor;
 
 interface Shader {
-  const(PMColor)[] getRange(int xStart, int xEnd, int y);
+  void getRange(int x, int y, ref PMColor[] data);
   @property bool opaque() const;
 }
 
@@ -16,14 +16,8 @@ class ColorShader : Shader {
     this.color = color;
   }
 
-  const(PMColor)[] getRange(int xStart, int xEnd, int y)
-  in {
-    assert(xEnd >= xStart);
-  } body {
-    PMColor[] result;
-    result.length = xEnd - xStart;
-    result[] = color;
-    return result;
+  void getRange(int x, int y, ref PMColor[] data) {
+    data[] = color;
   }
 
   @property bool opaque() const {
