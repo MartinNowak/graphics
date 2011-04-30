@@ -144,8 +144,7 @@ class ShaderARGB32Blitter : ARGB32Blitter {
   this(Bitmap bitmap, Paint paint) {
     super(bitmap, paint);
     this.shader = paint.shader;
-    const bool blendSource = true;
-    this.blitRow = blitRowFactory32(BlitRowFlags32.SrcPixelAlpha);
+    this.blitRow = blitRowFactory32(shader.opaque ? 0 : BlitRowFlags32.SrcPixelAlpha);
   }
 
   override void blitFH(float y, float xStart, float xEnd) {
