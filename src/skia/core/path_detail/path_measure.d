@@ -49,26 +49,18 @@ struct PathMeasure {
 
     auto verbs = this.verbs[$ - start.length .. $ - stop.length + 1];
 
-    auto startPts = startT > 0.0
-      ? chopBezier(segPoints(start.front, verbs.front), startT, true)
-      : segPoints(start.front, verbs.front);
-
     if (start.length == stop.length) {
       // startD and stopD are in same segment
       assert(stopT > startT);
-      auto stopPts = stopT < 1.0
-        ? chopBezier(startPts, (stopT - startT) / (1.0 - startT), false)
-        : startPts;
-      path._points.put(stopPts);
+      appendChopped!("[]")(path._points, segPoints(start.front, verbs.front), startT, stopT);
     } else {
-      // startD and stopD are in different segments
-      path._points.put(startPts[0 .. $ -1]);
-      path._points.put(this.points[start.front.pointIndex + verbs.front .. stop.front.pointIndex]);
+      appendChopped!("[)")(path._points, segPoints(start.front, verbs.front), startT, 1.0);
+
+      if (start.length > stop.length + 1)
+        path._points.put(this.points[start[1].pointIndex .. stop.front.pointIndex]);
+
       if (stopT > 0.0) {
-        auto stopPts = stopT < 1.0
-          ? chopBezier(segPoints(stop.front, verbs.back), stopT, false)
-          : segPoints(stop.front, verbs.back);
-        path._points.put(stopPts);
+        appendChopped!("[]")(path._points, segPoints(stop.front, verbs.back), 0.0, stopT);
       } else {
         path._points.put(this.points[stop.front.pointIndex]);
         verbs.popBack;
@@ -76,18 +68,6 @@ struct PathMeasure {
     }
     path._verbs.put(Path.Verb.Move);
     path._verbs.put(verbs);
-  }
-
-  static immutable(FPoint[]) chopBezier(in FPoint[] pts, float t, bool returnRight)
-  in {
-    assert(fitsIntoRange!("()")(t, 0.0f, 1.0f), to!string(t));
-  } body {
-    switch (pts.length) {
-    case 2: return splitBezier(fixedAry!2(pts), t)[returnRight].idup;
-    case 3: return splitBezier(fixedAry!3(pts), t)[returnRight].idup;
-    case 4: return splitBezier(fixedAry!4(pts), t)[returnRight].idup;
-    default: assert(0);
-    }
   }
 
   const(FPoint[]) segPoints(in Segment seg, Path.Verb verb) const {
@@ -232,4 +212,47 @@ Segment distComparable(float dist) {
   Segment seg;
   seg.distance = dist;
   return seg;
+}
+
+static void appendChopped(string interval="[]")(ref Appender!(FPoint[]) app, in FPoint[] pts, double startT, double stopT)
+in {
+  assert(fitsIntoRange!("[]")(startT, 0.0, 1.0));
+  assert(fitsIntoRange!("[]")(stopT, 0.0, 1.0));
+  assert(stopT > startT);
+} body {
+  switch(pts.length) {
+  case 2: trimApp!(interval)(app, chopBezier(fixedAry!2(pts), startT, stopT)); break;
+  case 3: trimApp!(interval)(app, chopBezier(fixedAry!3(pts), startT, stopT)); break;
+  case 4: trimApp!(interval)(app, chopBezier(fixedAry!4(pts), startT, stopT)); break;
+  default: assert(0);
+  }
+}
+
+void trimApp(string interval, size_t K)(ref Appender!(FPoint[]) app, FPoint[K] pts) {
+  enum leftOff = intervalOffset(interval[0]);
+  enum rightOff = intervalOffset(interval[1]);
+  app.put(pts[leftOff .. $ - rightOff]);
+}
+
+FPoint[K] chopBezier(size_t K)(FPoint[K] pts, double startT, double stopT) {
+  if (startT > 0.0)
+    pts = splitBezier(pts, startT)[1];
+
+  if (startT > 0.0 && stopT < 1.0)
+    stopT = (stopT - startT) / (1.0 - startT);
+
+  if (stopT < 1.0)
+    pts = splitBezier(pts, stopT)[0];
+
+  return pts;
+}
+
+size_t intervalOffset(dchar c) {
+  switch (c) {
+  case '(': return 1;
+  case ')': return 1;
+  case '[': return 0;
+  case ']': return 0;
+  default: assert(0);
+  }
 }
