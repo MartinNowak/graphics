@@ -16,6 +16,8 @@ private {
   import skia.core.device;
   import skia.core.matrix;
   import skia.core.paint;
+  import skia.core.pmcolor;
+  import skia.core.shader;
   import guip.point;
   import guip.rect;
   import skia.core.scan : AAScale;
@@ -46,9 +48,16 @@ class Blitter
     case Bitmap.Config.ARGB_8888:
       {
         if (paint.antiAlias)
-          return new ARGB32BlitterAA!(AAScale)(device, paint);
+          if (paint.shader)
+            // return new ShaderARGB32BlitterAA!(AAScale)(device, paint);
+            assert(0, "unimplemented");
+          else
+            return new ARGB32BlitterAA!(AAScale)(device, paint);
         else
-          return new ARGB32Blitter(device, paint);
+          if (paint.shader)
+            return new ShaderARGB32Blitter(device, paint);
+          else
+            return new ARGB32Blitter(device, paint);
       }
     }
   }
@@ -124,6 +133,27 @@ class ARGB32Blitter : RasterBlitter {
       BlitAASpan(this.bitmap.getRange!PMColor(ix, ix + mask.width, iy + h),
                  (cast(Bitmap)mask).getRange!ubyte(0, mask.width, h), this.color);
     }
+  }
+}
+
+class ShaderARGB32Blitter : ARGB32Blitter {
+  Shader shader;
+  const void function(PMColor[], const(PMColor)[], ubyte) blitRow;
+
+  this(Bitmap bitmap, Paint paint) {
+    super(bitmap, paint);
+    this.shader = paint.shader;
+    const bool blendSource = true;
+    this.blitRow = blitRowFactory32(BlitRowFlags32.SrcPixelAlpha);
+  }
+
+  override void blitFH(float y, float xStart, float xEnd) {
+    auto ixStart = this.round(xStart);
+    auto ixEnd = this.round(xEnd);
+    auto iy = this.round(y);
+    PMColor[] dst = this.bitmap.getRange!PMColor(ixStart, ixEnd, iy);
+    const(PMColor)[] src = this.shader.getRange(ixStart, ixEnd, iy);
+    this.blitRow(dst, src, 255);
   }
 }
 

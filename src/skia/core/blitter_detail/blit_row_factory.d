@@ -1,8 +1,7 @@
 module skia.core.blitter_detail.blit_row_factory;
 
-private {
-  import skia.core.pmcolor;
-}
+import skia.core.pmcolor;
+
 version(NO_SSE) {
   public import skia.core.blitter_detail.blit_row;
 } else {
@@ -22,3 +21,15 @@ enum BlitRowFlags32 {
   SrcPixelAlpha   = 1 << 1,
 };
 
+static const BlitRowProc32 defaultProcs32[4] = [
+    &S32_Opaque_BlitRow32,
+    &S32_Blend_BlitRow32,
+    &S32A_Opaque_BlitRow32,
+    &S32A_Blend_BlitRow32,
+];
+
+BlitRowProc32 blitRowFactory32(uint flags32) {
+  assert(flags32 <= (BlitRowFlags32.GlobalAlpha | BlitRowFlags32.SrcPixelAlpha));
+  std.stdio.writeln(flags32);
+  return defaultProcs32[flags32];
+}

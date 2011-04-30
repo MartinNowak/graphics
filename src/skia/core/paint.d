@@ -9,6 +9,7 @@ private {
   import skia.core.drawlooper;
   import skia.core.path;
   import skia.core.patheffect;
+  import skia.core.shader;
   import skia.core.stroke;
   import skia.core.xfermode;
   import skia.core.fonthost._;
@@ -30,6 +31,7 @@ class Paint
   DrawLooper drawLooper;
   XferMode xferMode;
   PathEffect pathEffect;
+  Shader shader;
 
   mixin(bitfields!(
           bool, "antiAlias", 1,
