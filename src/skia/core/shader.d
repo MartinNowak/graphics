@@ -1,12 +1,30 @@
 module skia.core.shader;
 
-import skia.core.pmcolor, skia.math.clamp;
+import skia.core.matrix, skia.core.pmcolor, skia.math.clamp;
 import guip.point;
 import std.array, std.algorithm, std.math, std.conv : to;
 
-interface Shader {
-  void getRange(int x, int y, ref PMColor[] data);
-  @property bool opaque() const;
+class Shader {
+  this() {
+    this.mat.reset();
+  }
+
+  abstract void getRange(float x, float y, ref PMColor[] data);
+  abstract @property bool opaque() const;
+
+  final @property void matrix(in Matrix mat) {
+    this.mat = mat;
+  }
+
+  final @property Matrix matrix() const {
+    return this.mat;
+  }
+
+  final FPoint mapPoint(FPoint pt) const {
+    return mat.mapPoint(pt);
+  }
+
+  Matrix mat;
 }
 
 class ColorShader : Shader {
@@ -18,7 +36,7 @@ class ColorShader : Shader {
     this.color = color;
   }
 
-  void getRange(int x, int y, ref PMColor[] data) {
+  override void getRange(float x, float y, ref PMColor[] data) {
     data[] = color;
   }
 
@@ -29,33 +47,34 @@ class ColorShader : Shader {
 
 class GradientShader : Shader {
   PMColor[] clrs;
-  IPoint[] pts;
+  FPoint[] pts;
 
-  this(Color[] clrs, IPoint[] pts) {
+  this(Color[] clrs, FPoint[] pts) {
     assert(clrs.length == pts.length);
     this.clrs = array(map!(PMColor)(clrs));
     this.pts = pts;
   }
-  this(PMColor[] clrs, IPoint[] pts) {
+  this(PMColor[] clrs, FPoint[] pts) {
     assert(clrs.length == pts.length);
     this.clrs = clrs;
     this.pts = pts;
   }
 
-  void getRange(int x, int y, ref PMColor[] data) {
-    foreach(int i, ref d; data)
-      d = colorAt(IPoint(x + i, y));
+  override void getRange(float x, float y, ref PMColor[] data) {
+    foreach(i, ref d; data) {
+      d = colorAt(this.mapPoint(FPoint(x + i, y)));
+    }
   }
 
   @property bool opaque() const {
     return this.clrs[0].opaque && this.clrs[1].opaque;
   }
 
-  PMColor colorAt(in IPoint pt) const {
+  PMColor colorAt(in FPoint pt) const {
     foreach(i, cpt; this.pts)
-      if (pt == cpt) return this.clrs[i];
+      if (distance(pt, cpt) < 1.0) return this.clrs[i];
 
-    float calcDist(IPoint ptb) { return rdistance(ptb, pt); }
+    float calcDist(FPoint ptb) { return rdistance(ptb, pt); }
     auto dist = map!(calcDist)(this.pts);
     auto sumdist = reduce!("a + b")(0.0, dist);
     PMColor result;
@@ -68,7 +87,7 @@ class GradientShader : Shader {
 }
 
 version (D_InlineAsm_X86_64) {
-  float rdistance(IPoint pta, IPoint ptb) {
+  float rdistance(FPoint pta, FPoint ptb) {
     auto d = ptb - pta;
     return rSqrt(d.x * d.x + d.y * d.y);
   }
@@ -80,7 +99,7 @@ version (D_InlineAsm_X86_64) {
     }
   }
 } else {
-  float rdistance(IPoint pta, IPoint ptb) {
+  float rdistance(FPoint pta, FPoint ptb) {
     return 1. / distance(pta, ptb);
   }
 }

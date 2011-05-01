@@ -152,8 +152,8 @@ class ShaderARGB32Blitter : ARGB32Blitter {
     auto iy = this.round(y);
     this.data.length = ixEnd - ixStart;
     PMColor[] dst = this.bitmap.getRange!PMColor(ixStart, ixEnd, iy);
-    this.shader.getRange(ixStart, iy, data);
-    this.blitRow(dst, data, 255);
+    this.shader.getRange(xStart, y, this.data);
+    this.blitRow(dst, this.data, 255);
   }
 }
 
