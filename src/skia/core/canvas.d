@@ -82,7 +82,7 @@ public:
     this.setDevice(device);
   }
 
-  debug @property Matrix curMatrix() const {
+  @property Matrix curMatrix() const {
     return this.curMCRec.matrix;
   }
   debug @property size_t saveCount() const {

@@ -30,6 +30,5 @@ static const BlitRowProc32 defaultProcs32[4] = [
 
 BlitRowProc32 blitRowFactory32(uint flags32) {
   assert(flags32 <= (BlitRowFlags32.GlobalAlpha | BlitRowFlags32.SrcPixelAlpha));
-  std.stdio.writeln(flags32);
   return defaultProcs32[flags32];
 }

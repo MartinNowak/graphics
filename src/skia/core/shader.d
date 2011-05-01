@@ -48,16 +48,19 @@ class ColorShader : Shader {
 class GradientShader : Shader {
   PMColor[] clrs;
   FPoint[] pts;
+  float[] dist;
 
   this(Color[] clrs, FPoint[] pts) {
     assert(clrs.length == pts.length);
     this.clrs = array(map!(PMColor)(clrs));
     this.pts = pts;
+    this.dist.length = pts.length;
   }
   this(PMColor[] clrs, FPoint[] pts) {
     assert(clrs.length == pts.length);
     this.clrs = clrs;
     this.pts = pts;
+    this.dist.length = pts.length;
   }
 
   override void getRange(float x, float y, ref PMColor[] data) {
@@ -70,12 +73,14 @@ class GradientShader : Shader {
     return this.clrs[0].opaque && this.clrs[1].opaque;
   }
 
-  PMColor colorAt(in FPoint pt) const {
-    foreach(i, cpt; this.pts)
-      if (distance(pt, cpt) < 1.0) return this.clrs[i];
+  PMColor colorAt(in FPoint pt) {
+    foreach(i, ptb; this.pts) {
+      auto rd = rdistance(pt, ptb);
+      if (rd > 1.0)
+        return this.clrs[i];
+      dist[i] = rd;
+    }
 
-    float calcDist(FPoint ptb) { return rdistance(ptb, pt); }
-    auto dist = map!(calcDist)(this.pts);
     auto sumdist = reduce!("a + b")(0.0, dist);
     PMColor result;
     foreach(i; 0 .. dist.length) {
