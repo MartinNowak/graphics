@@ -46,7 +46,7 @@ class Paint
   enum Cap { Butt, Square, Round, }
   enum Join { Miter, Round, Bevel, }
 
-  this(Color color) {
+  this(Color color=Black) {
     this.color = color;
     this.capStyle = Cap.Butt;
     this.joinStyle = Join.Miter;

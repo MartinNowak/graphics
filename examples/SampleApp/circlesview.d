@@ -9,6 +9,7 @@ private {
   import skia.core.canvas;
   import skia.core.pmcolor : Black, Red, Green, Cyan;
   import skia.core.paint;
+  import skia.core.shader;
   import skia.effect.dashpatheffect;
   import guip.event, guip.point, guip.rect, guip.size;
   import skia.views.view2;
@@ -30,6 +31,7 @@ class CirclesView : View
     canvas.setMatrix(matrix);
     */
     auto bounds = IRect(size);
+    auto inv = canvas.curMatrix.inverted;
 
     canvas.translate(fPoint(bounds.center));
     const auto dist = to!int(max(bounds.centerX, bounds.centerY)
@@ -41,8 +43,11 @@ class CirclesView : View
     scope auto paintC = new Paint(cyan);
     paintC.antiAlias = true;
     paintC.fillStyle = Paint.Fill.Stroke;
-    paintC.strokeWidth = 0.2;
+    paintC.strokeWidth = 1.0;
     paintC.pathEffect = new DashPathEffect([2.f, 1.f]);
+    paintC.shader = new GradientShader([cyan, Red], [FPoint(0, 0), FPoint(size.width, size.height)]);
+    paintC.shader.matrix = inv;
+
 
     scope auto paintR = new Paint(Red);
     paintR.antiAlias = true;
