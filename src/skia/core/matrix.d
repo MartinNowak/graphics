@@ -122,13 +122,51 @@ public:
    * Matrix manipulation functions.
    */
   void reset() {
-    auto m = identityMatrix();
-    this = m;
+    this = identityMatrix();
   }
 
-  bool invert() {
+  @property Matrix inverted() const {
     // TODO: matrix inversion code missing
-    assert(0);
+    auto scale = inverseDeterminant();
+    Matrix res;
+    // TODO: throw an exception on underflow ???
+    if (scale != 0.0) {
+      if (this.perspective) {
+        res[0][0] = scale * (this[1][1] * this[2][2]  - this[1][2] * this[2][1]);
+        res[0][1] = scale * (this[0][2] * this[2][1]  - this[0][1] * this[2][2]);
+
+        res[1][0] = scale * (this[1][2] * this[2][0]  - this[1][0] * this[2][2]);
+        res[1][1] = scale * (this[0][0] * this[2][2]  - this[0][2] * this[2][0]);
+
+        res[2][0] = scale * (this[1][0] * this[2][1]  - this[1][1] * this[2][0]);
+        res[2][1] = scale * (this[0][1] * this[2][0]  - this[0][0] * this[2][1]);
+      } else {
+        if (this.scaling || this.affine) {
+          res[0][0] = scale * this[1][1];
+          res[0][1] = -scale * this[0][1];
+          res[1][0] = -scale * this[1][0];
+          res[1][1] = scale * this[0][0];
+        } else {
+          res[0][0] = scale;
+          res[0][1] = 0.0f;
+          res[1][0] = 0.0f;
+          res[1][1] = scale;
+        }
+        res[2][0] = 0.0f;
+        res[2][1] = 0.0f;
+      }
+
+      if (this.translative) {
+        res[0][2] = scale * (this[0][1] * this[1][2] - this[0][2] * this[1][1]);
+        res[1][2] = scale * (this[0][2] * this[1][0] - this[0][0] * this[1][2]);
+      } else {
+        res[0][2] = 0.0f;
+        res[1][2] = 0.0f;
+      }
+      res[2][2] = scale * (this[0][0] * this[1][1]  - this[0][1] * this[1][0]);
+    }
+    res.setDirty();
+    return res;
   }
 
   private real inverseDeterminant() const {
@@ -138,11 +176,11 @@ public:
 
   private real determinant() const {
     if (!this.perspective)
-      return this[2][2] * (this[0][0] * this[1][1] - this[0][1] * this[1][0]);
+      return this[0][0] * this[1][1] - this[0][1] * this[1][0];
     else
-      return this[2][2] * (this[0][0] * this[1][1] - this[0][1] * this[1][0])
-        + this[2][1] * (this[0][2] * this[1][0] - this[0][0] * this[1][2])
-        + this[2][0] * (this[0][1] * this[1][2] - this[0][1] * this[1][0]);
+      return this[0][0] * (this[1][1] * this[2][2] - this[1][2] * this[2][1])
+        + this[0][1] * (this[1][2] * this[2][0] - this[1][0] * this[2][2])
+        + this[0][2] * (this[1][0] * this[2][1] - this[1][1] * this[2][0]);
   }
 
   void setTranslate(float dx, float dy) {
