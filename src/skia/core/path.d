@@ -44,10 +44,10 @@ public:
     this._bounds = FRect();
   }
   enum FillType : ubyte {
-    Winding = 0,
-    EvenOdd = 1,
-    InverseWinding = 2,
-    InverseEvenOdd = 3,
+    EvenOdd = 0,
+    Winding = 1,
+    InverseEvenOdd = 2,
+    InverseWinding = 3,
   }
   enum Direction {
     CW,

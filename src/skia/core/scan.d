@@ -1,6 +1,6 @@
 module skia.core.scan;
 
-import std.algorithm, std.math, std.range, std.typetuple;
+import std.algorithm, std.math, std.range;
 import skia.core.blitter, skia.core.edgebuilder, skia.core.edge_detail._,
   skia.core.blitter_detail.clipping_blitter, skia.core.path, skia.math._, skia.util.format;
 import guip.rect, guip.point;
@@ -79,12 +79,15 @@ private void blitEdges(size_t Scale)(
   auto edges = buildEdges(path, clip);
 
   // TODO: handle inverseFillType, path.FillType
-  byte windingMask =
-    (path.fillType == Path.FillType.Winding ||
-     path.fillType == Path.FillType.InverseWinding) ? -1 : 1;
+  if (path.fillType == Path.FillType.Winding
+      || path.fillType == Path.FillType.InverseWinding) {
+    markBuffer.length = Scale * clip.width;
+    auto nzbuf = cast(Block!Scale[])markBuffer;
 
-  walkEdges!(Scale)(
-      edges, clip, blitter, windingMask);
+    walkEdges!(Scale, Block!Scale)(edges, clip, blitter, -1, nzbuf);
+  } else
+    markBuffer.length = clip.width;
+    walkEdges!(Scale, byte)(edges, clip, blitter, 1, markBuffer);
 }
 
 // TLS cache to avoid dynamic allocations
@@ -95,11 +98,15 @@ union Block(size_t Scale : 2) { ushort wide; byte[2] val; }
 union Block(size_t Scale : 4) { uint wide; byte[4] val; }
 union Block(size_t Scale : 8) { ulong wide; byte[8] val; }
 
-Block!Scale wideMask(size_t Scale)(byte mask) {
+Block!Scale wideMask(size_t Scale, Mark)(byte mask) if(is(Mark == Block!Scale)) {
   typeof(return) result;
   foreach(i; 0 .. Scale)
     result.val[i] = mask;
   return result;
+}
+
+byte wideMask(size_t Scale, Mark)(byte mask) if(is(Mark == byte)) {
+  return mask;
 }
 
 Block!Scale sumBlock(size_t Scale)(Block!Scale a, Block!Scale b) {
@@ -110,11 +117,12 @@ Block!Scale sumBlock(size_t Scale)(Block!Scale a, Block!Scale b) {
   return result;
 }
 
-private void walkEdges(size_t Scale)(
+private void walkEdges(size_t Scale, Mark)(
   FEdge[] edges,
   in IRect area,
   Blitter blitter,
-  byte windingMask)
+  byte windingMask,
+  Mark[] marks)
 {
   if (area.empty)
     return;
@@ -122,14 +130,7 @@ private void walkEdges(size_t Scale)(
   debug(WALK_EDGES) std.stdio.writefln("walkEdges %s", edges);
   auto sortedEdges = sort!("a.firstY < b.firstY")(edges);
   FEdge[] workingSet;
-  //  if (markBuffer.length < area.width)
-  markBuffer.length = area.width * Scale;
-  debug {
-    foreach(b; markBuffer)
-      assert(b == 0);
-  }
-  auto marks = cast(Block!Scale[])markBuffer;
-  auto mask = wideMask!Scale(windingMask);
+  auto mask = wideMask!(Scale, Mark)(windingMask);
 
   int y = area.top;
   enum offset = 1.0f / Scale;
@@ -140,14 +141,13 @@ private void walkEdges(size_t Scale)(
 
       workingSet ~= takeNextEdges(y + i * offset, sortedEdges);
       workingSet = updateWorkingSet(workingSet, y + i * offset, offset);
-      markLines!Scale(i, workingSet, area.left, marks);
+      markLines!(Scale, Mark)(i, workingSet, area.left, marks);
 
       debug(WALK_EDGES) std.stdio.writeln("WSB: ", workingSet);
     }
-    blitLine!Scale(y, blitter, area.left, marks, mask);
+    blitLine!(Scale, Mark)(y, blitter, area.left, marks, mask);
     ++y;
   }
-
 }
 
 // TODO: handle the case where line end and another's line begin would
@@ -200,7 +200,7 @@ float hoffset(size_t Scale : 8)(size_t vidx) {
   return offsets[vidx];
 }
 
-void markLines(size_t Scale)(size_t vidx, FEdge[] edges, int leftOff, Block!Scale[] marks) {
+void markLines(size_t Scale, Mark)(size_t vidx, FEdge[] edges, int leftOff, Mark[] marks) {
   assert(vidx < Scale);
   assert(marks.length > 0);
 
@@ -208,11 +208,14 @@ void markLines(size_t Scale)(size_t vidx, FEdge[] edges, int leftOff, Block!Scal
   auto right = marks.length - 1;
   foreach(ref edge; edges) {
     auto pos = clampToRange(truncate(edge.curX + hoff) - leftOff, 0, right);
-    marks[pos].val[vidx] += edge.winding;
+    static if (is(Mark == Block!Scale))
+      marks[pos].val[vidx] += edge.winding;
+    else
+      marks[pos] ^= (1 << vidx);
   }
 }
 
-ubyte calcAlpha(size_t Scale)(Block!Scale broom, Block!Scale wmask) {
+ubyte calcAlphaBlock(size_t Scale)(Block!Scale broom, Block!Scale wmask) {
   Block!Scale masked;
   masked.wide = broom.wide & wmask.wide;
 
@@ -223,8 +226,19 @@ ubyte calcAlpha(size_t Scale)(Block!Scale broom, Block!Scale wmask) {
   return cast(ubyte)(cnt * 255 / Scale);
 }
 
-void blitLine(size_t Scale)
-(int y, Blitter blitter, int leftOff, Block!Scale[] marks, Block!Scale wmask) {
+ubyte calcAlphaBit(size_t Scale)(byte broom) {
+  uint cnt;
+  while (broom) {
+    cnt += broom & 0x1;
+    broom >>>= 1;
+  }
+  assert(cnt <= Scale);
+  return cast(ubyte)(cnt * 255 / Scale);
+}
+
+void blitLine(size_t Scale, Mark)
+  (int y, Blitter blitter, int leftOff, Mark[] marks, Mark wmask)
+if(is(Mark == Block!Scale)) {
   Block!Scale broom;
   int left;
   ubyte alpha;
@@ -232,7 +246,28 @@ void blitLine(size_t Scale)
     if (pix.wide != 0) {
       broom = sumBlock!Scale(broom, pix);
       pix.wide = 0;
-      auto newAlpha = calcAlpha!Scale(broom, wmask);
+      auto newAlpha = calcAlphaBlock!Scale(broom, wmask);
+      if (newAlpha != alpha) {
+        if (alpha)
+          blitter.blitAlphaH(y, left + leftOff, right + leftOff, alpha);
+        alpha = newAlpha;
+        left = right;
+      }
+    }
+  }
+}
+
+void blitLine(size_t Scale, Mark)
+(int y, Blitter blitter, int leftOff, Mark[] marks, Mark wmask)
+if (is(Mark == byte)) {
+  byte broom;
+  int left;
+  ubyte alpha;
+  foreach(int right, ref pix; marks) {
+    if (pix) {
+      broom ^= pix;
+      pix = 0;
+      auto newAlpha = calcAlphaBit!Scale(broom);
       if (newAlpha != alpha) {
         if (alpha)
           blitter.blitAlphaH(y, left + leftOff, right + leftOff, alpha);
