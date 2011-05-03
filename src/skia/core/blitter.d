@@ -23,7 +23,6 @@ private {
   import skia.core.scan : AAScale;
   import skia.core.blitter_detail._;
 
-  import skia.util.span;
   import skia.util.format;
   import skia.math._;
 }
@@ -177,95 +176,3 @@ unittest {
   static assert(binShift!16 == 4);
   static assert(binShift!15 == 3);
 }
-
-struct AARun {
-  ushort length;
-  ushort aaSum;
-}
-
-class ARGB32BlitterAA(byte S) : ARGB32Blitter {
-  enum Shift = binShift!S;
-  enum ushort FullCovVal = ushort.max / S;
-  alias SpanAccumulator!(ushort, ushort, Policy.PreAllocate) AAAcc;
-  alias Span!(ushort, ushort) AASpan;
-  static AAAcc aaAcc;
-  //  AAAcc aaAcc;
-  int curIY = int.min;
-
-  this(Bitmap bitmap, Paint paint) {
-    super(bitmap, paint);
-    this.color = paint.color;
-    this.resetRuns();
-  }
-
-  ~this() {
-    this.flush();
-  }
-
-  void blitFH(float y, float xStart, float xEnd) {
-    assert(xEnd > xStart);
-    auto iy = to!uint(truncate(y));
-    if (iy != this.curIY) {
-      this.flush();
-      this.curIY = iy;
-    }
-
-    auto ixStart = checkedTo!ushort(truncate(xStart));
-    auto ixEnd = checkedTo!ushort(truncate(xEnd));
-
-    if (ixStart == ixEnd) {
-      auto aaVal = checkedTo!ushort((xEnd - xStart) * FullCovVal);
-      this.aaAcc += AASpan(ixStart, checkedTo!ushort(ixStart + 1), aaVal);
-    } else {
-      if (xStart > ixStart) {
-        auto aaVal = checkedTo!ushort((1 + ixStart - xStart) * FullCovVal);
-        this.aaAcc += AASpan(ixStart, checkedTo!ushort(ixStart + 1), aaVal);
-        ++ixStart;
-      }
-      if (xEnd > ixEnd) {
-        auto aaVal = checkedTo!ushort((xEnd - ixEnd) * FullCovVal);
-        this.aaAcc += AASpan(ixEnd, checkedTo!ushort(ixEnd + 1), aaVal);
-      }
-      if (ixEnd > ixStart) {
-        this.aaAcc += AASpan(ixStart, ixEnd, FullCovVal);
-      }
-    }
-  }
-
-  final void flush() {
-    foreach(AASpan sp; aaAcc[]) {
-      auto alpha = checkedTo!ubyte(sp.value >> 8);
-      if (alpha) {
-        blitAlphaH(this.curIY, sp.start, sp.end, alpha);
-      }
-    }
-    this.resetRuns();
-  }
-
-  final void resetRuns() {
-    this.aaAcc.reset(AASpan(0, to!ushort(this.bitmap.width), 0));
-  }
-}
-
-unittest {
-  auto bitmap = Bitmap(Bitmap.Config.ARGB_8888, 10, 1);
-  bitmap.eraseColor(PMColor(Black));
-  auto paint = new Paint(White);
-  scope auto aaBlitter = new ARGB32BlitterAA!4(bitmap, paint);
-
-  aaBlitter.blitFH(0.f, 0.f, 10.f);
-  aaBlitter.flush();
-  assert(equal(bitmap.getLine(0), repeat(Color("0xFF3F3F3F"), 10)));
-
-  bitmap.eraseColor(PMColor(Black));
-  aaBlitter.blitFH(0.f, 1.f, 8.f);
-  aaBlitter.blitFH(0.25f, 1.25f, 7.75f);
-  aaBlitter.blitFH(0.5f, 1.5f, 7.5f);
-  aaBlitter.blitFH(0.75f, 1.75f, 7.25f);
-
-  aaBlitter.flush();
-  auto exp = [Black, Color("0xFF9F9F9F")]
-    ~ array(repeat(White, 5)) ~ [Color("0xFF9F9F9F"), Black, Black];
-  assert(equal(bitmap.getLine(0), exp));
-}
-
