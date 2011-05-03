@@ -1,19 +1,13 @@
 module skia.core.scan;
 
-private {
-  import std.algorithm;
-  import std.range : assumeSorted, retro;
+import std.algorithm, std.math, std.range, std.typetuple;
+import skia.core.blitter, skia.core.edgebuilder, skia.core.edge_detail._,
+  skia.core.blitter_detail.clipping_blitter, skia.core.path, skia.math._, skia.util.format;
+import guip.rect, guip.point;
 
-  import skia.core.blitter;
-  import skia.core.blitter_detail.clipping_blitter;
-  import skia.core.path;
-  import guip.rect;
-  import skia.core.edgebuilder;
-  import skia.core.edge_detail._;
-  debug import std.stdio;
-}
 
 // debug=WALK_EDGES; // verbose tracing for walk_edges
+debug(WALK_EDGES) import std.stdio;
 
 void fillIRect(Blitter)(IRect rect, in IRect clip, Blitter blitter) {
   if (rect.empty)
@@ -30,14 +24,15 @@ enum AAStep = 1.0f / AAScale;
 
 void antiFillPath(in Path path, in IRect clip,
                   Blitter blitter) {
-  return fillPathImpl(path, clip, blitter, AAScale);
+  return fillPathImpl!AAScale(path, clip, blitter);
 }
 void fillPath(in Path path, in IRect clip,
               Blitter blitter) {
-  return fillPathImpl(path, clip, blitter, 1);
+  return fillPathImpl!1(path, clip, blitter);
 }
-void fillPathImpl(in Path path, in IRect clip,
-                     Blitter blitter, uint stepScale) {
+
+void fillPathImpl(size_t Scale)
+(in Path path, in IRect clip, Blitter blitter) {
   if (clip.empty) {
     return;
   }
@@ -58,8 +53,8 @@ void fillPathImpl(in Path path, in IRect clip,
       blitAboveAndBelow(blitter, ir, clip);
     }
     else {
-      blitEdges!(fillLine)(path, clip, blitter,
-                           ir.top, ir.bottom, stepScale);
+      blitEdges!(Scale)(path, clip, blitter,
+                           ir.top, ir.bottom);
     }
   }
 }
@@ -68,103 +63,89 @@ Blitter getClippingBlitter(Blitter blitter, in IRect clip, in IRect ir) {
   if (!clip.intersects(ir))
     return null;
 
-  if (clip.left >= ir.left || clip.right <= ir.right)
+  if (clip.left >= ir.left || clip.right <= ir.right) // TODO: maybe use > <
     return new RectBlitter(blitter, clip);
   else
     return blitter;
 }
 
-private void blitEdges(alias blitLineFunc)(
-  in Path path, in IRect clip,
+private void blitEdges(size_t Scale)(
+  in Path path, IRect clip,
   Blitter blitter,
-  int yStart, int yEnd,
-  int stepScale) {
+  int yStart, int yEnd) {
 
+  clip.top = max(yStart, clip.top);
+  clip.bottom = min(yEnd, clip.bottom);
   auto edges = buildEdges(path, clip);
-  yStart = max(yStart, clip.top);
-  yEnd = min(yEnd, clip.bottom);
 
   // TODO: handle inverseFillType, path.FillType
-  walkEdges!(blitLineFunc)(edges, path.fillType, blitter, stepScale, yStart, yEnd);
+  byte windingMask =
+    (path.fillType == Path.FillType.Winding ||
+     path.fillType == Path.FillType.InverseWinding) ? -1 : 1;
+
+  walkEdges!(Scale)(
+      edges, clip, blitter, windingMask);
 }
 
-Range truncateOutOfRange(Range, T)(Range edges, T yStart, T yEnd) {
-  auto leftTrunc = find!("a.lastY > b")(edges, yStart);
-  auto rightTrunc = find!("a.firstY <= b")(retro(leftTrunc), yEnd);
-  return retro(rightTrunc);
+// TLS cache to avoid dynamic allocations
+byte[] markBuffer;
+
+union Block(size_t Scale : 1) { ubyte wide; byte[1] val; }
+union Block(size_t Scale : 2) { ushort wide; byte[2] val; }
+union Block(size_t Scale : 4) { uint wide; byte[4] val; }
+union Block(size_t Scale : 8) { ulong wide; byte[8] val; }
+
+Block!Scale wideMask(size_t Scale)(byte mask) {
+  typeof(return) result;
+  foreach(i; 0 .. Scale)
+    result.val[i] = mask;
+  return result;
 }
 
-version(unittest) {
-  struct TestElem
-  {
-    @property string toString() const {
-      return to!string(y);
-    }
-    this(int y) {
-      this.y = y;
-    }
-    @property int firstY () const {
-      return y;
-    }
-    @property int lastY () const {
-      return y;
-    }
-    int y;
+Block!Scale sumBlock(size_t Scale)(Block!Scale a, Block!Scale b) {
+  Block!Scale result;
+  foreach(i; 0 .. Scale) {
+    result.val[i] = checkedTo!byte(a.val[i] + b.val[i]);
   }
+  return result;
 }
 
-unittest {
-  TestElem[] elms;
-  foreach(i; 0 .. 10)
-    elms ~= TestElem(i);
-  auto arr = assumeSorted!("a.firstY < b.firstY")(elms);
-  auto trunc = truncateOutOfRange(arr, 3, 5);
-  assert(trunc.length == 2);
-  assert(trunc[0].y == 4);
-  assert(trunc[1].y == 5);
-}
-
-private void walkEdges(alias blitLineFunc, Range)(
-  Range edges,
-  Path.FillType fillType,
-  ref Blitter blitter,
-  int stepScale,
-  int yStart, int yEnd)
+private void walkEdges(size_t Scale)(
+  FEdge[] edges,
+  in IRect area,
+  Blitter blitter,
+  byte windingMask)
 {
-  debug(WALK_EDGES) writefln("walkEdges %s", edges);
-  auto sortedEdges = truncateOutOfRange(
-    sort!("a.firstY < b.firstY")(edges),
-    yStart, yEnd);
+  if (area.empty)
+    return;
 
+  debug(WALK_EDGES) std.stdio.writefln("walkEdges %s", edges);
+  auto sortedEdges = sort!("a.firstY < b.firstY")(edges);
   FEdge[] workingSet;
-  const int windingMask =
-    (fillType == Path.FillType.Winding ||
-     fillType == Path.FillType.InverseWinding)
-    ? -1
-    : 1;
+  //  if (markBuffer.length < area.width)
+  markBuffer.length = area.width * Scale;
+  debug {
+    foreach(b; markBuffer)
+      assert(b == 0);
+  }
+  auto marks = cast(Block!Scale[])markBuffer;
+  auto mask = wideMask!Scale(windingMask);
 
-  auto iCurY = yStart;
-  auto superCnt = 0;
-  auto fInc = 1.0f / stepScale;
-  auto fCurY = iCurY + superCnt * fInc;
+  int y = area.top;
+  enum offset = 1.0f / Scale;
 
-  while (fCurY < yEnd) {
-    debug(WALK_EDGES) writeln("fCurY:", fCurY, "WS: ",workingSet);
+  while (y < area.bottom) {
+    foreach(i; 0 .. Scale) {
+      debug(WALK_EDGES) std.stdio.writeln("cury:", y, "WS: ", workingSet);
 
-    workingSet ~= takeNextEdges(fCurY, sortedEdges);
-    workingSet = updateWorkingSet(workingSet, fCurY, fInc);
+      workingSet ~= takeNextEdges(y + i * offset, sortedEdges);
+      workingSet = updateWorkingSet(workingSet, y + i * offset, offset);
+      markLines!Scale(i, workingSet, area.left, marks);
 
-
-    debug(WALK_EDGES) writeln("WSB: ", workingSet);
-
-    blitLineFunc(fCurY, blitter, workingSet, windingMask);
-
-    ++superCnt;
-    if (superCnt == stepScale) {
-      ++iCurY;
-      superCnt = 0;
+      debug(WALK_EDGES) std.stdio.writeln("WSB: ", workingSet);
     }
-    fCurY = iCurY + superCnt * fInc;
+    blitLine!Scale(y, blitter, area.left, marks, mask);
+    ++y;
   }
 
 }
@@ -172,8 +153,8 @@ private void walkEdges(alias blitLineFunc, Range)(
 // TODO: handle the case where line end and another's line begin would
 // join at e.g. (10.0, 10.0). Currently these are closed intervals in
 // both directions and leeds to cancelation.
-static auto takeNextEdges(T, Range)(T curY, ref Range sortedEdges) {
-  auto remaining = sortedEdges.upperBound(firstYComparable(curY));
+static auto takeNextEdges(T, Range)(T cury, ref Range sortedEdges) {
+  auto remaining = sortedEdges.upperBound(firstYComparable(cury));
   auto newEdges = sortedEdges[0 .. sortedEdges.length - remaining.length];
   sortedEdges = remaining;
   return newEdges.release;
@@ -185,26 +166,88 @@ private static Edge!T firstYComparable(T)(T firstY) {
   return edge;
 }
 
-static R1 updateWorkingSet(R1, T)(R1 curWorkingSet, T curY, T step)
+static R1 updateWorkingSet(R1, T)(R1 curWorkingSet, T cury, T step)
 {
   bool pred(Edge!T edge) {
-    return edge.lastY <= curY;
+    return edge.lastY <= cury;
   }
   curWorkingSet = remove!(pred, SwapStrategy.unstable)(curWorkingSet);
 
   foreach(ref edge; curWorkingSet) {
-    edge.updateEdge(curY, step);
+    edge.updateEdge(cury, step);
   }
-  sort!("a.curX < b.curX")(curWorkingSet);
   return curWorkingSet;
 }
 
+float hoffset(size_t Scale : 1)(size_t vidx) {
+  assert(vidx < Scale);
+  enum offsets = [0.0f];
+  return offsets[vidx];
+}
+float hoffset(size_t Scale : 2)(size_t vidx) {
+  assert(vidx < Scale);
+  enum offsets = [0.5f, 0.0f];
+  return offsets[vidx];
+}
+float hoffset(size_t Scale : 4)(size_t vidx) {
+  assert(vidx < Scale);
+  enum offsets = [0.5f, 0.0f, 0.75f, 0.25f];
+  return offsets[vidx];
+}
+float hoffset(size_t Scale : 8)(size_t vidx) {
+  assert(vidx < Scale);
+  enum offsets = [0.25f, 0.875f, 0.5f, 0.125f, 0.75f, 0.375f, 0.0f, 0.625f];
+  return offsets[vidx];
+}
+
+void markLines(size_t Scale)(size_t vidx, FEdge[] edges, int leftOff, Block!Scale[] marks) {
+  assert(vidx < Scale);
+  assert(marks.length > 0);
+
+  auto hoff = hoffset!Scale(vidx);
+  auto right = marks.length - 1;
+  foreach(ref edge; edges) {
+    auto pos = clampToRange(truncate(edge.curX + hoff) - leftOff, 0, right);
+    marks[pos].val[vidx] += edge.winding;
+  }
+}
+
+ubyte calcAlpha(size_t Scale)(Block!Scale broom, Block!Scale wmask) {
+  Block!Scale masked;
+  masked.wide = broom.wide & wmask.wide;
+
+  uint cnt;
+  foreach(i; 0 .. Scale)
+    if (masked.val[i] != 0)
+      ++cnt;
+  return cast(ubyte)(cnt * 255 / Scale);
+}
+
+void blitLine(size_t Scale)
+(int y, Blitter blitter, int leftOff, Block!Scale[] marks, Block!Scale wmask) {
+  Block!Scale broom;
+  int left;
+  ubyte alpha;
+  foreach(int right, ref pix; marks) {
+    if (pix.wide != 0) {
+      broom = sumBlock!Scale(broom, pix);
+      pix.wide = 0;
+      auto newAlpha = calcAlpha!Scale(broom, wmask);
+      if (newAlpha != alpha) {
+        if (alpha)
+          blitter.blitAlphaH(y, left + leftOff, right + leftOff, alpha);
+        alpha = newAlpha;
+        left = right;
+      }
+    }
+  }
+}
 
 static void fillLine(Range, T)(
   T curY,
   Blitter blitter,
   Range edges,
-  int windingMask)
+  byte windingMask)
 {
   int w;
   auto inInterval = false;
@@ -229,7 +272,7 @@ static void dotLine(Range, T)(
   T curY,
   Blitter blitter,
   Range edges,
-  int windingMask)
+  byte windingMask)
 {
   foreach(ref edge; edges) {
     blitter.blitFH(curY, edge.curX, edge.curX + 1.0f);
@@ -269,8 +312,7 @@ void hairPathImpl(in Path path, in IRect clip,
       // blitAboveAndBelow(blitter, ir, clip);
     }
     else {
-      blitEdges!(dotLine)(path, clip, blitter,
-                          ir.top, ir.bottom, stepScale);
+      assert(0, "unimplemented");
     }
   }
 }

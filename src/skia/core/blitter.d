@@ -35,11 +35,11 @@ class Blitter
   }
   final void blitRect(int x, int y, int width, int height) {
     while (--height >= 0)
-      this.blitFH(y++, x, x + width);
+      this.blitH(y++, x, x + width);
   }
-  abstract void blitFH(float y, float xStart, float xEnd);
-  //! TODO: should be constant 'in Bitmap mask'
-  abstract void blitMask(float x, float y, in Bitmap mask);
+  abstract void blitH(int y, int xstart, int xend);
+  abstract void blitAlphaH(int y, int xstart, int xend, ubyte alpha);
+  abstract void blitMask(int x, int y, in Bitmap mask);
 
   static Blitter Choose(Bitmap device, in Matrix matrix, Paint paint) {
     switch(device.config) {
@@ -47,16 +47,10 @@ class Blitter
       return new NullBlitter();
     case Bitmap.Config.ARGB_8888:
       {
-        if (paint.antiAlias)
-          if (paint.shader)
-            return new ShaderARGB32BlitterAA!(AAScale)(device, paint);
-          else
-            return new ARGB32BlitterAA!(AAScale)(device, paint);
+        if (paint.shader)
+          return new ShaderARGB32Blitter(device, paint);
         else
-          if (paint.shader)
-            return new ShaderARGB32Blitter(device, paint);
-          else
-            return new ARGB32Blitter(device, paint);
+          return new ARGB32Blitter(device, paint);
       }
     }
   }
@@ -91,9 +85,11 @@ class Blitter
 ////////////////////////////////////////////////////////////////////////////////
 
 class NullBlitter : Blitter {
-  override void blitFH(float y, float xStart, float xEnd) {
+  override void blitH(int y, int xstart, int xend) {
   }
-  override void blitMask(float x, float y, in Bitmap mask) {
+  override void blitAlphaH(int y, int xstart, int xend, ubyte alpha) {
+  }
+  override void blitMask(int x, int y, in Bitmap mask) {
   }
 }
 
@@ -104,9 +100,6 @@ class RasterBlitter : Blitter {
   Bitmap bitmap;
   this(Bitmap bitmap) {
     this.bitmap = bitmap;
-  }
-  final auto getBitmapRange(float xS, float xE, float y) {
-    return this.bitmap.getRange!PMColor(this.round(xS), this.round(xE), this.round(y));
   }
 }
 
@@ -121,15 +114,21 @@ class ARGB32Blitter : RasterBlitter {
     this.color = paint.color;
     this.pmColor = PMColor(this.color);
   }
-  override void blitFH(float y, float xStart, float xEnd) {
-    Color32(this.getBitmapRange(xStart, xEnd, y), pmColor);
+
+  override void blitH(int y, int xstart, int xend) {
+    Color32(this.bitmap.getRange!PMColor(xstart, xend, y), pmColor);
   }
-  override void blitMask(float x, float y, in Bitmap mask) {
+
+  override void blitAlphaH(int y, int xstart, int xend, ubyte alpha) {
+    auto color = this.color;
+    color.a = alphaMul(color.a, alphaScale(alpha));
+    Color32(this.bitmap.getRange!PMColor(xstart, xend, y), PMColor(color));
+  }
+
+  override void blitMask(int x, int y, in Bitmap mask) {
     assert(mask.config == Bitmap.Config.A8);
-    auto ix = checkedTo!int(truncate(x));
-    auto iy = checkedTo!int(truncate(y));
     for (auto h = 0; h < mask.height; ++h) {
-      BlitAASpan(this.bitmap.getRange!PMColor(ix, ix + mask.width, iy + h),
+      BlitAASpan(this.bitmap.getRange!PMColor(x, x + mask.width, y + h),
                  (cast(Bitmap)mask).getRange!ubyte(0, mask.width, h), this.color);
     }
   }
@@ -138,22 +137,29 @@ class ARGB32Blitter : RasterBlitter {
 class ShaderARGB32Blitter : ARGB32Blitter {
   Shader shader;
   const void function(PMColor[], const(PMColor)[], ubyte) blitRow;
+  const void function(PMColor[], const(PMColor)[], ubyte) blitRowAlpha;
   PMColor[] data;
 
   this(Bitmap bitmap, Paint paint) {
     super(bitmap, paint);
     this.shader = paint.shader;
-    this.blitRow = blitRowFactory32(shader.opaque ? 0 : BlitRowFlags32.SrcPixelAlpha);
+    auto flags = shader.opaque ? 0 : BlitRowFlags32.SrcPixelAlpha;
+    this.blitRow = blitRowFactory32(flags);
+    this.blitRowAlpha = blitRowFactory32(flags | BlitRowFlags32.GlobalAlpha);
   }
 
-  override void blitFH(float y, float xStart, float xEnd) {
-    auto ixStart = this.round(xStart);
-    auto ixEnd = this.round(xEnd);
-    auto iy = this.round(y);
-    this.data.length = ixEnd - ixStart;
-    PMColor[] dst = this.bitmap.getRange!PMColor(ixStart, ixEnd, iy);
-    this.shader.getRange(xStart, y, this.data);
+  override void blitH(int y, int xstart, int xend) {
+    auto dst = this.bitmap.getRange!PMColor(xstart, xend, y);
+    this.data.length = xend - xstart;
+    this.shader.getRange(xstart, y, this.data);
     this.blitRow(dst, this.data, 255);
+  }
+
+  override void blitAlphaH(int y, int xstart, int xend, ubyte alpha) {
+    auto dst = this.bitmap.getRange!PMColor(xstart, xend, y);
+    this.data.length = xend - xstart;
+    this.shader.getRange(xstart, y, this.data);
+    this.blitRowAlpha(dst, this.data, alpha);
   }
 }
 
@@ -196,7 +202,7 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
     this.flush();
   }
 
-  override void blitFH(float y, float xStart, float xEnd) {
+  void blitFH(float y, float xStart, float xEnd) {
     assert(xEnd > xStart);
     auto iy = to!uint(truncate(y));
     if (iy != this.curIY) {
@@ -230,44 +236,16 @@ class ARGB32BlitterAA(byte S) : ARGB32Blitter {
     foreach(AASpan sp; aaAcc[]) {
       auto alpha = checkedTo!ubyte(sp.value >> 8);
       if (alpha) {
-        blitSpan(sp.start, sp.end, alpha);
+        blitAlphaH(this.curIY, sp.start, sp.end, alpha);
       }
     }
     this.resetRuns();
-  }
-
-  void blitSpan(int xstart, int xend, ubyte alpha) {
-    auto color = this.color;
-    color.a = alphaMul(color.a, alphaScale(alpha));
-    Color32(this.bitmap.getRange!PMColor(xstart, xend, this.curIY), PMColor(color));
   }
 
   final void resetRuns() {
     this.aaAcc.reset(AASpan(0, to!ushort(this.bitmap.width), 0));
   }
 }
-
-class ShaderARGB32BlitterAA(byte S) : ARGB32BlitterAA!(S) {
-  Shader shader;
-  const void function(PMColor[], const(PMColor)[], ubyte) blitRow;
-  PMColor[] data;
-
-  this(Bitmap bitmap, Paint paint) {
-    super(bitmap, paint);
-    this.shader = paint.shader;
-    auto flags = BlitRowFlags32.GlobalAlpha
-      | (shader.opaque ? 0 : BlitRowFlags32.SrcPixelAlpha);
-    this.blitRow = blitRowFactory32(flags);
-  }
-
-  override void blitSpan(int xstart, int xend, ubyte alpha) {
-    data.length = xend - xstart;
-    auto dst = this.bitmap.getRange!PMColor(xstart, xend, this.curIY);
-    shader.getRange(xstart, this.curIY, this.data);
-    this.blitRow(dst, this.data, alpha);
-  }
-}
-
 
 unittest {
   auto bitmap = Bitmap(Bitmap.Config.ARGB_8888, 10, 1);

@@ -47,10 +47,13 @@ class SpriteBlitter : Blitter {
 
 protected:
 
-  override void blitFH(float y, float xStart, float xEnd) {
+  override void blitH(int y, int xstart, int xend) {
     assert(false, "how did we get here?");
   }
-  override void blitMask(float x, float y, in Bitmap mask) {
+  override void blitAlphaH(int y, int xstart, int xend, ubyte alpha) {
+    assert(false, "how did we get here?");
+  }
+  override void blitMask(int x, int y, in Bitmap mask) {
     assert(false, "how did we get here?");
   }
 

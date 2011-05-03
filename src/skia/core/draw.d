@@ -195,7 +195,8 @@ public:
 
     foreach(gl; cache.glyphStream(text, Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Bitmap)) {
       auto pos = start + gl.bmpPos;
-      blitter.blitMask(pos.x, pos.y, gl.bmp);
+      auto ipos = pos.round();
+      blitter.blitMask(ipos.x, ipos.y, gl.bmp);
       start += gl.advance;
     }
   }
