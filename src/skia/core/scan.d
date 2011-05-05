@@ -98,17 +98,6 @@ union Block(size_t Scale : 2) { ushort wide; byte[2] val; }
 union Block(size_t Scale : 4) { uint wide; byte[4] val; }
 union Block(size_t Scale : 8) { ulong wide; byte[8] val; }
 
-Block!Scale wideMask(size_t Scale, Mark)(byte mask) if(is(Mark == Block!Scale)) {
-  typeof(return) result;
-  foreach(i; 0 .. Scale)
-    result.val[i] = mask;
-  return result;
-}
-
-byte wideMask(size_t Scale, Mark)(byte mask) if(is(Mark == byte)) {
-  return mask;
-}
-
 Block!Scale sumBlock(size_t Scale)(Block!Scale a, Block!Scale b) {
   Block!Scale result;
   foreach(i; 0 .. Scale) {
@@ -130,7 +119,6 @@ private void walkEdges(size_t Scale, Mark)(
   debug(WALK_EDGES) std.stdio.writefln("walkEdges %s", edges);
   auto sortedEdges = sort!("a.firstY < b.firstY")(edges);
   FEdge[] workingSet;
-  auto mask = wideMask!(Scale, Mark)(windingMask);
 
   int y = area.top;
   enum offset = 1.0f / Scale;
@@ -145,7 +133,7 @@ private void walkEdges(size_t Scale, Mark)(
 
       debug(WALK_EDGES) std.stdio.writeln("WSB: ", workingSet);
     }
-    blitLine!(Scale, Mark)(y, blitter, area.left, marks, mask);
+    blitLine!(Scale, Mark)(y, blitter, area.left, marks, windingMask);
     ++y;
   }
 }
@@ -215,13 +203,10 @@ void markLines(size_t Scale, Mark)(size_t vidx, FEdge[] edges, int leftOff, Mark
   }
 }
 
-ubyte calcAlphaBlock(size_t Scale)(Block!Scale broom, Block!Scale wmask) {
-  Block!Scale masked;
-  masked.wide = broom.wide & wmask.wide;
-
+ubyte calcAlphaBlock(size_t Scale)(Block!Scale broom, byte mask) {
   uint cnt;
   foreach(i; 0 .. Scale)
-    if (masked.val[i] != 0)
+    if (broom.val[i] & mask)
       ++cnt;
   return cast(ubyte)(cnt * 255 / Scale);
 }
@@ -237,7 +222,7 @@ ubyte calcAlphaBit(size_t Scale)(byte broom) {
 }
 
 void blitLine(size_t Scale, Mark)
-  (int y, Blitter blitter, int leftOff, Mark[] marks, Mark wmask)
+  (int y, Blitter blitter, int leftOff, Mark[] marks, byte mask)
 if(is(Mark == Block!Scale)) {
   Block!Scale broom;
   int left;
@@ -246,7 +231,7 @@ if(is(Mark == Block!Scale)) {
     if (pix.wide != 0) {
       broom = sumBlock!Scale(broom, pix);
       pix.wide = 0;
-      auto newAlpha = calcAlphaBlock!Scale(broom, wmask);
+      auto newAlpha = calcAlphaBlock!Scale(broom, mask);
       if (newAlpha != alpha) {
         if (alpha)
           blitter.blitAlphaH(y, left + leftOff, right + leftOff, alpha);
@@ -258,7 +243,7 @@ if(is(Mark == Block!Scale)) {
 }
 
 void blitLine(size_t Scale, Mark)
-(int y, Blitter blitter, int leftOff, Mark[] marks, Mark wmask)
+(int y, Blitter blitter, int leftOff, Mark[] marks, byte /*mask*/)
 if (is(Mark == byte)) {
   byte broom;
   int left;
