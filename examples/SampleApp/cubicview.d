@@ -1,38 +1,23 @@
 module SampleApp.cubicview;
 
-private {
-  debug private import std.stdio;
-  import std.math : floor;
-  import std.conv : to;
-
-  import skia.core.canvas;
-  import skia.core.pmcolor;
-  import skia.core.path;
-  import skia.core.paint;
-  import guip.point;
-  import guip.rect;
-  import guip.size;
-  import skia.views.view;
-}
+debug import std.stdio;
+import std.math : floor;
+import std.conv : to;
+import skia.core.canvas, skia.views.view2, skia.core.pmcolor, skia.core.path, skia.core.paint;
+import guip.event, guip.point, guip.rect, guip.size, layout.hint;
 
 
 class CubicView : View
 {
   FPoint[4] controlPts;
-  int dragIdx;
-  this() {
-    this._flags.visible = true;
-    this._flags.enabled = true;
-    this.dragIdx = -1;
-    this.onSizeChange();
-  }
+  int dragIdx = -1;
 
-  override void onSizeChange() {
-    auto bounds = this.bounds.inset(40, 40);
+  override void onResize(ResizeEvent e) {
+    auto bounds = IRect(e.area.size).inset(40, 40);
     this.controlPts = fRect(bounds).toQuad();
   }
 
-  override void onDraw(Canvas canvas) {
+  override void onDraw(Canvas canvas, IRect area, ISize size) {
     scope auto paintCircle = new Paint(Black.a = 120);
     paintCircle.strokeWidth = 2;
     paintCircle.fillStyle = Paint.Fill.Stroke;
@@ -60,23 +45,23 @@ class CubicView : View
     canvas.drawPath(path, paintLine);
   }
 
-  override void onButtonPress(IPoint pt) {
-    auto checkRect = FRect(20, 20);
-    auto fpt = fPoint(pt);
-    foreach(idx, ctrlPt; this.controlPts) {
-      checkRect.center = ctrlPt;
-      if (checkRect.contains(fpt))
-        this.dragIdx = cast(int)idx;
+  override void onButton(ButtonEvent e, ISize size) {
+    if (e.isPress()) {
+      auto checkRect = FRect(20, 20);
+      auto fpt = fPoint(e.pos);
+      foreach(idx, ctrlPt; this.controlPts) {
+        checkRect.center = ctrlPt;
+        if (checkRect.contains(fpt))
+          this.dragIdx = cast(int)idx;
+      }
+    } else {
+      this.moveControlPoint(fPoint(e.pos));
+      this.dragIdx = -1;
     }
   }
 
-  override void onPointerMove(IPoint pt) {
-    this.moveControlPoint(fPoint(pt));
-  }
-
-  override void onButtonRelease(IPoint pt) {
-    this.moveControlPoint(fPoint(pt));
-    this.dragIdx = -1;
+  override void onMouse(MouseEvent e, ISize size) {
+    this.moveControlPoint(fPoint(e.pos));
   }
 
   void moveControlPoint(FPoint fpt) {
@@ -86,7 +71,11 @@ class CubicView : View
       this.controlPts[this.dragIdx] = fpt;
 
       dirty.join(FRect.calcBounds(this.controlPts).inset(-6, -6));
-      this.inval(dirty.roundOut());
+      this.requestRedraw(dirty.roundOut());
     }
+  }
+
+  override SizeHint sizeHint() const {
+    return SizeHint(Hint(600, 0.5), Hint(600, 0.5));
   }
 }
