@@ -9,9 +9,9 @@ import guip.bitmap, guip.point, guip.size;
 struct Node {
   @property string toString() const {
     auto str = fmtString("Node coeffs:%s", coeffs);
-    foreach(i, ch; children)
-      if (ch !is null)
-        str ~= fmtString("\n%d:%s", i, ch.toString());
+    foreach(i; 0 .. 4)
+      if (hasChild(i))
+        str ~= fmtString("\n%d:%s", i, children[i].toString());
     return str;
   }
 
@@ -50,9 +50,8 @@ struct Node {
     pts[0] = pts[0] * 2 - qpt;
     pts[1] = pts[1] * 2 - qpt;
     calcCoeffs(pts, q);
-    isBoundary[q.idx] = true;
     if (depth > 0)
-      getChild(q).insertEdge(pts, --depth);
+      getChild(q.idx).insertEdge(pts, --depth);
   }
 
   void calcCoeffs(FPoint[2] pts, Quadrant q)
@@ -95,17 +94,23 @@ struct Node {
     }
   }
 
-  ref Node getChild(Quadrant q) {
-    if (children[q.idx] is null) {
-      children[q.idx] = new Node;
+  ref Node getChild(uint idx) {
+    if (this.chmask == 0) {
+      children.length = 4; //insertInPlace(pos, Node());
     }
-    return *children[q.idx];
+    this.chmask |= (1 << idx);
+    return children[idx];
   }
 
-  Node*[4] children;
+  bool hasChild(uint idx) const {
+    return (this.chmask & (1 << idx)) != 0;
+  }
+
+  Node[] children;
   float[3] coeffs = 0.0f;
-  bool[4] isBoundary;
+  ubyte chmask;
 }
+
 
 struct WaveletRaster {
 
@@ -162,30 +167,30 @@ void writeNodeToGrid(in Node n, float val, IPoint offset, ubyte[] grid, uint loc
   uint locRes2 = locRes / 2;
 
   auto cval = val + n.coeffs[0]  + n.coeffs[1] + n.coeffs[2];
-  if (n.children[0] !is null)
-    writeNodeToGrid(*n.children[0], cval, offset, grid, locRes2, globRes);
+  if (n.hasChild(0))
+    writeNodeToGrid(n.children[0], cval, offset, grid, locRes2, globRes);
   else
     writeGridValue(cval, offset, grid, locRes2, globRes);
 
   cval = val - n.coeffs[0] + n.coeffs[1] - n.coeffs[2];
   offset.x += locRes2;
-  if (n.children[1] !is null)
-    writeNodeToGrid(*n.children[1], cval, offset, grid, locRes2, globRes);
+  if (n.hasChild(1))
+    writeNodeToGrid(n.children[1], cval, offset, grid, locRes2, globRes);
   else
     writeGridValue(cval, offset, grid, locRes2, globRes);
 
   cval = val + n.coeffs[0] - n.coeffs[1] - n.coeffs[2];
   offset.x -= locRes2;
   offset.y += locRes2;
-  if (n.children[2] !is null)
-    writeNodeToGrid(*n.children[2], cval, offset, grid, locRes2, globRes);
+  if (n.hasChild(2))
+    writeNodeToGrid(n.children[2], cval, offset, grid, locRes2, globRes);
   else
     writeGridValue(cval, offset, grid, locRes2, globRes);
 
   cval = val - n.coeffs[0] - n.coeffs[1] + n.coeffs[2];
   offset.x += locRes2;
-  if (n.children[3] !is null)
-    writeNodeToGrid(*n.children[3], cval, offset, grid, locRes2, globRes);
+  if (n.hasChild(3))
+    writeNodeToGrid(n.children[3], cval, offset, grid, locRes2, globRes);
   else
     writeGridValue(cval, offset, grid, locRes2, globRes);
 }
@@ -221,6 +226,7 @@ void main() {
     wr.insertEdge([FPoint(0.4, 0.0), FPoint(0.5, 1)]);
     wr.insertEdge([FPoint(0.5, 1), FPoint(0.25, 1)]);
     wr.insertEdge([FPoint(0.25, 1), FPoint(0.2, 0)]);
+
     auto grid = bmp.getBuffer!ubyte[];
     writeNodeToGrid(wr.root, wr.rootConst, IPoint(0, 0), grid, Resolution, Resolution);
   }
