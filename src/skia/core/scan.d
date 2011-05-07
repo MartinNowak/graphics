@@ -85,18 +85,28 @@ private void blitEdges(size_t Scale)(
     auto nzbuf = cast(Block!Scale[])markBuffer;
 
     walkEdges!(Scale, Block!Scale)(edges, clip, blitter, -1, nzbuf);
-  } else
-    markBuffer.length = clip.width;
-    walkEdges!(Scale, byte)(edges, clip, blitter, 1, markBuffer);
+  } else {
+    auto eobuf = cast(BitBlock!Scale[])markBuffer;
+    eobuf.length = clip.width;
+    walkEdges!(Scale, BitBlock!Scale)(edges, clip, blitter, 1, eobuf);
+  }
 }
 
 // TLS cache to avoid dynamic allocations
 byte[] markBuffer;
 
+template BitBlock(size_t Scale) if (Scale <= 8) {
+  alias byte BitBlock;
+}
+template BitBlock(size_t Scale) if (Scale > 8 &&  Scale <= 16) {
+  alias short BitBlock;
+}
+
 union Block(size_t Scale : 1) { ubyte wide; byte[1] val; }
 union Block(size_t Scale : 2) { ushort wide; byte[2] val; }
 union Block(size_t Scale : 4) { uint wide; byte[4] val; }
 union Block(size_t Scale : 8) { ulong wide; byte[8] val; }
+union Block(size_t Scale : 16) { ulong[2] wide; byte[16] val; }
 
 Block!Scale sumBlock(size_t Scale)(Block!Scale a, Block!Scale b) {
   Block!Scale result;
@@ -184,7 +194,13 @@ float hoffset(size_t Scale : 4)(size_t vidx) {
 }
 float hoffset(size_t Scale : 8)(size_t vidx) {
   assert(vidx < Scale);
-  enum offsets = [0.25f, 0.875f, 0.5f, 0.125f, 0.75f, 0.375f, 0.0f, 0.625f];
+  enum offsets = [5.f/8.f, 0.f, 3.f/8.f, 6.f/8.f, 1.f/8.f, 4.f/8.f, 7.f/8.f, 2.f/8.f];
+  return offsets[vidx];
+}
+float hoffset(size_t Scale : 16)(size_t vidx) {
+  assert(vidx < Scale);
+  enum offsets = [1.f/8.f, 8.f/8.f, 4.f/8.f, 15.f/8.f, 11.f/8.f, 3.f/8.f, 6.f/8.f, 14.f/8.f,
+                  10.f/8.f, 3.f/8.f, 7.f/8.f, 12.f/8.f, 0.f/8.f, 9.f/8.f, 5.f/8.f, 13.f/8.f];
   return offsets[vidx];
 }
 
@@ -211,7 +227,7 @@ ubyte calcAlphaBlock(size_t Scale)(Block!Scale broom, byte mask) {
   return cast(ubyte)(cnt * 255 / Scale);
 }
 
-ubyte calcAlphaBit(size_t Scale)(byte broom) {
+ubyte calcAlphaBit(size_t Scale)(BitBlock!Scale broom) {
   uint cnt;
   while (broom) {
     cnt += broom & 0x1;
@@ -228,9 +244,13 @@ if(is(Mark == Block!Scale)) {
   int left;
   ubyte alpha;
   foreach(int right, ref pix; marks) {
-    if (pix.wide != 0) {
+    static if (Scale > 8)
+      auto hasVal = pix.wide[0] != 0 || pix.wide[1] != 0;
+    else
+      auto hasVal = pix.wide != 0;
+    if (hasVal) {
       broom = sumBlock!Scale(broom, pix);
-      pix.wide = 0;
+      static if (Scale > 8) { pix.wide[0] = 0; pix.wide[1] = 0; } else { pix.wide = 0; }
       auto newAlpha = calcAlphaBlock!Scale(broom, mask);
       if (newAlpha != alpha) {
         if (alpha)
@@ -244,8 +264,8 @@ if(is(Mark == Block!Scale)) {
 
 void blitLine(size_t Scale, Mark)
 (int y, Blitter blitter, int leftOff, Mark[] marks, byte /*mask*/)
-if (is(Mark == byte)) {
-  byte broom;
+if (is(Mark == BitBlock!Scale)) {
+  BitBlock!Scale broom;
   int left;
   ubyte alpha;
   foreach(int right, ref pix; marks) {
