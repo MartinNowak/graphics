@@ -1,7 +1,8 @@
 module skia.core.wavelet.raster;
 
 import std.array, std.bitmanip, std.datetime, std.math, std.random, std.conv : to;
-import skia.math.clamp, skia.math.rounding, skia.util.format;
+import skia.math.clamp, skia.math.rounding, skia.util.format,
+  skia.core.edge_detail.algo;
 import guip.bitmap, guip.point, guip.size;
 
 //version=DebugNoise;
@@ -15,79 +16,98 @@ struct Node {
     return str;
   }
 
-  void insertEdge(FPoint[2] pts, uint depth) {
-    auto q0 = Quadrant(pts[0]);
-    auto q1 = Quadrant(pts[1]);
-    if (q0.right != q1.right) {
-      auto qb0 = q0;
-      auto qb1 = q1;
-      real t = (0.5 - pts[0].x) / (pts[1].x - pts[0].x);
-      FPoint split = FPoint(0.5, pts[0].y + t * (pts[1].y - pts[0].y));
-      if (q0.bottom == side(split.y)) {
-        insertInto(q0, [pts[0], split], depth);
-        pts[0] = split;
-        q0.right = !(q0.right);
-      } else {
-        insertInto(q1, [split, pts[1]], depth);
-        pts[1] = split;
-        q1.right = !(q1.right);
+  void insertEdge(size_t K)(FPoint[K] pts, uint depth) {
+    float x = pts[0].x - 0.5;
+    float y = pts[0].y - 0.5;
+
+    foreach(i; 1 .. K) {
+      float nx = pts[i].x - 0.5;
+      float ny = pts[i].y - 0.5;
+
+      // TODO: evaluate vs. intersection calculation
+      if (x * nx < -1e-5 || y * ny < -1e-5) {
+        auto ptss = splitBezier(pts, 0.5);
+        insertEdge(ptss[0], depth);
+        insertEdge(ptss[1], depth);
+        return;
       }
+
+      x += nx;
+      y += ny;
     }
 
-    assert(q0.right == q1.right, to!string(q0.idx)~"|"~to!string(q1.idx));
-    if (q0.bottom != q1.bottom) {
-      real t = (0.5 - pts[0].y) / (pts[1].y - pts[0].y);
-      FPoint split = FPoint(pts[0].x + t * (pts[1].x - pts[0].x), 0.5);
-      insertInto(q0, [pts[0], split], depth);
-      pts[0] = split;
-    }
-
-    insertInto(q1, pts, depth);
+    Quadrant q;
+    q.right = !(x < 0.0);
+    q.bottom = !(y < 0.0);
+    insertInto(q, pts, depth);
   }
 
-  void insertInto(Quadrant q, FPoint[2] pts, uint depth) {
+  void insertInto(size_t K)(Quadrant q, FPoint[K] pts, uint depth) {
     auto qpt = FPoint(q.right, q.bottom);
-    pts[0] = pts[0] * 2 - qpt;
-    pts[1] = pts[1] * 2 - qpt;
+    foreach(ref pt; pts)
+      pt = pt * 2 - qpt;
     calcCoeffs(pts, q);
     if (depth > 0)
       getChild(q.idx).insertEdge(pts, --depth);
   }
 
-  void calcCoeffs(FPoint[2] pts, Quadrant q)
+  void calcCoeffs(size_t K)(FPoint[K] pts, Quadrant q)
   {
-    auto norm0 = (1.f / 8.f) * (pts[1].y - pts[0].y);
-    auto norm1 = (1.f / 8.f) * (pts[0].x - pts[1].x);
-    auto lin0 = pts[0].x + pts[1].x;
-    auto lin1 = pts[0].y + pts[1].y;
+    auto Kx = (1.f / 4.f) * (pts[$-1].y - pts[0].y);
+    auto Ky = (1.f / 4.f) * (pts[0].x - pts[$-1].x);
+    static if (K == 2) {
+      // auto Lcommon = (1.f / 8.f) * crossProduct(pts[1], pts[0]);
+      // auto Ldiff = (1.f / 8.f) * (pts[0].x * pts[0].y - pts[1].x * pts[1].y);
+
+      auto Lx = (1.f / 2.f) * Kx * (pts[0].x + pts[1].x);
+      auto Ly = (1.f / 2.f) * Ky * (pts[0].y + pts[1].y);
+    } else static if (K == 3) {
+        auto Lcommon = (1.f / 24.f) * (
+            2 * (crossProduct(pts[0], pts[1]) + crossProduct(pts[1], pts[2]))
+            + crossProduct(pts[0], pts[2])
+        );
+        auto Ldiff = (3.f / 24.f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y);
+        auto Lx = Lcommon + Ldiff;
+        auto Ly = Lcommon - Ldiff;
+      } else static if (K == 4) {
+        auto Lcommon = (1.f / 80.f) * (
+            3 * (
+                2 * (crossProduct(pts[2], pts[3]) + crossProduct(pts[0], pts[1]))
+                + crossProduct(pts[1], pts[2])
+                + crossProduct(pts[1], pts[3])
+                + crossProduct(pts[0], pts[2])
+            )
+            + crossProduct(pts[0], pts[3])
+        );
+        auto Ldiff = (10.f / 80.f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y);
+        auto Lx = Lcommon + Ldiff;
+        auto Ly = Lcommon - Ldiff;
+      } else
+        static assert(0, "more than 4 control points unsupported");
 
     switch (q.idx) {
     case 0: // (0, 0)
-      const float com = lin0 * norm0;
-      this.coeffs[0] += com;
-      this.coeffs[2] += com;
-      this.coeffs[1] += lin1 * norm1;
+      this.coeffs[0] += Lx;
+      this.coeffs[1] += Ly;
+      this.coeffs[2] += Lx;
 
       break;
     case 1: // (1, 0)
-      const float com = (2.f - lin0) * norm0;
-      this.coeffs[0] += com;
-      this.coeffs[2] += com;
-      this.coeffs[1] += lin1 * norm1;
+      this.coeffs[0] += Kx - Lx;
+      this.coeffs[1] += Ly;
+      this.coeffs[2] += Kx - Lx;
 
       break;
     case 2: // (0, 1)
-      const float com = lin0 * norm0;
-      this.coeffs[0] += com;
-      this.coeffs[2] -= com;
-      this.coeffs[1] += (2.f - lin1) * norm1;
+      this.coeffs[0] += Lx;
+      this.coeffs[1] += Ky - Ly;
+      this.coeffs[2] += -Lx;
 
       break;
     case 3: // (1, 1)
-      const float com = (2.f - lin0) * norm0;
-      this.coeffs[0] += com;
-      this.coeffs[2] -= com;
-      this.coeffs[1] += (2.f - lin1) * norm1;
+      this.coeffs[0] += Kx - Lx;
+      this.coeffs[1] += Ky - Ly;
+      this.coeffs[2] += -Kx + Lx;
 
       break;
     default: assert(0);
@@ -120,19 +140,26 @@ struct WaveletRaster {
 
   void insertEdge(FPoint[2] pts) {
     assert(pointsAreClipped(pts));
-    this.rootConst +=
-      0.5 * (pts[0].x * pts[1].y - pts[0].y * pts[1].x);
+    this.rootConst += crossProduct(pts[0], pts[1]) / 2;
     root.insertEdge(pts, depth);
   }
 
   void insertEdge(FPoint[3] pts) {
     assert(pointsAreClipped(pts));
-    assert(0, "unimplemented");
+    this.rootConst += (1.f / 6.f) * (
+        2 * (crossProduct(pts[0], pts[1]) + crossProduct(pts[1], pts[2]))
+        + crossProduct(pts[0], pts[2]));
+    root.insertEdge(pts, depth);
   }
 
   void insertEdge(FPoint[4] pts) {
     assert(pointsAreClipped(pts));
-    assert(0, "unimplemented");
+    this.rootConst += (1.f / 20.f) * (
+        6 * crossProduct(pts[0], pts[1]) + 3 * crossProduct(pts[1], pts[2])
+        + 6 * crossProduct(pts[2], pts[3]) + 3 * crossProduct(pts[0], pts[2])
+        + 3 * crossProduct(pts[1], pts[3]) + 1 * crossProduct(pts[0], pts[3])
+    );
+    root.insertEdge(pts, depth);
   }
 
   bool pointsAreClipped(in FPoint[] pts) {
@@ -215,17 +242,16 @@ bool side(float val) {
 }
 
 void main() {
-  enum Depth = 8;
+  enum Depth = 12;
   enum Resolution = 1 << Depth;
   auto bmp = Bitmap();
   bmp.setConfig(Bitmap.Config.A8, Resolution, Resolution);
   bmp.getBuffer!ubyte()[] = 127;
   void runInsert() {
     WaveletRaster wr = WaveletRaster(Depth-1);
-    wr.insertEdge([FPoint(0.2, 0), FPoint(0.4, 0.0)]);
-    wr.insertEdge([FPoint(0.4, 0.0), FPoint(0.5, 1)]);
-    wr.insertEdge([FPoint(0.5, 1), FPoint(0.25, 1)]);
-    wr.insertEdge([FPoint(0.25, 1), FPoint(0.2, 0)]);
+    wr.insertEdge([FPoint(0, 0), FPoint(1.f/3.f, 1.f/3.f), FPoint(0.75, 0.75), FPoint(1., 1.)]);
+    wr.insertEdge([FPoint(1., 1.), FPoint(0., 1.)]);
+    wr.insertEdge([FPoint(0., 1.), FPoint(0., 0.)]);
 
     auto grid = bmp.getBuffer!ubyte[];
     writeNodeToGrid(wr.root, wr.rootConst, IPoint(0, 0), grid, Resolution, Resolution);
