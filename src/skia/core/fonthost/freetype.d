@@ -9,12 +9,19 @@ shared FT_Face _face;
 shared FreeType _freeType;
 
 @property shared(FreeType) freeType() {
-  if (_freeType is null) {
-    auto ft = new FreeType();
-    if (cas(&_freeType, cast(FreeType)null, ft))
-      _freeType.init();
-  }
+  // TODO: cas doesn't compile => init unsafe
+//  if (_freeType is null) {
+//    auto ft = new shared(FreeType)();
+//    //    if (cas(&_freeType, cast(FreeType)null, ft))
+//    _freeType = ft;
+//    _freeType.init();
+//  }
   return _freeType;
+}
+
+shared static this() {
+  _freeType = new shared(FreeType)();
+  _freeType.init();
 }
 
 private synchronized class FreeType {
@@ -45,11 +52,16 @@ FPoint ScaleFT_Vector(FT_Vector vec) {
 shared(GlyphStore) _glyphStore;
 
 @property shared(GlyphStore) glyphStore() {
-  if (_glyphStore is null) {
-    auto gs = new GlyphStore();
-    cas(&_glyphStore, cast(GlyphStore)null, gs);
-  }
+  // TODO: cas doesn't compile => init unsafe
+//  if (_glyphStore is null) {
+//    auto gs = new shared(GlyphStore)();
+//    cas(&_glyphStore, cast(GlyphStore)null, gs);
+//  }
   return _glyphStore;
+}
+
+shared static this() {
+  _glyphStore = new shared(GlyphStore)();
 }
 
 synchronized class GlyphStore {

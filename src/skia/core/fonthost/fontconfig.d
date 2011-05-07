@@ -53,12 +53,19 @@ private:
 private shared(FontConfig) _fontConfig;
 
 package @property shared(FontConfig) fontConfig() {
-  if (_fontConfig is null) {
-    auto fc = new FontConfig();
-    if (cas(&_fontConfig, cast(FontConfig)null, fc))
-      _fontConfig.init();
-  }
+  // TODO: cas doesn't compile => init unsafe
+//  if (_fontConfig is null) {
+//    auto fc = new shared(FontConfig)();
+//    //    if (cas(&_fontConfig, cast(FontConfig)null, fc))
+//    _fontConfig = fc;
+//      _fontConfig.init();
+//  }
   return _fontConfig;
+}
+
+shared static this() {
+  _fontConfig = new shared(FontConfig)();
+  _fontConfig.init();
 }
 
 synchronized class FontConfig {
