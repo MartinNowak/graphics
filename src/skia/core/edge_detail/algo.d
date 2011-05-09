@@ -4,14 +4,16 @@ private {
   import std.algorithm : swap;
   import std.array : front, back;
   import std.conv : to;
-  import std.math : isNaN, abs, sqrt;
+  import std.math;
   import std.numeric : FPTemporary;
   import std.traits : isFloatingPoint;
   import std.metastrings : Format;
-
   import skia.math._;
   import guip.point;
+  import skia.bezier.curve;
 }
+
+public import skia.bezier.chop : splitBezier;
 
 bool isLine(T)(in Point!T[] pts) {
   if (pts.length < 2)
@@ -85,37 +87,6 @@ int quadUnitRoots(T1, T2)(in T1[3] coeffs, out T2[2] roots) {
   return rootIdx;
 }
 
-/**
- * Split bezier curve with de Castlejau algorithm.
- */
-Point!T[K][2] splitBezier(size_t K, T)(in Point!T[K] pts, real tValue)
-in {
-  assert(fitsIntoRange!("()")(tValue, 0.0, 1.0), to!string(tValue));
-  assert(pts.length == K);
-} body {
-  static assert(K>=2);
-
-  real oneMt = 1 - tValue;
-
-  Point!T split(Point!T p0, Point!T p1) {
-    return Point!T(p0.x * oneMt + p1.x * tValue, p0.y * oneMt + p1.y * tValue);
-  }
-
-  Point!T[K] left;
-  Point!T[K] tmp = pts;
-  left[0] = pts[0];
-
-  int k = K;
-  while (--k > 0) {
-    for (int i = 0; i < k ; ++i) {
-      tmp[i] = split(tmp[i], tmp[i+1]);
-    }
-    left[K-k] = tmp[0];
-  }
-  assert(left[K-1] == tmp[0]);
-  return [left, tmp];
-}
-
 unittest {
   auto pts = fixedAry!2(point(0.0, 0.0), point(1.0, 1.0));
   auto split = splitBezier(pts, 0.5);
@@ -151,43 +122,12 @@ byte sortPoints(T, size_t N)(ref Point!T[N] pts) {
 /**
  * Overloads to calc x/y of given bezier control points.
  */
-T2 calcBezier(string v, T, T2)(in Point!T[2] pts, T2 t) {
-  fitsIntoRange!("[]")(t, 0.0, 1.0);
-  FPTemporary!T2 mt = 1 - t;
-  enum cmd = Format!("mt*pts[0].%s + t*pts[1].%s", v, v);
-  return mixin(cmd);
+T calcBezier(string v, T, size_t K)(Point!T[K] pts, double t) {
+  auto val = evalBezier!T(pts, t);
+  return mixin(Format!(q{val.%s}, v));
 }
 
-T2 calcBezier(string v, T, T2)(in Point!T[3] pts, T2 t) {
-  fitsIntoRange!("[]")(t, 0.0, 1.0);
-  FPTemporary!T2 mt = 1 - t;
-  enum cmd = Format!("mt*mt*pts[0].%s + 2*t*mt*pts[1].%s + t*t*pts[2].%s", v, v, v);
-  return mixin(cmd);
+T calcBezierDerivative(string v, T, size_t K)(Point!T[K] pts, double t) {
+  auto grad = evalBezierDer!T(pts, t);
+  return mixin(Format!(q{grad.%s}, v));
 }
-
-T2 calcBezier(string v, T, T2)(in Point!T[4] pts, T2 t) {
-  fitsIntoRange!("[]")(t, 0.0, 1.0);
-  FPTemporary!T2 mt = 1 - t;
-  enum cmd = Format!("mt*mt*mt*pts[0].%s + 3*t*mt*mt*pts[1].%s + 3*t*t*mt*pts[2].%s + t*t*t*pts[3].%s",
-                     v, v, v, v);
-  return mixin(cmd);
-}
-
-T2 calcBezierDerivative(string v, T, T2)(in Point!T[4] pts, T2 t) {
-  FPTemporary!T2 c0 = mixin(Format!("pts[3].%s - pts[0].%s + 3*(pts[1].%s - pts[2].%s)", v, v, v, v));
-  FPTemporary!T2 c1 = mixin(Format!("2*(pts[0].%s - 2 * pts[1].%s + pts[2].%s)", v, v, v));
-  FPTemporary!T2 c2 = mixin(Format!("pts[1].%s - pts[0].%s", v, v));
-  return c0 * t * t + c1 * t + c2;
-}
-
-T2 calcBezierDerivative(string v, T, T2)(in Point!T[3] pts, T2 t) {
-  FPTemporary!T2 c0 = mixin(Format!("2*(pts[0].%s - 2 * pts[1].%s + pts[2].%s)", v, v, v));
-  FPTemporary!T2 c1 = mixin(Format!("2*(pts[1].%s - pts[0].%s)", v, v));
-  return c0 * t + c1;
-}
-
-T2 calcBezierDerivative(string v, T, T2)(in Point!T[2] pts, T2 t) {
-  FPTemporary!T2 c0 = mixin(Format!("pts[1].%s - pts[0].%s", v, v));
-  return c0;
-}
-

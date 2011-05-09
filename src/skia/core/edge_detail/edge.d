@@ -4,6 +4,7 @@ private {
   import std.algorithm : min;
   import std.array : appender;
   import std.traits : isFloatingPoint;
+  import std.math;
 
   import skia.core.edge_detail.algo;
   import skia.core.edge_detail.cubic_edge;
@@ -14,6 +15,7 @@ private {
   import skia.math.fixed_ary;
 }
 
+//version=VERBOSE;
 package:
 
 enum EdgeType : byte { Line, Quad, Cubic }

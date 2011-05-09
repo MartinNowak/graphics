@@ -5,7 +5,7 @@ private {
   import std.array : front, back, save;
   version(unittest) import std.array : appender;
   import std.conv : to;
-  import std.math : approxEqual, isNaN;
+  import std.math;
   import std.numeric : FPTemporary;
 
   import skia.core.edge_detail.algo;

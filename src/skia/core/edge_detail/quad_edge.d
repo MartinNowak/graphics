@@ -3,7 +3,7 @@ module skia.core.edge_detail.quad_edge;
 private {
   import std.array : front, back;
   import std.conv : to;
-  import std.math : approxEqual;
+  import std.math;
 
   import skia.core.edge_detail.algo;
   import skia.core.edge_detail.edge;
