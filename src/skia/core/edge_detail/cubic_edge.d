@@ -11,7 +11,7 @@ private {
   import skia.core.edge_detail.algo;
   import skia.core.edge_detail.edge;
   import skia.core.edge_detail.line_edge;
-  import skia.bezier.chop;
+  import skia.bezier.chop, skia.bezier.curve;
   import guip.rect;
   import guip.point;
   import skia.math.fast_sqrt;
@@ -31,8 +31,8 @@ void cubicEdge(R, T)(ref R appender, Point!T[4] pts, const(IRect*) clip=null) {
     return lineEdge(appender, fixedAry!2(pts.front, pts.back));
   }
 
-  T[2] unitRoots;
-  auto nUnitRoots = cubicUnitRoots(pts, unitRoots);
+  double[2] unitRoots;
+  auto nUnitRoots = bezierExtremaY(pts, unitRoots);
   debug(PRINTF) writefln("1nd pass n:%s roots: %s",
                          nUnitRoots, unitRoots);
 
@@ -50,7 +50,7 @@ void cubicEdge(R, T)(ref R appender, Point!T[4] pts, const(IRect*) clip=null) {
     T sndRoot = (unitRoots[1] - unitRoots[0]) / (1 - unitRoots[0]);
 
     debug {
-      auto numRoots = cubicUnitRoots(ptss[1], unitRoots);
+      auto numRoots = bezierExtremaY(ptss[1], unitRoots);
       if (numRoots > 0) {
         debug(PRINTF) writefln("2nd pass n:%s roots: %s orig 2nd root: %s",
                                numRoots, unitRoots, sndRoot);
@@ -170,10 +170,10 @@ T updateCubicImpl(T)(ref Point!T[4] pts, T y, T a, FPTemporary!T ya,
     assert(b <= 1.0);
     b = 1.0;
     yb = calcBezier!("y")(pts, b) - y;
-    assert(yb >= ya);
   }
-  assert(yb > 0);
-  assert(ya < 0);
+  assert(yb >= ya);
+  assert(signbit(ya) != signbit(yb));
+
   debug(Illinois) int i;
   FPTemporary!T gamma = 1.0;
   while (true) {

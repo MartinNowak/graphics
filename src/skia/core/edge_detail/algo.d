@@ -26,7 +26,7 @@ bool isLine(T)(in Point!T[] pts) {
 }
 
 int valid_unit_divide(T, T2)(T numer, T denom, out T2 ratio) {
-  if (numer * denom <= 0) {
+  if (numer * denom !>= 0) {
     return 0;
   }
 

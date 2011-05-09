@@ -8,7 +8,7 @@ private {
   import skia.core.edge_detail.algo;
   import skia.core.edge_detail.edge;
   import skia.core.edge_detail.line_edge;
-  import skia.bezier.chop;
+  import skia.bezier.chop, skia.bezier.curve;
   import guip.rect;
   import guip.point;
   import skia.math.fixed_ary;
@@ -90,8 +90,8 @@ private:
 void appendSplittedQuad(R, T)(ref R appender, Point!T[3] pts, const (IRect*) clip=null) {
   T denom = pts[0].y - 2*pts[1].y + pts[2].y;
   T numer = pts[0].y - pts[1].y;
-  T tValue;
-  if (valid_unit_divide(numer, denom, tValue)) {
+  double tValue;
+  if (bezierExtremaY(pts, tValue)) {
     auto ptss = splitBezier(pts, tValue);
     appendMonoQuad(appender, ptss[0], clip);
     appendMonoQuad(appender, ptss[1], clip);
