@@ -37,27 +37,23 @@ void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[
 in {
   assert(t1 > t0);
 } body {
-  result[0] = evalBezier(pts, t0);
-  result[$-1] = evalBezier(pts, t1);
+  constructBezier(evalBezier(pts, t0), evalBezier(pts, t1), result);
 }
 
 void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 3)
 in {
   assert(t1 > t0);
 } body {
-  result[0] = evalBezier(pts, t0);
-  result[$-1] = evalBezier(pts, t1);
-  result[1] = (evalBezierDer(pts, t0) * ((t1 - t0) / 2) + result[0]);
+  constructBezier(evalBezier(pts, t0), evalBezier(pts, t1),
+                  evalBezierDer(pts, t0) * (t1 - t0), result);
 }
 
 void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 4)
 in {
   assert(t1 > t0);
 } body {
-  result[0] = evalBezier(pts, t0);
-  result[$-1] = evalBezier(pts, t1);
-  result[1] = (evalBezierDer(pts, t0) * ((t1 - t0) / 3) + result[0]);
-  result[2] = (result[3] - evalBezierDer(pts, t1) * ((t1 - t0) / 3));
+  constructBezier(evalBezier(pts, t0), evalBezier(pts, t1),
+                  evalBezierDer(pts, t0) * (t1 - t0), evalBezierDer(pts, t1) * (t1 - t0), result);
 }
 
 
