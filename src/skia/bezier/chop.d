@@ -6,36 +6,32 @@ import guip.point;
 /**
  * Split bezier curve with de Castlejau algorithm.
  */
-Point!T[K][2] splitBezier(size_t K, T)(Point!T[K] pts, real tValue)
-in {
-  assert(fitsIntoRange!("()")(tValue, 0.0, 1.0), to!string(tValue));
-  assert(pts.length == K);
-} body {
-  static assert(K>=2);
+Point!T[K][2] splitBezier(size_t K, T)(in Point!T[K] pts, double t) {
 
-  real oneMt = 1 - tValue;
-
-  Point!T split(Point!T p0, Point!T p1) {
-    return Point!T(p0.x * oneMt + p1.x * tValue, p0.y * oneMt + p1.y * tValue);
-  }
-
-  Point!T[K] left;
-  left[0] = pts[0];
-
-  int k = K;
-  while (--k > 0) {
-    for (int i = 0; i < k ; ++i) {
-      pts[i] = split(pts[i], pts[i+1]);
-    }
-    left[K-k] = pts[0];
-  }
-  assert(left[K-1] == pts[0]);
-  Point!T[K][2] res;
-  res[0] = left;
-  res[1] = pts;
-  return res;
+  Point!T[K][2] result = void;
+  result[1] = pts;
+  splitBezier(result[0], result[1], t);
+  return result;
 }
 
+// use ref here to allow uninitliazed arrays
+void splitBezier(size_t K, T)(/*out*/ref Point!T[K] left, ref Point!T[K] curve, double t)
+in {
+  assert(fitsIntoRange!("()")(t, 0.0, 1.0), to!string(t));
+} body {
+  static assert(K >= 2);
+
+  left[0] = curve[0];
+
+  const mt = 1 - t;
+  int k = K;
+  while (--k > 0) {
+    foreach(i; 0 .. k)
+      curve[i] = curve[i] * mt + curve[i + 1] * t;
+    left[K - k] = curve[0];
+  }
+  assert(left[K-1] == curve[0]);
+}
 
 void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 2)
 in {
