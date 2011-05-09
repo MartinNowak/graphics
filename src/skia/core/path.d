@@ -11,7 +11,7 @@ private {
 
   import skia.core.matrix;
   import guip.point;
-  import skia.core.edge_detail.algo : splitBezier;
+  import skia.bezier.chop;
   import skia.core.path_detail._;
   import guip.rect;
   import skia.math.fixed_ary;

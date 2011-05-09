@@ -7,7 +7,7 @@ private {
   import skia.core.path;
   import guip.point;
   import skia.math.fixed_ary;
-  import skia.core.edge_detail.algo : splitBezier;
+  import skia.bezier.chop;
   debug import std.stdio;
 }
 

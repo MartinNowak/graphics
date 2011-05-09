@@ -1,7 +1,8 @@
 module skia.core.path_detail.path_measure;
 
 import std.array, std.algorithm, std.range : assumeSorted;
-import skia.core.path, skia.core.edge_detail.algo, skia.math.fixed_ary, skia.math.clamp, skia.util.format;
+import skia.bezier.chop, skia.bezier.curve, skia.core.path, skia.core.edge_detail.algo,
+  skia.math.fixed_ary, skia.math.clamp, skia.util.format;
 import guip.point;
 
 struct PathMeasure {
@@ -151,13 +152,13 @@ private:
     switch (verb) {
     case Path.Verb.Line:
       auto pts = fixedAry!2(this.points[segment.pointIndex .. segment.pointIndex + 2]);
-      return FPoint(calcBezier!("x")(pts, t), calcBezier!("y")(pts, t));
+      return evalBezier(pts, t);
     case Path.Verb.Quad:
       auto pts = fixedAry!3(this.points[segment.pointIndex .. segment.pointIndex + 3]);
-      return FPoint(calcBezier!("x")(pts, t), calcBezier!("y")(pts, t));
+      return evalBezier(pts, t);
     case Path.Verb.Cubic:
       auto pts = fixedAry!4(this.points[segment.pointIndex .. segment.pointIndex + 4]);
-      return FPoint(calcBezier!("x")(pts, t), calcBezier!("y")(pts, t));
+      return evalBezier(pts, t);
     default:
       assert(0, to!string(verb));
     }

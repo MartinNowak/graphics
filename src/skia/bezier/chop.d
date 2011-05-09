@@ -37,7 +37,7 @@ in {
 }
 
 
-void cutBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 2)
+void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 2)
 in {
   assert(t1 > t0);
 } body {
@@ -45,7 +45,7 @@ in {
   result[$-1] = evalBezier(pts, t1);
 }
 
-void cutBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 3)
+void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 3)
 in {
   assert(t1 > t0);
 } body {
@@ -54,7 +54,7 @@ in {
   result[1] = (evalBezierDer(pts, t0) * ((t1 - t0) / 2) + result[0]);
 }
 
-void cutBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 4)
+void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 4)
 in {
   assert(t1 > t0);
 } body {
@@ -63,6 +63,7 @@ in {
   result[1] = (evalBezierDer(pts, t0) * ((t1 - t0) / 3) + result[0]);
   result[2] = (result[3] - evalBezierDer(pts, t1) * ((t1 - t0) / 3));
 }
+
 
 version(unittest) import std.stdio;
 unittest {
@@ -75,7 +76,7 @@ unittest {
     step *= 0.4;
     std.stdio.writeln(step);
   }
-  cutBezier(test, 0.0, step, res);
+  sliceBezier(test, 0.0, step, res);
   std.stdio.writeln(evalBezierDer(test, 0));
   std.stdio.writeln(evalBezierDer(ptss[0], 0));
   std.stdio.writeln(evalBezierDer(res, 0));

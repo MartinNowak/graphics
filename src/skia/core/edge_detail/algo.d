@@ -10,10 +10,8 @@ private {
   import std.metastrings : Format;
   import skia.math._;
   import guip.point;
-  import skia.bezier.curve;
+  import skia.bezier.curve, skia.bezier.chop;
 }
-
-public import skia.bezier.chop : splitBezier;
 
 bool isLine(T)(in Point!T[] pts) {
   if (pts.length < 2)

@@ -2,7 +2,7 @@ module skia.core.wavelet.raster;
 
 import std.algorithm, std.array, std.bitmanip, std.math, std.random, std.typecons, std.conv : to;
 import std.datetime : benchmark, StopWatch;
-import skia.math.clamp, skia.math.rounding, skia.util.format,
+import skia.math.clamp, skia.math.rounding, skia.util.format, skia.bezier.chop,
   skia.core.edge_detail.algo, skia.core.path, skia.core.blitter,
   skia.core.matrix, skia.math.fixed_ary;
 import guip.bitmap, guip.point, guip.rect, guip.size;
