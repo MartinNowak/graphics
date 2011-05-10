@@ -137,10 +137,10 @@ private int cubicPolyRoots(double d10, double d21, double d32, ref double[2] ts)
 }
 
 bool monotonicX(T, size_t K)(Point!T[K] curve) {
-  auto dir = curve[0].x < curve[1].x;
-  auto lastX = curve[1].x;
-  foreach(i; 2 .. K) {
-    if (dir != (lastX < curve[i].x))
+  auto dir = curve[0].x < curve[$-1].x;
+  auto lastX = curve[0].x;
+  foreach(i; 1 .. K) {
+    if (dir != (lastX <= curve[i].x))
       return false;
     lastX = curve[i].x;
   }
@@ -148,10 +148,10 @@ bool monotonicX(T, size_t K)(Point!T[K] curve) {
 }
 
 bool monotonicY(T, size_t K)(Point!T[K] curve) {
-  auto dir = curve[0].y < curve[1].y;
-  auto lastY = curve[1].y;
-  foreach(i; 2 .. K) {
-    if (dir != (lastY < curve[i].y))
+  auto dir = curve[0].y < curve[$-1].y;
+  auto lastY = curve[0].y;
+  foreach(i; 1 .. K) {
+    if (dir != (lastY <= curve[i].y))
       return false;
     lastY = curve[i].y;
   }

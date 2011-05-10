@@ -33,6 +33,7 @@ in {
   assert(left[K-1] == curve[0]);
 }
 
+
 void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 2)
 in {
   assert(t1 > t0);
@@ -56,7 +57,6 @@ in {
                   evalBezierDer(pts, t0) * (t1 - t0), evalBezierDer(pts, t1) * (t1 - t0), result);
 }
 
-
 version(unittest) import std.stdio;
 unittest {
   FPoint[3] res;
@@ -75,4 +75,70 @@ unittest {
   std.stdio.writeln(evalBezierDer(ptss[0], 1));
   std.stdio.writeln(evalBezierDer(res, 1));
   std.stdio.writeln(ptss[0], res);
+}
+
+
+int chopMonotonic(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref Point!T[K][MS] monos) if(K==2)
+in {
+  foreach(ref mono; monos)
+    assert(curve !is mono);
+} body {
+  static assert(MS >= 1 + 2 * (K-2));
+
+  monos[0] = curve;
+  return 1;
+}
+
+
+int chopMonotonic(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref Point!T[K][MS] monos) if(K>2)
+in {
+  foreach(ref mono; monos)
+    assert(curve !is mono);
+} body {
+  static assert(MS >= 1 + 2 * (K-2));
+
+  double[2*(K-2)] ts;
+  auto cnt = bezierExtrema(curve, ts);
+  if (cnt == 1) {
+    monos[1] = curve;
+    splitBezier(monos[0], monos[1], ts[0]);
+  } else {
+    Point!T lastPt = curve[0];
+    Vector!T lastDer = (K - 1) * (curve[1] - curve[0]);
+    double lastT = 0;
+    foreach(i, t; ts[0 .. cnt]) {
+      Point!T nextPt = evalBezier(curve, t);
+      Vector!T nextDer = evalBezierDer(curve, t);
+      static if (K == 4)
+        constructBezier(lastPt, nextPt, lastDer * (t - lastT), nextDer * (t - lastT), monos[i]);
+      else
+        constructBezier(lastPt, nextPt, lastDer * (t - lastT), monos[i]);
+      lastPt = nextPt;
+      lastDer = nextDer;
+      lastT = t;
+    }
+    static if (K == 4) {
+      Vector!T nextDer = (K-1)*(curve[$-1] - curve[$-2]);
+      constructBezier(lastPt, curve[$-1], lastDer * (1 - lastT), nextDer * (1 - lastT), monos[cnt]);
+    } else
+      constructBezier(lastPt, curve[$-1], lastDer * (1 - lastT), monos[cnt]);
+  }
+  return cnt + 1;
+}
+
+
+unittest {
+  FPoint[3] quad = [FPoint(0, 0), FPoint(2, 2), FPoint(4, 0)];
+  FPoint[3][3] monos;
+  assert(chopMonotonic(quad, monos) == 2);
+  assert(monos[0] == [FPoint(0, 0), FPoint(1, 1), FPoint(2, 1)]);
+  assert(monos[1] == [FPoint(2, 1), FPoint(3, 1), FPoint(4, 0)]);
+
+  quad = [FPoint(0, 0), FPoint(2, 2), FPoint(0, 0)];
+  assert(chopMonotonic(quad, monos) == 3);
+  std.stdio.writeln(monos);
+  foreach(ref mono; monos)
+    assert(monotonicX(mono) && monotonicY(mono));
+  assert(monos[0][0] == FPoint(0, 0));
+  assert(monos[2][2] == FPoint(0, 0));
 }
