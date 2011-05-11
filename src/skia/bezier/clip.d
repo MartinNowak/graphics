@@ -1,42 +1,104 @@
 module skia.bezier.clip;
 
-import skia.bezier.chop, skia.bezier.curve;
+import skia.bezier.chop, skia.bezier.curve, skia.math.clamp;
 import guip.point, guip.rect;
-import std.algorithm, std.conv;
+import std.algorithm, std.conv, std.math, std.metastrings, std.numeric;
 
 bool clipMonoBezier(T, size_t K)(ref const Point!T[K] curve, ref const Rect!T rect, ref Point!T[K] clipped) {
   assert(!rect.empty);
   assert(monotonicX(curve) && monotonicY(curve));
-  return clipMonoBezierX!T(curve, rect.left, rect.right, clipped)
-    && clipMonoBezierY!T(clipped, rect.top, rect.bottom, clipped);
+  return clipMonoBezierImpl!("x")(curve, rect.left, rect.right, clipped)
+    && clipMonoBezierImpl!("y")(clipped, rect.top, rect.bottom, clipped);
 }
 
-
-bool clipMonoBezierX(T)(ref const Point!T[2] line, T left, T right, ref Point!T[2] clipped) {
-  const lenscale = 1. / (line[1].x - line[0].x);
-  auto t0 = (left - line[0].x) * lenscale;
-  auto t1 = (right - line[0].x) * lenscale;
-  return clipLineImpl!T(line, t0, t1, clipped);
-}
-
-bool clipMonoBezierY(T)(ref const Point!T[2] line, T top, T bottom, ref Point!T[2] clipped) {
-  const lenscale = 1. / (line[1].y - line[0].y);
-  auto t0 = (top - line[0].y) * lenscale;
-  auto t1 = (bottom - line[0].y) * lenscale;
-  return clipLineImpl!T(line, t0, t1, clipped);
-}
-
-bool clipLineImpl(T)(ref const Point!T[2] line, T t0, T t1, ref Point!T[2] clipped) {
-  if (t0 !>= 0 && t1 !>= 0 || t0 !<= 1 && t1 !<= 1)
+bool clipMonoBezierImpl(string dir, T)
+(ref const Point!T[2] line, double lo, double hi, ref Point!T[2] clipped) {
+  const v0 = mixin(Format!(q{line[0].%s}, dir));
+  const v1 = mixin(Format!(q{line[1].%s}, dir));
+  const t0 = (v0 < lo) == (v1 > lo) ? (lo - v0) / (v1 - v0) : (v0 < lo) == (v0 < v1);
+  const t1 = (v0 < hi) == (v1 > hi) ? (hi - v0) / (v1 - v0) : (v0 < hi) == (v0 < v1);
+  if (t0 !<> t1)
     return false;
-  auto s0 = min(t0, t1);
-  auto s1 = max(t0, t1);
-  assert(s0 <>= s1);
-  if (s0 <= 0 && s1 >= 1) {
-    if (line !is clipped) // no self assign
+  assert(t0 <>= t1);
+  assert(fitsIntoRange!("[]")(t0, 0, 1));
+  assert(fitsIntoRange!("[]")(t1, 0, 1));
+  const s0 = min(t0, t1);
+  const s1 = max(t0, t1);
+  if (s0 == 0 && s1 == 1) {
+    if (line !is clipped)
       clipped = line;
   } else
-    sliceBezier(line, max(0, s0), min(1, s1), clipped);
+    sliceBezier(line, s0, s1, clipped);
+  return true;
+}
+
+
+bool clipMonoBezierImpl(string dir, T)
+(ref const Point!T[3] quad, double lo, double hi, ref Point!T[3] clipped) {
+  const v0 = mixin(Format!(q{quad[0].%s}, dir));
+  const v1 = mixin(Format!(q{quad[1].%s}, dir));
+  const v2 = mixin(Format!(q{quad[2].%s}, dir));
+
+  double intersection(double val) {
+    auto evaldg = (double t) { const mt = 1-t; return mt * mt * v0 + 2 * mt * t * v1 + t * t * v2 - val;};
+    auto r = findRoot(
+        evaldg, 0.0, 1.0,
+        v0 - val, v2 - val,
+        (double lo, double hi) { return hi - lo < 1e-3; });
+    return fabs(r[2]) !> fabs(r[3]) ? r[0] : r[1];
+  }
+
+  const t0 = (v0 < lo) == (v2 > lo) ? intersection(lo) : (v0 < lo) == (v0 < v2);
+  const t1 = (v0 < hi) == (v2 > hi) ? intersection(hi) : (v0 < hi) == (v0 < v2);
+  if (t0 !<> t1)
+    return false;
+  assert(t0 <>= t1);
+  assert(fitsIntoRange!("[]")(t0, 0, 1));
+  assert(fitsIntoRange!("[]")(t1, 0, 1));
+  const s0 = min(t0, t1);
+  const s1 = max(t0, t1);
+  if (s0 == 0 && s1 == 1) {
+    if (quad !is clipped)
+      clipped = quad;
+  } else
+    sliceBezier(quad, s0, s1, clipped);
+  return true;
+}
+
+
+bool clipMonoBezierImpl(string dir, T)
+(ref const Point!T[4] cubic, double lo, double hi, ref Point!T[4] clipped) {
+  const v0 = mixin(Format!(q{cubic[0].%s}, dir));
+  const v1 = mixin(Format!(q{cubic[1].%s}, dir));
+  const v2 = mixin(Format!(q{cubic[2].%s}, dir));
+  const v3 = mixin(Format!(q{cubic[3].%s}, dir));
+
+  double intersection(double val) {
+    auto evaldg = (double t) {
+      const mt = 1-t;
+      return mt * mt * mt * v0 + 3 * mt * mt * t * v1 + 3 * mt * t * t * v2 + t * t * t * v3 - val;
+    };
+    auto r = findRoot(
+        evaldg, 0.0, 1.0,
+        v0 - val, v3 - val,
+        (double lo, double hi) { return hi - lo < 1e-3; });
+    return fabs(r[2]) !> fabs(r[3]) ? r[0] : r[1];
+  }
+
+  const t0 = (v0 < lo) == (v3 > lo) ? intersection(lo) : (v0 < lo) == (v0 < v3);
+  const t1 = (v0 < hi) == (v3 > hi) ? intersection(hi) : (v0 < hi) == (v0 < v3);
+  if (t0 !<> t1)
+    return false;
+  assert(t0 <>= t1);
+  assert(fitsIntoRange!("[]")(t0, 0, 1));
+  assert(fitsIntoRange!("[]")(t1, 0, 1));
+  const s0 = min(t0, t1);
+  const s1 = max(t0, t1);
+  if (s0 == 0 && s1 == 1) {
+    if (cubic !is clipped)
+      clipped = cubic;
+  } else
+    sliceBezier(cubic, s0, s1, clipped);
   return true;
 }
 
@@ -64,4 +126,24 @@ unittest {
   line = [FPoint(-2, -1), FPoint(2, 1)];
   assert(clipMonoBezier(line, clip, clipped));
   assert(clipped == [FPoint(0, 0), FPoint(1, 0.5)]);
+
+  line = [FPoint(0, 0), FPoint(1, 1)];
+  assert(clipMonoBezier(line, clip, clipped));
+  assert(clipped == [FPoint(0, 0), FPoint(1, 1)]);
+}
+
+unittest {
+  FPoint[3] quad = [FPoint(0, 0), FPoint(0.5, 1.0), FPoint(2, 2)];
+  auto clip = FRect(0, 0, 1, 1);
+  FPoint[3] clipped;
+  assert(clipMonoBezier(quad, clip, clipped));
+  assert(clipped == [FPoint(0, 0), FPoint(0.25, 0.5), FPoint(0.75, 1)]);
+}
+
+unittest {
+  FPoint[4] cubic = [FPoint(0./3., 0./3.), FPoint(1./3, 2./3.), FPoint(2./3., 4./3.), FPoint(3./3., 6./3.)];
+  auto clip = FRect(0, 0, 1, 1);
+  FPoint[4] clipped;
+  assert(clipMonoBezier(cubic, clip, clipped));
+  assert(clipped == [FPoint(0./6., 0./3.), FPoint(1./6, 1./3.), FPoint(2./6., 2./3.), FPoint(3./6., 3./3.)]);
 }
