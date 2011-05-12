@@ -85,10 +85,11 @@ int bezierExtremaY(T)(ref const Point!T[3] quad, ref double t) {
 }
 
 int bezierExtrema(T)(ref const Point!T[3] quad, ref double[2] ts) {
-  uint idx;
-  idx += bezierExtremaX(quad, ts[idx]);
-  idx += bezierExtremaY(quad, ts[idx]);
-  return idx;
+  uint cnt;
+  cnt += bezierExtremaX(quad, ts[cnt]);
+  cnt += bezierExtremaY(quad, ts[cnt]);
+  sort(ts[0 .. cnt]);
+  return cnt;
 }
 
 
@@ -115,10 +116,14 @@ int bezierExtremaY(T)(ref const Point!T[4] cubic, ref double[2] ts) {
 }
 
 int bezierExtrema(T)(ref const Point!T[4] cubic, ref double[4] ts) {
-  uint idx;
-  idx += bezierExtremaX(cubic, ts[idx .. idx + 2]);
-  idx += bezierExtremaY(cubic, ts[idx .. idx + 2]);
-  return idx;
+  double[2] tx;
+  auto xcnt = bezierExtremaX(cubic, tx);
+  ts[0 .. xcnt] = tx[0 .. xcnt];
+  double[2] ty;
+  auto ycnt = bezierExtremaY(cubic, ty);
+  ts[xcnt .. xcnt + ycnt] = ty[0 .. ycnt];
+  sort(ts[0 .. xcnt + ycnt]);
+  return xcnt + ycnt;
 }
 
 private int cubicPolyRoots(double d10, double d21, double d32, ref double[2] ts) {
