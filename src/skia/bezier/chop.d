@@ -138,7 +138,7 @@ unittest {
   assert(chopMonotonic(quad, monos) == 3);
   std.stdio.writeln(monos);
   foreach(ref mono; monos)
-    assert(monotonicX(mono) && monotonicY(mono));
+    assert(monotonic!"x"(mono) && monotonic!"y"(mono));
   assert(monos[0][0] == FPoint(0, 0));
   assert(monos[2][2] == FPoint(0, 0));
 }

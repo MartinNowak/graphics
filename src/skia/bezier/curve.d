@@ -141,24 +141,13 @@ private int cubicPolyRoots(double d10, double d21, double d32, ref double[2] ts)
   return rootcnt;
 }
 
-bool monotonicX(T, size_t K)(Point!T[K] curve) {
-  auto dir = curve[0].x < curve[$-1].x;
-  auto lastX = curve[0].x;
-  foreach(i; 1 .. K) {
-    if (dir != (lastX <= curve[i].x))
+bool monotonic(string dir, T, size_t K)(Point!T[K] curve) {
+  foreach(i; 1 .. K-1) {
+    const rel = mixin(Format!(
+                        q{(curve[i].%s - curve[i-1].%s) * (curve[i+1].%s - curve[i].%s)},
+                        dir, dir, dir, dir));
+    if (rel !>= 0)
       return false;
-    lastX = curve[i].x;
-  }
-  return true;
-}
-
-bool monotonicY(T, size_t K)(Point!T[K] curve) {
-  auto dir = curve[0].y < curve[$-1].y;
-  auto lastY = curve[0].y;
-  foreach(i; 1 .. K) {
-    if (dir != (lastY <= curve[i].y))
-      return false;
-    lastY = curve[i].y;
   }
   return true;
 }
