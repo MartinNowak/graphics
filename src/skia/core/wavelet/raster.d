@@ -4,7 +4,7 @@ import std.algorithm, std.array, std.bitmanip, std.math, std.random, std.typecon
 import std.datetime : benchmark, StopWatch;
 import skia.math.clamp, skia.math.rounding, skia.util.format, skia.bezier.chop,
   skia.core.edge_detail.algo, skia.core.path, skia.core.blitter,
-  skia.core.matrix, skia.math.fixed_ary;
+  skia.core.matrix, skia.math.fixed_ary, skia.bezier.cartesian;
 import guip.bitmap, guip.point, guip.rect, guip.size;
 
 // version=DebugNoise;
@@ -18,156 +18,30 @@ struct Node {
     return str;
   }
 
-  void insertEdge(size_t K)(FPoint[K] pts, uint depth) {
-    auto q0 = Quadrant(pts[0]);
-    if (approxEqual(pts[0].x, 0.5))
-      q0.right = side(pts[1].x);
-    if (approxEqual(pts[0].y, 0.5))
-      q0.bottom = side(pts[1].y);
+  void insertEdge(size_t K)(IPoint pos, FPoint[K] pts, uint depth)
+  in {
+    fitsIntoRange!("[]")(pos.x >> depth, 0, 1);
+    fitsIntoRange!("[]")(pos.y >> depth, 0, 1);
+  } body {
+    Quadrant q;
+    q.right = (pos.x >> depth) == 1;
+    q.bottom = (pos.y >> depth) == 1;
 
-    bool mayNeedHSplit, mayNeedVSplit;
-    foreach(pt; pts) {
-      if (side(pt.x) != q0.right)
-        mayNeedHSplit = true;
-      if (side(pt.y) != q0.bottom)
-        mayNeedVSplit = true;
-    }
-
-    bool insertSplitV(FPoint[K] ypts, Quadrant qv) {
-      if (!mayNeedVSplit) {
-        insertInto(qv, ypts, depth);
-        return qv.bottom;
-      }
-
-      double[K-1] yts;
-      auto ysplits = findRoots!("y")(ypts, 0.5, yts[0 .. K-1]);
-      if (ysplits.empty) {
-        insertInto(qv, ypts, depth);
-        // if pts[$-1].y ~ 0.5 this may be a hidden vertical transition, so reevaluate
-      } else {
-        auto ptss = splitBezier(ypts, ysplits.front);
-        auto lastT = ysplits.front; ysplits.popFront;
-        insertInto(qv, ptss[0], depth); qv.bottom = !qv.bottom;
-        while (!ysplits.empty) {
-          ptss = splitBezier(ptss[1], (ysplits.front - lastT) / (1.0 - lastT));
-          lastT = ysplits.front; ysplits.popFront;
-          insertInto(qv, ptss[0], depth); qv.bottom = !qv.bottom;
-        }
-        insertInto(qv, ptss[1], depth);
-      }
-      return qv.bottom;
-    }
-
-    void insertSplitH(FPoint[K] xpts) {
-      if (!mayNeedHSplit) {
-        q0.bottom = insertSplitV(xpts, q0);
-        return;
-      }
-
-      double[K-1] xts;
-      auto xsplits = findRoots!("x")(xpts, 0.5, xts[0 .. K-1]);
-      if (xsplits.empty)
-        insertSplitV(xpts, q0);
-      else {
-        auto ptss = splitBezier(pts, xsplits.front);
-        auto lastT = xsplits.front; xsplits.popFront;
-        q0.bottom = insertSplitV(ptss[0], q0); q0.right = !q0.right;
-        while (!xsplits.empty) {
-          ptss = splitBezier(ptss[1], (xsplits.front - lastT) / (1.0 - lastT));
-          lastT = xsplits.front; xsplits.popFront;
-          q0.bottom = insertSplitV(ptss[0], q0); q0.right = !q0.right;
-        }
-        q0.bottom = insertSplitV(ptss[1], q0);
-      }
-    }
-
-    if (mayNeedHSplit && mayNeedVSplit) {
-      double[K-1] xts;
-      double[K-1] yts;
-      auto xsplits = findRoots!("x")(pts, 0.5, xts[0 .. K-1]);
-      auto ysplits = findRoots!("y")(pts, 0.5, yts[0 .. K-1]);
-      bool hasSplits() {
-        return !xsplits.empty || !ysplits.empty;
-      }
-      Tuple!(double, int) getSplit() {
-        assert(hasSplits());
-        if (xsplits.empty) {
-          auto t = ysplits.front; ysplits.popFront;
-          return tuple(t, 0x2);
-        } else if (ysplits.empty) {
-          auto t = xsplits.front; xsplits.popFront;
-          return tuple(t, 0x1);
-        } else if (approxEqual(xsplits.front, ysplits.front)) {
-          auto t = 0.5 * (xsplits.front + ysplits.front);
-          xsplits.popFront; ysplits.popFront;
-          return tuple(t, 0x3);
-        } else if (xsplits.front < ysplits.front) {
-          auto t = xsplits.front; xsplits.popFront;
-          return tuple(t, 0x1);
-        } else {
-          assert(!ysplits.empty);
-          auto t = ysplits.front; ysplits.popFront;
-          return tuple(t, 0x2);
-        }
-      }
-      if (hasSplits()) {
-        auto sp = getSplit();
-        auto ptss = splitBezier(pts, sp[0]);
-        auto lastT = sp[0];
-        insertInto(q0, ptss[0], depth); q0.idx ^= sp[1];
-        while (hasSplits()) {
-          sp = getSplit();
-          ptss = splitBezier(ptss[1], (sp[0] - lastT) / (1.0 - lastT));
-          lastT = sp[0];
-          insertInto(q0, ptss[0], depth); q0.idx ^= sp[1];
-        }
-        insertInto(q0, ptss[1], depth);
-      }
-    } else if (mayNeedHSplit) {
-      double[K-1] xts;
-      auto xsplits = findRoots!("x")(pts, 0.5, xts[0 .. K-1]);
-      if (!xsplits.empty) {
-        auto ptss = splitBezier(pts, xsplits.front);
-        auto lastT = xsplits.front; xsplits.popFront;
-        insertInto(q0, ptss[0], depth); q0.right = !q0.right;
-        while (!xsplits.empty) {
-          ptss = splitBezier(ptss[1], (xsplits.front - lastT) / (1.0 - lastT));
-          lastT = xsplits.front; xsplits.popFront;
-          insertInto(q0, ptss[0], depth); q0.right = !q0.right;
-        }
-        insertInto(q0, ptss[1], depth);
-      }
-    } else if (mayNeedVSplit) {
-      double[K-1] yts;
-      auto ysplits = findRoots!("y")(pts, 0.5, yts[0 .. K-1]);
-      if (!ysplits.empty) {
-        auto ptss = splitBezier(pts, ysplits.front);
-        auto lastT = ysplits.front; ysplits.popFront;
-        insertInto(q0, ptss[0], depth); q0.bottom = !q0.bottom;
-        while (!ysplits.empty) {
-          ptss = splitBezier(ptss[1], (ysplits.front - lastT) / (1.0 - lastT));
-          lastT = ysplits.front; ysplits.popFront;
-          insertInto(q0, ptss[0], depth); q0.bottom = !q0.bottom;
-        }
-        insertInto(q0, ptss[1], depth);
-      }
-    } else {
-      insertInto(q0, pts, depth);
-    }
-  }
-
-  void insertInto(size_t K)(Quadrant q, FPoint[K] pts, uint depth) {
     foreach(pt; pts)
       assert(fitsIntoRange!("[]")(pts[0].x, -1e-5, 1.0+1e-5)
              && fitsIntoRange!("[]")(pts[0].y, -1e-5, 1.0+1e-5), to!string(pts) ~ "|" ~ to!string(q));
+
     foreach(ref pt; pts) {
       pt.x = clampToRange(pt.x * 2 - q.right, 0.0, 1.0);
       pt.y = clampToRange(pt.y * 2 - q.bottom, 0.0, 1.0);
       //      pt = pt*2 - qpt;
     }
     calcCoeffs(pts, q);
-    if (depth > 0)
-      getChild(q.idx).insertEdge(pts, --depth);
+    if (depth > 0) {
+      pos.x -= q.right * (1 << depth);
+      pos.y -= q.bottom * (1 << depth);
+      getChild(q.idx).insertEdge(pos, pts, depth-1);
+    }
   }
 
   void calcCoeffs(size_t K)(FPoint[K] pts, Quadrant q)
@@ -250,92 +124,6 @@ struct Node {
   ubyte chmask;
 }
 
-/++
-double[] findRoots(string xy, size_t K)(FPoint[K] pts, double val, double[] ts) if(K==2) {
-  const v0 = mixin(Format!(q{pts[0].%s}, xy));
-  const v1 = mixin(Format!(q{pts[1].%s}, xy));
-  if ((v0 < val) != (v1 < val)) {
-    auto root = (val - v0) / (v1 - v0);
-    if (fitsIntoRange!("()")(root, 0.0, 1.0)) {
-      ts[0] = root;
-      return ts[0 .. 1];
-    }
-  }
-  return ts[0 .. 0];
-}
-
-double[] findRoots(string xy, size_t K)(FPoint[K] pts, double val, double[] ts) if(K==3) {
-  const v0 = mixin(Format!(q{pts[0].%s}, xy));
-  const v1 = mixin(Format!(q{pts[1].%s}, xy));
-  const v2 = mixin(Format!(q{pts[2].%s}, xy));
-  if ((v0 < val) != (v2 < val)) {
-    // one root
-    const a = v0 + v2 - 2 * v1;
-    const b = 2 * (v1 - v0);
-    const c = v0 - val;
-    assert(approxEqual(b*b - 4*a*c, 0.0), to!string(b*b - 4*a*c));
-    ts[0] = -b / (2 * a);
-    return ts[0 .. 1];
-  } else if ((v0 < val) != (v1 < val)) {
-    // two roots
-    const a = v0 + v2 - 2 * v1;
-    const b = 2 * (v1 - v0);
-    const c = v0 - val;
-    const disc = b*b - 4*a*c;
-    assert(disc > 0);
-    const r = sqrt(disc);
-    ts[0] = (-b + r) / (2 * a);
-    ts[1] = (-b + r) / (2 * a);
-    if (ts[0] > ts[1])
-      swap(ts[0], ts[1]);
-    return ts[0 .. 2];
-  } else {
-    // no root
-    return ts[0 .. 0];
-  }
-}
-+/
-
-double[] findRoots(string xy, size_t K)(FPoint[K] pts, double val, double[] ts) if(K>1) {
-  double vs[K];
-  foreach(i, ref v; vs)
-    v = mixin(Format!(q{pts[i].%s}, xy)) - val;
-
-  static if (K==2) {
-    double evalT(double t) {
-      auto oneMt = 1.0 - t;
-      return oneMt*vs[0] + t*vs[1];
-    }
-  } else static if (K==3) {
-    double evalT(double t) {
-      auto oneMt = 1.0 - t;
-      return oneMt*oneMt*vs[0] + 2*oneMt*t*vs[1] + t*t*vs[2];
-    }
-  } else static if (K==4) {
-    double evalT(double t) {
-      auto oneMt = 1.0 - t;
-      return oneMt*oneMt*oneMt*vs[0] + 3*oneMt*oneMt*t*vs[1] + 3*oneMt*t*t*vs[2] + t*t*t*vs[3];
-    }
-  }
-
-  //  std.stdio.writef("findRoots vs:%s val:%f.7", vs, val);
-  size_t rootcnt;
-  foreach(i; 0 .. K-1) {
-    auto a = i * cast(double)1. / (K-1);
-    auto b = (i + 1) * cast(double)1. / (K-1);
-    auto fa = evalT(a);
-    auto fb = evalT(b);
-    if (signbit(fa) != signbit(fb)) {
-      auto r = std.numeric.findRoot(&evalT, a, b, fa, fb, (double lo, double hi) { return false; });
-      auto root = fabs(r[2]) !> fabs(r[3]) ? r[0] : r[1];
-      if (fitsIntoRange!("()")(root, 0.0, 1.0))
-        ts[rootcnt++] = root;
-    }
-  }
-  //  std.stdio.writeln("\t", ts[0 .. rootcnt]);
-  return ts[0 .. rootcnt];
-}
-
 struct WaveletRaster {
 
   this(uint depth) {
@@ -345,7 +133,8 @@ struct WaveletRaster {
   void insertEdge(FPoint[2] pts) {
     assert(pointsAreClipped(pts));
     this.rootConst += crossProduct(pts[0], pts[1]) / 2;
-    root.insertEdge(pts, depth);
+    auto insertDg = (IPoint pos, FPoint[2] slice) { root.insertEdge(pos, slice, depth); };
+    cartesianBezierWalker!(insertDg)(pts, FRect(1, 1), FSize(1./(1<<(depth+1)), 1./(1<<(depth+1))));
   }
 
   void insertEdge(FPoint[3] pts) {
@@ -353,7 +142,8 @@ struct WaveletRaster {
     this.rootConst += (1.f / 6.f) * (
         2 * (crossProduct(pts[0], pts[1]) + crossProduct(pts[1], pts[2]))
         + crossProduct(pts[0], pts[2]));
-    root.insertEdge(pts, depth);
+    auto insertDg = (IPoint pos, FPoint[3] slice) { root.insertEdge(pos, slice, depth); };
+    cartesianBezierWalker!(insertDg)(pts, FRect(1, 1), FSize(1./(1<<(depth+1)), 1./(1<<(depth+1))));
   }
 
   void insertEdge(FPoint[4] pts) {
@@ -363,7 +153,8 @@ struct WaveletRaster {
         + 6 * crossProduct(pts[2], pts[3]) + 3 * crossProduct(pts[0], pts[2])
         + 3 * crossProduct(pts[1], pts[3]) + 1 * crossProduct(pts[0], pts[3])
     );
-    root.insertEdge(pts, depth);
+    auto insertDg = (IPoint pos, FPoint[4] slice) { root.insertEdge(pos, slice, depth); };
+    cartesianBezierWalker!(insertDg)(pts, FRect(1, 1), FSize(1./(1<<(depth+1)), 1./(1<<(depth+1))));
   }
 
   bool pointsAreClipped(in FPoint[] pts) {
