@@ -143,7 +143,7 @@ in {
       double nextT;
       IPoint gridAdv;
       if (!xwalk.empty && !ywalk.empty) {
-        if (approxEqual(xwalk.front, ywalk.front)) {
+        if (approxEqual(xwalk.front, ywalk.front, 1e-6, 1e-6)) {
           nextT = 0.5 * (xwalk.front + ywalk.front);
           xwalk.popFront; ywalk.popFront;
           gridAdv = IPoint(xwalk.direction, ywalk.direction);
