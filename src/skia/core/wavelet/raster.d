@@ -24,46 +24,51 @@ struct Node {
     fitsIntoRange!("[]")(pos.y >> depth, 0, 1);
   } body {
     Quadrant q;
-    q.right = (pos.x >> depth) == 1;
-    q.bottom = (pos.y >> depth) == 1;
+    q.right = pos.x >= 1 << depth;
+    q.bottom = pos.y >= 1 << depth;
 
-    foreach(pt; pts)
-      assert(fitsIntoRange!("[]")(pts[0].x, -1e-5, 1.0+1e-5)
-             && fitsIntoRange!("[]")(pts[0].y, -1e-5, 1.0+1e-5), to!string(pts) ~ "|" ~ to!string(q));
-
-    foreach(ref pt; pts) {
-      pt.x = clampToRange(pt.x * 2 - q.right, 0.0, 1.0);
-      pt.y = clampToRange(pt.y * 2 - q.bottom, 0.0, 1.0);
-      //      pt = pt*2 - qpt;
+    debug {
+      foreach(pt; pts)
+        assert(fitsIntoRange!("[]")(pt.x, -1e-2, (1<<depth+1)+1e-2)
+               && fitsIntoRange!("[]")(pt.y, -1e-2, (1<<depth+1)+1e-2),
+               to!string(pts) ~ "|" ~ to!string(q)~ "|" ~ to!string(depth));
     }
-    calcCoeffs(pts, q);
+
+    auto shift = IPoint(q.right, q.bottom) * (1 << depth);
+    auto fshift = fPoint(shift);
+    foreach(ref pt; pts) {
+      pt -= fshift;
+      pt.x = clampToRange(pt.x, 0, (1<<depth));
+      pt.y = clampToRange(pt.y, 0, (1<<depth));
+    }
+    //    std.stdio.writefln("\t dpth:%s pos:%s sh:%s pts:%s", depth, pos, fshift, pts);
+    calcCoeffs(pts, q, (1 << depth));
     if (depth > 0) {
-      pos.x -= q.right * (1 << depth);
-      pos.y -= q.bottom * (1 << depth);
+      pos -= shift;
       getChild(q.idx).insertEdge(pos, pts, depth-1);
     }
   }
 
-  void calcCoeffs(size_t K)(FPoint[K] pts, Quadrant q)
+  void calcCoeffs(size_t K)(FPoint[K] pts, Quadrant q, uint scale)
   {
-    auto Kx = (1.f / 4.f) * (pts[$-1].y - pts[0].y);
-    auto Ky = (1.f / 4.f) * (pts[0].x - pts[$-1].x);
+    auto Kx = (1.f / (scale * 4.f)) * (pts[$-1].y - pts[0].y);
+    auto Ky = (1.f / (scale * 4.f)) * (pts[0].x - pts[$-1].x);
     static if (K == 2) {
       // auto Lcommon = (1.f / 8.f) * crossProduct(pts[0], pts[1]);
       // auto Ldiff = (1.f / 8.f) * (pts[1].x * pts[1].y - pts[0].x * pts[0].y);
 
-      auto Lx = (1.f / 2.f) * Kx * (pts[0].x + pts[1].x);
-      auto Ly = (1.f / 2.f) * Ky * (pts[0].y + pts[1].y);
+      auto Lx = (1.f / (scale * 2.f)) * Kx * (pts[0].x + pts[1].x);
+      auto Ly = (1.f / (scale * 2.f)) * Ky * (pts[0].y + pts[1].y);
     } else static if (K == 3) {
-        auto Lcommon = (1.f / 24.f) * (
+        auto Lcommon = (1.f / (scale * scale * 24.f)) * (
             2 * (crossProduct(pts[0], pts[1]) + crossProduct(pts[1], pts[2]))
             + crossProduct(pts[0], pts[2])
         );
-        auto Ldiff = (3.f / 24.f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y);
+        auto Ldiff = (3.f / (scale * scale * 24.f)) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y);
         auto Lx = Lcommon + Ldiff;
         auto Ly = Lcommon - Ldiff;
       } else static if (K == 4) {
-        auto Lcommon = (1.f / 80.f) * (
+        auto Lcommon = (1.f / (scale * scale * 80.f)) * (
             3 * (
                 2 * (crossProduct(pts[2], pts[3]) + crossProduct(pts[0], pts[1]))
                 + crossProduct(pts[1], pts[2])
@@ -72,7 +77,7 @@ struct Node {
             )
             + crossProduct(pts[0], pts[3])
         );
-        auto Ldiff = (10.f / 80.f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y);
+        auto Ldiff = (10.f / (scale * scale * 80.f)) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y);
         auto Lx = Lcommon + Ldiff;
         auto Ly = Lcommon - Ldiff;
       } else
@@ -126,35 +131,48 @@ struct Node {
 
 struct WaveletRaster {
 
-  this(uint depth) {
-    this.depth = depth;
+  this(IRect clipRect) {
+    this.depth = to!uint(ceil(log2(max(clipRect.width, clipRect.height)))) - 1;
+    this.clipRect = fRect(clipRect);
   }
 
   void insertEdge(FPoint[2] pts) {
-    assert(pointsAreClipped(pts));
-    this.rootConst += crossProduct(pts[0], pts[1]) / 2;
-    auto insertDg = (IPoint pos, FPoint[2] slice) { root.insertEdge(pos, slice, depth); };
-    cartesianBezierWalker!(insertDg)(pts, FRect(1, 1), FSize(1./(1<<(depth+1)), 1./(1<<(depth+1))));
+    //    assert(pointsAreClipped(pts));
+    foreach(ref pt; pts)
+      pt -= this.clipRect.pos;
+    auto insertDg = (IPoint pos, FPoint[2] slice) {
+      this.rootConst += (1.f / (1 << depth + 1) ^^ 2) * crossProduct(slice[0], slice[1]) / 2;
+      root.insertEdge(pos, slice, depth);
+    };
+    cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
   }
 
   void insertEdge(FPoint[3] pts) {
-    assert(pointsAreClipped(pts));
-    this.rootConst += (1.f / 6.f) * (
-        2 * (crossProduct(pts[0], pts[1]) + crossProduct(pts[1], pts[2]))
-        + crossProduct(pts[0], pts[2]));
-    auto insertDg = (IPoint pos, FPoint[3] slice) { root.insertEdge(pos, slice, depth); };
-    cartesianBezierWalker!(insertDg)(pts, FRect(1, 1), FSize(1./(1<<(depth+1)), 1./(1<<(depth+1))));
+    //    assert(pointsAreClipped(pts));
+    foreach(ref pt; pts)
+      pt -= this.clipRect.pos;
+    auto insertDg = (IPoint pos, FPoint[3] slice) {
+      this.rootConst += (1.f / (6.f * (1 << depth + 1) ^^ 2)) * (
+          2 * (crossProduct(slice[0], slice[1]) + crossProduct(slice[1], slice[2]))
+          + crossProduct(slice[0], slice[2]));
+      root.insertEdge(pos, slice, depth);
+    };
+    cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
   }
 
   void insertEdge(FPoint[4] pts) {
-    assert(pointsAreClipped(pts), to!string(pts));
-    this.rootConst += (1.f / 20.f) * (
-        6 * crossProduct(pts[0], pts[1]) + 3 * crossProduct(pts[1], pts[2])
-        + 6 * crossProduct(pts[2], pts[3]) + 3 * crossProduct(pts[0], pts[2])
-        + 3 * crossProduct(pts[1], pts[3]) + 1 * crossProduct(pts[0], pts[3])
-    );
-    auto insertDg = (IPoint pos, FPoint[4] slice) { root.insertEdge(pos, slice, depth); };
-    cartesianBezierWalker!(insertDg)(pts, FRect(1, 1), FSize(1./(1<<(depth+1)), 1./(1<<(depth+1))));
+    //    assert(pointsAreClipped(pts), to!string(pts));
+    foreach(ref pt; pts)
+      pt -= this.clipRect.pos;
+    auto insertDg = (IPoint pos, FPoint[4] slice) {
+      this.rootConst += (1.f / (20.f * (1 << depth + 1) ^^ 2)) * (
+          6 * crossProduct(slice[0], slice[1]) + 3 * crossProduct(slice[1], slice[2])
+          + 6 * crossProduct(slice[2], slice[3]) + 3 * crossProduct(slice[0], slice[2])
+          + 3 * crossProduct(slice[1], slice[3]) + 1 * crossProduct(slice[0], slice[3])
+      );
+      root.insertEdge(pos, slice, depth);
+    };
+    cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
   }
 
   bool pointsAreClipped(in FPoint[] pts) {
@@ -168,6 +186,7 @@ struct WaveletRaster {
   Node root;
   float rootConst = 0.0f;
   uint depth;
+  FRect clipRect;
 }
 
 void writeGridValue(alias blit)(float val, IPoint off, uint locRes) {
@@ -256,18 +275,9 @@ void blitEdges(in Path path, IRect clip, Blitter blitter, int ystart, int yend) 
 
 WaveletRaster pathToWavelet(in Path path) {
   auto ir = path.ibounds;
-  const depth = to!uint(ceil(log2(max(ir.width, ir.height))));
-  WaveletRaster wr = WaveletRaster(depth - 1);
-  const res = 1 << depth;
+  WaveletRaster wr = WaveletRaster(ir);
 
-  Matrix m;
-  m.reset();
-  m.setTranslate(-ir.pos.x, -ir.pos.y);
-  m.preScale(1.0f / res, 1.0f / res);
-  auto transformed = Path(path);
-  transformed.transform(m);
-
-  transformed.forEach((Path.Verb verb, in FPoint[] pts) {
+  path.forEach((Path.Verb verb, in FPoint[] pts) {
       final switch(verb) {
       case Path.Verb.Move, Path.Verb.Close:
         break;
