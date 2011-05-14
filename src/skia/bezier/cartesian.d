@@ -161,10 +161,11 @@ in {
         nextT = 1.0; gridAdv = IPoint(0, 0);
         cont = false;
       }
+      assert(nextT > lastT);
       Point!T[K] slice;
       sliceBezier(mono, lastT, nextT, slice);
-      dg(gridPos, slice);
       lastT = nextT;
+      dg(gridPos, slice);
       gridPos += gridAdv;
       assert(gridPos == IPoint(xwalk.position, ywalk.position),
              to!string(gridPos) ~ "|" ~ to!string(IPoint(xwalk.position, ywalk.position)));
@@ -174,15 +175,17 @@ in {
 
 void printLine(size_t K)(IPoint gridPos, FPoint[K] curve) { std.stdio.writeln(gridPos, "|", curve); }
 unittest {
+  FPoint[2] line = [FPoint(336, 425), FPoint(341, 420)];
+  cartesianBezierWalker!(printLine)(line, FRect(1000, 1000), FSize(1, 1));
   FPoint[4] curve = [FPoint(1.1, 1), FPoint(2, 10), FPoint(3, -0.1), FPoint(4.49, 1.1)];
-  cartesianBezierWalker!(printLine)(curve, FRect(10, 10), guip.size.FSize(0.5, 0.5));
+  cartesianBezierWalker!(printLine)(curve, FRect(10, 10), FSize(0.5, 0.5));
 }
 
 enum tolerance = 1e-2;
 void findRootIllinois(alias f)(double a, double b, double fa, double fb, ref double root)
 in {
   assert(signbit(fa) != signbit(fb));
- } body {
+} body {
   //  size_t iterations;
   double gamma = 1.0;
   while (true) {
