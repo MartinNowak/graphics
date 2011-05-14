@@ -6,7 +6,7 @@ import std.algorithm, std.math;
  * Returns: the number of roots
  */
 int polyRoots(double a, double b, ref double x) {
-  if (a !<> 0 || isNaN(b))
+  if (a !<> 0 || b !<>= 0)
     return 0;
   x = -b / a;
   return 1;

@@ -26,7 +26,7 @@ private {
 class Paint
 {
   Color color;
-  float strokeWidth;
+  float strokeWidth=0.0f;
 
   DrawLooper drawLooper;
   XferMode xferMode;

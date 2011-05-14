@@ -77,7 +77,7 @@ public:
     }
   }
 
-  this(Path path) {
+  this(in Path path) {
     this = path;
   }
   ref Path opAssign(in Path path) {
