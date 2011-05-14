@@ -25,7 +25,11 @@ struct BezIota(T, size_t K) {
   this(ref const T[K] cs, double step) {
     this._direction = checkedTo!int(sgn(cs[$-1] - cs[0]));
     double adv = this._direction * step;
-    this._position = checkedTo!int(floor(cs[0] / step));
+    auto grid = cs[0] / step;
+    auto snapgrid = floor(grid);
+    this._position = checkedTo!int(snapgrid);
+    if (this._direction < 0 && snapgrid == grid)
+      this._position += this._direction;
     double start = round((cs[0] + 0.5 * adv) / step) * step;
     if (start == cs[0])
       start += adv;
