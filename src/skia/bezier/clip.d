@@ -25,11 +25,15 @@ bool clipMonoBezier(T, size_t K)(ref const Point!T[K] curve, ref const Rect!T re
 bool clipMonoBezierImpl(string dir, T)
 (ref const Point!T[2] line, double lo, double hi, ref Point!T[2] clipped)
 in {
-  assert(monotonic!(dir)(line));
+  //  assert(monotonic!(dir)(line));
+  assert(hi > lo);
 } body {
 
   const v0 = mixin(Format!(q{line[0].%s}, dir));
   const v1 = mixin(Format!(q{line[1].%s}, dir));
+
+  if (v0 == v1)
+    return fitsIntoRange!("[]")(v0, lo, hi);
 
   const rel0 = (lo - v0) / (v1 - v0);
   const t0 = clampToRange(rel0, 0, 1);
@@ -57,11 +61,15 @@ bool clipMonoBezierImpl(string dir, T)
 (ref const Point!T[3] quad, double lo, double hi, ref Point!T[3] clipped)
 in {
   //  assert(monotonic!(dir)(quad), to!string(quad));
+  assert(hi > lo);
 } body {
 
   const v0 = mixin(Format!(q{quad[0].%s}, dir));
   const v1 = mixin(Format!(q{quad[1].%s}, dir));
   const v2 = mixin(Format!(q{quad[2].%s}, dir));
+
+  if (v0 == v2)
+    return fitsIntoRange!("[]")(v0, lo, hi);
 
   double intersection(double v0, double v1, double v2, double val) {
     double ts[2];
@@ -98,13 +106,17 @@ in {
 bool clipMonoBezierImpl(string dir, T)
 (ref const Point!T[4] cubic, double lo, double hi, ref Point!T[4] clipped)
 in {
-  //  assert(monotonic!(dir)(cubic));
+  //  assert(monotonic!(dir)(cubic), to!string(cubic));
+  assert(hi > lo);
 } body {
 
   const v0 = mixin(Format!(q{cubic[0].%s}, dir));
   const v1 = mixin(Format!(q{cubic[1].%s}, dir));
   const v2 = mixin(Format!(q{cubic[2].%s}, dir));
   const v3 = mixin(Format!(q{cubic[3].%s}, dir));
+
+  if (v0 == v3)
+    return fitsIntoRange!("[]")(v0, lo, hi);
 
   double intersection(double v0, double v1, double v2, double v3, double val) {
     auto evaldg = (double t) {
