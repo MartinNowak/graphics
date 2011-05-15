@@ -18,7 +18,7 @@ struct Node {
     return str;
   }
 
-  void insertEdge(size_t K)(IPoint pos, FPoint[K] pts, uint depth)
+  void insertEdge(size_t K)(IPoint pos, ref FPoint[K] pts, uint depth)
   in {
     fitsIntoRange!("[]")(pos.x >> depth, 0, 1);
     fitsIntoRange!("[]")(pos.y >> depth, 0, 1);
@@ -49,7 +49,7 @@ struct Node {
     }
   }
 
-  void calcCoeffs(size_t K)(FPoint[K] pts, Quadrant q, uint scale)
+  void calcCoeffs(size_t K)(ref const FPoint[K] pts, Quadrant q, uint scale)
   {
     auto Kx = (1.f / (scale * 4.f)) * (pts[$-1].y - pts[0].y);
     auto Ky = (1.f / (scale * 4.f)) * (pts[0].x - pts[$-1].x);
