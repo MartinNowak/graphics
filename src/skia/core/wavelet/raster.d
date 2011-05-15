@@ -132,7 +132,7 @@ struct Node {
 struct WaveletRaster {
 
   this(IRect clipRect) {
-    this.depth = to!uint(ceil(log2(max(clipRect.width, clipRect.height)))) - 1;
+    this.depth = to!uint(ceil(log2(max(clipRect.width, clipRect.height))));
     this.clipRect = fRect(clipRect);
   }
 
@@ -141,8 +141,9 @@ struct WaveletRaster {
     foreach(ref pt; pts)
       pt -= this.clipRect.pos;
     auto insertDg = (IPoint pos, FPoint[2] slice) {
-      this.rootConst += (1.f / (1 << depth + 1) ^^ 2) * crossProduct(slice[0], slice[1]) / 2;
-      root.insertEdge(pos, slice, depth);
+      this.rootConst += (1.f / (1 << depth) ^^ 2) * crossProduct(slice[0], slice[1]) / 2;
+      if (depth)
+        root.insertEdge(pos, slice, depth - 1);
     };
     cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
   }
@@ -152,10 +153,11 @@ struct WaveletRaster {
     foreach(ref pt; pts)
       pt -= this.clipRect.pos;
     auto insertDg = (IPoint pos, FPoint[3] slice) {
-      this.rootConst += (1.f / (6.f * (1 << depth + 1) ^^ 2)) * (
+      this.rootConst += (1.f / (6.f * (1 << depth) ^^ 2)) * (
           2 * (crossProduct(slice[0], slice[1]) + crossProduct(slice[1], slice[2]))
           + crossProduct(slice[0], slice[2]));
-      root.insertEdge(pos, slice, depth);
+      if (depth)
+        root.insertEdge(pos, slice, depth - 1);
     };
     cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
   }
@@ -165,12 +167,13 @@ struct WaveletRaster {
     foreach(ref pt; pts)
       pt -= this.clipRect.pos;
     auto insertDg = (IPoint pos, FPoint[4] slice) {
-      this.rootConst += (1.f / (20.f * (1 << depth + 1) ^^ 2)) * (
+      this.rootConst += (1.f / (20.f * (1 << depth) ^^ 2)) * (
           6 * crossProduct(slice[0], slice[1]) + 3 * crossProduct(slice[1], slice[2])
           + 6 * crossProduct(slice[2], slice[3]) + 3 * crossProduct(slice[0], slice[2])
           + 3 * crossProduct(slice[1], slice[3]) + 1 * crossProduct(slice[0], slice[3])
       );
-      root.insertEdge(pos, slice, depth);
+      if (depth)
+        root.insertEdge(pos, slice, depth - 1);
     };
     cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
   }
@@ -210,6 +213,12 @@ void writeGridValue(alias blit)(float val, IPoint off, uint locRes) {
 void writeNodeToGrid(alias blit, alias timeout=false)
 (in Node n, float val, IPoint offset, uint locRes)
 {
+  // Can happen with only the root node on very small paths
+  if (locRes == 1) {
+    writeGridValue!blit(val, offset, locRes);
+    return;
+  }
+  assert(locRes > 1);
   uint locRes2 = locRes / 2;
   bool blitLowRes = timeout;
 
@@ -270,7 +279,7 @@ void blitEdges(in Path path, IRect clip, Blitter blitter, int ystart, int yend) 
     }
   }
   writeNodeToGrid!(blitRow)(
-      wr.root, wr.rootConst, IPoint(0, 0), 1<<(wr.depth + 1));
+      wr.root, wr.rootConst, IPoint(0, 0), 1<< wr.depth);
 }
 
 WaveletRaster pathToWavelet(in Path path) {
