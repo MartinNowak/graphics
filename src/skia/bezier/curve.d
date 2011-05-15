@@ -4,23 +4,46 @@ import guip.point;
 import skia.math.clamp, skia.math.poly;
 import std.algorithm, std.metastrings;
 
-// TODO: switch to horner schema for evaluation
 Point!T evalBezier(T)(ref const Point!T[2] line, double t) {
   assert(fitsIntoRange!("[]")(t, 0.0, 1.0));
-  return line[0] * (1 - t) + line[1] * t;
+
+  const x0 = -line[0].x + line[1].x;
+  const x1 = line[0].x;
+
+  const y0 = -line[0].y + line[1].y;
+  const y1 = line[0].y;
+
+  return Point!T(x0 * t + x1, y0 * t + y1);
 }
 
 Point!T evalBezier(T)(ref const Point!T[3] quad, double t) {
   assert(fitsIntoRange!("[]")(t, 0.0, 1.0));
-  const mt = 1 - t;
-  return quad[0] * (mt * mt) + quad[1] * (2 * mt * t) + quad[2] * (t * t);
+
+  const x0 = quad[0].x - 2 * quad[1].x + quad[2].x;
+  const x1 = 2 * (-quad[0].x + quad[1].x);
+  const x2 = quad[0].x;
+
+  const y0 = quad[0].y - 2 * quad[1].y + quad[2].y;
+  const y1 = 2 * (-quad[0].y + quad[1].y);
+  const y2 = quad[0].y;
+
+  return Point!T((x0 * t + x1) * t + x2, (y0 * t + y1) * t + y2);
 }
 
 Point!T evalBezier(T)(ref const Point!T[4] cubic, double t) {
   assert(fitsIntoRange!("[]")(t, 0.0, 1.0), to!string(t));
-  const mt = 1 - t;
-  return cubic[0] * (mt * mt * mt) + cubic[1] * (3 * mt * mt * t)
-    + cubic[2] * (3 * mt * t * t) + cubic[3] * (t * t * t);
+
+  const x0 = -cubic[0].x + 3 * (cubic[1].x - cubic[2].x) + cubic[3].x;
+  const x1 = 3 * (cubic[0].x - 2 * cubic[1].x + cubic[2].x);
+  const x2 = 3 * (-cubic[0].x + cubic[1].x);
+  const x3 = cubic[0].x;
+
+  const y0 = -cubic[0].y + 3 * (cubic[1].y - cubic[2].y) + cubic[3].y;
+  const y1 = 3 * (cubic[0].y - 2 * cubic[1].y + cubic[2].y);
+  const y2 = 3 * (-cubic[0].y + cubic[1].y);
+  const y3 = cubic[0].y;
+
+  return Point!T(((x0 * t + x1) * t + x2) * t + x3, ((y0 * t + y1) * t + y2) * t + y3);
 }
 
 
