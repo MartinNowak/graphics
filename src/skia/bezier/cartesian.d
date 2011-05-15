@@ -133,12 +133,12 @@ in {
   Point!T[K][1 + 2*(K-2)] monos = void;
   auto monocnt = clipBezier(curve, clip, monos);
 
-  foreach(mono; monos[0 .. monocnt]) {
+  foreach(ref mono; monos[0 .. monocnt]) {
     auto xwalk = beziota!("x")(mono, grid.width);
     auto ywalk = beziota!("y")(mono, grid.height);
+    auto slicer = rollingSlicer(mono, 0.0);
     auto gridPos = IPoint(xwalk.position, ywalk.position);
 
-    double lastT = 0.0;
     for (bool cont=true; cont;) {
       double nextT;
       IPoint gridAdv = void;
@@ -161,10 +161,8 @@ in {
         nextT = 1.0; gridAdv = IPoint(0, 0);
         cont = false;
       }
-      assert(nextT > lastT);
       Point!T[K] slice = void;
-      sliceBezier(mono, lastT, nextT, slice);
-      lastT = nextT;
+      slicer.advance(nextT, slice);
       dg(gridPos, slice);
       gridPos += gridAdv;
       assert(gridPos == IPoint(xwalk.position, ywalk.position),
