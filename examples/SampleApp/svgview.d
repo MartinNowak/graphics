@@ -74,7 +74,7 @@ class SvgView : View {
       return this.strokeColor.a == 0 && this.fillColor.a == 0;
     }
 
-    Color fillColor = Black;
+    Color fillColor = Color(0);
     Color strokeColor = Color(0);
     float strokeWidth = 1.0f;
   }
