@@ -85,7 +85,11 @@ struct Node {
       } else
         static assert(0, "more than 4 control points unsupported");
 
-    switch (q.idx) {
+    sumCoeffs(Kx, Ky, Lx, Ly, q.idx);
+  }
+
+  void sumCoeffs(float Kx, float Ky, float Lx, float Ly, ubyte qidx) {
+    switch (qidx) {
     case 0: // (0, 0)
       this.coeffs[0] += Lx;
       this.coeffs[1] += Ly;
@@ -129,6 +133,13 @@ struct Node {
   Node[] children;
   float[3] coeffs = 0.0f;
   ubyte chmask;
+}
+
+bool benchCalcCoeffs(Node node, FPoint[2][100] ptss, Quadrant q, uint shift) {
+  uint scale = (1 << (shift & 0xF));
+  foreach(ref pts; ptss)
+    node.calcCoeffs(pts, q, scale);
+  return true;
 }
 
 struct WaveletRaster {
