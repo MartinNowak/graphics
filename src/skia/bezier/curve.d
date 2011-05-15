@@ -48,17 +48,27 @@ Point!T evalBezier(T)(ref const Point!T[4] cubic, double t) {
 
 
 Vector!T evalBezierDer(T)(ref const Point!T[2] line, double t) {
-  return line[1] - line[0];
+  return Vector!T(line[1].x - line[0].x, line[1].y - line[0].y);
 }
 
 Vector!T evalBezierDer(T)(ref const Point!T[3] quad, double t) {
-  return ((quad[1] - quad[0]) * (1 - t) + (quad[2] - quad[1]) * t) * 2;
+  const x0 = quad[0].x - 2 * quad[1].x + quad[2].x;
+  const x1 = quad[1].x - quad[0].x;
+
+  const y0 = quad[0].y - 2 * quad[1].y + quad[2].y;
+  const y1 = quad[1].y - quad[0].y;
+  return Vector!T(2 * (x0 * t + x1), 2 * (y0 * t + y1));
 }
 
 Vector!T evalBezierDer(T)(ref const Point!T[4] cubic, double t) {
-  const mt = 1 - t;
-  return ((cubic[1] - cubic[0]) * (mt * mt) + (cubic[2] - cubic[1]) * (2 * mt * t)
-          + (cubic[3] - cubic[2]) * (t * t)) * 3;
+  const x0 =  - cubic[0].x + 3 * (cubic[1].x - cubic[2].x) + cubic[3].x;
+  const x1 = 2 * (cubic[0].x - 2 * cubic[1].x + cubic[2].x);
+  const x2 = cubic[1].x - cubic[0].x;
+
+  const y0 =  - cubic[0].y + 3 * (cubic[1].y - cubic[2].y) + cubic[3].y;
+  const y1 = 2 * (cubic[0].y - 2 * cubic[1].y + cubic[2].y);
+  const y2 = cubic[1].y - cubic[0].y;
+  return Vector!T(3 * ((x0 * t + x1) * t + x2), 3 * ((y0 * t + y1) * t + y2));
 }
 
 
