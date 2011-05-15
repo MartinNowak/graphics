@@ -29,8 +29,8 @@ struct Node {
 
     debug {
       foreach(pt; pts)
-        assert(fitsIntoRange!("[]")(pt.x, -1e-2, (1<<depth+1)+1e-2)
-               && fitsIntoRange!("[]")(pt.y, -1e-2, (1<<depth+1)+1e-2),
+        assert(fitsIntoRange!("[]")(pt.x, -1e-1, (1<<depth+1)+1e-1)
+               && fitsIntoRange!("[]")(pt.y, -1e-1, (1<<depth+1)+1e-1),
                to!string(pts) ~ "|" ~ to!string(q)~ "|" ~ to!string(depth));
     }
 
@@ -38,8 +38,8 @@ struct Node {
     auto fshift = fPoint(shift);
     foreach(ref pt; pts) {
       pt -= fshift;
-      pt.x = clampToRange(pt.x, 0, (1<<depth));
-      pt.y = clampToRange(pt.y, 0, (1<<depth));
+//      pt.x = clampToRange(pt.x, 0, (1<<depth));
+//      pt.y = clampToRange(pt.y, 0, (1<<depth));
     }
     //    std.stdio.writefln("\t dpth:%s pos:%s sh:%s pts:%s", depth, pos, fshift, pts);
     calcCoeffs(pts, q, (1 << depth));
