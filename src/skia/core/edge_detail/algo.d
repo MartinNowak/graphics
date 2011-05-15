@@ -18,7 +18,7 @@ bool isLine(T)(in Point!T[] pts) {
     return false;
   auto refVec = pts[$-1] - pts[0];
   foreach(pt; pts[1..$-1]) {
-    if (abs(crossProduct(refVec, pt)) > 1e-2) {
+    if (abs(determinant(refVec, pt)) > 1e-2) {
       return false;
     }
   }

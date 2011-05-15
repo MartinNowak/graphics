@@ -60,15 +60,15 @@ struct Node {
     auto Kx = (1.f / 4.f) * (pts[$-1].y - pts[0].y) * rScale;
     auto Ky = (1.f / 4.f) * (pts[0].x - pts[$-1].x) * rScale;
     static if (K == 2) {
-      // auto Lcommon = (1.f / 8.f) * crossProduct(pts[0], pts[1]);
+      // auto Lcommon = (1.f / 8.f) * determinant(pts[0], pts[1]);
       // auto Ldiff = (1.f / 8.f) * (pts[1].x * pts[1].y - pts[0].x * pts[0].y);
 
       auto Lx = (1.f / 2.f) * Kx * (pts[0].x + pts[1].x) * rScale;
       auto Ly = (1.f / 2.f) * Ky * (pts[0].y + pts[1].y) * rScale;
     } else static if (K == 3) {
         auto Lcommon = (1.f / 24.f) * (
-            2 * (crossProduct(pts[0], pts[1]) + crossProduct(pts[1], pts[2]))
-            + crossProduct(pts[0], pts[2])
+            2 * (determinant(pts[0], pts[1]) + determinant(pts[1], pts[2]))
+            + determinant(pts[0], pts[2])
         ) * rScale * rScale;
         auto Ldiff = (3.f / 24.f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y)  * rScale * rScale;
         auto Lx = Lcommon + Ldiff;
@@ -76,12 +76,12 @@ struct Node {
       } else static if (K == 4) {
         auto Lcommon = (1.f / 80.f) * (
             3 * (
-                2 * (crossProduct(pts[2], pts[3]) + crossProduct(pts[0], pts[1]))
-                + crossProduct(pts[1], pts[2])
-                + crossProduct(pts[1], pts[3])
-                + crossProduct(pts[0], pts[2])
+                2 * (determinant(pts[2], pts[3]) + determinant(pts[0], pts[1]))
+                + determinant(pts[1], pts[2])
+                + determinant(pts[1], pts[3])
+                + determinant(pts[0], pts[2])
             )
-            + crossProduct(pts[0], pts[3])
+            + determinant(pts[0], pts[3])
         ) * rScale * rScale;
         auto Ldiff = (10.f / 80.f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y)  * rScale * rScale;
         auto Lx = Lcommon + Ldiff;
@@ -158,7 +158,7 @@ struct WaveletRaster {
     foreach(ref pt; pts)
       pt -= this.clipRect.pos;
     auto insertDg = (IPoint pos, FPoint[2] slice) {
-      this.rootConst += (1.f / (1 << depth) ^^ 2) * crossProduct(slice[0], slice[1]) / 2;
+      this.rootConst += (1.f / (1 << depth) ^^ 2) * determinant(slice[0], slice[1]) / 2;
       if (depth)
         root.insertEdge(pos, slice, depth - 1);
     };
@@ -171,8 +171,8 @@ struct WaveletRaster {
       pt -= this.clipRect.pos;
     auto insertDg = (IPoint pos, FPoint[3] slice) {
       this.rootConst += (1.f / (6.f * (1 << depth) ^^ 2)) * (
-          2 * (crossProduct(slice[0], slice[1]) + crossProduct(slice[1], slice[2]))
-          + crossProduct(slice[0], slice[2]));
+          2 * (determinant(slice[0], slice[1]) + determinant(slice[1], slice[2]))
+          + determinant(slice[0], slice[2]));
       if (depth)
         root.insertEdge(pos, slice, depth - 1);
     };
@@ -185,9 +185,9 @@ struct WaveletRaster {
       pt -= this.clipRect.pos;
     auto insertDg = (IPoint pos, FPoint[4] slice) {
       this.rootConst += (1.f / (20.f * (1 << depth) ^^ 2)) * (
-          6 * crossProduct(slice[0], slice[1]) + 3 * crossProduct(slice[1], slice[2])
-          + 6 * crossProduct(slice[2], slice[3]) + 3 * crossProduct(slice[0], slice[2])
-          + 3 * crossProduct(slice[1], slice[3]) + 1 * crossProduct(slice[0], slice[3])
+          6 * determinant(slice[0], slice[1]) + 3 * determinant(slice[1], slice[2])
+          + 6 * determinant(slice[2], slice[3]) + 3 * determinant(slice[0], slice[2])
+          + 3 * determinant(slice[1], slice[3]) + 1 * determinant(slice[0], slice[3])
       );
       if (depth)
         root.insertEdge(pos, slice, depth - 1);

@@ -30,7 +30,7 @@ void BevelJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path 
 void RoundJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path inner, ref Path outer) {
   enum tol = tan(0.1 * 2 * PI / 360);
 
-  auto crossP = crossProduct(normalBefore, normalAfter);
+  auto crossP = determinant(normalBefore, normalAfter);
   if (abs(crossP) < tol * abs(dotProduct(normalBefore, normalAfter)))
     return;
 
@@ -44,7 +44,7 @@ void RoundJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path 
 }
 
 void MiterJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path inner, ref Path outer) {
-  auto crossP = crossProduct(normalBefore, normalAfter);
+  auto crossP = determinant(normalBefore, normalAfter);
   auto radius = normalBefore.length;
   //  assert(normalAfter.length == radius);
   enum miterLimit = sin(2*PI*15/360);
@@ -66,5 +66,5 @@ void MiterJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path 
 }
 
 bool clockwise(FVector before, FVector after) {
-  return crossProduct(before, after) > 0;
+  return determinant(before, after) > 0;
 }
