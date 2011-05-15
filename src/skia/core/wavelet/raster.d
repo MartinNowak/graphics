@@ -27,8 +27,9 @@ struct Node {
     auto node = &this;
     do {
       Quadrant q;
-      q.right = pos.x >= 1 << depth;
-      q.bottom = pos.y >= 1 << depth;
+      const scale = 1 << depth;
+      q.right = pos.x >= scale;
+      q.bottom = pos.y >= scale;
 
       debug {
         foreach(pt; pts)
@@ -37,21 +38,23 @@ struct Node {
                  to!string(pts) ~ "|" ~ to!string(q)~ "|" ~ to!string(depth));
       }
 
-      auto shift = IPoint(q.right, q.bottom) * (1 << depth);
-      auto fshift = fPoint(shift);
-      foreach(ref pt; pts) {
-        pt -= fshift;
-        //      pt.x = clampToRange(pt.x, 0, (1<<depth));
-        //      pt.y = clampToRange(pt.y, 0, (1<<depth));
+      if (q.right) {
+        pos.x -= scale;
+        foreach(ref pt; pts)
+          pt.x -= scale;
+      }
+      if (q.bottom) {
+        pos.y -= scale;
+        foreach(ref pt; pts)
+          pt.y -= scale;
       }
       //    std.stdio.writefln("\t dpth:%s pos:%s sh:%s pts:%s", depth, pos, fshift, pts);
-      node.calcCoeffs(pts, q, (1 << depth));
-      pos -= shift;
+      node.calcCoeffs(pts, q.idx, scale);
       node = &node.getChild(q.idx);
     } while (depth--);
   }
 
-  void calcCoeffs(size_t K)(ref const FPoint[K] pts, Quadrant q, uint scale)
+  void calcCoeffs(size_t K)(ref const FPoint[K] pts, ubyte qidx, uint scale)
   {
     const rScale = 1.0 / scale;
     auto Kx = (1.f / 4.f) * (pts[$-1].y - pts[0].y) * rScale;
@@ -86,7 +89,7 @@ struct Node {
       } else
         static assert(0, "more than 4 control points unsupported");
 
-    sumCoeffs(Kx, Ky, Lx, Ly, q.idx);
+    sumCoeffs(Kx, Ky, Lx, Ly, qidx);
   }
 
   void sumCoeffs(float Kx, float Ky, float Lx, float Ly, ubyte qidx) {
