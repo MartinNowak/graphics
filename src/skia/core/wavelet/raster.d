@@ -23,30 +23,32 @@ struct Node {
     fitsIntoRange!("[]")(pos.x >> depth, 0, 1);
     fitsIntoRange!("[]")(pos.y >> depth, 0, 1);
   } body {
-    Quadrant q;
-    q.right = pos.x >= 1 << depth;
-    q.bottom = pos.y >= 1 << depth;
 
-    debug {
-      foreach(pt; pts)
-        assert(fitsIntoRange!("[]")(pt.x, -1e-1, (1<<depth+1)+1e-1)
-               && fitsIntoRange!("[]")(pt.y, -1e-1, (1<<depth+1)+1e-1),
-               to!string(pts) ~ "|" ~ to!string(q)~ "|" ~ to!string(depth));
-    }
+    auto node = &this;
+    do {
+      Quadrant q;
+      q.right = pos.x >= 1 << depth;
+      q.bottom = pos.y >= 1 << depth;
 
-    auto shift = IPoint(q.right, q.bottom) * (1 << depth);
-    auto fshift = fPoint(shift);
-    foreach(ref pt; pts) {
-      pt -= fshift;
-//      pt.x = clampToRange(pt.x, 0, (1<<depth));
-//      pt.y = clampToRange(pt.y, 0, (1<<depth));
-    }
-    //    std.stdio.writefln("\t dpth:%s pos:%s sh:%s pts:%s", depth, pos, fshift, pts);
-    calcCoeffs(pts, q, (1 << depth));
-    if (depth > 0) {
+      debug {
+        foreach(pt; pts)
+          assert(fitsIntoRange!("[]")(pt.x, -1e-1, (1<<depth+1)+1e-1)
+                 && fitsIntoRange!("[]")(pt.y, -1e-1, (1<<depth+1)+1e-1),
+                 to!string(pts) ~ "|" ~ to!string(q)~ "|" ~ to!string(depth));
+      }
+
+      auto shift = IPoint(q.right, q.bottom) * (1 << depth);
+      auto fshift = fPoint(shift);
+      foreach(ref pt; pts) {
+        pt -= fshift;
+        //      pt.x = clampToRange(pt.x, 0, (1<<depth));
+        //      pt.y = clampToRange(pt.y, 0, (1<<depth));
+      }
+      //    std.stdio.writefln("\t dpth:%s pos:%s sh:%s pts:%s", depth, pos, fshift, pts);
+      node.calcCoeffs(pts, q, (1 << depth));
       pos -= shift;
-      getChild(q.idx).insertEdge(pos, pts, depth-1);
-    }
+      node = &node.getChild(q.idx);
+    } while (depth--);
   }
 
   void calcCoeffs(size_t K)(ref const FPoint[K] pts, Quadrant q, uint scale)
