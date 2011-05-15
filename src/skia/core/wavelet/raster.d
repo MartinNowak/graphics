@@ -53,24 +53,25 @@ struct Node {
 
   void calcCoeffs(size_t K)(ref const FPoint[K] pts, Quadrant q, uint scale)
   {
-    auto Kx = (1.f / (scale * 4.f)) * (pts[$-1].y - pts[0].y);
-    auto Ky = (1.f / (scale * 4.f)) * (pts[0].x - pts[$-1].x);
+    const rScale = 1.0 / scale;
+    auto Kx = (1.f / 4.f) * (pts[$-1].y - pts[0].y) * rScale;
+    auto Ky = (1.f / 4.f) * (pts[0].x - pts[$-1].x) * rScale;
     static if (K == 2) {
       // auto Lcommon = (1.f / 8.f) * crossProduct(pts[0], pts[1]);
       // auto Ldiff = (1.f / 8.f) * (pts[1].x * pts[1].y - pts[0].x * pts[0].y);
 
-      auto Lx = (1.f / (scale * 2.f)) * Kx * (pts[0].x + pts[1].x);
-      auto Ly = (1.f / (scale * 2.f)) * Ky * (pts[0].y + pts[1].y);
+      auto Lx = (1.f / 2.f) * Kx * (pts[0].x + pts[1].x) * rScale;
+      auto Ly = (1.f / 2.f) * Ky * (pts[0].y + pts[1].y) * rScale;
     } else static if (K == 3) {
-        auto Lcommon = (1.f / (scale * scale * 24.f)) * (
+        auto Lcommon = (1.f / 24.f) * (
             2 * (crossProduct(pts[0], pts[1]) + crossProduct(pts[1], pts[2]))
             + crossProduct(pts[0], pts[2])
-        );
-        auto Ldiff = (3.f / (scale * scale * 24.f)) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y);
+        ) * rScale * rScale;
+        auto Ldiff = (3.f / 24.f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y)  * rScale * rScale;
         auto Lx = Lcommon + Ldiff;
         auto Ly = Lcommon - Ldiff;
       } else static if (K == 4) {
-        auto Lcommon = (1.f / (scale * scale * 80.f)) * (
+        auto Lcommon = (1.f / 80.f) * (
             3 * (
                 2 * (crossProduct(pts[2], pts[3]) + crossProduct(pts[0], pts[1]))
                 + crossProduct(pts[1], pts[2])
@@ -78,8 +79,8 @@ struct Node {
                 + crossProduct(pts[0], pts[2])
             )
             + crossProduct(pts[0], pts[3])
-        );
-        auto Ldiff = (10.f / (scale * scale * 80.f)) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y);
+        ) * rScale * rScale;
+        auto Ldiff = (10.f / 80.f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y)  * rScale * rScale;
         auto Lx = Lcommon + Ldiff;
         auto Ly = Lcommon - Ldiff;
       } else
