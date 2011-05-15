@@ -69,21 +69,39 @@ struct BezIota(T, size_t K) {
     return this._position;
   }
 
-  double findT() {
-    const v = steps.front;
-    static if (K == 2) {
-      auto evaldg = (double t) { return coeffs[0] * t + coeffs[1] - v; };
-    } else static if (K == 3) {
-      auto evaldg = (double t) { return (coeffs[0] * t + coeffs[1]) * t + coeffs[2] - v; };
-    } else static if (K == 4) {
-      auto evaldg = (double t) { return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v; };
-    } else
-      static assert(0);
-
-    double root;
-    findRootIllinois!(evaldg)(0, 1, coeffs[$-1] - v, reduce!("a+b")(0.0, coeffs) - v, root);
-    return root;
-  }
+  static if (K == 2) {
+    double findT() {
+      double t = void;
+      auto rootcnt = polyRoots(coeffs[0], coeffs[1] - steps.front, t);
+      assert(rootcnt);
+      return t;
+    }
+  } else static if (K == 3) {
+    double findT() {
+      double ts[2] = void;
+      auto rootcnt = polyRoots(coeffs[0], coeffs[1], coeffs[2] - steps.front, ts);
+      if (rootcnt == 1) {
+        assert(fitsIntoRange!("[]")(ts[0], 0, 1));
+        return ts[0];
+      } else {
+        assert(rootcnt == 2);
+        if (ts[0] < ts[1] && ts[0] >= 0) {
+          assert(fitsIntoRange!("[]")(ts[0], 0, 1));
+          assert(!fitsIntoRange!("[]")(ts[1], 0, 1));
+          return ts[0];
+        } else {
+          assert(fitsIntoRange!("[]")(ts[1], 0, 1));
+          return ts[1];
+        }
+      }
+    }
+  } else static if (K == 4) {
+    double findT() {
+      //    auto evaldg = (double t) { return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v; };
+      return findCubicRoot(coeffs, steps.front);
+    }
+  } else
+    static assert(0, "unimplemented");
 
   static void convertPoly(ref const T[K] cs, ref T[K] polycs) {
     static if (K == 2) {
@@ -180,16 +198,17 @@ unittest {
 }
 
 enum tolerance = 1e-2;
-void findRootIllinois(alias f)(double a, double b, double fa, double fb, ref double root)
-in {
-  assert(signbit(fa) != signbit(fb));
-} body {
+double findCubicRoot(ref const float[4] coeffs, double v) {
   //  size_t iterations;
+  double evalT(double t) {
+    return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v;
+  }
+  double a = 0.0, b = 1.0, fa = evalT(a), fb = evalT(b);
   double gamma = 1.0;
   while (true) {
     //    ++iterations;
     double c = (gamma * b * fa - a * fb) / (gamma * fa - fb);
-    double fc = f(c);
+    double fc = evalT(c);
     debug(Illinois) writeln("illinois step: ", iterations,
                             " a: ", a, " fa: ", fa,
                             " b: ", b, " fb: ", fb,
@@ -197,8 +216,7 @@ in {
     if (fabs(fc) < tolerance) {
       debug(Illinois) writeln("converged after: ", iterations,
                               " at: ", c);
-      root = c;
-      return;
+      return c;
     } else {
       if (fc * fb < 0) {
         a = b;
@@ -211,47 +229,4 @@ in {
       fb = fc;
     }
   }
-}
-
-size_t iterCnt;
-QCheckResult testRootFinding(FPoint[3] curve, FRect clip) {
-  clip.sort();
-  if (clip.empty)
-    return QCheckResult.Reject;
-  FPoint[3][3] monos;
-
-  auto monocnt = clipBezier(curve, clip, monos);
-  if (monocnt == 0)
-    return QCheckResult.Reject;
-  foreach(m; monos[0 .. monocnt]) {
-    auto fa = evalBezier(m, 0).y;
-    auto fb = evalBezier(m, 1).y;
-    if (fa <> fb) {
-      foreach(i; 1 .. 1000) {
-        auto w0 = i * 0.001;
-        auto ymean = w0 * fa + (1 - w0) * fb;
-        const a = (m[0].y - 2*m[1].y + m[2].y);
-        const b = 2*(m[1].y - m[0].y);
-        const c = m[0].y - ymean;
-//        const a = m[1].y - m[0].y;
-//        const b = m[0].y - ymean;
-        double root;
-        auto evaldg = (double t) {
-          return (a * t + b) * t + c;
-          //          return a * t + b;
-        };
-        findRootIllinois!(evaldg)(0, 1, fa-ymean, fb-ymean, root);
-        //        auto cnt = enforce(polyRoots(a, b, root));
-        assert(approxEqual(evalBezier(m, root).y, ymean), fmtString("yr:%f ym:%f", evalBezier(m, root).y, ymean));
-      }
-    }
-  }
-  return QCheckResult.Ok;
-}
-
-unittest {
-  //  setRandomSeed(1001);
-  //
-  quickCheck!(testRootFinding, count(2_000), Policies.RandomizeMembers)();
-  std.stdio.writeln(1. / 2_000 * iterCnt);
 }
