@@ -117,12 +117,14 @@ int bezierExtremaY(T)(ref const Point!T[4] cubic, ref double[2] ts) {
 }
 
 int bezierExtrema(T)(ref const Point!T[4] cubic, ref double[4] ts) {
-  double[2] tx;
+  double[2] tx = void;
   auto xcnt = bezierExtremaX(cubic, tx);
-  ts[0 .. xcnt] = tx[0 .. xcnt];
-  double[2] ty;
+  foreach(i; 0 .. xcnt)
+    ts[i] = tx[i];
+  double[2] ty = void;
   auto ycnt = bezierExtremaY(cubic, ty);
-  ts[xcnt .. xcnt + ycnt] = ty[0 .. ycnt];
+  foreach(i; 0 .. ycnt)
+    ts[xcnt + i] = ty[i];
   sort(ts[0 .. xcnt + ycnt]);
   return xcnt + ycnt;
 }

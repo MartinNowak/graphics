@@ -10,14 +10,14 @@ import qcheck._;
 debug(Illinois) import std.stdio;
 
 BezIota!(T, K) beziota(string dir, T, size_t K)(ref const Point!T[K] curve, double step) {
-  T[K] cs;
+  T[K] cs = void;
   foreach(i; 0 .. K)
     cs[i] = mixin(Format!(q{curve[i].%s}, dir));
   return typeof(return)(cs, step);
 }
 
 BezIota!(T, 2) beziota(T)(T c0, T c1, double step) {
-  T[2] cs; cs[0] = c0; cs[1] = c1;
+  T[2] cs = void; cs[0] = c0; cs[1] = c1;
   return typeof(return)(cs, step);
 }
 
@@ -44,13 +44,13 @@ struct BezIota(T, size_t K) {
 
   @property double front() {
     assert(!empty);
-    if (isNaN(curT))
+    if (curT !<> 0)
       curT = findT();
     return curT;
   }
 
   void popFront() {
-    curT = double.init;
+    curT = curT.nan;
     steps.popFront;
     this._position += this._direction;
   }
@@ -130,7 +130,7 @@ void cartesianBezierWalker(alias dg, T, size_t K)(ref const Point!T[K] curve, Re
 in {
   assert(grid.width > 0 && grid.height > 0);
 } body {
-  Point!T[K][1 + 2*(K-2)] monos;
+  Point!T[K][1 + 2*(K-2)] monos = void;
   auto monocnt = clipBezier(curve, clip, monos);
 
   foreach(mono; monos[0 .. monocnt]) {
@@ -141,7 +141,7 @@ in {
     double lastT = 0.0;
     for (bool cont=true; cont;) {
       double nextT;
-      IPoint gridAdv;
+      IPoint gridAdv = void;
       if (!xwalk.empty && !ywalk.empty) {
         if (approxEqual(xwalk.front, ywalk.front, 1e-6, 1e-6)) {
           nextT = 0.5 * (xwalk.front + ywalk.front);
@@ -162,7 +162,7 @@ in {
         cont = false;
       }
       assert(nextT > lastT);
-      Point!T[K] slice;
+      Point!T[K] slice = void;
       sliceBezier(mono, lastT, nextT, slice);
       lastT = nextT;
       dg(gridPos, slice);
