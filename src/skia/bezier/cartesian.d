@@ -159,30 +159,31 @@ in {
 
     for (bool cont=true; cont;) {
       double nextT;
-      IPoint gridAdv = void;
+      int xadv, yadv;
       if (!xwalk.empty && !ywalk.empty) {
         if (approxEqual(xwalk.front, ywalk.front, 1e-6, 1e-6)) {
           nextT = 0.5 * (xwalk.front + ywalk.front);
           xwalk.popFront; ywalk.popFront;
-          gridAdv = IPoint(xwalk.direction, ywalk.direction);
+          xadv = xwalk.direction;
+          yadv = ywalk.direction;
         } else if (xwalk.front < ywalk.front) {
-          nextT = xwalk.front; xwalk.popFront; gridAdv = IPoint(xwalk.direction, 0);
+          nextT = xwalk.front; xwalk.popFront; xadv = xwalk.direction;
         } else {
           assert(xwalk.front > ywalk.front);
-          nextT = ywalk.front; ywalk.popFront; gridAdv = IPoint(0, ywalk.direction);
+          nextT = ywalk.front; ywalk.popFront; yadv = ywalk.direction;
         }
       } else if (!xwalk.empty) {
-        nextT = xwalk.front; xwalk.popFront; gridAdv = IPoint(xwalk.direction, 0);
+        nextT = xwalk.front; xwalk.popFront; xadv = xwalk.direction;
       } else if (!ywalk.empty) {
-        nextT = ywalk.front; ywalk.popFront; gridAdv = IPoint(0, ywalk.direction);
+        nextT = ywalk.front; ywalk.popFront; yadv = ywalk.direction;
       } else {
-        nextT = 1.0; gridAdv = IPoint(0, 0);
+        nextT = 1.0;
         cont = false;
       }
       Point!T[K] slice = void;
       slicer.advance(nextT, slice);
       dg(gridPos, slice);
-      gridPos += gridAdv;
+      gridPos.x += xadv; gridPos.y += yadv;
       assert(gridPos == IPoint(xwalk.position, ywalk.position),
              to!string(gridPos) ~ "|" ~ to!string(IPoint(xwalk.position, ywalk.position)));
     }
