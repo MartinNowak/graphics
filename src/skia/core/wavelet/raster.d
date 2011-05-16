@@ -18,7 +18,7 @@ struct Node {
     return str;
   }
 
-  void insertEdge(size_t K)(IPoint pos, ref FPoint[K] pts, uint depth)
+  void insertEdge(size_t K)(IPoint pos, FPoint[K] pts, uint depth)
   in {
     fitsIntoRange!("[)")(pos.x, 0, 1 << depth);
     fitsIntoRange!("[)")(pos.y, 0, 1 << depth);
@@ -166,7 +166,7 @@ struct WaveletRaster {
     //    assert(pointsAreClipped(pts));
     foreach(ref pt; pts)
       pt -= this.clipRect.pos;
-    auto insertDg = (IPoint pos, FPoint[2] slice) {
+    auto insertDg = (IPoint pos, ref FPoint[2] slice) {
       this.rootConst += (1.f / (1 << depth) ^^ 2) * determinant(slice[0], slice[1]) / 2;
       if (depth)
         root.insertEdge(pos, slice, depth);
@@ -178,7 +178,7 @@ struct WaveletRaster {
     //    assert(pointsAreClipped(pts));
     foreach(ref pt; pts)
       pt -= this.clipRect.pos;
-    auto insertDg = (IPoint pos, FPoint[3] slice) {
+    auto insertDg = (IPoint pos, ref FPoint[3] slice) {
       this.rootConst += (1.f / (6.f * (1 << depth) ^^ 2)) * (
           2 * (determinant(slice[0], slice[1]) + determinant(slice[1], slice[2]))
           + determinant(slice[0], slice[2]));
@@ -192,7 +192,7 @@ struct WaveletRaster {
     //    assert(pointsAreClipped(pts), to!string(pts));
     foreach(ref pt; pts)
       pt -= this.clipRect.pos;
-    auto insertDg = (IPoint pos, FPoint[4] slice) {
+    auto insertDg = (IPoint pos, ref FPoint[4] slice) {
       this.rootConst += (1.f / (20.f * (1 << depth) ^^ 2)) * (
           6 * determinant(slice[0], slice[1]) + 3 * determinant(slice[1], slice[2])
           + 6 * determinant(slice[2], slice[3]) + 3 * determinant(slice[0], slice[2])
