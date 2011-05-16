@@ -25,7 +25,7 @@ struct Node {
   } body {
 
     auto node = &this;
-    do {
+    for(;;) {
       Quadrant q;
       const scale = 1 << depth;
       q.right = pos.x >= scale;
@@ -50,8 +50,10 @@ struct Node {
       }
       //    std.stdio.writefln("\t dpth:%s pos:%s sh:%s pts:%s", depth, pos, fshift, pts);
       node.calcCoeffs(pts, q.idx, scale);
-      node = &node.getChild(q.idx);
-    } while (depth--);
+      if (depth == 0)
+        break;
+      node = &node.getChild(depth--, q.idx);
+    }
   }
 
   void calcCoeffs(size_t K)(ref const FPoint[K] pts, ubyte qidx, uint scale)
@@ -122,7 +124,10 @@ struct Node {
     }
   }
 
-  ref Node getChild(uint idx) {
+  ref Node getChild(uint depth, uint idx) {
+    assert(depth > 0);
+    assert(children.length == 0 || children.length == 4);
+
     if (children.length != 4) {
       children.length = 4; //insertInPlace(pos, Node());
     }
