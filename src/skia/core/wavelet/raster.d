@@ -305,6 +305,8 @@ void blitEdges(in Path path, IRect clip, Blitter blitter, int ystart, int yend) 
 }
 
 WaveletRaster pathToWavelet(in Path path) {
+  if (path.empty)
+    return WaveletRaster.init;
   auto ir = path.ibounds;
   WaveletRaster wr = WaveletRaster(ir);
 
