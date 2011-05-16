@@ -282,25 +282,6 @@ void writeNodeToGrid(alias blit, alias timeout=false)
     writeGridValue!blit(cval, offset, locRes2);
 }
 
-struct Quadrant {
-  this(FPoint pt) {
-    this.right = side(pt.x);
-    this.bottom = side(pt.y);
-  }
-
-  @property bool right() const { return (this.idx & 0x1) != 0; }
-  @property void right(bool b) { if (b) this.idx |= 0x1; else this.idx &= ~0x1; }
-
-  @property bool bottom() const { return (this.idx & 0x2) != 0; }
-  @property void bottom(bool b) { if (b) this.idx |= 0x2; else this.idx &= ~0x2; }
-
-  ubyte idx;
-}
-
-bool side(float val) {
-  return val < 0.5 ? false : true;
-}
-
 void blitEdges(in Path path, IRect clip, Blitter blitter, int ystart, int yend) {
   auto wr = pathToWavelet(path);
   auto ir = path.ibounds;
