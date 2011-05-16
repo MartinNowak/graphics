@@ -126,10 +126,15 @@ struct Node {
 
   ref Node getChild(uint depth, uint idx) {
     assert(depth > 0);
-    assert(children.length == 0 || children.length == 4);
+    assert(children.length == 0 || children.length == 4 || children.length == 20);
 
-    if (children.length != 4) {
-      children.length = 4; //insertInPlace(pos, Node());
+    if (children.length == 0) {
+      if (depth > 1) {
+        children.length = 20;
+        foreach(i; 0 .. 4)
+          children[i].children = children[4 * i + 4 .. 4 * i + 8];
+      } else
+        children.length = 4;
     }
     this.chmask |= (1 << idx);
     return children[idx];
