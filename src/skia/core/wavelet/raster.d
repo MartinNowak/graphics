@@ -20,16 +20,16 @@ struct Node {
 
   void insertEdge(size_t K)(IPoint pos, ref FPoint[K] pts, uint depth)
   in {
-    fitsIntoRange!("[]")(pos.x >> depth, 0, 1);
-    fitsIntoRange!("[]")(pos.y >> depth, 0, 1);
+    fitsIntoRange!("[)")(pos.x, 0, 1 << depth);
+    fitsIntoRange!("[)")(pos.y, 0, 1 << depth);
   } body {
 
     auto node = &this;
     for(;;) {
+      const half = 1 << --depth;
       Quadrant q;
-      const scale = 1 << depth;
-      q.right = pos.x >= scale;
-      q.bottom = pos.y >= scale;
+      q.right = pos.x >= half;
+      q.bottom = pos.y >= half;
 
       debug {
         foreach(pt; pts)
@@ -39,20 +39,19 @@ struct Node {
       }
 
       if (q.right) {
-        pos.x -= scale;
+        pos.x -= half;
         foreach(ref pt; pts)
-          pt.x -= scale;
+          pt.x -= half;
       }
       if (q.bottom) {
-        pos.y -= scale;
+        pos.y -= half;
         foreach(ref pt; pts)
-          pt.y -= scale;
+          pt.y -= half;
       }
-      //    std.stdio.writefln("\t dpth:%s pos:%s sh:%s pts:%s", depth, pos, fshift, pts);
-      node.calcCoeffs(pts, q.idx, scale);
+      node.calcCoeffs(pts, q.idx, half);
       if (depth == 0)
         break;
-      node = &node.getChild(depth--, q.idx);
+      node = &node.getChild(depth, q.idx);
     }
   }
 
@@ -170,7 +169,7 @@ struct WaveletRaster {
     auto insertDg = (IPoint pos, FPoint[2] slice) {
       this.rootConst += (1.f / (1 << depth) ^^ 2) * determinant(slice[0], slice[1]) / 2;
       if (depth)
-        root.insertEdge(pos, slice, depth - 1);
+        root.insertEdge(pos, slice, depth);
     };
     cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
   }
@@ -184,7 +183,7 @@ struct WaveletRaster {
           2 * (determinant(slice[0], slice[1]) + determinant(slice[1], slice[2]))
           + determinant(slice[0], slice[2]));
       if (depth)
-        root.insertEdge(pos, slice, depth - 1);
+        root.insertEdge(pos, slice, depth);
     };
     cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
   }
@@ -200,7 +199,7 @@ struct WaveletRaster {
           + 3 * determinant(slice[1], slice[3]) + 1 * determinant(slice[0], slice[3])
       );
       if (depth)
-        root.insertEdge(pos, slice, depth - 1);
+        root.insertEdge(pos, slice, depth);
     };
     cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
   }
