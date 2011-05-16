@@ -26,56 +26,74 @@ struct Node {
 
     auto node = &this;
     for(;;) {
-      const half = 1 << --depth;
-      Quadrant q;
-      q.right = pos.x >= half;
-      q.bottom = pos.y >= half;
 
       debug {
         foreach(pt; pts)
           assert(fitsIntoRange!("[]")(pt.x, -1e-1, (1<<depth+1)+1e-1)
                  && fitsIntoRange!("[]")(pt.y, -1e-1, (1<<depth+1)+1e-1),
-                 to!string(pts) ~ "|" ~ to!string(q)~ "|" ~ to!string(depth));
+                 to!string(pts) ~ "|" ~ to!string(depth));
       }
 
-      if (q.right) {
-        pos.x -= half;
-        foreach(ref pt; pts)
-          pt.x -= half;
+      const half = 1 << --depth;
+      const right = pos.x >= half;
+      const bottom = pos.y >= half;
+
+      if (bottom) {
+        if (right) {
+          // (1, 1)
+          pos.x -= half;
+          pos.y -= half;
+          foreach(i; 0 .. K) {
+            pts[i].x -= half;
+            pts[i].y -= half;
+          }
+          node.calcCoeffsQ!"11"(pts, half);
+        } else {
+          // (0, 1)
+          pos.y -= half;
+          foreach(i; 0 .. K)
+            pts[i].y -= half;
+          node.calcCoeffsQ!"01"(pts, half);
+        }
+      } else {
+        if (right) {
+          // (1, 0)
+          pos.x -= half;
+          foreach(i; 0 .. K)
+            pts[i].x -= half;
+          node.calcCoeffsQ!"10"(pts, half);
+        } else {
+          // (0, 0)
+          node.calcCoeffsQ!"00"(pts, half);
+        }
       }
-      if (q.bottom) {
-        pos.y -= half;
-        foreach(ref pt; pts)
-          pt.y -= half;
-      }
-      node.calcCoeffs(pts, q.idx, half);
+
       if (depth == 0)
         break;
-      node = &node.getChild(depth, q.idx);
+      const qidx = bottom << 1 | right;
+      node = &node.getChild(depth, qidx);
     }
   }
 
-  void calcCoeffs(size_t K)(ref const FPoint[K] pts, ubyte qidx, uint scale)
-  {
-    const rScale = 1.0 / scale;
-    auto Kx = (1.f / 4.f) * (pts[$-1].y - pts[0].y) * rScale;
-    auto Ky = (1.f / 4.f) * (pts[0].x - pts[$-1].x) * rScale;
-    static if (K == 2) {
-      // auto Lcommon = (1.f / 8.f) * determinant(pts[0], pts[1]);
-      // auto Ldiff = (1.f / 8.f) * (pts[1].x * pts[1].y - pts[0].x * pts[0].y);
+  void calcCoeffsQ(string quad, size_t K)(ref const FPoint[K] pts, uint scale) {
+    const rscale = 1.0 / scale;
 
-      auto Lx = (1.f / 2.f) * Kx * (pts[0].x + pts[1].x) * rScale;
-      auto Ly = (1.f / 2.f) * Ky * (pts[0].y + pts[1].y) * rScale;
+    const Kx = (1.f / 4.f) * (pts[$-1].y - pts[0].y) * rscale;
+    const Ky = (1.f / 4.f) * (pts[0].x - pts[$-1].x) * rscale;
+
+    static if (K == 2) {
+      const Lx = (1.f / 2.f) * Kx * (pts[0].x + pts[1].x) * rscale;
+      const Ly = (1.f / 2.f) * Ky * (pts[0].y + pts[1].y) * rscale;
     } else static if (K == 3) {
-        auto Lcommon = (1.f / 24.f) * (
+        const Lcommon = (1.f / 24.f) * (
             2 * (determinant(pts[0], pts[1]) + determinant(pts[1], pts[2]))
             + determinant(pts[0], pts[2])
-        ) * rScale * rScale;
-        auto Ldiff = (3.f / 24.f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y)  * rScale * rScale;
-        auto Lx = Lcommon + Ldiff;
-        auto Ly = Lcommon - Ldiff;
-      } else static if (K == 4) {
-        auto Lcommon = (1.f / 80.f) * (
+        ) * rscale * rscale;
+        const Ldiff = (3.f / 24.f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y)  * rscale * rscale;
+        const Lx = Lcommon + Ldiff;
+        const Ly = Lcommon - Ldiff;
+    } else static if (K == 4) {
+        const Lcommon = (1.f / 80.f) * (
             3 * (
                 2 * (determinant(pts[2], pts[3]) + determinant(pts[0], pts[1]))
                 + determinant(pts[1], pts[2])
@@ -83,44 +101,31 @@ struct Node {
                 + determinant(pts[0], pts[2])
             )
             + determinant(pts[0], pts[3])
-        ) * rScale * rScale;
-        auto Ldiff = (10.f / 80.f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y)  * rScale * rScale;
-        auto Lx = Lcommon + Ldiff;
-        auto Ly = Lcommon - Ldiff;
-      } else
-        static assert(0, "more than 4 control points unsupported");
+        ) * rscale * rscale;
+        const Ldiff = (10.f / 80.f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y)  * rscale * rscale;
+        const Lx = Lcommon + Ldiff;
+        const Ly = Lcommon - Ldiff;
+    } else
+      static assert(0);
 
-    sumCoeffs(Kx, Ky, Lx, Ly, qidx);
-  }
-
-  void sumCoeffs(float Kx, float Ky, float Lx, float Ly, ubyte qidx) {
-    switch (qidx) {
-    case 0: // (0, 0)
-      this.coeffs[0] += Lx;
-      this.coeffs[1] += Ly;
-      this.coeffs[2] += Lx;
-
-      break;
-    case 1: // (1, 0)
-      this.coeffs[0] += Kx - Lx;
-      this.coeffs[1] += Ly;
-      this.coeffs[2] += Kx - Lx;
-
-      break;
-    case 2: // (0, 1)
-      this.coeffs[0] += Lx;
-      this.coeffs[1] += Ky - Ly;
-      this.coeffs[2] += -Lx;
-
-      break;
-    case 3: // (1, 1)
-      this.coeffs[0] += Kx - Lx;
-      this.coeffs[1] += Ky - Ly;
-      this.coeffs[2] += -Kx + Lx;
-
-      break;
-    default: assert(0);
-    }
+    static if (quad == "00") {
+        this.coeffs[0] += Lx;
+        this.coeffs[1] += Ly;
+        this.coeffs[2] += Lx;
+    } else static if (quad == "10") {
+        this.coeffs[0] += Kx - Lx;
+        this.coeffs[1] += Ly;
+        this.coeffs[2] += Kx - Lx;
+    } else static if (quad == "01") {
+        this.coeffs[0] += Lx;
+        this.coeffs[1] += Ky - Ly;
+        this.coeffs[2] += -Lx;
+    } else static if (quad == "11") {
+        this.coeffs[0] += Kx - Lx;
+        this.coeffs[1] += Ky - Ly;
+        this.coeffs[2] += -Kx + Lx;
+    } else
+      static assert(0);
   }
 
   ref Node getChild(uint depth, uint idx) {
