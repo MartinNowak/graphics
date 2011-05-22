@@ -190,24 +190,21 @@ struct WaveletRaster {
     //    assert(pointsAreClipped(pts));
     foreach(ref pt; pts)
       pt -= fPoint(this.clipRect.pos);
-    auto insertDg = &this.insertSlice!2;
-    cartesianBezierWalker!(insertDg)(pts, FRect(fRect(this.clipRect).size), FSize(1, 1));
+    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice!2);
   }
 
   void insertEdge(FPoint[3] pts) {
     //    assert(pointsAreClipped(pts));
     foreach(ref pt; pts)
       pt -= fPoint(this.clipRect.pos);
-    auto insertDg = &this.insertSlice!3;
-    cartesianBezierWalker!(insertDg)(pts, FRect(fRect(this.clipRect).size), FSize(1, 1));
+    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice!3);
   }
 
   void insertEdge(FPoint[4] pts) {
     //    assert(pointsAreClipped(pts), to!string(pts));
     foreach(ref pt; pts)
       pt -= fPoint(this.clipRect.pos);
-    auto insertDg = &this.insertSlice!4;
-    cartesianBezierWalker!(insertDg)(pts, FRect(fRect(this.clipRect).size), FSize(1, 1));
+    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice!4);
   }
 
   bool pointsAreClipped(in FPoint[] pts) {

@@ -150,7 +150,11 @@ unittest {
   }
 }
 
-void cartesianBezierWalker(alias dg, T, size_t K)(ref const Point!T[K] curve, Rect!T clip, Size!(T) grid)
+void cartesianBezierWalker(T, size_t K)(
+    ref const Point!T[K] curve,
+    Rect!T clip,
+    Size!(T) grid,
+    void delegate(IPoint gridPos, ref Point!T[K] slice) clientDg)
 in {
   assert(grid.width > 0 && grid.height > 0);
 } body {
@@ -188,7 +192,7 @@ in {
       }
       Point!T[K] slice = void;
       slicer.advance(nextT, slice);
-      dg(gridPos, slice);
+      clientDg(gridPos, slice);
       gridPos.x += xadv; gridPos.y += yadv;
       assert(gridPos == IPoint(xwalk.position, ywalk.position),
              to!string(gridPos) ~ "|" ~ to!string(IPoint(xwalk.position, ywalk.position)));
@@ -196,12 +200,16 @@ in {
   }
 }
 
-void printLine(size_t K)(IPoint gridPos, FPoint[K] curve) { std.stdio.writeln(gridPos, "|", curve); }
 unittest {
+  void printLine(size_t K)(IPoint gridPos, ref FPoint[K] curve) {
+    std.stdio.writeln(gridPos, "|", curve);
+  }
+
   FPoint[2] line = [FPoint(336, 425), FPoint(341, 420)];
-  cartesianBezierWalker!(printLine)(line, FRect(1000, 1000), FSize(1, 1));
+  cartesianBezierWalker(line, FRect(1000, 1000), FSize(1, 1), &printLine!2);
   FPoint[4] curve = [FPoint(1.1, 1), FPoint(2, 10), FPoint(3, -0.1), FPoint(4.49, 1.1)];
-  cartesianBezierWalker!(printLine)(curve, FRect(10, 10), FSize(0.5, 0.5));
+
+  cartesianBezierWalker(curve, FRect(10, 10), FSize(0.5, 0.5), &printLine!4);
 }
 
 enum tolerance = 1e-2;
