@@ -165,7 +165,7 @@ struct WaveletRaster {
   this(IRect clipRect) {
     this.depth = to!uint(ceil(log2(max(clipRect.width, clipRect.height))));
     assert(this.depth);
-    this.clipRect = fRect(clipRect);
+    this.clipRect = clipRect;
   }
 
   void insertSlice(size_t K)(IPoint pos, ref FPoint[K] slice) if (K == 2) {
@@ -192,25 +192,25 @@ struct WaveletRaster {
   void insertEdge(FPoint[2] pts) {
     //    assert(pointsAreClipped(pts));
     foreach(ref pt; pts)
-      pt -= this.clipRect.pos;
+      pt -= fPoint(this.clipRect.pos);
     auto insertDg = &this.insertSlice!2;
-    cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
+    cartesianBezierWalker!(insertDg)(pts, FRect(fRect(this.clipRect).size), FSize(1, 1));
   }
 
   void insertEdge(FPoint[3] pts) {
     //    assert(pointsAreClipped(pts));
     foreach(ref pt; pts)
-      pt -= this.clipRect.pos;
+      pt -= fPoint(this.clipRect.pos);
     auto insertDg = &this.insertSlice!3;
-    cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
+    cartesianBezierWalker!(insertDg)(pts, FRect(fRect(this.clipRect).size), FSize(1, 1));
   }
 
   void insertEdge(FPoint[4] pts) {
     //    assert(pointsAreClipped(pts), to!string(pts));
     foreach(ref pt; pts)
-      pt -= this.clipRect.pos;
+      pt -= fPoint(this.clipRect.pos);
     auto insertDg = &this.insertSlice!4;
-    cartesianBezierWalker!(insertDg)(pts, FRect(this.clipRect.size), FSize(1, 1));
+    cartesianBezierWalker!(insertDg)(pts, FRect(fRect(this.clipRect).size), FSize(1, 1));
   }
 
   bool pointsAreClipped(in FPoint[] pts) {
@@ -224,7 +224,7 @@ struct WaveletRaster {
   Node root;
   float rootConst = 0.0f;
   uint depth;
-  FRect clipRect;
+  IRect clipRect;
 }
 
 void writeGridValue(alias blit)(float val, IPoint off, uint locRes) {
