@@ -3,6 +3,7 @@ module skia.views.cell;
 import skia.views.view2, skia.core.canvas, skia.core.paint;
 import guip.color, guip.event, guip.point, guip.rect, guip.size, layout.hint;
 import std.conv : to;
+import skia.effect.dashpatheffect;
 
 class CellView : ParentView {
 
@@ -51,6 +52,7 @@ class CellView : ParentView {
       framePaint.fillStyle = Paint.Fill.Stroke;
       auto border = to!float(lookupAttr("border-width"));
       framePaint.strokeWidth = border;
+      framePaint.pathEffect = new DashPathEffect([2.f, 1.f]);
       canvas.drawRect(fRect(frame).inset(border * 0.5, border * 0.5), framePaint);
     }
 

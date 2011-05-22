@@ -247,6 +247,9 @@ public:
   void translate(float dx, float dy) {
     this.curMCRec.matrix.preTranslate(dx, dy);
   }
+  void scale(FVector v) {
+    this.scale(v.x, v.y);
+  }
   void scale(float xs, float ys) {
     this.curMCRec.matrix.preScale(xs, ys);
   }
