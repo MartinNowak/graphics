@@ -154,19 +154,34 @@ void cartesianBezierWalker(T, size_t K)(
     ref const Point!T[K] curve,
     Rect!T clip,
     Size!(T) grid,
-    void delegate(IPoint gridPos, ref Point!T[K] slice) clientDg)
+    void delegate(IPoint gridPos, ref Point!T[K] slice) clientDg,
+    void delegate(IPoint gridPos, ref Point!T[2] line) clientSegConDg=null)
 in {
   assert(grid.width > 0 && grid.height > 0);
 } body {
   Point!T[K][1 + 2*(K-2)] monos = void;
   auto monocnt = clipBezier(curve, clip, monos);
 
-  foreach(ref mono; monos[0 .. monocnt]) {
-    walkMonoBezier!(T, K)(mono, grid, clientDg);
+  if (clientSegConDg is null) {
+    foreach(ref mono; monos[0 .. monocnt])
+      walkMonoBezier!(T, K)(mono, grid, clientDg);
+  } else {
+
+    Point!T segStart = curve[0];
+    size_t i;
+    while (i < monocnt) {
+      if (segStart != monos[i][0])
+        joinSegment(segStart, monos[i][0], clip, grid, clientSegConDg);
+      walkMonoBezier!(T, K)(monos[i], grid, clientDg);
+      segStart = monos[i][$-1];
+      ++i;
+    }
+    if (segStart != curve[$-1])
+      joinSegment(segStart, curve[$-1], clip, grid, clientSegConDg);
   }
 }
 
-private void walkMonoBezier(T, size_t K, Dg)(ref const Point!T[K] curve, Size!T grid, Dg clientDg) {
+private void walkMonoBezier(T, size_t K)(ref const Point!T[K] curve, Size!T grid, void delegate(IPoint, ref Point!T[K]) clientDg) {
   auto xwalk = beziota!("x")(curve, grid.width);
   auto ywalk = beziota!("y")(curve, grid.height);
   auto slicer = rollingSlicer(curve, 0.0);
@@ -201,6 +216,42 @@ private void walkMonoBezier(T, size_t K, Dg)(ref const Point!T[K] curve, Size!T 
     gridPos.x += xadv; gridPos.y += yadv;
     assert(gridPos == IPoint(xwalk.position, ywalk.position),
            to!string(gridPos) ~ "|" ~ to!string(IPoint(xwalk.position, ywalk.position)));
+  }
+}
+
+
+private void joinSegment(T)(Point!T a, Point!T b, Rect!T clip, Size!T grid, void delegate(IPoint, ref Point!T[2]) clientDg) {
+  a = Point!T(clampToRange(a.x, clip.left, clip.right), clampToRange(a.y, clip.top, clip.bottom));
+  b = Point!T(clampToRange(b.x, clip.left, clip.right), clampToRange(b.y, clip.top, clip.bottom));
+  auto diff = b - a;
+  Point!T[2] line = void;
+  line[0] = a;
+  line[1] = a;
+
+  if (approxEqual(a.x, clip.left) || approxEqual(a.x, clip.right)) {
+    // y first
+    if (diff.y != 0) {
+      line[1].y += diff.y;
+      walkMonoBezier!(T, 2)(line, grid, clientDg);
+      line[0].y += diff.y;
+    }
+    if (diff.x != 0) {
+      line[1].x += diff.x;
+      walkMonoBezier!(T, 2)(line, grid, clientDg);
+      line[0].x += diff.x;
+    }
+  } else {
+    // x first
+    if (diff.x != 0) {
+      line[1].x += diff.x;
+      walkMonoBezier!(T, 2)(line, grid, clientDg);
+      line[0].x += diff.x;
+    }
+    if (diff.y != 0) {
+      line[1].y += diff.y;
+      walkMonoBezier!(T, 2)(line, grid, clientDg);
+      line[0].y += diff.y;
+    }
   }
 }
 
