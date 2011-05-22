@@ -287,15 +287,15 @@ void writeNodeToGrid(alias blit, alias timeout=false)
 }
 
 void blitEdges(in Path path, IRect clip, Blitter blitter, int ystart, int yend) {
-  auto wr = pathToWavelet(path);
-  auto ir = path.ibounds;
+  auto wr = pathToWavelet(path, clip);
+  auto topLeft = wr.clipRect.pos;
   void blitRow(int y, int xstart, int xend, ubyte alpha) {
-    if (fitsIntoRange!("[)")(y, ystart, yend)) {
-      blitter.blitAlphaH(y, xstart, xend, alpha);
+    if (fitsIntoRange!("[)")(y, max(ystart, clip.top), min(yend, clip.bottom))) {
+      blitter.blitAlphaH(y, clampToRange(xstart, clip.left, clip.right), clampToRange(xend, clip.left, clip.right), alpha);
     }
   }
   writeNodeToGrid!(blitRow)(
-      wr.root, wr.rootConst, ir.pos, 1<< wr.depth);
+      wr.root, wr.rootConst, topLeft, 1<< wr.depth);
 }
 
 WaveletRaster pathToWavelet(in Path path) {
