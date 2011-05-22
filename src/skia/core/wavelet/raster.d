@@ -298,10 +298,10 @@ void blitEdges(in Path path, IRect clip, Blitter blitter, int ystart, int yend) 
       wr.root, wr.rootConst, topLeft, 1<< wr.depth);
 }
 
-WaveletRaster pathToWavelet(in Path path) {
-  if (path.empty || path.ibounds.empty)
-    return WaveletRaster.init;
+WaveletRaster pathToWavelet(in Path path, IRect clip) {
   auto ir = path.ibounds;
+  if (!ir.intersect(clip))
+    return WaveletRaster.init;
   WaveletRaster wr = WaveletRaster(ir);
 
   path.forEach((Path.Verb verb, in FPoint[] pts) {

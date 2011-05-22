@@ -12,7 +12,7 @@ void main() {
   Path path;
   path.moveTo(FPoint(0, 1000));
   path.quadTo(FPoint(res, 1000), FPoint(res, 1000 + res));
-  auto wr = pathToWavelet(path);
+  auto wr = pathToWavelet(path, path.ibounds);
 //  auto wr = WaveletRaster(IRect(res, res));
 //  wr.insertEdge([FPoint(0, 0), FPoint(res, 0), FPoint(res/2, res/2)]);
 //  wr.insertEdge([FPoint(res/2, res/2), FPoint(res, res), FPoint(0, res)]);
