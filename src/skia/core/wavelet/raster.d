@@ -6,6 +6,7 @@ import skia.math.clamp, skia.math.rounding, skia.util.format, skia.bezier.chop,
   skia.core.edge_detail.algo, skia.core.path, skia.core.blitter,
   skia.core.matrix, skia.math.fixed_ary, skia.bezier.cartesian;
 import guip.bitmap, guip.point, guip.rect, guip.size;
+import qcheck._;
 
 // version=DebugNoise;
 
@@ -153,12 +154,6 @@ struct Node {
   ubyte chmask;
 }
 
-bool benchCalcCoeffs(Node node, FPoint[2][100] ptss, Quadrant q, uint shift) {
-  uint scale = (1 << (shift & 0xF));
-  foreach(ref pts; ptss)
-    node.calcCoeffs(pts, q, scale);
-  return true;
-}
 
 struct WaveletRaster {
 
@@ -333,4 +328,77 @@ BmpBlitDg bmpBlit(Bitmap bitmap) {
     grid[off .. off + xend - xstart] = cast(ubyte)(255 - alpha);
   }
   return &blitBlack;
+}
+
+Path randomPath(Path.Verb[] verbs, FPoint[] pts) {
+  auto numVerbs = verbs.length;
+  auto numPts = pts.length;
+
+  Path path;
+ loop: while (!verbs.empty) {
+    switch (verbs.front) {
+    case Path.Verb.Move:
+      if (pts.length < 1)
+        break loop;
+      path.moveTo(pts.front);
+      pts.popFront;
+      break;
+
+    case Path.Verb.Line:
+      if (pts.length < 1)
+        break loop;
+      path.lineTo(pts.front);
+      pts.popFront;
+      break;
+
+    case Path.Verb.Quad:
+      if (pts.length < 2)
+        break loop;
+      path.quadTo(pts.front, pts[1]);
+      pts.popFront; pts.popFront;
+      break;
+
+    case Path.Verb.Cubic:
+      if (pts.length < 3)
+        break loop;
+      path.cubicTo(pts.front, pts[1], pts[2]);
+      pts.popFront; pts.popFront; pts.popFront;
+      break;
+
+    case Path.Verb.Close:
+      path.close();
+      break;
+    }
+    verbs.popFront;
+  }
+  return path;
+}
+
+bool benchPathToWavelet(Path path) {
+  auto wr = pathToWavelet(path, path.ibounds);
+  return true;
+}
+
+bool benchPathToBlit(Path path) {
+  auto clip = path.ibounds;
+  auto wr = pathToWavelet(path, path.ibounds);
+  auto topLeft = wr.clipRect.pos;
+
+  void dummyBlit(int y, int xstart, int xend, ubyte alpha) {
+    assert(fitsIntoRange!("[)")(y, clip.top, clip.bottom));
+    assert(fitsIntoRange!("[)")(xstart, clip.left, clip.right));
+    assert(fitsIntoRange!("[)")(xend, clip.left, clip.right), to!string(xend) ~ "|" ~ to!string(clip.right));
+  }
+
+  writeNodeToGrid!(dummyBlit)(
+      wr.root, wr.rootConst, topLeft, 1<< wr.depth);
+  return true;
+}
+
+//version = BenchWavelet;
+version (BenchWavelet) {
+  void main() {
+    setRandomSeed(1);
+    quickCheck!(benchPathToWavelet, randomPath, count(50), minValue(0), maxValue(1024), maxAlloc(500))();
+  }
 }
