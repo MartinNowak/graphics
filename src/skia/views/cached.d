@@ -59,7 +59,7 @@ class CachedView : ParentView {
     IRect updated;
     if (!dirty.empty) {
       scope auto canvas = new Canvas(bmp);
-      auto bg = Color(lookupAttr("background-color"));
+      auto bg = color(lookupAttr("background-color"));
       swap(dirty, updated);
       canvas.clipRect(updated);
       canvas.drawColor(bg);

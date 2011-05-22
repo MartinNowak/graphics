@@ -42,9 +42,9 @@ class CellView : ParentView {
       auto frame = IRect(size).inset(margin, margin);
 
       canvas.clipRect(frame);
-      canvas.drawColor(Color(lookupAttr("background-color")));
+      canvas.drawColor(color(lookupAttr("background-color")));
 
-      auto borderColor = Color(lookupAttr("border-color"));
+      auto borderColor = color(lookupAttr("border-color"));
       if (!hasFocus)
         borderColor.a = borderColor.a / 2;
       scope auto framePaint = new Paint(borderColor);
