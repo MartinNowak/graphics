@@ -217,13 +217,13 @@ public:
       "void pre"~s~"(Args...)(Args args) {
          Matrix m;
          m.set"~s~"(args);
-         this = m * this;
+         this = this * m;
        }");
     mixin(
       "void post"~s~"(Args...)(Args args) {
          Matrix m;
          m.set"~s~"(args);
-         this = this * m;
+         this = m * this;
        }");
   }
 
