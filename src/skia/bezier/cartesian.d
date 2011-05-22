@@ -33,9 +33,12 @@ struct BezIota(T, size_t K) {
     double start = round((cs[0] + 0.5 * adv) / step) * step;
     if (start == cs[0])
       start += adv;
-    if (this._direction != 0 && checkedTo!int(sgn(cs[$-1] - start)) == this._direction)
+    if (this._direction != 0 && checkedTo!int(sgn(cs[$-1] - start)) == this._direction) {
       this.steps = iota(start, cast(double)cs[$-1], adv);
-    convertPoly(cs, this.coeffs);
+      convertPoly(cs, this.coeffs);
+      static if (K == 4)
+        this.endV = cs[$-1];
+    }
   }
 
   @property bool empty() const {
@@ -98,7 +101,8 @@ struct BezIota(T, size_t K) {
   } else static if (K == 4) {
     double findT() {
       //    auto evaldg = (double t) { return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v; };
-      return findCubicRoot(coeffs, steps.front);
+      const v = steps.front;
+      return findCubicRoot(coeffs, this.coeffs[3] - v, this.endV - v, v);
     }
   } else
     static assert(0, "unimplemented");
@@ -125,6 +129,8 @@ struct BezIota(T, size_t K) {
   T[K] coeffs;
   typeof(iota(0.0, 0.0, 0.0)) steps;
   double curT;
+  static if (K == 4)
+    T endV;
 }
 
 
@@ -199,12 +205,12 @@ unittest {
 }
 
 enum tolerance = 1e-2;
-double findCubicRoot(ref const float[4] coeffs, double v) {
+double findCubicRoot(ref const float[4] coeffs, double fa, double fb, double v) {
   //  size_t iterations;
   double evalT(double t) {
     return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v;
   }
-  double a = 0.0, b = 1.0, fa = evalT(a), fb = evalT(b);
+  double a = 0.0, b = 1.0;
   double gamma = 1.0;
   while (true) {
     //    ++iterations;
