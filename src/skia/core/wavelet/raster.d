@@ -164,20 +164,21 @@ struct WaveletRaster {
 
   this(IRect clipRect) {
     this.depth = to!uint(ceil(log2(max(clipRect.width, clipRect.height))));
-    assert(this.depth);
     this.clipRect = clipRect;
   }
 
   void insertSlice(size_t K)(IPoint pos, ref FPoint[K] slice) if (K == 2) {
     this.rootConst += (1.f / (1 << this.depth) ^^ 2) * determinant(slice[0], slice[1]) / 2;
-    this.root.insertEdge(pos, slice, this.depth);
+    if (this.depth)
+      this.root.insertEdge(pos, slice, this.depth);
   }
 
   void insertSlice(size_t K)(IPoint pos, ref FPoint[K] slice) if (K == 3) {
     this.rootConst += (1.f / (6.f * (1 << this.depth) ^^ 2)) * (
         2 * (determinant(slice[0], slice[1]) + determinant(slice[1], slice[2]))
         + determinant(slice[0], slice[2]));
-    root.insertEdge(pos, slice, depth);
+    if (this.depth)
+      root.insertEdge(pos, slice, depth);
   }
 
   void insertSlice(size_t K)(IPoint pos, ref FPoint[K] slice) if (K == 4) {
@@ -186,7 +187,8 @@ struct WaveletRaster {
         + 6 * determinant(slice[2], slice[3]) + 3 * determinant(slice[0], slice[2])
         + 3 * determinant(slice[1], slice[3]) + 1 * determinant(slice[0], slice[3])
     );
-    root.insertEdge(pos, slice, this.depth);
+    if (this.depth)
+      root.insertEdge(pos, slice, this.depth);
   };
 
   void insertEdge(FPoint[2] pts) {
