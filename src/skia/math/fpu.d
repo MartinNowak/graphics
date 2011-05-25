@@ -59,14 +59,14 @@ void enableFlushToZeroDAZ() {
   setMXCSR(control);
 }
 
-private:
-
 // Need to disable InvalidOp as floats are initalized to NaN by default.
-static this() {
+void enableDefaultFpuExceptions() {
   enableFpuException(FpuException.AllExceptionsMask ^ (FpuException.Precision | FpuException.InvalidOp));
   enableSSEException(SSEException.AllExceptionsMask ^ (SSEException.Precision | SSEException.InvalidOp));
   enableFlushToZeroDAZ();
 }
+
+private:
 
 ushort getFpuCW() {
   ushort control;
