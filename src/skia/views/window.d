@@ -235,7 +235,7 @@ version(FreeBSD)
       xutil.XDestroyImage(xi);
     }
 
-    bool handleInval(in IRect area) {
+    override bool handleInval(in IRect area) {
       this.dirtyRegion.join(area);
 
       xlib.XEvent e;

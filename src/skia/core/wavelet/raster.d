@@ -322,7 +322,7 @@ Path randomPath(Path.Verb[] verbs, FPoint[] pts) {
 
   Path path;
  loop: while (!verbs.empty) {
-    switch (verbs.front) {
+    final switch (verbs.front) {
     case Path.Verb.Move:
       if (pts.length < 1)
         break loop;

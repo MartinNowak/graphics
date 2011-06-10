@@ -36,7 +36,7 @@ class ColorShader : Shader {
     data[] = color;
   }
 
-  @property bool opaque() const {
+  override @property bool opaque() const {
     return color.opaque;
   }
 }
@@ -78,7 +78,7 @@ class GradientShader : Shader {
     }
   }
 
-  @property bool opaque() const {
+  override @property bool opaque() const {
     return this.clrs[0].opaque && this.clrs[1].opaque;
   }
 

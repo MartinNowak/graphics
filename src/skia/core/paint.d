@@ -53,7 +53,7 @@ class Paint
     this.antiAlias = DefaultAntiAlias;
   }
 
-  @property string toString() const {
+  override @property string toString() const {
     auto writer = appender!string();
     auto fmt = "Paint aa: %s fillStyle: %s color: %col looper: %s";
     formattedWrite(writer, fmt, this.antiAlias, this.fillStyle,

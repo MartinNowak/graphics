@@ -51,25 +51,20 @@ class Blitter
         else
           return new ARGB32Blitter(device, paint);
       }
+    default:
+      assert(0, "no blitter implementation for bitmap config " ~ std.conv.to!string(device.config));
     }
   }
 
   static Blitter ChooseSprite(Bitmap device, Paint paint, in Bitmap source, IPoint ioff) {
-    SpriteBlitter blitter;
-
     switch (device.config) {
     case Bitmap.Config.RGB_565:
-      blitter = SpriteBlitter.CreateD16(device, source, paint, ioff);
-      break;
+      return SpriteBlitter.CreateD16(device, source, paint, ioff);
     case Bitmap.Config.ARGB_8888:
-      blitter = SpriteBlitter.CreateD32(device, source, paint, ioff);
-      break;
+      return SpriteBlitter.CreateD32(device, source, paint, ioff);
     default:
-      blitter = null;
-      break;
+      assert(0, "no sprite blitter implementation for bitmap config " ~ std.conv.to!string(device.config));
     }
-
-    return blitter;
   }
 
   final protected int round(float f) {
