@@ -131,7 +131,7 @@ public:
   }
 
   void drawARGB(ubyte a, ubyte r, ubyte g, ubyte b) {
-    this.drawColor(Color(a, r, g, b));
+    this.drawColor(color(a, r, g, b));
   }
 
   void drawPath(in Path path, Paint paint) {
