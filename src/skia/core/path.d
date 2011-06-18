@@ -109,8 +109,7 @@ public:
     if (this.boundsIsClean)
       return this._bounds;
     else {
-      auto ncThis = cast(Path*)&this;
-      return ncThis.updateBounds();
+      return (cast()this).updateBounds();
     }
   }
 
@@ -153,7 +152,7 @@ public:
     auto flattener = Flattener(dg);
 
     while (!vs.empty) {
-      Verb verb = cast(Verb)vs.front; vs.popFront();
+      Verb verb = vs.front; vs.popFront();
 
       final switch (verb) {
       case Verb.Move:
@@ -196,11 +195,11 @@ public:
     return false;
   }
 
-  @property typeof(retro!(const(FPoint[]))([])) pointsRetro() const {
+  @property typeof(this.points.retro) pointsRetro() const {
     return this.points.retro;
   }
-  @property const(FPoint[]) points() const {
-    return (cast(Path)this)._points.data.save;
+  @property const(FPoint)[] points() const {
+    return (cast()this._points).data.save;
   }
 
   @property FPoint lastPoint() const {
@@ -208,7 +207,7 @@ public:
   }
 
   @property Verb[] verbs() const {
-    return (cast(Path)this)._verbs.data.save;
+    return (cast()this._verbs).data.save;
   }
 
   bool lastVerbWas(Verb verb) const {
@@ -317,7 +316,6 @@ public:
         break;
       default:
         assert(0, "bad verb in reversePathTo: " ~ to!string(path.verbs));
-        break;
       }
       vs.popFront;
     }
