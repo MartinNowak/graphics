@@ -2,6 +2,7 @@ module skia.core.wavelet.raster;
 
 import std.algorithm, std.array, std.bitmanip, std.math, std.random, std.typecons, std.conv : to;
 import std.datetime : benchmark, StopWatch;
+import std.metastrings;
 import skia.math.clamp, skia.math.rounding, skia.util.format, skia.bezier.chop,
   skia.core.edge_detail.algo, skia.core.path, skia.core.blitter,
   skia.core.matrix, skia.math.fixed_ary, skia.bezier.cartesian;
@@ -9,6 +10,11 @@ import guip.bitmap, guip.point, guip.rect, guip.size;
 import qcheck._;
 
 // version=DebugNoise;
+extern(C) {
+  void calcCoeffs_2(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
+  void calcCoeffs_3(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
+  void calcCoeffs_4(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
+}
 
 struct Node {
   @property string toString() const {
@@ -38,95 +44,14 @@ struct Node {
       const half = 1 << --depth;
       const right = pos.x >= half;
       const bottom = pos.y >= half;
+      const qidx = bottom << 1 | right;
 
-      if (bottom) {
-        if (right) {
-          // (1, 1)
-          pos.x -= half;
-          pos.y -= half;
-          foreach(i; 0 .. K) {
-            pts[i].x -= half;
-            pts[i].y -= half;
-          }
-          node.calcCoeffsQ!"11"(pts, half);
-        } else {
-          // (0, 1)
-          pos.y -= half;
-          foreach(i; 0 .. K)
-            pts[i].y -= half;
-          node.calcCoeffsQ!"01"(pts, half);
-        }
-      } else {
-        if (right) {
-          // (1, 0)
-          pos.x -= half;
-          foreach(i; 0 .. K)
-            pts[i].x -= half;
-          node.calcCoeffsQ!"10"(pts, half);
-        } else {
-          // (0, 0)
-          node.calcCoeffsQ!"00"(pts, half);
-        }
-      }
+      mixin(Format!(q{calcCoeffs_%s(half, qidx, &pos, pts.ptr, node.coeffs.ptr);}, K));
 
       if (depth == 0)
         break;
-      const qidx = bottom << 1 | right;
       node = &node.getChild(depth, qidx);
     }
-  }
-
-  void calcCoeffsQ(string quad, size_t K)(ref const FPoint[K] pts, uint scale) {
-    const rscale = 1.0 / scale;
-
-    const Kx = (1.f / 4.f) * (pts[$-1].y - pts[0].y) * rscale;
-    const Ky = (1.f / 4.f) * (pts[0].x - pts[$-1].x) * rscale;
-
-    static if (K == 2) {
-      const Lx = (1.f / 2.f) * Kx * (pts[0].x + pts[1].x) * rscale;
-      const Ly = (1.f / 2.f) * Ky * (pts[0].y + pts[1].y) * rscale;
-    } else static if (K == 3) {
-        const Lcommon = (1.f / 24.f) * (
-            2 * (determinant(pts[0], pts[1]) + determinant(pts[1], pts[2]))
-            + determinant(pts[0], pts[2])
-        ) * rscale * rscale;
-        const Ldiff = (3.f / 24.f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y)  * rscale * rscale;
-        const Lx = Lcommon + Ldiff;
-        const Ly = Lcommon - Ldiff;
-    } else static if (K == 4) {
-        const Lcommon = (1.f / 80.f) * (
-            3 * (
-                2 * (determinant(pts[2], pts[3]) + determinant(pts[0], pts[1]))
-                + determinant(pts[1], pts[2])
-                + determinant(pts[1], pts[3])
-                + determinant(pts[0], pts[2])
-            )
-            + determinant(pts[0], pts[3])
-        ) * rscale * rscale;
-        const Ldiff = (10.f / 80.f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y)  * rscale * rscale;
-        const Lx = Lcommon + Ldiff;
-        const Ly = Lcommon - Ldiff;
-    } else
-      static assert(0);
-
-    static if (quad == "00") {
-        this.coeffs[0] += Lx;
-        this.coeffs[1] += Ly;
-        this.coeffs[2] += Lx;
-    } else static if (quad == "10") {
-        this.coeffs[0] += Kx - Lx;
-        this.coeffs[1] += Ly;
-        this.coeffs[2] += Kx - Lx;
-    } else static if (quad == "01") {
-        this.coeffs[0] += Lx;
-        this.coeffs[1] += Ky - Ly;
-        this.coeffs[2] += -Lx;
-    } else static if (quad == "11") {
-        this.coeffs[0] += Kx - Lx;
-        this.coeffs[1] += Ky - Ly;
-        this.coeffs[2] += -Kx + Lx;
-    } else
-      static assert(0);
   }
 
   ref Node getChild(uint depth, uint idx) {
