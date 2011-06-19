@@ -27,3 +27,14 @@ void main() {
 //    std.stdio.writeln(grid[y*res .. y*res + res]);
 //  }
 }
+
+alias void delegate(int y, int xstart, int xend, ubyte val) BmpBlitDg;
+
+BmpBlitDg bmpBlit(Bitmap bitmap) {
+  auto grid = bitmap.getBuffer!ubyte();
+  void blitBlack(int y, int xstart, int xend, ubyte alpha) {
+    auto off = y * bitmap.width + xstart;
+    grid[off .. off + xend - xstart] = cast(ubyte)(255 - alpha);
+  }
+  return &blitBlack;
+}
