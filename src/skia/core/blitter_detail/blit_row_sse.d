@@ -19,7 +19,7 @@ static void Color32(Range)(Range dstR, Range srcR, PMColor pmColor)
   if (!srcR.length)
     return;
   if (pmColor.argb == 0) {
-    if (!(dstR is srcR))
+    if (dstR !is srcR)
       dstR[] = srcR[];
   }
 

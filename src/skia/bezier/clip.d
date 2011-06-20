@@ -49,7 +49,7 @@ in {
   const s0 = min(t0, t1);
   const s1 = max(t0, t1);
   if (s0 == 0 && s1 == 1) {
-    if (line !is clipped)
+    if (&line != &clipped)
       clipped = line;
   } else
     sliceBezier(line, s0, s1, clipped);
@@ -95,7 +95,7 @@ in {
   const s0 = min(t0, t1);
   const s1 = max(t0, t1);
   if (s0 == 0 && s1 == 1) {
-    if (quad !is clipped)
+    if (&quad != &clipped)
       clipped = quad;
   } else
     sliceBezier(quad, s0, s1, clipped);
@@ -145,7 +145,7 @@ in {
   const s0 = min(t0, t1);
   const s1 = max(t0, t1);
   if (s0 == 0 && s1 == 1) {
-    if (cubic !is clipped)
+    if (&cubic != &clipped)
       clipped = cubic;
   } else
     sliceBezier(cubic, s0, s1, clipped);

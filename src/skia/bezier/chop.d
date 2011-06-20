@@ -145,7 +145,7 @@ unittest {
 int chopMonotonic(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref Point!T[K][MS] monos) if(K==2)
 in {
   foreach(ref mono; monos)
-    assert(curve !is mono);
+    assert(&curve != &mono);
 } body {
   static assert(MS >= 1 + 2 * (K-2));
 
@@ -157,7 +157,7 @@ in {
 int chopMonotonic(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref Point!T[K][MS] monos) if(K>2)
 in {
   foreach(ref mono; monos)
-    assert(curve !is mono);
+    assert(&curve != &mono);
 } body {
   static assert(MS >= 1 + 2 * (K-2));
 
