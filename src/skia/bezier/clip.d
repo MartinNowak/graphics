@@ -2,15 +2,15 @@ module skia.bezier.clip;
 
 import skia.bezier.chop, skia.bezier.curve, skia.math.clamp, skia.math.poly;
 import guip.point, guip.rect;
-import std.algorithm, std.conv, std.exception, std.math, std.metastrings, std.numeric;
+import std.conv, std.exception, std.math, std.metastrings, std.numeric;
 
 int clipBezier(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref const Rect!T rect, ref Point!T[K][MS] clipped) {
   auto monocnt = chopMonotonic(curve, clipped);
   uint clipcnt;
   foreach(i; 0 .. monocnt)
     if (clipMonoBezier(clipped[i], rect, clipped[i])) {
-      if (clipcnt != i)
-        move(clipped[i], clipped[clipcnt]);
+      if (i != clipcnt)
+        clipped[clipcnt] = clipped[i];
       ++clipcnt;
     }
   return clipcnt;
