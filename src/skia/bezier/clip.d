@@ -18,7 +18,9 @@ int clipBezier(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref const Rec
 
 bool clipMonoBezier(T, size_t K)(ref const Point!T[K] curve, ref const Rect!T rect, ref Point!T[K] clipped) {
   assert(!rect.empty);
-  return clipMonoBezierImpl!("x")(curve, rect.left, rect.right, clipped)
+  return
+    curve[0] != curve[$-1]
+    && clipMonoBezierImpl!("x")(curve, rect.left, rect.right, clipped)
     && clipMonoBezierImpl!("y")(clipped, rect.top, rect.bottom, clipped);
 }
 
@@ -32,8 +34,11 @@ in {
   const v0 = mixin(Format!(q{line[0].%s}, dir));
   const v1 = mixin(Format!(q{line[1].%s}, dir));
 
-  if (v0 == v1)
-    return fitsIntoRange!("[]")(v0, lo, hi);
+  if (v0 == v1) {
+    if (fitsIntoRange!("[]")(v0, lo, hi))
+      goto NoChange;
+    return false;
+  }
 
   const rel0 = (lo - v0) / (v1 - v0);
   const t0 = clampToRange(rel0, 0, 1);
@@ -49,6 +54,7 @@ in {
   const s0 = min(t0, t1);
   const s1 = max(t0, t1);
   if (s0 == 0 && s1 == 1) {
+  NoChange:
     if (&line != &clipped)
       clipped = line;
   } else
@@ -68,8 +74,11 @@ in {
   const v1 = mixin(Format!(q{quad[1].%s}, dir));
   const v2 = mixin(Format!(q{quad[2].%s}, dir));
 
-  if (v0 == v2)
-    return fitsIntoRange!("[]")(v0, lo, hi);
+  if (v0 == v2) {
+    if (fitsIntoRange!("[]")(v0, lo, hi))
+      goto NoChange;
+    return false;
+  }
 
   double intersection(double v0, double v1, double v2, double val) {
     double ts[2];
@@ -95,6 +104,7 @@ in {
   const s0 = min(t0, t1);
   const s1 = max(t0, t1);
   if (s0 == 0 && s1 == 1) {
+  NoChange:
     if (&quad != &clipped)
       clipped = quad;
   } else
