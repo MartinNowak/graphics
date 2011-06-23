@@ -58,13 +58,30 @@ class SvgView : View {
         }
       }
     };
-    svg.onStartTag["path"] = pathParser;
-    svg.onStartTag["g"] = (ElementParser group) {
+    auto polygonParser = (ElementParser polygon) {
+      if (auto points = "points" in polygon.tag.attr) {
+        auto style = parseStyle(polygon.tag.attr, groupStyle);
+        Path path;
+        if (!style.empty && parsePoints(*points, path)) {
+          this.styles ~= style;
+          this.paths ~= path;
+          this.bounds.join(path.ibounds);
+        }
+      }
+    };
+    typeof(pathParser) groupParser;
+    groupParser = (ElementParser group) {
+      auto bkpStyle = groupStyle;
+      scope (exit) { groupStyle = bkpStyle; }
       groupStyle = parseStyle(group.tag.attr, groupStyle);
       group.onStartTag["path"] = pathParser;
+      group.onStartTag["polygon"] = polygonParser;
+      group.onStartTag["g"] = groupParser; // recursive
       group.parse();
-      groupStyle = Style();
     };
+    svg.onStartTag["path"] = pathParser;
+    svg.onStartTag["polygon"] = polygonParser;
+    svg.onStartTag["g"] = groupParser;
     svg.parse();
     assert(this.paths.length == this.styles.length);
     std.stdio.writeln(this.paths.length);
@@ -175,6 +192,28 @@ class SvgView : View {
         assert(0, "error" ~ to!string(c) ~ "|");
       }
     }
+    return true;
+  }
+
+  bool parsePoints(string points, out Path path) {
+    static FPoint commaPair(string pair) {
+      auto semi = split(pair, ",");
+      enforce(semi.length == 2);
+      return FPoint(to!float(semi[0]), to!float(semi[1]));
+    }
+
+    auto pts = splitter(points, " ");
+    while (!pts.empty && pts.front.empty)
+      pts.popFront;
+    if (pts.empty)
+      return false;
+
+    path.moveTo(commaPair(pts.front)); pts.popFront;
+    foreach(pt; pts) {
+      if (!pt.empty)
+        path.lineTo(commaPair(pt));
+    }
+    path.close();
     return true;
   }
 
