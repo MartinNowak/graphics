@@ -3,7 +3,7 @@ module SampleApp.svgview;
 debug import std.stdio;
 import std.algorithm, std.exception, std.functional, std.string, std.range, std.xml, std.conv : to;
 static import std.ctype;
-import skia.core.canvas, skia.views.view2, skia.core.path, skia.core.paint, skia.core.matrix;
+import skia.core.canvas, skia.views.view2, skia.core.path, skia.core.paint;
 import guip.color, guip.event, guip.point, guip.rect, guip.size, layout.hint;
 
 class SvgView : View {
@@ -18,23 +18,12 @@ class SvgView : View {
       parseSvg(svg);
   }
 
-  override void onMouse(MouseEvent e, ISize size) {
-    if (e.button.left) {
-      auto ct = IRect(size).center;
-      this.scale = distance(e.pos, ct) / max(this.bounds.width, this.bounds.height);
-      this.rotate = (180. / std.math.PI) * std.math.atan2(cast(float)e.pos.y - ct.y, cast(float)e.pos.x - ct.x);
-      this.requestRedraw(IRect(size));
-    }
-  }
-
   override void onResize(ResizeEvent e) {
     this.requestRedraw(IRect(e.area.size));
   }
 
   override void onDraw(Canvas canvas, IRect area, ISize size) {
-    canvas.scale(this.scale, this.scale);
     canvas.translate(fPoint(IRect(size).center - this.bounds.center));
-    canvas.rotate(this.rotate, fPoint(IRect(size).center - this.bounds.center));
 
     foreach(ref path, ref style; lockstep(this.paths, this.styles)) {
       assert(!style.empty);
@@ -208,6 +197,4 @@ class SvgView : View {
   Path[] paths;
   Style[] styles;
   IRect bounds;
-  float scale = 1.0f;
-  float rotate = 0.0f;
 }
