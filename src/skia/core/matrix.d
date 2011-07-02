@@ -15,7 +15,7 @@ private {
 // interface here.
 struct Matrix {
 private:
-  Detail.MatrixStorage data;
+  float[3][3] data;
   ubyte _typeMask;
 
   enum Type : ubyte {
@@ -80,10 +80,6 @@ private:
 
 public:
 
-  this(in Detail.MatrixStorage data) {
-    this.data = data;
-    this.setDirty();
-  }
   @property string toString() const {
     return "Matrix33: " ~ to!string(this.data);
   }
@@ -100,11 +96,11 @@ public:
   @property bool rectStaysRect() const
   { return (this.typeMask & Type.RectStaysRect) != 0; }
 
-  public ref typeof(this.data[0]) opIndex(size_t idx) {
+  public ref float[3] opIndex(size_t idx) {
     assert(0 <= idx && idx <= 2);
     return this.data[idx];
   }
-  public ref typeof(this.data[0]) opIndex(size_t idx) const {
+  public ref const(float[3]) opIndex(size_t idx) const {
     assert(0 <= idx && idx <= 2);
     return this.data[idx];
   }
@@ -277,14 +273,22 @@ private:
   }
 
   Matrix opBinary(string op)(in Matrix rhs) const
-    if (op == "*") {
+  if (op == "*") {
 
     if (rhs.identity)
       return this;
     else if (this.identity)
       return rhs;
     else {
-      auto tmp = Detail.multiplyMatrices(this, rhs);
+      Matrix tmp;
+      for(size_t row = 0; row < 3; ++row) {
+        for (size_t col = 0; col < 3; ++col) {
+          tmp[row][col] =
+            this[row][0] * rhs[0][col]
+            + this[row][1] * rhs[1][col]
+            + this[row][2] * rhs[2][col];
+        }
+      }
       tmp.setDirty();
       return tmp;
     }
