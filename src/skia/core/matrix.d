@@ -110,7 +110,7 @@ public:
     id.data[0][0] = 1.0f; id.data[0][1] = 0.0f; id.data[0][2] = 0.0f;
     id.data[1][0] = 0.0f; id.data[1][1] = 1.0f; id.data[1][2] = 0.0f;
     id.data[2][0] = 0.0f; id.data[2][1] = 0.0f; id.data[2][2] = 1.0f;
-    id._typeMask = Matrix.Type.Identity;
+    id._typeMask = Matrix.Type.Identity | Matrix.Type.RectStaysRect;
     return id;
   }
 
