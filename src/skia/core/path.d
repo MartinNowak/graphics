@@ -80,14 +80,13 @@ public:
   this(in Path path) {
     this = path;
   }
-  ref Path opAssign(in Path path) {
+  void opAssign(in Path path) {
     this._points = appender(path.points.dup);
     this._verbs = appender(path.verbs.dup);
     this._bounds = path._bounds;
     this.boundsIsClean = path.boundsIsClean;
     this._fillType = path._fillType;
     this.isConvex = path.isConvex;
-    return this;
   }
 
   @property bool empty() const {
@@ -106,23 +105,23 @@ public:
   }
 
   @property FRect bounds() const {
-    if (this.boundsIsClean)
-      return this._bounds;
-    else {
-      return (cast()this).updateBounds();
+    if (!this.boundsIsClean) {
+      auto ncthis = cast(Path*)&this;
+      ncthis._bounds = this.calcBounds();
+      ncthis.boundsIsClean = true;
     }
+    return this._bounds;
   }
 
   @property IRect ibounds() const {
     return this.bounds.roundOut();
   }
 
-  FRect updateBounds() {
-    this._bounds = this.points.length > 0
+  FRect calcBounds() const {
+    auto bnds = this.points.length > 0
       ? FRect.calcBounds(this.points)
       : FRect.emptyRect();
-    this.boundsIsClean = true;
-    return this._bounds;
+    return bnds;
   }
 
   void joinBounds(FRect bounds) {
