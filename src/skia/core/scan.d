@@ -2,7 +2,8 @@ module skia.core.scan;
 
 import std.algorithm, std.math, std.range;
 import skia.core.blitter, skia.core.edgebuilder, skia.core.edge_detail._,
-  skia.core.blitter_detail.clipping_blitter, skia.core.path, skia.math._, skia.util.format;
+  skia.core.blitter_detail.clipping_blitter, skia.core.path, skia.core.wavelet.raster,
+  skia.math._, skia.util.format;
 import guip.rect, guip.point;
 
 
@@ -53,8 +54,9 @@ void fillPathImpl(size_t Scale)
       blitAboveAndBelow(blitter, ir, clip);
     }
     else {
-      blitEdges!(Scale)(path, clip, blitter,
-                           ir.top, ir.bottom);
+      skia.core.wavelet.raster.blitEdges(path, clip, blitter, ir.top, ir.bottom);
+      //      blitEdges!(Scale)(path, clip, blitter,
+      //                        ir.top, ir.bottom);
     }
   }
 }
