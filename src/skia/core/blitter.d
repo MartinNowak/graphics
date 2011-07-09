@@ -46,9 +46,12 @@ class Blitter
       return new NullBlitter();
     case Bitmap.Config.ARGB_8888:
       {
-        if (paint.shader)
-          return new ShaderARGB32Blitter(device, matrix.inverted, paint);
-        else
+        if (paint.shader) {
+          if (paint.shader.needsMatrix)
+            return new ShaderARGB32Blitter(device, paint, matrix.inverted);
+          else
+            return new ShaderARGB32Blitter(device, paint);
+        } else
           return new ARGB32Blitter(device, paint);
       }
     default:
@@ -134,13 +137,17 @@ class ShaderARGB32Blitter : ARGB32Blitter {
   const void function(PMColor[], const(PMColor)[], ubyte) blitRowAlpha;
   PMColor[] data;
 
-  this(Bitmap bitmap, Matrix mat, Paint paint) {
+  this(Bitmap bitmap, Paint paint) {
     super(bitmap, paint);
     this.shader = paint.shader;
-    this.shader.matrix = mat;
     auto flags = shader.opaque ? 0 : BlitRowFlags32.SrcPixelAlpha;
     this.blitRow = blitRowFactory32(flags);
     this.blitRowAlpha = blitRowFactory32(flags | BlitRowFlags32.GlobalAlpha);
+  }
+
+  this(Bitmap bitmap, Paint paint, Matrix mat) {
+    this(bitmap, paint);
+    this.shader.matrix = mat;
   }
 
   override void blitH(int y, int xstart, int xend) {

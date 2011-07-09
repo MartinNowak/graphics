@@ -9,8 +9,9 @@ class Shader {
     this.mat.reset();
   }
 
-  abstract void getRange(float x, float y, ref PMColor[] data);
+  abstract void getRange(float x, float y, PMColor[] data);
   abstract @property bool opaque() const;
+  @property bool needsMatrix() const { return false; }
 
   final @property void matrix(in Matrix mat) {
     this.mat = mat;
@@ -25,6 +26,7 @@ class Shader {
   }
 
 private:
+  // dynamically store matrix for non-mapping shaders ??
   Matrix mat;
 }
 
@@ -37,7 +39,7 @@ class ColorShader : Shader {
     this.color = color;
   }
 
-  override void getRange(float x, float y, ref PMColor[] data) {
+  override void getRange(float x, float y, PMColor[] data) {
     data[] = color;
   }
 
@@ -46,27 +48,14 @@ class ColorShader : Shader {
   }
 }
 
-class GradientShader : Shader {
-  PMColor[] clrs;
-  FPoint[] pts;
-  float[] dist;
+abstract class MappingShader : Shader {
+  final override @property bool needsMatrix() const { return true; }
 
-  this(Color[] clrs, FPoint[] pts) {
-    assert(clrs.length == pts.length);
-    this.clrs = array(map!(PMColor)(clrs));
-    this.pts = pts;
-    this.dist.length = pts.length;
-  }
-  this(PMColor[] clrs, FPoint[] pts) {
-    assert(clrs.length == pts.length);
-    this.clrs = clrs;
-    this.pts = pts;
-    this.dist.length = pts.length;
-  }
-
-  override void getRange(float x, float y, ref PMColor[] data) {
+  override void getRange(float x, float y, PMColor[] data) {
     if (data.length == 1) {
-      data.front = colorAt(mapPt(FPoint(x, y)));
+      // @@ BUG @@
+      // data.front = colorAt(mapPt(FPoint(x, y)));
+      data[0] = colorAt(mapPt(FPoint(x, y)));
       return;
     }
 
@@ -84,6 +73,29 @@ class GradientShader : Shader {
     }
   }
 
+  abstract PMColor colorAt(in FPoint pt);
+}
+
+class GradientShader : MappingShader {
+  PMColor[] clrs;
+  FPoint[] pts;
+  float[] dist;
+
+  this(Color[] clrs, FPoint[] pts) {
+    assert(clrs.length == pts.length);
+    //    this(array(map!(PMColor)(clrs)), pts); @@ BUG @@
+    this.clrs = array(map!(PMColor)(clrs));
+    this.pts = pts;
+    this.dist.length = pts.length;
+  }
+
+  this(PMColor[] clrs, FPoint[] pts) {
+    assert(clrs.length == pts.length);
+    this.clrs = clrs;
+    this.pts = pts;
+    this.dist.length = pts.length;
+  }
+
   override @property bool opaque() const {
     foreach(cl; this.clrs)
       if (!cl.opaque)
@@ -91,7 +103,7 @@ class GradientShader : Shader {
     return true;
   }
 
-  PMColor colorAt(in FPoint pt) {
+  override PMColor colorAt(in FPoint pt) {
     foreach(i, ptb; this.pts) {
       auto rd = rdistance(pt, ptb);
       if (rd > 1.0)
