@@ -3,6 +3,7 @@ module skia.core.shader;
 import skia.core.matrix, skia.core.pmcolor, skia.math.clamp;
 import guip.point;
 import std.array, std.algorithm, std.math, std.conv : to;
+public import skia.core.shader_detail._;
 
 class Shader {
   this() {
