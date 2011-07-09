@@ -12,6 +12,7 @@ private {
   import skia.core.matrix;
   import skia.core.paint;
   import skia.core.path;
+  import skia.core.shader;
   import skia.core.path_detail.path_measure;
   import skia.core.fonthost._;
   import guip.point;
@@ -122,6 +123,11 @@ public:
     }
   }
 
+  @property bool justTranslation() const {
+    // TODO: approx translation
+    return this.matrix.rectStaysRect && !(this.matrix.affine || this.matrix.scaling);
+  }
+
   void drawBitmap(in Bitmap source, Paint paint) {
     if (this.clip.empty || source.bounds.empty ||
         source.config == Bitmap.Config.NoConfig ||
@@ -132,17 +138,28 @@ public:
     auto ioff = IPoint(to!int(this.matrix[0][2]), to!int(this.matrix[1][2]));
     auto ir = IRect(ioff, ioff + source.size);
 
-    if (this.bounder !is null && !this.bounder.doIRect(ir, paint))
-      return;
+    if (this.justTranslation && source.config != Bitmap.Config.A8) {
+      if (this.bounder !is null && !this.bounder.doIRect(ir, paint))
+        return;
 
-    if (this.matrix.rectStaysRect) {
       if (ir.intersect(this.clip)) {
         scope auto blitter = this.getBlitter(paint, source, ioff);
         blitter.blitRect(ir);
       }
     } else {
-      //! TODO: handle non translating matrices
-      assert(0, "non-translating bitmap transformations unsupported.");
+
+      if (source.config == Bitmap.Config.A8) {
+        // TODO: need to apply transformation
+        scope auto blitter = this.getBlitter(paint);
+        blitter.blitMask(ioff.x, ioff.y, source);
+      } else {
+        Shader oldshader = paint.shader;
+        scope(exit) paint.shader = oldshader;
+        paint.shader = new BitmapShader(source);
+
+        ir = IRect(source.size);
+        drawRect(fRect(ir), paint);
+      }
     }
   }
 

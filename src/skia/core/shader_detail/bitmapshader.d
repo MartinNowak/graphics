@@ -4,7 +4,7 @@ import skia.core.pmcolor, skia.core.shader, skia.math.clamp;
 import guip.bitmap, guip.point;
 
 class BitmapShader : MappingShader {
-  this(Bitmap src) {
+  this(in Bitmap src) {
     this.src = src;
   }
 
@@ -17,8 +17,8 @@ class BitmapShader : MappingShader {
         || !fitsIntoRange!("[)")(ipt.y, 0, src.height))
       // transparent
       return PMColor(0);
-    return PMColor(src.getLine(ipt.y)[ipt.x]);
+    return PMColor((cast(Bitmap*)&src).getLine(ipt.y)[ipt.x]);
   }
 
-  Bitmap src;
+  const Bitmap src;
 }
