@@ -16,6 +16,10 @@ class Shader {
     this.mat = mat;
   }
 
+  final FPoint mapPt(FPoint dst) {
+    return this.matrix.mapPoint(dst);
+  }
+
   protected final @property auto ref Matrix matrix() {
     return this.mat;
   }
@@ -62,20 +66,21 @@ class GradientShader : Shader {
 
   override void getRange(float x, float y, ref PMColor[] data) {
     if (data.length == 1) {
-      data.front = colorAt(FPoint(x, y));
+      data.front = colorAt(mapPt(FPoint(x, y)));
       return;
     }
 
     if (!this.matrix.perspective) {
-      FPoint[2] pts = [FPoint(x, y), FPoint(x + data.length - 1, y)];
-      this.matrix.mapPoints(pts);
-      auto delta = pts[1] - pts[0];
+      auto p0 = mapPt(FPoint(x, y));
+      auto p1 = mapPt(FPoint(x + data.length - 1, y));
+
+      auto delta = p1 - p0;
       auto scale = 1. / (data.length - 1);
       foreach(i, ref d; data)
-        d = colorAt(pts[0] + delta * (i * scale));
+        d = colorAt(p0 + delta * (i * scale));
     } else {
       foreach(i, ref d; data)
-        d = colorAt(this.matrix.mapPoint(FPoint(x + i, y)));
+        d = colorAt(mapPt(FPoint(x + i, y)));
     }
   }
 
