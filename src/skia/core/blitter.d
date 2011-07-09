@@ -47,7 +47,7 @@ class Blitter
     case Bitmap.Config.ARGB_8888:
       {
         if (paint.shader)
-          return new ShaderARGB32Blitter(device, paint);
+          return new ShaderARGB32Blitter(device, matrix.inverted, paint);
         else
           return new ARGB32Blitter(device, paint);
       }
@@ -134,9 +134,10 @@ class ShaderARGB32Blitter : ARGB32Blitter {
   const void function(PMColor[], const(PMColor)[], ubyte) blitRowAlpha;
   PMColor[] data;
 
-  this(Bitmap bitmap, Paint paint) {
+  this(Bitmap bitmap, Matrix mat, Paint paint) {
     super(bitmap, paint);
     this.shader = paint.shader;
+    this.shader.matrix = mat;
     auto flags = shader.opaque ? 0 : BlitRowFlags32.SrcPixelAlpha;
     this.blitRow = blitRowFactory32(flags);
     this.blitRowAlpha = blitRowFactory32(flags | BlitRowFlags32.GlobalAlpha);
