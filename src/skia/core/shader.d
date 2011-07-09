@@ -85,7 +85,10 @@ class GradientShader : Shader {
   }
 
   override @property bool opaque() const {
-    return this.clrs[0].opaque && this.clrs[1].opaque;
+    foreach(cl; this.clrs)
+      if (!cl.opaque)
+        return false;
+    return true;
   }
 
   PMColor colorAt(in FPoint pt) {
