@@ -281,7 +281,6 @@ public:
         break;
       default:
         assert(false);
-        break;
       }
     }
   }
