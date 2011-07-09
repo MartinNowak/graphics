@@ -16,10 +16,11 @@ class Shader {
     this.mat = mat;
   }
 
-  final @property Matrix matrix() const {
+  protected final @property auto ref Matrix matrix() {
     return this.mat;
   }
 
+private:
   Matrix mat;
 }
 
@@ -65,16 +66,16 @@ class GradientShader : Shader {
       return;
     }
 
-    if (!this.mat.perspective) {
+    if (!this.matrix.perspective) {
       FPoint[2] pts = [FPoint(x, y), FPoint(x + data.length - 1, y)];
-      this.mat.mapPoints(pts);
+      this.matrix.mapPoints(pts);
       auto delta = pts[1] - pts[0];
       auto scale = 1. / (data.length - 1);
       foreach(i, ref d; data)
         d = colorAt(pts[0] + delta * (i * scale));
     } else {
       foreach(i, ref d; data)
-        d = colorAt(this.mat.mapPoint(FPoint(x + i, y)));
+        d = colorAt(this.matrix.mapPoint(FPoint(x + i, y)));
     }
   }
 
