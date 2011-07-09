@@ -10,14 +10,18 @@ class BitmapShader : MappingShader {
 
   override @property bool opaque() const { return src.opaque; }
 
-  override PMColor colorAt(in FPoint pt) {
+  override void getRange(float x, float y, PMColor[] data) {
+    return mapLine!(colorAt)(this, x, y, data);
+  }
+
+  static PMColor colorAt(BitmapShader pthis, in FPoint pt) {
     // round to nearest
     auto ipt = pt.round();
-    if (!fitsIntoRange!("[)")(ipt.x, 0, src.width)
-        || !fitsIntoRange!("[)")(ipt.y, 0, src.height))
+    if (!fitsIntoRange!("[)")(ipt.x, 0, pthis.src.width)
+        || !fitsIntoRange!("[)")(ipt.y, 0, pthis.src.height))
       // transparent
       return PMColor(0);
-    return PMColor((cast(Bitmap*)&src).getLine(ipt.y)[ipt.x]);
+    return PMColor((cast(Bitmap*)&pthis.src).getLine(ipt.y)[ipt.x]);
   }
 
   const Bitmap src;

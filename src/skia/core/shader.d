@@ -5,7 +5,7 @@ import guip.point;
 import std.array, std.algorithm, std.math, std.conv : to;
 public import skia.core.shader_detail._;
 
-class Shader {
+abstract class Shader {
   this() {
     this.mat.reset();
   }
@@ -52,29 +52,28 @@ class ColorShader : Shader {
 abstract class MappingShader : Shader {
   final override @property bool needsMatrix() const { return true; }
 
-  override void getRange(float x, float y, PMColor[] data) {
+  static void mapLine(alias colorAt, TShader)
+    (TShader pthis, float x, float y, PMColor[] data) {
     if (data.length == 1) {
       // @@ BUG @@
       // data.front = colorAt(mapPt(FPoint(x, y)));
-      data[0] = colorAt(mapPt(FPoint(x, y)));
+      data[0] = colorAt(pthis, pthis.mapPt(FPoint(x, y)));
       return;
     }
 
-    if (!this.matrix.perspective) {
-      auto p0 = mapPt(FPoint(x, y));
-      auto p1 = mapPt(FPoint(x + data.length - 1, y));
+    if (!pthis.matrix.perspective) {
+      auto p0 = pthis.mapPt(FPoint(x, y));
+      auto p1 = pthis.mapPt(FPoint(x + data.length - 1, y));
 
       auto delta = p1 - p0;
       auto scale = 1. / (data.length - 1);
       foreach(i, ref d; data)
-        d = colorAt(p0 + delta * (i * scale));
+        d = colorAt(pthis, p0 + delta * (i * scale));
     } else {
       foreach(i, ref d; data)
-        d = colorAt(mapPt(FPoint(x + i, y)));
+        d = colorAt(pthis, pthis.mapPt(FPoint(x + i, y)));
     }
   }
-
-  abstract PMColor colorAt(in FPoint pt);
 }
 
 class GradientShader : MappingShader {
@@ -104,19 +103,23 @@ class GradientShader : MappingShader {
     return true;
   }
 
-  override PMColor colorAt(in FPoint pt) {
-    foreach(i, ptb; this.pts) {
+  override void getRange(float x, float y, PMColor[] data) {
+    return mapLine!colorAt(this, x, y, data);
+  }
+
+  static PMColor colorAt(GradientShader pthis, in FPoint pt) {
+    foreach(i, ptb; pthis.pts) {
       auto rd = rdistance(pt, ptb);
       if (rd > 1.0)
-        return this.clrs[i];
-      dist[i] = rd;
+        return pthis.clrs[i];
+      pthis.dist[i] = rd;
     }
 
-    auto sumdist = reduce!("a + b")(0.0, dist);
+    auto sumdist = reduce!("a + b")(0.0, pthis.dist);
     PMColor result;
-    foreach(i; 0 .. dist.length) {
-      auto weight = checkedTo!ubyte(255 * dist[i] / sumdist);
-      result = result + alphaMul(this.clrs[i], alphaScale(weight));
+    foreach(i; 0 .. pthis.dist.length) {
+      auto weight = checkedTo!ubyte(255 * pthis.dist[i] / sumdist);
+      result = result + alphaMul(pthis.clrs[i], alphaScale(weight));
     }
     return result;
   }
