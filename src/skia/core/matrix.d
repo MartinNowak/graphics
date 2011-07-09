@@ -3,6 +3,7 @@ module skia.core.matrix;
 private {
   import std.bitmanip;
   import std.conv : to;
+  import std.exception;
   import std.math;
 
   import guip.rect;
@@ -124,43 +125,42 @@ public:
   @property Matrix inverted() const {
     // TODO: matrix inversion code missing
     auto scale = inverseDeterminant();
+    enforce(scale != 0.0, "Matrix determinant underflow");
     Matrix res;
-    // TODO: throw an exception on underflow ???
-    if (scale != 0.0) {
-      if (this.perspective) {
-        res[0][0] = scale * (this[1][1] * this[2][2]  - this[1][2] * this[2][1]);
-        res[0][1] = scale * (this[0][2] * this[2][1]  - this[0][1] * this[2][2]);
+    if (this.perspective) {
+      res[0][0] = scale * (this[1][1] * this[2][2]  - this[1][2] * this[2][1]);
+      res[0][1] = scale * (this[0][2] * this[2][1]  - this[0][1] * this[2][2]);
 
-        res[1][0] = scale * (this[1][2] * this[2][0]  - this[1][0] * this[2][2]);
-        res[1][1] = scale * (this[0][0] * this[2][2]  - this[0][2] * this[2][0]);
+      res[1][0] = scale * (this[1][2] * this[2][0]  - this[1][0] * this[2][2]);
+      res[1][1] = scale * (this[0][0] * this[2][2]  - this[0][2] * this[2][0]);
 
-        res[2][0] = scale * (this[1][0] * this[2][1]  - this[1][1] * this[2][0]);
-        res[2][1] = scale * (this[0][1] * this[2][0]  - this[0][0] * this[2][1]);
+      res[2][0] = scale * (this[1][0] * this[2][1]  - this[1][1] * this[2][0]);
+      res[2][1] = scale * (this[0][1] * this[2][0]  - this[0][0] * this[2][1]);
+    } else {
+      if (this.scaling || this.affine) {
+        res[0][0] = scale * this[1][1];
+        res[0][1] = -scale * this[0][1];
+        res[1][0] = -scale * this[1][0];
+        res[1][1] = scale * this[0][0];
       } else {
-        if (this.scaling || this.affine) {
-          res[0][0] = scale * this[1][1];
-          res[0][1] = -scale * this[0][1];
-          res[1][0] = -scale * this[1][0];
-          res[1][1] = scale * this[0][0];
-        } else {
-          res[0][0] = scale;
-          res[0][1] = 0.0f;
-          res[1][0] = 0.0f;
-          res[1][1] = scale;
-        }
-        res[2][0] = 0.0f;
-        res[2][1] = 0.0f;
+        res[0][0] = scale;
+        res[0][1] = 0.0f;
+        res[1][0] = 0.0f;
+        res[1][1] = scale;
       }
-
-      if (this.translative) {
-        res[0][2] = scale * (this[0][1] * this[1][2] - this[0][2] * this[1][1]);
-        res[1][2] = scale * (this[0][2] * this[1][0] - this[0][0] * this[1][2]);
-      } else {
-        res[0][2] = 0.0f;
-        res[1][2] = 0.0f;
-      }
-      res[2][2] = scale * (this[0][0] * this[1][1]  - this[0][1] * this[1][0]);
+      res[2][0] = 0.0f;
+      res[2][1] = 0.0f;
     }
+
+    if (this.translative) {
+      res[0][2] = scale * (this[0][1] * this[1][2] - this[0][2] * this[1][1]);
+      res[1][2] = scale * (this[0][2] * this[1][0] - this[0][0] * this[1][2]);
+    } else {
+      res[0][2] = 0.0f;
+      res[1][2] = 0.0f;
+    }
+    res[2][2] = scale * (this[0][0] * this[1][1]  - this[0][1] * this[1][0]);
+
     res.setDirty();
     return res;
   }
