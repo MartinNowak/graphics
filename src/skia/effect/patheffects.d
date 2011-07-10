@@ -1,4 +1,4 @@
-module skia.effect.dashpatheffect;
+module skia.effect.patheffects;
 
 import std.algorithm, std.math;
 import skia.core.path, skia.core.patheffect, skia.core.path_detail.path_measure,
