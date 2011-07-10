@@ -19,6 +19,21 @@ struct PathMeasure {
     return this.curDist;
   }
 
+  FPoint getPosAtDistance(float distance) const
+  out(pt) {
+    assert(this.bounds.contains(pt));
+  } body {
+    assert(!this.empty && this.length > 0);
+
+    distance = clampToRange!float(distance, 0.0f, this.length);
+
+    auto range = segmentRange(distance);
+    auto t = calcT(distance, range[0], range[1]);
+    auto verb = this.verbs[$ - range.length + 1];
+    auto pos = calcPos(range[1], verb, t);
+    return pos;
+  }
+
   FPoint getPosAndNormalAtDistance(float distance, out FVector normal) const
   out(pt) {
     assert(this.bounds.contains(pt));
