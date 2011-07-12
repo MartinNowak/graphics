@@ -216,10 +216,6 @@ public:
     }
   }
 
-
-  /****************************************
-   * Stub
-   */
   bool quickReject(in IRect rect, EdgeType et) const {
     if (this.curMCRec.clip.empty)
       return true;
@@ -234,11 +230,18 @@ public:
     return path.empty || this.quickReject(path.bounds.roundOut(), et);
   }
 
+  /*
+   * Sets the current clipping to an Intersection with rect. Returns
+   * true if resulting clipping is non-empty.
+   */
   bool clipRect(in IRect rect) {
     FRect mapped;
     this.curMCRec.matrix.mapRect(fRect(rect), mapped);
     auto ir = mapped.round();
-    return this.curMCRec.clip.intersect(ir);
+    if (this.curMCRec.clip.intersect(ir))
+      return true;
+    this.curMCRec.clip = IRect();
+    return false;
   }
 
   void translate(FPoint pt) {
