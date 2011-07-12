@@ -148,12 +148,42 @@ unittest {
   assert(beziota(0.0, 1.0, 0.5).position == 0);
   assert(beziota(0.0, -1.0, 0.5).position == -1);
 
-  foreach(t; beziota(1.0, 3.0, 0.5)) {
+  foreach(t; beziota(0.300140381f, 0.0f, 1.0))
     assert(fitsIntoRange!("()")(t, 0, 1));
+
+  QCheckResult testBeziota(T, size_t K)(Point!T[K] pts, double step) {
+    if (step <= 0)
+      return QCheckResult.Reject;
+    foreach(t; beziota!("x", T, K)(pts, step))
+      assert(fitsIntoRange!("()")(t, 0, 1));
+    foreach(t; beziota!("y", T, K)(pts, step))
+      assert(fitsIntoRange!("()")(t, 0, 1));
+
+    static if (K < 4) {
+      // TODO: fix for cubics
+      auto testf = (double a, double b) { assert(b > a); return b; };
+      reduce!(testf)(0.0, beziota!("x", T, K)(pts, step));
+      reduce!(testf)(0.0, beziota!("y", T, K)(pts, step));
+    }
+
+    return QCheckResult.Ok;
   }
-  foreach(t; beziota(3.0, 1.0, 0.5)) {
-    assert(fitsIntoRange!("()")(t, 0, 1));
-  }
+
+  immutable cnt = count(100);
+  immutable smLo = maxValue(1.0);
+  immutable smHi = minValue(-1.0);
+  quickCheck!(testBeziota!(float, 2), cnt, smLo, smHi)();
+  quickCheck!(testBeziota!(float, 2), cnt)();
+  quickCheck!(testBeziota!(double, 2), cnt, smLo, smHi)();
+  quickCheck!(testBeziota!(double, 2), cnt)();
+  quickCheck!(testBeziota!(float, 3), cnt, smLo, smHi)();
+  quickCheck!(testBeziota!(float, 3), cnt)();
+  quickCheck!(testBeziota!(double, 3), cnt, smLo, smHi)();
+  quickCheck!(testBeziota!(double, 3), cnt)();
+  quickCheck!(testBeziota!(float, 4), cnt, smLo, smHi)();
+  quickCheck!(testBeziota!(float, 4), cnt)();
+  quickCheck!(testBeziota!(double, 4), cnt, smLo, smHi)();
+  quickCheck!(testBeziota!(double, 4), cnt)();
 }
 
 void cartesianBezierWalker(T, size_t K)(
@@ -284,7 +314,7 @@ version(none) {
 }
 
 enum tolerance = 1e-2;
-double findCubicRoot(ref const float[4] coeffs, double fa, double fb, double v) {
+double findCubicRoot(T)(ref const T[4] coeffs, double fa, double fb, double v) {
   //  size_t iterations;
   double evalT(double t) {
     return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v;
