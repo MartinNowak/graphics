@@ -32,7 +32,7 @@ struct BezIota(T, size_t K) {
       this._position += this._direction;
 
     double start = round((cs[0] + 0.5 * adv) / step) * step;
-    if (approxEqual(start, cs[0], 1e-5, 1e-10))
+    if (approxEqual(start, cs[0], 1e-9, 1e-12))
       start += adv;
     if (this._direction != 0 && checkedTo!int(sgn(cs[$-1] - start)) == this._direction) {
       this.steps = iota(start, cast(double)cs[$-1], adv);
