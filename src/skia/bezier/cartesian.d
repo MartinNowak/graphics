@@ -47,7 +47,7 @@ struct BezIota(T, size_t K) {
 
   @property double front() {
     assert(!empty);
-    if (curT !<> 0)
+    if (isNaN(curT))
       curT = findT();
     return curT;
   }
