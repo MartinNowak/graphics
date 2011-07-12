@@ -47,8 +47,10 @@ struct BezIota(T, size_t K) {
 
   @property double front() {
     assert(!empty);
-    if (isNaN(curT))
+    if (isNaN(curT)) {
       curT = findT();
+      assert(fitsIntoRange!("()")(curT, 0, 1));
+    }
     return curT;
   }
 
@@ -84,16 +86,13 @@ struct BezIota(T, size_t K) {
       double ts[2] = void;
       auto rootcnt = polyRoots(coeffs[0], coeffs[1], coeffs[2] - steps.front, ts);
       if (rootcnt == 1) {
-        assert(fitsIntoRange!("[]")(ts[0], 0, 1));
         return ts[0];
       } else {
         assert(rootcnt == 2);
         if (ts[0] < ts[1] && ts[0] >= 0) {
-          assert(fitsIntoRange!("[]")(ts[0], 0, 1));
-          assert(!fitsIntoRange!("[]")(ts[1], 0, 1));
+          assert(!fitsIntoRange!("()")(ts[1], 0, 1));
           return ts[0];
         } else {
-          assert(fitsIntoRange!("[]")(ts[1], 0, 1));
           return ts[1];
         }
       }
