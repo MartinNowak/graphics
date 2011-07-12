@@ -121,26 +121,27 @@ struct RollingSlicer(size_t K, T) if (K == 4) {
   Vector!T curDer;
 }
 
-version(unittest) import std.stdio;
-unittest {
-  FPoint[3] res;
-  FPoint[3] test = [FPoint(0.0, 0.0), FPoint(0.5, 0.2), FPoint(1.0, 1.0)];
-  auto ptss = splitBezier(test, 0.4);
-  auto step = 0.2;
-  foreach(i; 1 .. 10) {
-    ptss = splitBezier(ptss[0], 0.2);
-    step *= 0.4;
-    std.stdio.writeln(step);
+version(none) {
+  import std.stdio;
+  unittest {
+    FPoint[3] res;
+    FPoint[3] test = [FPoint(0.0, 0.0), FPoint(0.5, 0.2), FPoint(1.0, 1.0)];
+    auto ptss = splitBezier(test, 0.4);
+    auto step = 0.2;
+    foreach(i; 1 .. 10) {
+      ptss = splitBezier(ptss[0], 0.2);
+      step *= 0.4;
+      std.stdio.writeln(step);
+    }
+    sliceBezier(test, 0.0, step, res);
+    std.stdio.writeln(evalBezierDer(test, 0));
+    std.stdio.writeln(evalBezierDer(ptss[0], 0));
+    std.stdio.writeln(evalBezierDer(res, 0));
+    std.stdio.writeln(evalBezierDer(ptss[0], 1));
+    std.stdio.writeln(evalBezierDer(res, 1));
+    std.stdio.writeln(ptss[0], res);
   }
-  sliceBezier(test, 0.0, step, res);
-  std.stdio.writeln(evalBezierDer(test, 0));
-  std.stdio.writeln(evalBezierDer(ptss[0], 0));
-  std.stdio.writeln(evalBezierDer(res, 0));
-  std.stdio.writeln(evalBezierDer(ptss[0], 1));
-  std.stdio.writeln(evalBezierDer(res, 1));
-  std.stdio.writeln(ptss[0], res);
 }
-
 
 int chopMonotonic(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref Point!T[K][MS] monos) if(K==2)
 in {
@@ -200,7 +201,6 @@ unittest {
 
   quad = [FPoint(0, 0), FPoint(2, 2), FPoint(0, 0)];
   assert(chopMonotonic(quad, monos) == 3);
-  std.stdio.writeln(monos);
   foreach(ref mono; monos)
     assert(monotonic!"x"(mono) && monotonic!"y"(mono));
   assert(monos[0][0] == FPoint(0, 0));

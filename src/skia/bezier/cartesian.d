@@ -255,16 +255,18 @@ private void joinSegment(T)(Point!T a, Point!T b, Rect!T clip, Size!T grid, void
   }
 }
 
-unittest {
-  void printLine(size_t K)(IPoint gridPos, ref FPoint[K] curve) {
-    std.stdio.writeln(gridPos, "|", curve);
+version(none) {
+  unittest {
+    void printLine(size_t K)(IPoint gridPos, ref FPoint[K] curve) {
+      std.stdio.writeln(gridPos, "|", curve);
+    }
+
+    FPoint[2] line = [FPoint(336, 425), FPoint(341, 420)];
+    cartesianBezierWalker(line, FRect(1000, 1000), FSize(1, 1), &printLine!2);
+    FPoint[4] curve = [FPoint(1.1, 1), FPoint(2, 10), FPoint(3, -0.1), FPoint(4.49, 1.1)];
+
+    cartesianBezierWalker(curve, FRect(10, 10), FSize(0.5, 0.5), &printLine!4);
   }
-
-  FPoint[2] line = [FPoint(336, 425), FPoint(341, 420)];
-  cartesianBezierWalker(line, FRect(1000, 1000), FSize(1, 1), &printLine!2);
-  FPoint[4] curve = [FPoint(1.1, 1), FPoint(2, 10), FPoint(3, -0.1), FPoint(4.49, 1.1)];
-
-  cartesianBezierWalker(curve, FRect(10, 10), FSize(0.5, 0.5), &printLine!4);
 }
 
 enum tolerance = 1e-2;

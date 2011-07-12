@@ -213,5 +213,4 @@ unittest {
   auto clip = FRect(0, 0, 1, 1);
   FPoint[4][5] clipped;
   auto cnt = clipBezier(cubic, clip, clipped);
-  std.stdio.writeln(clipped[0 .. cnt]);
 }
