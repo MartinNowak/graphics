@@ -10,6 +10,8 @@ import guip.bitmap, guip.point, guip.rect, guip.size;
 import qcheck._;
 
 // version=DebugNoise;
+// version=StackStats;
+
 extern(C) {
   void calcCoeffs_2(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
   void calcCoeffs_3(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
@@ -59,12 +61,7 @@ struct Node {
     assert(children.length == 0 || children.length == 4 || children.length == 20);
 
     if (children.length == 0) {
-      if (depth > 1) {
-        children.length = 20;
-        foreach(i; 0 .. 4)
-          children[i].children = children[4 * i + 4 .. 4 * i + 8];
-      } else
-        children.length = 4;
+      children = allocNodes!(4)();
     }
     this.chmask |= (1 << idx);
     return children[idx];
@@ -72,6 +69,42 @@ struct Node {
 
   bool hasChild(uint idx) const {
     return (this.chmask & (1 << idx)) != 0;
+  }
+
+  static Node[] allocNodes(size_t K)() {
+    debug {
+      size_t olen = segStack.data.length;
+      scope(exit) assert(segStack.data.length == olen + K);
+    }
+
+    foreach(_; 0 .. K) {
+      segStack.put(Node.init);
+    }
+    return segStack.data[$-K .. $];
+  }
+
+  static Appender!(Node[]) segStack;
+
+  static void clearSegStack() {
+    version(StackStats) stats ~= segStack.capacity * Node.sizeof;
+    segStack.clear();
+  }
+
+  version(StackStats) {
+    static size_t[] stats;
+
+    static ~this() {
+      std.stdio.writeln("Node stack stats:");
+      std.stdio.writeln("num uses:", stats.length);
+      std.stdio.writeln("stack cap:", segStack.capacity * Node.sizeof);
+      auto avg = reduce!("a+b")(0.0, stats) / stats.length;
+      std.stdio.writeln("avg:", avg);
+      double dev = 0.0;
+      foreach(st; stats)
+        dev += (st - avg) * (st - avg);
+      dev = sqrt(dev / stats.length);
+      std.stdio.writeln("dev:", dev);
+    }
   }
 
   Node[] children;
@@ -85,6 +118,7 @@ struct WaveletRaster {
   this(IRect clipRect) {
     this.depth = to!uint(ceil(log2(max(clipRect.width, clipRect.height))));
     this.clipRect = clipRect;
+    Node.clearSegStack();
   }
 
   void insertSlice(size_t K)(IPoint pos, ref FPoint[K] slice) if (K == 2) {
