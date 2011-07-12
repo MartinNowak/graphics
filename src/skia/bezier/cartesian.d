@@ -30,8 +30,9 @@ struct BezIota(T, size_t K) {
     this._position = checkedTo!int(snapgrid);
     if (this._direction < 0 && snapgrid == grid)
       this._position += this._direction;
+
     double start = round((cs[0] + 0.5 * adv) / step) * step;
-    if (start == cs[0])
+    if (approxEqual(start, cs[0], 1e-5, 1e-10))
       start += adv;
     if (this._direction != 0 && checkedTo!int(sgn(cs[$-1] - start)) == this._direction) {
       this.steps = iota(start, cast(double)cs[$-1], adv);
@@ -138,8 +139,14 @@ unittest {
   assert(beziota(1.1, 3.0, 0.5).length == 3);
   assert(beziota(1.1, 3.01, 0.5).length == 4);
   assert(beziota(3.0, 1.0, 0.5).length == 3);
-
   assert(beziota(-1.0, -3.0, 0.5).length == 3);
+
+  assert(beziota(1.0, 3.0, 0.5).position == 2);
+  assert(beziota(1.1, 3.0, 0.5).position == 2);
+  assert(beziota(1.1, 3.01, 0.5).position == 2);
+  assert(beziota(3.0, 1.0, 0.5).position == 5);
+  assert(beziota(0.0, 1.0, 0.5).position == 0);
+  assert(beziota(0.0, -1.0, 0.5).position == -1);
 
   foreach(t; beziota(1.0, 3.0, 0.5)) {
     assert(fitsIntoRange!("()")(t, 0, 1));
@@ -218,6 +225,14 @@ private void walkMonoBezier(T, size_t K)(ref const Point!T[K] curve, Size!T grid
   }
 }
 
+unittest {
+  FPoint[3] pts = [
+      FPoint(508.988892, -9.74220704e-15),
+      FPoint(530.460022, 21.0119686),
+      FPoint(548.355408, 48.0376587),
+  ];
+  walkMonoBezier(pts, FSize(1, 1), (IPoint, ref FPoint[3]){});
+}
 
 private void joinSegment(T)(Point!T a, Point!T b, Rect!T clip, Size!T grid, void delegate(IPoint, ref Point!T[2]) clientDg) {
   a = Point!T(clampToRange(a.x, clip.left, clip.right), clampToRange(a.y, clip.top, clip.bottom));
