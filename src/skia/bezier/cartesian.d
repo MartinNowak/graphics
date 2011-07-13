@@ -25,17 +25,30 @@ struct BezIota(T, size_t K) {
   this(ref const T[K] cs, double step) {
     this._direction = checkedTo!int(sgn(cs[$-1] - cs[0]));
     double adv = this._direction * step;
-    auto grid = cs[0] / step;
-    auto snapgrid = floor(grid);
-    this._position = checkedTo!int(snapgrid);
-    if (this._direction < 0 && snapgrid == grid)
-      this._position += this._direction;
 
-    double start = round((cs[0] + 0.5 * adv) / step) * step;
-    if (approxEqual(start, cs[0], 1e-9, 1e-12))
-      start += adv;
-    if (this._direction != 0 && checkedTo!int(sgn(cs[$-1] - start)) == this._direction) {
+    // round towards next gridpos with a small additional offset in
+    // case cs[0] already is close to a gridpos
+    immutable gridpos = round((cs[0] + (0.5 + 1e-5) * adv) / step);
+
+    // pixels are floor indexed (1.2, 1.2) is pos (1, 1)
+    this._position = checkedTo!int(floor(cs[0] + 1e-5 * adv));
+
+    if (this._direction != 0) {
+      double start = gridpos * step;
+      // no gridpos between start and end
+      if ((cs[$-1] - start) * this._direction <= 0)
+        return;
+      // start is at least tolerance away from cs[0]
+      assert((start - cs[0]) * this._direction > 1e-5 * step);
+
       this.steps = iota(start, cast(double)cs[$-1], adv);
+      assert(!this.steps.empty);
+
+      // remove last iota value if it falls near cs[$-1]
+      immutable last = this.steps[this.steps.length - 1];
+      if (fabs(cs[$-1] - last) < 2 * float.epsilon * fabs(cs[$-1] - cs[0]))
+        this.steps.popBack;
+
       convertPoly(cs, this.coeffs);
       static if (K == 4)
         this.endV = cs[$-1];
@@ -135,18 +148,43 @@ struct BezIota(T, size_t K) {
 
 
 unittest {
-  assert(beziota(1.0, 3.0, 0.5).length == 3);
-  assert(beziota(1.1, 3.0, 0.5).length == 3);
-  assert(beziota(1.1, 3.01, 0.5).length == 4);
-  assert(beziota(3.0, 1.0, 0.5).length == 3);
-  assert(beziota(-1.0, -3.0, 0.5).length == 3);
+  assert(beziota(1.0, 3.0, 1.0).length == 1);
+  assert(beziota(1.0 - 1e-10, 3.0, 1.0).length == 1);
+  assert(beziota(0.99, 3.0, 1.0).length == 2);
+  assert(beziota(1.1, 3.0, 1.0).length == 1);
+  assert(beziota(1.6, 3.0, 1.0).length == 1);
+  assert(beziota(1.0, 3.01, 1.0).length == 2);
+  assert(beziota(1.1, 3.01, 1.0).length == 2);
+  assert(beziota(1.6, 3.01, 1.0).length == 2);
+  assert(beziota(3.0, 1.0, 1.0).length == 1);
+  assert(beziota(3.1, 1.0, 1.0).length == 2);
+  assert(beziota(3.1, 0.9, 1.0).length == 3);
+  assert(beziota(3.0, 0.9, 1.0).length == 2);
+  assert(beziota(-1.0, -3.0, 1.0).length == 1);
+  assert(beziota(-1.0, -3.1, 1.0).length == 2);
+  assert(beziota(-1.1, -3.1, 1.0).length == 2);
+  assert(beziota(-1.6, -3.1, 1.0).length == 2);
 
-  assert(beziota(1.0, 3.0, 0.5).position == 2);
-  assert(beziota(1.1, 3.0, 0.5).position == 2);
-  assert(beziota(1.1, 3.01, 0.5).position == 2);
-  assert(beziota(3.0, 1.0, 0.5).position == 5);
-  assert(beziota(0.0, 1.0, 0.5).position == 0);
-  assert(beziota(0.0, -1.0, 0.5).position == -1);
+  assert(beziota(1.0, 3.0, 1.0).position == 1);
+  assert(beziota(1.0+1e-10, -1.0, 1.0).position == 0);
+  assert(beziota(1.1, 3.0, 1.0).position == 1);
+  assert(beziota(1.6, 3.0, 1.0).position == 1);
+  assert(beziota(1.1, 3.01, 1.0).position == 1);
+  assert(beziota(3.0, 1.0, 1.0).position == 2);
+  assert(beziota(0.0, 1.0, 1.0).position == 0);
+  assert(beziota(0.0, -2.0, 1.0).position == -1);
+  assert(beziota(0.6, 3.0, 1.0).position == 0);
+  assert(beziota(1.0 - 1e-10, 3.0, 1.0).position == 1);
+
+  // test empty beziotas for correct position
+  assert(beziota(0.0, 0.0, 1.0).position == 0);
+  assert(beziota(0.1, 0.1, 1.0).position == 0);
+  assert(beziota(0.6, 0.6, 1.0).position == 0);
+  assert(beziota(1.0, 1.0, 1.0).position == 1);
+  assert(beziota(1.0+1e-10, 1.0+1e-10, 1.0).position == 1);
+  assert(beziota(1.0-1e-10, 1.0-1e-10, 1.0).position == 0);
+  assert(beziota(0.0, 0.5, 1.0).position == 0);
+  assert(beziota(-0.1, 0.5, 1.0).position == -1);
 
   foreach(t; beziota(0.300140381f, 0.0f, 1.0))
     assert(fitsIntoRange!("()")(t, 0, 1));
@@ -256,12 +294,30 @@ private void walkMonoBezier(T, size_t K)(ref const Point!T[K] curve, Size!T grid
 }
 
 unittest {
-  FPoint[3] pts = [
-      FPoint(508.988892, -9.74220704e-15),
-      FPoint(530.460022, 21.0119686),
-      FPoint(548.355408, 48.0376587),
-  ];
-  walkMonoBezier(pts, FSize(1, 1), (IPoint, ref FPoint[3]){});
+  {
+    FPoint[3] pts = [
+        FPoint(508.988892, -9.74220704e-15),
+        FPoint(530.460022, 21.0119686),
+        FPoint(548.355408, 48.0376587),
+    ];
+    walkMonoBezier(pts, FSize(1, 1), (IPoint, ref FPoint[3]){});
+  }
+
+  {
+    FPoint[2] pts = [
+        FPoint(0.22756958, 20.4533081),
+        FPoint(0.22756958, -1.83880688e-10),
+    ];
+    walkMonoBezier(pts, FSize(1, 1), (IPoint, ref FPoint[2]){});
+  }
+
+  {
+    FPoint[2] pts = [
+        FPoint(302.100647, 0.111938477),
+        FPoint(-1.33329295e-05, 0.111938477),
+    ];
+    walkMonoBezier(pts, FSize(1, 1), (IPoint, ref FPoint[2]){});
+  }
 }
 
 private void joinSegment(T)(Point!T a, Point!T b, Rect!T clip, Size!T grid, void delegate(IPoint, ref Point!T[2]) clientDg) {
