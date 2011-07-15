@@ -143,8 +143,8 @@ public:
     if (this.empty)
       return;
 
-    FPoint lastPt;
     FPoint moveTo;
+    FPoint[4] tmpPts;
 
     auto vs = this.verbs.save;
     auto points = this.points.save;
@@ -155,23 +155,27 @@ public:
 
       final switch (verb) {
       case Verb.Move:
-	flattener.call(Verb.Move, [points.front]);
-        moveTo = points.front;
-	lastPt = points.front; points.popFront;
+        tmpPts[0] = points.front;
+	points.popFront;
+	flattener.call(Verb.Move, tmpPts[0 .. 1]);
+        moveTo = tmpPts[0];
 	break;
 
       case Verb.Line, Verb.Quad, Verb.Cubic:
-	flattener.call(verb, [lastPt] ~ take(points, verb));
-	auto popped = popFrontN(points, verb - 1);
- 	assert(popped == verb - 1);
-	lastPt = points.front; points.popFront;
+        foreach(i; 1 .. verb + 1) {
+          tmpPts[i] = points.front;
+          points.popFront;
+        }
+	flattener.call(verb, tmpPts[0 .. verb + 1]);
+	tmpPts[0] = tmpPts[verb];
 	break;
 
       case Verb.Close:
-        if (lastPt != moveTo)
+        if (tmpPts[0] != moveTo)
         {
-          flattener.call(Verb.Line, [lastPt, moveTo]);
-          lastPt = moveTo;
+          tmpPts[1] = moveTo;
+          flattener.call(Verb.Line, tmpPts[0 .. 2]);
+          tmpPts[0] = moveTo;
         }
         flattener.call(Verb.Close, []);
       }
