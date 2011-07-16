@@ -2,7 +2,7 @@ module skia.bezier.clip;
 
 import skia.bezier.chop, skia.bezier.curve, skia.math.clamp, skia.math.poly;
 import guip.point, guip.rect;
-import std.conv, std.exception, std.math, std.metastrings, std.numeric;
+import std.algorithm, std.conv, std.exception, std.math, std.metastrings, std.numeric;
 
 int clipBezier(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref const Rect!T rect, ref Point!T[K][MS] clipped) {
   auto monocnt = chopMonotonic(curve, clipped);
@@ -205,7 +205,9 @@ unittest {
   auto clip = FRect(0, 0, 1, 1);
   FPoint[4] clipped;
   assert(clipMonoBezier(cubic, clip, clipped));
-  assert(clipped == [FPoint(0./6., 0./3.), FPoint(1./6, 1./3.), FPoint(2./6., 2./3.), FPoint(3./6., 3./3.)]);
+  assert(equal!q{a.approxEqual(b)}(
+           clipped[],
+           [FPoint(0./6., 0./3.), FPoint(1./6, 1./3.), FPoint(2./6., 2./3.), FPoint(3./6., 3./3.)]));
 }
 
 unittest {
