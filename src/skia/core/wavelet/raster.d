@@ -11,11 +11,19 @@ import qcheck._;
 
 // version=DebugNoise;
 // version=StackStats;
+version=calcCoeffs_C;
 
-extern(C) {
-  void calcCoeffs_2(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
-  void calcCoeffs_3(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
-  void calcCoeffs_4(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
+version (calcCoeffs_C) {
+  extern(C) {
+    void calcCoeffs_2(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
+    void calcCoeffs_3(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
+    void calcCoeffs_4(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
+  }
+} else {
+  import skia.core.wavelet.calc_coeffs;
+  alias calcCoeffs!2 calcCoeffs_2;
+  alias calcCoeffs!3 calcCoeffs_3;
+  alias calcCoeffs!4 calcCoeffs_4;
 }
 
 struct Node {
@@ -48,7 +56,10 @@ struct Node {
       const bottom = pos.y >= half;
       const qidx = bottom << 1 | right;
 
-      mixin(Format!(q{calcCoeffs_%s(half, qidx, &pos, pts.ptr, node.coeffs.ptr);}, K));
+      version (calcCoeffs_C)
+        mixin(Format!(q{calcCoeffs_%s(half, qidx, &pos, pts.ptr, node.coeffs.ptr);}, K));
+      else
+        calcCoeffs!K(half, qidx, pos, pts, node.coeffs);
 
       if (depth == 0)
         break;

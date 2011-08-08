@@ -1,25 +1,16 @@
-struct FPoint {
-  float x, y;
-};
+module skia.core.wavelet.calc_coeffs;
 
-struct IPoint {
-  int x, y;
-};
+import guip.point;
 
 enum Quad {
-  Quad00, // top-left
-  Quad01, // top-right
-  Quad10, // bottom-left
-  Quad11, // bottom-right
+  _00, // top-left
+  _01, // top-right
+  _10, // bottom-left
+  _11, // bottom-right
 };
 
 
 //==============================================================================
-
-//------------------------------------------------------------------------------
-
-namespace {
-
 
 //------------------------------------------------------------------------------
 
@@ -30,36 +21,15 @@ struct Interim {
 
 //------------------------------------------------------------------------------
 
-template<unsigned K>
-Interim calcInterim(double rscale, const FPoint pts[K]);
-
-
-//------------------------------------------------------------------------------
-
-template<unsigned K>
-void addInterim(const Interim& tmp, float coeffs[3]);
-
-
-//------------------------------------------------------------------------------
-
-template<unsigned K, Quad Q>
-void updateCoeffs(unsigned scale, FPoint pts[K], float coeffs[3]) {
-  const Interim& tmp = calcInterim<K>(1.0 / scale, pts);
-  addInterim<Q>(tmp, coeffs);
+void updateCoeffs(size_t K, Quad Q)(uint scale, const ref FPoint[K] pts, ref float[3] coeffs) {
+  auto tmp = calcInterim!K(1.0 / scale, pts);
+  addInterim!Q(tmp, coeffs);
 }
 
 
 //------------------------------------------------------------------------------
 
-double determinant(const FPoint& pt1, const FPoint& pt2) {
-  return pt1.x * pt2.y - pt1.y * pt2.x;
-}
-
-
-//------------------------------------------------------------------------------
-
-template<>
-Interim calcInterim<2>(double rscale, const FPoint pts[2]) {
+Interim calcInterim(size_t K : 2)(double rscale, const ref FPoint[2] pts) {
   Interim tmp;
   tmp.Kx = (1.f / 4.f) * (pts[1].y - pts[0].y) * rscale;
   tmp.Ky = (1.f / 4.f) * (pts[0].x - pts[1].x) * rscale;
@@ -70,8 +40,7 @@ Interim calcInterim<2>(double rscale, const FPoint pts[2]) {
   return tmp;
 }
 
-template<>
-Interim calcInterim<3>(double rscale, const FPoint pts[3]) {
+Interim calcInterim(size_t K : 3)(double rscale, const ref FPoint[3] pts) {
   Interim tmp;
   tmp.Kx = (1.f / 4.f) * (pts[2].y - pts[0].y) * rscale;
   tmp.Ky = (1.f / 4.f) * (pts[0].x - pts[2].x) * rscale;
@@ -87,8 +56,7 @@ Interim calcInterim<3>(double rscale, const FPoint pts[3]) {
   return tmp;
 }
 
-template<>
-Interim calcInterim<4>(double rscale, const FPoint pts[4]) {
+Interim calcInterim(size_t K : 4)(double rscale, const ref FPoint[4] pts) {
   Interim tmp;
   tmp.Kx = (1.f / 4.f) * (pts[3].y - pts[0].y) * rscale;
   tmp.Ky = (1.f / 4.f) * (pts[0].x - pts[3].x) * rscale;
@@ -112,29 +80,25 @@ Interim calcInterim<4>(double rscale, const FPoint pts[4]) {
 
 //------------------------------------------------------------------------------
 
-template<>
-void addInterim<Quad00>(const Interim& tmp, float coeffs[3]) {
+void addInterim(Quad Q : Quad._00)(in Interim tmp, ref float[3] coeffs) {
   coeffs[0] += tmp.Lx;
   coeffs[1] += tmp.Ly;
   coeffs[2] += tmp.Lx;
 }
 
-template<>
-void addInterim<Quad01>(const Interim& tmp, float coeffs[3]) {
+void addInterim(Quad Q : Quad._01)(in Interim tmp, ref float[3] coeffs) {
   coeffs[0] += tmp.Kx - tmp.Lx;
   coeffs[1] += tmp.Ly;
   coeffs[2] += tmp.Kx - tmp.Lx;
 }
 
-template<>
-void addInterim<Quad10>(const Interim& tmp, float coeffs[3]) {
+void addInterim(Quad Q : Quad._10)(in Interim tmp, ref float[3] coeffs) {
   coeffs[0] += tmp.Lx;
   coeffs[1] += tmp.Ky - tmp.Ly;
   coeffs[2] += -tmp.Lx;
 }
 
-template<>
-void addInterim<Quad11>(const Interim& tmp, float coeffs[3]) {
+void addInterim(Quad Q : Quad._11)(in Interim tmp, ref float[3] coeffs) {
   coeffs[0] += tmp.Kx - tmp.Lx;
   coeffs[1] += tmp.Ky - tmp.Ly;
   coeffs[2] += -tmp.Kx + tmp.Lx;
@@ -143,52 +107,38 @@ void addInterim<Quad11>(const Interim& tmp, float coeffs[3]) {
 
 //------------------------------------------------------------------------------
 
-template<unsigned K>
-void calcCoeffs(unsigned half, unsigned qidx, IPoint* pos, FPoint pts[K], float coeffs[3]) {
+void calcCoeffs(size_t K)(uint half, uint qidx, ref IPoint pos, ref FPoint[K] pts, ref float[3] coeffs) {
   switch (qidx) {
   case 0b00:
     // (0, 0)
-    updateCoeffs<K, Quad00>(half, pts, coeffs);
+    updateCoeffs!(K, Quad._00)(half, pts, coeffs);
     break;
 
   case 0b01:
-    pos->x -= half;
-    for (unsigned i = 0; i < K; ++i)
+    pos.x -= half;
+    foreach(i; 0 .. K)
       pts[i].x -= half;
-    updateCoeffs<K, Quad01>(half, pts, coeffs);
+    updateCoeffs!(K, Quad._01)(half, pts, coeffs);
     break;
 
   case 0b10:
-    pos->y -= half;
-    for (unsigned i = 0; i < K; ++i)
+    pos.y -= half;
+    foreach(i; 0 .. K)
       pts[i].y -= half;
-    updateCoeffs<K, Quad10>(half, pts, coeffs);
+    updateCoeffs!(K, Quad._10)(half, pts, coeffs);
     break;
 
   case 0b11:
-    pos->x -= half;
-    pos->y -= half;
-    for (unsigned i = 0; i < K; ++i) {
+    pos.x -= half;
+    pos.y -= half;
+    foreach(i; 0 .. K) {
       pts[i].x -= half;
       pts[i].y -= half;
     }
-    updateCoeffs<K, Quad11>(half, pts, coeffs);
+    updateCoeffs!(K, Quad._11)(half, pts, coeffs);
     break;
+
+  default:
+    assert(0);
   }
-}
-
-} // namespace
-
-
-//------------------------------------------------------------------------------
-
-#define DECL(K) \
-  void calcCoeffs_##K(unsigned half, unsigned qidx, IPoint* pos, FPoint pts[K], float coeffs[K]) { \
-    calcCoeffs<K>(half, qidx, pos, pts, coeffs);                         \
-  }
-
-extern "C" {
-  DECL(2);
-  DECL(3);
-  DECL(4);
 }
