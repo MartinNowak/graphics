@@ -2,9 +2,7 @@ module skia.core.draw;
 
 private {
   import std.array;
-
   import guip.bitmap;
-  import skia.core.bounder;
   import skia.core.blitter;
   import skia.core.pmcolor;
   import skia.core.device;
@@ -32,7 +30,6 @@ public:
   Matrix matrix;
   IRect clip;
   Device device;
-  Bounder bounder;
   // DrawProcs drawProcs;
 
   this(Bitmap bitmap) {
@@ -46,8 +43,7 @@ public:
   }
 
   void drawPaint(Paint paint) {
-    if (this.clip.empty
-        || this.bounder && !this.bounder.doIRect(this.bitmap.bounds, paint))
+    if (this.clip.empty)
       return;
 
     /**
@@ -106,10 +102,6 @@ public:
     }
 
     toBlit.transform(this.matrix);
-    if (this.bounder
-        && !this.bounder.doPath(toBlit, paint, doFill))
-        return;
-
     scope Blitter blitter = this.getBlitter(paint);
 
     if (doFill) {
@@ -139,9 +131,6 @@ public:
     auto ir = IRect(ioff, ioff + source.size);
 
     if (this.justTranslation && source.config != Bitmap.Config.A8) {
-      if (this.bounder !is null && !this.bounder.doIRect(ir, paint))
-        return;
-
       if (ir.intersect(this.clip)) {
         scope auto blitter = this.getBlitter(paint, source, ioff);
         blitter.blitRect(ir);
@@ -170,9 +159,6 @@ public:
     /+
     FRect transRect;
     this.matrix.mapRect(fRect(rect), transRect);
-
-    if (this.bounder && !this.bounder.doIRect(transRect, paint))
-      return;
 
     auto doFill = paint.fillStyle == Paint.Fill.Fill
       || paint.fillStyle == Paint.Fill.FillAndStroke;
@@ -365,7 +351,6 @@ public:
   const Matrix mMatrix;        // required
   const Region mClip;          // required
   Device       mDevice;        // optional
-  Bounder      mBounder;       // optional
   DrawProcs    mProcs;         // optional
 
 #ifdef SK_DEBUG

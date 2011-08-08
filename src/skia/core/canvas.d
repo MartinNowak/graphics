@@ -2,7 +2,6 @@ module skia.core.canvas;
 
 private {
   import guip.bitmap;
-  import skia.core.bounder;
   import skia.core.pmcolor;
   import skia.core.device;
   import skia.core.draw;
@@ -51,7 +50,6 @@ class Canvas {
   DeviceFactory deviceFactory;
   Device device;
   DrawFilter drawFilter;
-  Bounder bounder;
   MCRec[] mcRecs;
   bool deviceCMClean;
 
