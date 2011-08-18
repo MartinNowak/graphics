@@ -11,7 +11,7 @@ import qcheck._;
 
 // version=DebugNoise;
 // version=StackStats;
-version=calcCoeffs_C;
+// version=calcCoeffs_C;
 
 version (calcCoeffs_C) {
   extern(C) {
