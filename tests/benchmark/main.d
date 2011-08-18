@@ -5,6 +5,14 @@ private {
   import std.array : empty;
   import benchmark.registry : selectBenchmarks, excludeBenchmarks, NameFunc;
   import benchmark.reporter;
+
+  import skia._;
+  pragma(build, benchmark);
+
+  import benchmark.fill;
+  import benchmark.math;
+  import benchmark.matrix;
+  import benchmark.wavelet;
 }
 
 int main(string[] argv) {

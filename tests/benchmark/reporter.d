@@ -2,7 +2,7 @@ module benchmark.reporter;
 
 private {
   import std.stdio : writeln, writefln;
-  import Date = std.date;
+  import std.datetime;
 }
 
 enum LogLevel {
@@ -33,8 +33,8 @@ class BenchmarkReporter {
   void bench(alias func)(uint times) {
     enum name = __traits(identifier, func);
     this.log!(LogLevel.Info)("Bench %s count:%s", name, times);
-    auto results = Date.benchmark!(func)(times);
-    this.reportResult(name, results[0] / times);
+    auto results = benchmark!(func)(times);
+    this.reportResult(name, results[0].msecs / times);
   }
   void bench(Dg)(Dg dg) {
     this.bench(dg, this.numHint);
@@ -43,14 +43,15 @@ class BenchmarkReporter {
     enum name = __traits(identifier, dg);
     this.log!(LogLevel.Info)("Bench %s count:%s", name, times);
 
-    immutable t = Date.getUTCtime;
+    StopWatch sw;
+    sw.start();
     foreach (j; 0 .. times)
     {
       dg();
     }
-    immutable delta = Date.getUTCtime - t;
+    sw.stop();
 
-    this.reportResult(name, delta / times);
+    this.reportResult(name, sw.peek.msecs / times);
   }
 
   void log(LogLevel level)(string msg) {

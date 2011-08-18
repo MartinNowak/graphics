@@ -2,7 +2,6 @@ module benchmark.fill;
 
 private {
   import std.algorithm : map, min, reduce;
-  import Date = std.date;
   import std.array;
   import std.stdio;
 
@@ -15,7 +14,7 @@ private {
   import guip.rect;
 
   import skia.core.edgebuilder;
-  import benchmark._;
+  import benchmark.registry;
 }
 
 static this() {

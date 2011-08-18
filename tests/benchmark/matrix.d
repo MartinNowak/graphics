@@ -2,11 +2,9 @@ module benchmark.matrix;
 
 private {
   import skia.core.matrix;
-  import FLOAT = skia.core.matrix_detail.multiply;
-  import SSE = skia.core.matrix_detail.multiply_sse;
   import guip.point;
 
-  import benchmark._;
+  import benchmark.registry;
   import qcheck._;
   import std.stdio;
 }
@@ -21,8 +19,8 @@ static this() {
 Matrix[] ms;
 FPoint[] pts;
 static this() {
-  ms = getArbitrary!(Matrix[], size(1_000), Policies.RandomizeMembers)();
-  pts = getArbitrary!(FPoint[], size(10_000), Policies.RandomizeMembers)();
+  ms = getArbitrary!(Matrix[], maxAlloc(1_000), Policies.RandomizeMembers)();
+  pts = getArbitrary!(FPoint[], maxAlloc(10_000), Policies.RandomizeMembers)();
 }
 
 /**
@@ -36,27 +34,7 @@ void RotTransSSE(BenchmarkReporter reporter) {
       pts = ptsB.dup;
     }
   }
- reporter.bench(&DoTest);
-}
-
-
-/**
- * Matrix x Matrix routines
- */
-void FLOATMatrixMultiplication() {
-  Matrix lhs;
-  lhs.setRotate(10);
-  foreach(ref m; ms) {
-    auto m2 = FLOAT.multiplyMatrices(lhs, m);
-  }
-}
-
-void SSEMatrixMultiplication() {
-  Matrix lhs;
-  lhs.setRotate(10);
-  foreach(ref m; ms) {
-    auto m2 = SSE.multiplyMatrices(lhs, m);
-  }
+  reporter.bench(&DoTest);
 }
 
 /**
@@ -64,6 +42,4 @@ void SSEMatrixMultiplication() {
  */
 void runMatrix(BenchmarkReporter reporter) {
   RotTransSSE(reporter);
-  reporter.bench!FLOATMatrixMultiplication();
-  reporter.bench!SSEMatrixMultiplication();
 }

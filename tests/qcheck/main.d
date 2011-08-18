@@ -1,10 +1,10 @@
-private {
-  import qcheck._;
-  import qcheck.unittestrunner;
+module tests.qcheck.main;
 
-  import skia.core.edgebuilder;
-  import qcheck.edges;
-}
+import skia._;
+import qcheck._;
+
+import skia.core.edgebuilder;
+import tests.qcheck.edges;
 
 int main(string[] argv) {
   return 0;

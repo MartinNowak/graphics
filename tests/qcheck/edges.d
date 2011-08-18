@@ -9,10 +9,12 @@ private {
   import std.array : appender;
   import std.math : abs;
 
+  import skia._;
   import skia.core.edgebuilder;
   import skia.core.edge_detail._;
   import skia.core.edge_detail.edge : EdgeType;
   import skia.core.edge_detail.algo;
+  import skia.bezier.chop;
   import guip.point;
 
   import skia.util.format;

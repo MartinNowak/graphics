@@ -1,7 +1,12 @@
-module tests.benchmark.wavelet;
+module benchmark.wavelet;
 
 import skia.core.path, skia.core.wavelet.raster, skia.math.clamp;
 import qcheck._, guip.point, std.range;
+import benchmark.registry;
+
+static this() {
+  registerBenchmark!(runWavelet)();
+}
 
 Path randomPath(Path.Verb[] verbs, FPoint[] pts) {
   auto numVerbs = verbs.length;
@@ -68,7 +73,10 @@ bool benchPathToBlit(Path path) {
   return true;
 }
 
-void main() {
+/**
+ *
+ */
+void runWavelet(BenchmarkReporter reporter) {
   setRandomSeed(1);
   quickCheck!(benchPathToWavelet, randomPath, count(50), minValue(0), maxValue(1024), maxAlloc(500))();
 }
