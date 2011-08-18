@@ -1,7 +1,7 @@
 module benchmark.matrix;
 
 private {
-  import skia.core.matrix;
+  import graphics.core.matrix;
   import guip.point;
 
   import benchmark.registry;

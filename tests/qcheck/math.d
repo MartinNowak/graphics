@@ -1,8 +1,8 @@
-module skia.math.quickCheck;
+module graphics.math.quickCheck;
 
 private {
-  import skia.math._;
-  import skia.math.rounding;
+  import graphics.math._;
+  import graphics.math.rounding;
   import qcheck._;
   import std.stdio;
 }

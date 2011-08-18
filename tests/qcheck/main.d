@@ -1,9 +1,9 @@
 module tests.qcheck.main;
 
-import skia._;
+import graphics._;
 import qcheck._;
 
-import skia.core.edgebuilder;
+import graphics.core.edgebuilder;
 import tests.qcheck.edges;
 
 int main(string[] argv) {

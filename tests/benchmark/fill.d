@@ -6,14 +6,14 @@ private {
   import std.stdio;
 
   import guip.bitmap;
-  import skia.core.canvas;
-  import skia.core.pmcolor : Red, Black;
-  import skia.core.paint;
-  import skia.core.path;
+  import graphics.core.canvas;
+  import graphics.core.pmcolor : Red, Black;
+  import graphics.core.paint;
+  import graphics.core.path;
   import guip.point;
   import guip.rect;
 
-  import skia.core.edgebuilder;
+  import graphics.core.edgebuilder;
   import benchmark.registry;
 }
 

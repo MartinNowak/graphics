@@ -1,4 +1,4 @@
-module skia.core.edgesTest;
+module graphics.core.edgesTest;
 
 private {
   import std.algorithm : iota;
@@ -9,15 +9,15 @@ private {
   import std.array : appender;
   import std.math : abs;
 
-  import skia._;
-  import skia.core.edgebuilder;
-  import skia.core.edge_detail._;
-  import skia.core.edge_detail.edge : EdgeType;
-  import skia.core.edge_detail.algo;
-  import skia.bezier.chop;
+  import graphics._;
+  import graphics.core.edgebuilder;
+  import graphics.core.edge_detail._;
+  import graphics.core.edge_detail.edge : EdgeType;
+  import graphics.core.edge_detail.algo;
+  import graphics.bezier.chop;
   import guip.point;
 
-  import skia.util.format;
+  import graphics.util.format;
 
   import qcheck._;
 }

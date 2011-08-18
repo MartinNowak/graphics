@@ -3,7 +3,7 @@ module benchmark.edges;
 private {
   import std.array : appender;
   import std.random : uniform;
-  import skia.core.edge_detail._;
+  import graphics.core.edge_detail._;
   import guip.point;
 
   import benchmark._;

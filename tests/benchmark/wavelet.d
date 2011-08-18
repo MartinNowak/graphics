@@ -1,6 +1,6 @@
 module benchmark.wavelet;
 
-import skia.core.path, skia.core.wavelet.raster, skia.math.clamp;
+import graphics.core.path, graphics.core.wavelet.raster, graphics.math.clamp;
 import qcheck._, guip.point, std.range;
 import benchmark.registry;
 

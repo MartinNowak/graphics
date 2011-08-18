@@ -1,14 +1,14 @@
-module skia.core.matrixTest;
+module graphics.core.matrixTest;
 
 private {
   import std.array : appender;
   import std.format : formattedWrite;
   import std.math : abs;
 
-  import skia.core.matrix;
+  import graphics.core.matrix;
   import guip.point;
 
-  import skia.util.format;
+  import graphics.util.format;
 
   import qcheck._;
 }

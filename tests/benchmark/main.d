@@ -6,7 +6,7 @@ private {
   import benchmark.registry : selectBenchmarks, excludeBenchmarks, NameFunc;
   import benchmark.reporter;
 
-  import skia._;
+  import graphics._;
   pragma(build, benchmark);
 
   import benchmark.fill;

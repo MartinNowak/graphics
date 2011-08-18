@@ -1,9 +1,9 @@
-module benchmark.skia_math;
+module benchmark.graphics_math;
 
 private  {
   import benchmark.registry;
-  import skia.core.edgebuilder : fastSqrt;
-  import skia.math.rounding;
+  import graphics.core.edgebuilder : fastSqrt;
+  import graphics.math.rounding;
 }
 
 static this() {
