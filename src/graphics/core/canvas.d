@@ -170,16 +170,20 @@ public:
       this.drawRect(rect, paint);
     }
   }
-  void drawRoundRect(in IRect rect, int rx, int ry, Paint paint) {
-    drawRoundRect(fRect(rect), rx, ry, paint);
+  final void drawRoundRect(in IRect rect, int rx, int ry, Paint paint) {
+    return this.drawRoundRect(fRect(rect), rx, ry, paint);
   }
 
-  void drawOval(in IRect rect, Paint paint) {
+  final void drawOval(in IRect rect, Paint paint) {
+    drawOval(fRect(rect), paint);
+  }
+  void drawOval(in FRect rect, Paint paint) {
     Path path;
-    path.addOval(fRect(rect));
+    path.addOval(rect);
     this.drawPath(path, paint);
   }
-  void drawCircle(IPoint c, float radius, Paint paint) {
+
+  final void drawCircle(IPoint c, float radius, Paint paint) {
     return this.drawCircle(fPoint(c), radius, paint);
   }
   void drawCircle(FPoint c, float radius, Paint paint) {
@@ -192,7 +196,7 @@ public:
     this.drawPath(path, paint);
   }
 
-  void drawText(string text, float x, float y, TextPaint paint) {
+  final void drawText(string text, float x, float y, TextPaint paint) {
     return this.drawText(text, FPoint(x, y), paint);
   }
   void drawText(string text, FPoint pt, TextPaint paint) {
@@ -201,6 +205,10 @@ public:
       draw.drawText(text, pt, paint);
     }
   }
+  final void drawText(string text, IPoint pt, TextPaint paint) {
+    return this.drawText(text, fPoint(pt), paint);
+  }
+
   void drawTextAsPaths(string text, FPoint pt, TextPaint paint) {
     scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
     foreach(ref draw; cycle) {
@@ -242,6 +250,9 @@ public:
     return false;
   }
 
+  void translate(IPoint pt) {
+    this.translate(fPoint(pt));
+  }
   void translate(FPoint pt) {
     this.translate(pt.x, pt.y);
   }
