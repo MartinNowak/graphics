@@ -7,7 +7,7 @@ private {
 
   import guip.bitmap;
   import graphics.core.canvas;
-  import graphics.core.pmcolor : Red, Black;
+  import graphics.core.pmcolor;
   import graphics.core.paint;
   import graphics.core.path;
   import guip.point;
@@ -43,14 +43,14 @@ static IRect rect;
 static this() {
   bitmap = Bitmap(Bitmap.Config.ARGB_8888, xSize, ySize);
   canvas = new Canvas(bitmap);
-  paintFill = new Paint(Black);
+  paintFill = new Paint(Color.Black);
   paintFill.antiAlias = false;
-  paintFillAA = new Paint(Black);
+  paintFillAA = new Paint(Color.Black);
   paintFillAA.antiAlias = true;
-  paintHairLine = new Paint(Black);
+  paintHairLine = new Paint(Color.Black);
   paintHairLine.antiAlias = false;
   paintHairLine.fillStyle = Paint.Fill.Stroke;
-  paintHairLineAA = new Paint(Black);
+  paintHairLineAA = new Paint(Color.Black);
   paintHairLineAA.fillStyle = Paint.Fill.Stroke;
   paintHairLineAA.antiAlias = true;
 

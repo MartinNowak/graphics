@@ -46,7 +46,7 @@ class Paint
   enum Cap { Butt, Square, Round, }
   enum Join { Miter, Round, Bevel, }
 
-  this(Color color=Black) {
+  this(Color color=Color.Black) {
     this.color = color;
     this.capStyle = Cap.Butt;
     this.joinStyle = Join.Miter;
@@ -134,7 +134,7 @@ class TextPaint : Paint {
 
   enum TextAlign { Left, Center, Right, }
 
-  this(Color color = Black, TypeFace typeFace = TypeFace.defaultFace()) {
+  this(Color color=Color.Black, TypeFace typeFace=TypeFace.defaultFace()) {
     super(color);
     this.typeFace = typeFace;
   }

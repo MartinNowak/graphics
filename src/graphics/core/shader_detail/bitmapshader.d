@@ -20,7 +20,7 @@ class BitmapShader : MappingShader {
     if (!fitsIntoRange!("[)")(ipt.x, 0, pthis.src.width)
         || !fitsIntoRange!("[)")(ipt.y, 0, pthis.src.height))
       // transparent
-      return PMColor(0);
+      return PMColor(Color(0));
     return PMColor((cast(Bitmap*)&pthis.src).getLine(ipt.y)[ipt.x]);
   }
 

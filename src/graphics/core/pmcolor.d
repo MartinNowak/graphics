@@ -7,11 +7,22 @@ private import graphics.math.clamp;
 struct PMColor
 {
   Color _color;
-  alias _color this;
+  alias _color this; // TODO: remove to avoid implicit conversions
 
-  this(uint argb) {
-    this.argb = argb;
-  }
+  immutable PMColor Black     = PMColor(Color.Black);
+  immutable PMColor DarkGray  = PMColor(Color.DarkGray);
+  immutable PMColor Gray      = PMColor(Color.Gray);
+  immutable PMColor LightGray = PMColor(Color.LightGray);
+  immutable PMColor WarmGray  = PMColor(Color.WarmGray);
+  immutable PMColor ColdGray  = PMColor(Color.ColdGray);
+  immutable PMColor White     = PMColor(Color.White);
+  immutable PMColor Red       = PMColor(Color.Red);
+  immutable PMColor Green     = PMColor(Color.Green);
+  immutable PMColor Blue      = PMColor(Color.Blue);
+  immutable PMColor Yellow    = PMColor(Color.Yellow);
+  immutable PMColor Cyan      = PMColor(Color.Cyan);
+  immutable PMColor Magenta   = PMColor(Color.Magenta);
+  immutable PMColor Orange    = PMColor(Color.Orange);
 
   this(Color color) {
     this._color = alphaMul(color, alphaScale(color.a));
@@ -51,22 +62,4 @@ Color alphaMul(in Color color, uint scale) {
   auto rb = ((c & rb_mask) * scale) >> 8;
   auto ag = ((c >> 8) & rb_mask) * scale;
   return Color((rb & rb_mask) | (ag & ~rb_mask));
-}
-
-enum : PMColor
-{
-  PMBlack     = PMColor(0xff000000),
-  PMDarkGray  = PMColor(0xff444444),
-  PMGray      = PMColor(0xff888888),
-  PMLightGray = PMColor(0xffcccccc),
-  PMWarmGray  = PMColor(0xffaab2b7),
-  PMColdGray  = PMColor(0xff67748c),
-  PMWhite     = PMColor(0xffffffff),
-  PMRed       = PMColor(0xffff0000),
-  PMGreen     = PMColor(0xff00ff00),
-  PMBlue      = PMColor(0xff0000ff),
-  PMYellow    = PMColor(0xffffff00),
-  PMCyan      = PMColor(0xff00ffff),
-  PMMagenta   = PMColor(0xffff00ff),
-  PMOrange    = PMColor(0xffffa500),
 }
