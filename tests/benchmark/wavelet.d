@@ -78,5 +78,6 @@ bool benchPathToBlit(Path path) {
  */
 void runWavelet(BenchmarkReporter reporter) {
   setRandomSeed(1);
-  quickCheck!(benchPathToWavelet, randomPath, count(50), minValue(0), maxValue(1024), maxAlloc(500))();
+  quickCheck!(benchPathToWavelet, randomPath, count(10), minValue(0), maxValue(1024), maxAlloc(500))();
+  quickCheck!(benchPathToBlit, randomPath, count(10), minValue(0), maxValue(1024), maxAlloc(500))();
 }
