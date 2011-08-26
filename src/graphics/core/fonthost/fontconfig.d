@@ -26,14 +26,34 @@ struct TypeFace {
     return findFace(weight, slant);
   }
   static TypeFace createFromName(string familyName) {
-    return fontConfig.findFace(familyName);
+    return findFace(familyName);
   }
   /**
    * Valid patterns types are Weight, Slant, string (font-family).
    * Multiple pattern of same type describe alternatives in descending order.
    */
   static TypeFace findFace(Pattern...)(Pattern pattern) {
-    return fontConfig.findFace(pattern);
+    string cacheKey;
+
+    foreach(i, D; Pattern) {
+      static if (is(D == Weight))
+        cacheKey ~= "Weight." ~ to!string(pattern[i]);
+      else static if (is(D == Slant))
+        cacheKey ~= "Slant." ~ to!string(pattern[i]);
+      else static if (is(D == string))
+        cacheKey ~= "Family(" ~ pattern[i] ~ ")";
+      else
+        static assert(0, "Unsupported pattern type '" ~ D.stringof ~ "'");
+
+      if (i != Pattern.length)
+        cacheKey ~= " ";
+    }
+
+    if (auto face = cacheKey in facePatternCache)
+      return *face;
+    auto face = fontConfig.findFace(pattern);
+    facePatternCache[cacheKey] = face;
+    return face;
   }
 
   bool valid() const {
@@ -48,6 +68,8 @@ private:
         ));
   bool _fixedWidth;
   package string filename;
+
+  static TypeFace[string] facePatternCache;
 }
 
 private shared(FontConfig) _fontConfig;
