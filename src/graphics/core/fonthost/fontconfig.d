@@ -64,9 +64,9 @@ private:
   mixin(bitfields!(
             Weight, "weight", 2,
             Slant, "slant", 2,
-            uint, "", 4,
+            bool, "_fixedWidth", 1,
+            uint, "", 3,
         ));
-  bool _fixedWidth;
   package string filename;
 
   static TypeFace[string] facePatternCache;
