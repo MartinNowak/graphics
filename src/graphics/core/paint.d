@@ -165,7 +165,7 @@ class TextPaint : Paint {
 }
 
 unittest {
-  scope auto paint = new TextPaint(Red);
+  scope auto paint = new TextPaint(Color.Red);
 
   assert(paint.xferMode is null);
   assert(paint.antiAlias == DefaultAntiAlias);
