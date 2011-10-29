@@ -135,6 +135,7 @@ version (D_InlineAsm_X86_64) {
     asm {
       naked;
       rsqrtss XMM0, XMM0;
+      ret;
     }
   }
 } else {
