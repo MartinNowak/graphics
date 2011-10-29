@@ -1,7 +1,7 @@
 module graphics.core.path_detail.path_measure;
 
 import std.array, std.algorithm, std.range : assumeSorted;
-import graphics.bezier.chop, graphics.bezier.curve, graphics.core.path, graphics.core.edge_detail.algo,
+import graphics.bezier.chop, graphics.bezier.curve, graphics.core.path, graphics.bezier.curve,
   graphics.math.fixed_ary, graphics.math.clamp, graphics.util.format;
 import guip.point;
 
@@ -184,15 +184,15 @@ private:
     switch (verb) {
     case Path.Verb.Line:
       auto pts = fixedAry!2(this.points[segment.pointIndex .. segment.pointIndex + 2]);
-      normal.setNormalize(calcBezierDerivative!("x")(pts, t), calcBezierDerivative!("y")(pts, t));
+      normal.setNormalize(evalBezierDer(pts, t));
       break;
     case Path.Verb.Quad:
       auto pts = fixedAry!3(this.points[segment.pointIndex .. segment.pointIndex + 3]);
-      normal.setNormalize(calcBezierDerivative!("x")(pts, t), calcBezierDerivative!("y")(pts, t));
+      normal.setNormalize(evalBezierDer(pts, t));
       break;
     case Path.Verb.Cubic:
       auto pts = fixedAry!4(this.points[segment.pointIndex .. segment.pointIndex + 4]);
-      normal.setNormalize(calcBezierDerivative!("x")(pts, t), calcBezierDerivative!("y")(pts, t));
+      normal.setNormalize(evalBezierDer(pts, t));
       break;
     default:
       assert(0, to!string(verb));

@@ -13,7 +13,6 @@ private {
   import guip.point;
   import guip.rect;
 
-  import graphics.core.edgebuilder;
   import benchmark.registry;
 }
 

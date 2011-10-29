@@ -5,7 +5,7 @@ import std.datetime : benchmark, StopWatch;
 import std.metastrings;
 import std.allocators.region;
 import graphics.math.clamp, graphics.math.rounding, graphics.util.format, graphics.bezier.chop,
-  graphics.core.edge_detail.algo, graphics.core.path, graphics.core.blitter,
+  graphics.core.path, graphics.core.blitter,
   graphics.core.matrix, graphics.math.fixed_ary, graphics.bezier.cartesian;
 import guip.bitmap, guip.point, guip.rect, guip.size;
 

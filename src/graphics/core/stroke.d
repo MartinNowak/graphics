@@ -8,7 +8,6 @@ private {
   import graphics.core.path;
   import guip.point;
   import graphics.core.stroke_detail._;
-  import graphics.core.edge_detail.algo;
   import graphics.math.fixed_ary;
 }
 

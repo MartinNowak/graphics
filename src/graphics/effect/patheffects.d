@@ -2,7 +2,7 @@ module graphics.effect.patheffects;
 
 import std.algorithm, std.math, std.range;
 import graphics.core.path, graphics.core.patheffect, graphics.core.path_detail.path_measure,
-  graphics.math.fixed_ary, graphics.core.edge_detail.algo;
+  graphics.math.fixed_ary;
 import guip.point, guip.rect;
 
 class DashPathEffect : PathEffect {
