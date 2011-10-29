@@ -157,32 +157,6 @@ public:
         paint.color.a == 0)
       return;
 
-    // TODO: underline handling
-
-    auto cache = getGlyphCache(paint.typeFace, paint.textSize);
-
-    FPoint start = this.matrix.mapPoint(pt);
-    if (paint.textAlign != TextPaint.TextAlign.Left) {
-      auto length = measureText(text, cache);
-      if (paint.textAlign == TextPaint.TextAlign.Center)
-        length *= 0.5;
-      start.x = start.x - length;
-    }
-    scope Blitter blitter = this.getBlitter(paint);
-
-    foreach(gl; cache.glyphStream(text, Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Bitmap)) {
-      auto pos = start + gl.bmpPos;
-      auto ipos = pos.round();
-      blitter.blitMask(ipos.x, ipos.y, gl.bmp);
-      start += gl.advance;
-    }
-  }
-
-  void drawTextAsPaths(string text, FPoint pt, TextPaint paint) {
-    if (text.empty || this.clip.empty ||
-        paint.color.a == 0)
-      return;
-
     auto backUp = this.matrix;
     scope(exit) this.matrix = backUp;
 

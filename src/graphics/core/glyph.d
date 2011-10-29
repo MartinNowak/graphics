@@ -20,7 +20,6 @@ struct Glyph {
     return fmtString("Glyph bmpPos:%s adv:%s path:%s", bmpPos, advance, path.bounds);
   }
 
-  Bitmap bmp;
   FPoint bmpPos;
 
   Path path;
@@ -29,6 +28,6 @@ struct Glyph {
   FSize size;
   float rsbDelta, lsbDelta;
 
-  enum LoadFlag { NoFlag=0, Metrics=(1<<0), Bitmap=(1<<1), Path=(1<<2) }
+  enum LoadFlag { NoFlag=0, Metrics=(1<<0), Path=(1<<1) }
   LoadFlag loaded;
 }

@@ -189,10 +189,8 @@ public:
     return this.drawText(text, fPoint(pt), paint);
   }
 
-  void drawTextAsPaths(string text, FPoint pt, TextPaint paint) {
-    auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
-    draw.drawTextAsPaths(text, pt, paint);
-  }
+  deprecated alias drawText drawTextAsPaths;
+
   void drawTextOnPath(string text, in Path path, TextPaint paint) {
     auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
     draw.drawTextOnPath(text, path, paint);

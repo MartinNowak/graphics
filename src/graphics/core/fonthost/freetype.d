@@ -203,18 +203,6 @@ void updateGlyph(Glyph.LoadFlag f : Glyph.LoadFlag.Metrics)(FT_Face face, Glyph*
   glyph.loaded |= Glyph.LoadFlag.Metrics;
 }
 
-void updateGlyph(Glyph.LoadFlag f : Glyph.LoadFlag.Bitmap)(FT_Face face, Glyph* glyph, FT_UInt charIdx) {
-  enforce(!FT_Load_Glyph(face, charIdx, FT_LOAD.RENDER));
-
-  auto w = face.glyph.bitmap.width;
-  auto h = face.glyph.bitmap.rows;
-  glyph.bmp.setConfig(Bitmap.Config.A8, w, h);
-  glyph.bmp.getBuffer!(ubyte)()[] = face.glyph.bitmap.buffer[0 .. w * h];
-  glyph.bmpPos = FPoint(face.glyph.bitmap_left, -face.glyph.bitmap_top);
-
-  glyph.loaded |= Glyph.LoadFlag.Bitmap;
-}
-
 void updateGlyph(Glyph.LoadFlag f : Glyph.LoadFlag.Path)(FT_Face face, Glyph* glyph, FT_UInt charIdx) {
   enforce(!FT_Load_Glyph(face, charIdx, FT_LOAD.NO_BITMAP));
 
