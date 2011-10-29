@@ -3,6 +3,7 @@ module graphics.core.wavelet.raster;
 import std.algorithm, std.array, std.bitmanip, std.math, std.random, std.typecons, std.conv : to;
 import std.datetime : benchmark, StopWatch;
 import std.metastrings;
+import std.allocators.region;
 import graphics.math.clamp, graphics.math.rounding, graphics.util.format, graphics.bezier.chop,
   graphics.core.edge_detail.algo, graphics.core.path, graphics.core.blitter,
   graphics.core.matrix, graphics.math.fixed_ary, graphics.bezier.cartesian;
@@ -62,17 +63,15 @@ struct Node {
 
       if (depth == 0)
         break;
-      node = &node.getChild(depth, qidx);
+      node = &node.getChild(qidx);
     }
   }
 
-  ref Node getChild(uint depth, uint idx) {
-    assert(depth > 0);
+  ref Node getChild(uint idx) {
     assert(children.length == 0 || children.length == 4 || children.length == 20);
 
-    if (children.length == 0) {
-      children = allocNodes!(4)();
-    }
+    if (_children is null)
+      _children = allocNodes();;
     this.chmask |= (1 << idx);
     return children[idx];
   }
@@ -81,54 +80,41 @@ struct Node {
     return (this.chmask & (1 << idx)) != 0;
   }
 
-  static Node[] allocNodes(size_t K)() {
-    debug {
-      size_t olen = segStack.data.length;
-      scope(exit) assert(segStack.data.length == olen + K);
-    }
-
-    foreach(_; 0 .. K) {
-      segStack.put(Node.init);
-    }
-    return segStack.data[$-K .. $];
+  static Node[4]* allocNodes() {
+    auto res = cast(Node[4]*)ralloc.allocate(4 * Node.sizeof);
+    foreach(i; 0 .. 4)
+        res[i] = Node.init;
+    return res;
   }
 
-  static Appender!(Node[]) segStack;
+  static RegionAllocator ralloc;
 
-  static void clearSegStack() {
-    version(StackStats) stats ~= segStack.capacity * Node.sizeof;
-    segStack.clear();
+  static void initAllocator() {
+    ralloc = newRegionAllocator();
   }
 
-  version(StackStats) {
-    static size_t[] stats;
-
-    static ~this() {
-      std.stdio.writeln("Node stack stats:");
-      std.stdio.writeln("num uses:", stats.length);
-      std.stdio.writeln("stack cap:", segStack.capacity * Node.sizeof);
-      auto avg = reduce!("a+b")(0.0, stats) / stats.length;
-      std.stdio.writeln("avg:", avg);
-      double dev = 0.0;
-      foreach(st; stats)
-        dev += (st - avg) * (st - avg);
-      dev = sqrt(dev / stats.length);
-      std.stdio.writeln("dev:", dev);
-    }
+  static void freeAllocator() {
+    ralloc = RegionAllocator.init;
   }
 
-  Node[] children;
+  ref Node[4] children() { return *_children; }
+  ref const(Node[4]) children() const { return *_children; }
+
+  Node[4]* _children;
   float[3] coeffs = 0.0f;
   ubyte chmask;
 }
 
 
 struct WaveletRaster {
-
   this(IRect clipRect) {
     this.depth = to!uint(ceil(log2(max(clipRect.width, clipRect.height))));
     this.clipRect = clipRect;
-    Node.clearSegStack();
+    Node.initAllocator();
+  }
+
+  ~this() {
+    Node.freeAllocator();
   }
 
   void insertSlice(size_t K)(IPoint pos, ref FPoint[K] slice) if (K == 2) {
