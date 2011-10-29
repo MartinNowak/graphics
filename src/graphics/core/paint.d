@@ -9,7 +9,6 @@ private {
   import graphics.core.patheffect;
   import graphics.core.shader;
   import graphics.core.stroke;
-  import graphics.core.xfermode;
   import graphics.core.fonthost._;
 
   import graphics.util.format;
@@ -26,7 +25,6 @@ class Paint
   Color color;
   float strokeWidth=0.0f;
 
-  XferMode xferMode;
   PathEffect pathEffect;
   Shader shader;
 
@@ -161,7 +159,6 @@ class TextPaint : Paint {
 unittest {
   scope auto paint = new TextPaint(Color.Red);
 
-  assert(paint.xferMode is null);
   assert(paint.antiAlias == DefaultAntiAlias);
   assert(!paint.filterBitmap);
   //  assert(!paint.dither);

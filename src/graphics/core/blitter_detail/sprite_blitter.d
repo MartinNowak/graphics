@@ -25,17 +25,11 @@ class SpriteBlitter : Blitter {
     auto alpha = paint.color.a;
     switch (source.config) {
     case Bitmap.Config.ARGB_8888:
-      if ((paint.xferMode /* || paint.filter*/)
-          && (alpha == 255)) {
-        // return new Sprite_D32_S32A_XferFilter(source, paint);
-      } else
-        return createSpriteBlitter_D32_S32(device, source, ioff, alpha);
-      break;
+      return createSpriteBlitter_D32_S32(device, source, ioff, alpha);
 
     default:
-      break;
+      return null;
     }
-    return null;
   }
 
   this (Bitmap device, in Bitmap source, IPoint ioff, ubyte alpha) {
