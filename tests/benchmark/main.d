@@ -7,7 +7,7 @@ private {
   import benchmark.reporter;
 
   import graphics._;
-  pragma(build, benchmark);
+  //  pragma(build, benchmark);
 
   import benchmark.fill;
   import benchmark.math;

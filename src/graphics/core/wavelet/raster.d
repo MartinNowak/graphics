@@ -117,13 +117,13 @@ struct WaveletRaster {
     Node.freeAllocator();
   }
 
-  void insertSlice(size_t K)(IPoint pos, ref FPoint[K] slice) if (K == 2) {
+    void insertSlice2(IPoint pos, ref FPoint[2] slice) {
     this.rootConst += (1.f / (1 << this.depth) ^^ 2) * determinant(slice[0], slice[1]) / 2;
     if (this.depth)
       this.root.insertEdge(pos, slice, this.depth);
   }
 
-  void insertSlice(size_t K)(IPoint pos, ref FPoint[K] slice) if (K == 3) {
+  void insertSlice3(IPoint pos, ref FPoint[3] slice) {
     this.rootConst += (1.f / (6.f * (1 << this.depth) ^^ 2)) * (
         2 * (determinant(slice[0], slice[1]) + determinant(slice[1], slice[2]))
         + determinant(slice[0], slice[2]));
@@ -131,7 +131,7 @@ struct WaveletRaster {
       root.insertEdge(pos, slice, depth);
   }
 
-  void insertSlice(size_t K)(IPoint pos, ref FPoint[K] slice) if (K == 4) {
+  void insertSlice4(IPoint pos, ref FPoint[4] slice) {
     this.rootConst += (1.f / (20.f * (1 << this.depth) ^^ 2)) * (
         6 * determinant(slice[0], slice[1]) + 3 * determinant(slice[1], slice[2])
         + 6 * determinant(slice[2], slice[3]) + 3 * determinant(slice[0], slice[2])
@@ -145,21 +145,21 @@ struct WaveletRaster {
     //    assert(pointsAreClipped(pts));
     foreach(ref pt; pts)
       pt -= fPoint(this.clipRect.pos);
-    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice!2, &this.insertSlice!2);
+    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice2, &this.insertSlice2);
   }
 
   void insertEdge(FPoint[3] pts) {
     //    assert(pointsAreClipped(pts));
     foreach(ref pt; pts)
       pt -= fPoint(this.clipRect.pos);
-    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice!3, &this.insertSlice!2);
+    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice3, &this.insertSlice2);
   }
 
   void insertEdge(FPoint[4] pts) {
     //    assert(pointsAreClipped(pts), to!string(pts));
     foreach(ref pt; pts)
       pt -= fPoint(this.clipRect.pos);
-    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice!4, &this.insertSlice!2);
+    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice4, &this.insertSlice2);
   }
 
   bool pointsAreClipped(in FPoint[] pts) {

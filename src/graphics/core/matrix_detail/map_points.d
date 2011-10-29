@@ -48,7 +48,7 @@ static void ScalePts(in Matrix m, FPoint[] pts) {
   }
 }
 
-static void ScaleTransPts(in Matrix m, ref FPoint[] pts) {
+static void ScaleTransPts(in Matrix m, FPoint[] pts) {
   assert(m.typeMaskTrans == (Matrix.Type.Translative | Matrix.Type.Scaling));
 
   auto tPt = FPoint(m[0][2], m[1][2]);

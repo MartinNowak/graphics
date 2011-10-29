@@ -14,7 +14,7 @@ version(NO_SSE) {
     @param count number of colors to blend
     @param alpha global alpha to be applied to all src colors
 */
-alias const(void function(PMColor[] dst, const (PMColor)[] src, ubyte alpha)) BlitRowProc32;
+alias void function(PMColor[] dst, const (PMColor)[] src, ubyte alpha) BlitRowProc32;
 
 enum BlitRowFlags32 {
   GlobalAlpha     = 1 << 0,

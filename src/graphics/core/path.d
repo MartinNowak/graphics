@@ -94,7 +94,7 @@ public:
       || this.verbs.length == 1 && this.verbs[0] == Verb.Move;
   }
   @property void fillType(FillType fillType) {
-    return this._fillType = fillType;
+    this._fillType = fillType;
   }
   @property FillType fillType() const {
     return this._fillType;
@@ -279,12 +279,14 @@ public:
 
   void close() {
     if (this.verbs.length > 0) {
-      switch (this.verbs[$-1]) {
+      final switch (this.verbs[$-1]) {
       case Verb.Line, Verb.Quad, Verb.Cubic:
         this._verbs.put(Verb.Close);
         break;
-      default:
-        assert(false);
+      case Verb.Close:
+        break;
+      case Verb.Move:
+        assert(0);
       }
     }
   }
