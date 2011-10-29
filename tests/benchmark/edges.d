@@ -6,7 +6,7 @@ private {
   import graphics.core.edge_detail._;
   import guip.point;
 
-  import benchmark._;
+  import benchmark.registry;
   import qcheck._;
   import std.stdio;
 }
@@ -31,7 +31,8 @@ Edge!T cubicMaker(T)(Point!T[4] pts) {
  */
 FEdge[] edges;
 static this() {
-  edges = getArbitrary!(FEdge[], size(1000), cubicMaker!float, minValue(0), maxValue(1000))();
+  auto config = Config().maxSize(1000).minValue(0).maxValue(1000);
+  edges = getArbitrary!(FEdge[])(config);
 }
 
 void CubicEdgeUpdate() {

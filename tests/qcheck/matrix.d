@@ -25,7 +25,9 @@ FPoint Multiply(in Matrix m, FPoint pt) {
 }
 
 void doRun() {
-  auto pts = getArbitrary!(FPoint[], size(1000), minValue(0.0), maxValue(2.0), Policies.RandomizeMembers)();
+  Config config = { maxSize : 1000, minValue : 0.0, maxValue : 2.0, randomizeFields : true };
+
+  auto pts = getArbitrary!(FPoint[])(config);
   auto ptsB = pts.idup;
   Matrix m;
 

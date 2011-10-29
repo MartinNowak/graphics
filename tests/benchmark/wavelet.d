@@ -44,7 +44,8 @@ Path randomPath(Path.Verb[] verbs, FPoint[] pts) {
       break;
 
     case Path.Verb.Close:
-      path.close();
+      if (!path.lastVerbWas(Path.Verb.Move))
+        path.close();
       break;
     }
     verbs.popFront;
@@ -52,12 +53,16 @@ Path randomPath(Path.Verb[] verbs, FPoint[] pts) {
   return path;
 }
 
-bool benchPathToWavelet(Path path) {
+QCheckResult benchPathToWavelet(Path path) {
+  if (path.empty)
+    return QCheckResult.Discard;
   auto wr = pathToWavelet(path, path.ibounds);
-  return true;
+  return QCheckResult.Ok;
 }
 
-bool benchPathToBlit(Path path) {
+QCheckResult benchPathToBlit(Path path) {
+  if (path.empty)
+    return QCheckResult.Discard;
   auto clip = path.ibounds;
   auto wr = pathToWavelet(path, path.ibounds);
   auto topLeft = wr.clipRect.pos;
@@ -70,14 +75,16 @@ bool benchPathToBlit(Path path) {
 
   writeNodeToGrid!(dummyBlit)(
       wr.root, wr.rootConst, topLeft, 1<< wr.depth);
-  return true;
+  return QCheckResult.Ok;
 }
 
 /**
  *
  */
 void runWavelet(BenchmarkReporter reporter) {
-  setRandomSeed(1);
-  quickCheck!(benchPathToWavelet, randomPath, count(10), minValue(0), maxValue(1024), maxAlloc(500))();
-  quickCheck!(benchPathToBlit, randomPath, count(10), minValue(0), maxValue(1024), maxAlloc(500))();
+  auto config = Config().maxSuccess(20).minValue(0).maxValue(1024).maxSize(500);
+  randomSeed = 1;
+
+  quickCheck!(benchPathToWavelet, randomPath)(config);
+  //  quickCheck!(benchPathToBlit, randomPath)(config);
 }

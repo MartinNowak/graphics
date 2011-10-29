@@ -16,22 +16,24 @@ static this() {
 /**
  * Shared test data
  */
-Matrix[] ms;
-FPoint[] pts;
+immutable Matrix[] ims;
+immutable FPoint[] ipts;
 static this() {
-  ms = getArbitrary!(Matrix[], maxAlloc(1_000), Policies.RandomizeMembers)();
-  pts = getArbitrary!(FPoint[], maxAlloc(10_000), Policies.RandomizeMembers)();
+  auto config = Config().maxSize(1000).randomizeFields(true);
+  ims = getArbitrary!(Matrix[])(config).idup;
+  config.maxSize = 10_000;
+  ipts = getArbitrary!(FPoint[])(config).idup;
 }
 
 /**
  * Matrix x Point routines
  */
 void RotTransSSE(BenchmarkReporter reporter) {
-  auto ptsB = pts.idup;
+  auto pts = ipts.dup;
   void DoTest() {
-    foreach(ref m; ms) {
+    foreach(ref m; ims) {
       m.mapPoints(pts);
-      pts = ptsB.dup;
+      pts[] = ipts[];
     }
   }
   reporter.bench(&DoTest);

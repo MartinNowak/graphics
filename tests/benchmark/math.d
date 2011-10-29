@@ -1,4 +1,4 @@
-module benchmark.graphics_math;
+module benchmark.math;
 
 private  {
   import benchmark.registry;

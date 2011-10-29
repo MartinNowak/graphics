@@ -191,7 +191,7 @@ unittest {
 
   QCheckResult testBeziota(T, size_t K)(Point!T[K] pts, double step) {
     if (step <= 0)
-      return QCheckResult.Reject;
+      return QCheckResult.Discard;
     foreach(t; beziota!("x", T, K)(pts, step))
       assert(fitsIntoRange!("()")(t, 0, 1));
     foreach(t; beziota!("y", T, K)(pts, step))
@@ -207,21 +207,21 @@ unittest {
     return QCheckResult.Ok;
   }
 
-  immutable cnt = count(100);
-  immutable smLo = maxValue(1.0);
-  immutable smHi = minValue(-1.0);
-  quickCheck!(testBeziota!(float, 2), cnt, smLo, smHi)();
-  quickCheck!(testBeziota!(float, 2), cnt)();
-  quickCheck!(testBeziota!(double, 2), cnt, smLo, smHi)();
-  quickCheck!(testBeziota!(double, 2), cnt)();
-  quickCheck!(testBeziota!(float, 3), cnt, smLo, smHi)();
-  quickCheck!(testBeziota!(float, 3), cnt)();
-  quickCheck!(testBeziota!(double, 3), cnt, smLo, smHi)();
-  quickCheck!(testBeziota!(double, 3), cnt)();
-  quickCheck!(testBeziota!(float, 4), cnt, smLo, smHi)();
-  quickCheck!(testBeziota!(float, 4), cnt)();
-  quickCheck!(testBeziota!(double, 4), cnt, smLo, smHi)();
-  quickCheck!(testBeziota!(double, 4), cnt)();
+  auto config = Config().maxSuccess(100);
+  auto smconfig = Config().maxSuccess(100).minValue(-1).maxValue(1);
+
+  quickCheck!(testBeziota!(float, 2))(smconfig);
+  quickCheck!(testBeziota!(float, 2))(config);
+  quickCheck!(testBeziota!(double, 2))(smconfig);
+  quickCheck!(testBeziota!(double, 2))(config);
+  quickCheck!(testBeziota!(float, 3))(smconfig);
+  quickCheck!(testBeziota!(float, 3))(config);
+  quickCheck!(testBeziota!(double, 3))(smconfig);
+  quickCheck!(testBeziota!(double, 3))(config);
+  quickCheck!(testBeziota!(float, 4))(smconfig);
+  quickCheck!(testBeziota!(float, 4))(config);
+  quickCheck!(testBeziota!(double, 4))(smconfig);
+  quickCheck!(testBeziota!(double, 4))(config);
 }
 
 void cartesianBezierWalker(T, size_t K)(

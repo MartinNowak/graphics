@@ -54,32 +54,36 @@ class ComparableClass {
 }
 
 void runClampToRange() {
-  quickCheck!(checkClampToRange!float, count(1_000))();
-  quickCheck!(checkClampToRange!real, count(1_000))();
-  quickCheck!(checkClampToRange!byte, count(1_000))();
-  quickCheck!(checkClampToRange!ushort, count(1_000))();
-  quickCheck!(checkClampToRange!bool, count(20))();
-  quickCheck!(checkClampToRange!Comparable, count(1_000))();
-  quickCheck!(checkClampToRange!ComparableClass, count(1_000))();
+  Config config = { maxSuccess : 1000 };
+
+  quickCheck!(checkClampToRange!float)(config);
+  quickCheck!(checkClampToRange!real)(config);
+  quickCheck!(checkClampToRange!byte)(config);
+  quickCheck!(checkClampToRange!ushort)(config);
+  quickCheck!(checkClampToRange!bool)(config);
+  quickCheck!(checkClampToRange!Comparable)(config);
+  quickCheck!(checkClampToRange!ComparableClass)(config);
 }
 void runFitsIntoRange() {
-  quickCheck!(checkFitsIntoRange!float, count(1_000))();
-  quickCheck!(checkFitsIntoRange!real, count(1_000))();
-  quickCheck!(checkFitsIntoRange!byte, count(1_000))();
-  quickCheck!(checkFitsIntoRange!ushort, count(1_000))();
-  quickCheck!(checkFitsIntoRange!bool, count(20))();
-  quickCheck!(checkFitsIntoRange!Comparable, count(1_000))();
-  quickCheck!(checkFitsIntoRange!ComparableClass, count(1_000))();
+  Config config = { maxSuccess : 1000 };
+
+  quickCheck!(checkFitsIntoRange!float)(config);
+  quickCheck!(checkFitsIntoRange!real)(config);
+  quickCheck!(checkFitsIntoRange!byte)(config);
+  quickCheck!(checkFitsIntoRange!ushort)(config);
+  quickCheck!(checkFitsIntoRange!bool)(config);
+  quickCheck!(checkFitsIntoRange!Comparable)(config);
+  quickCheck!(checkFitsIntoRange!ComparableClass)(config);
 }
 QCheckResult checkTruncate(T)(T f) {
   return stdMathTruncate(f) == SSETruncate(f) ?
     QCheckResult.Ok : QCheckResult.Fail;
 }
 void runTruncate() {
-  quickCheck!(checkTruncate!float, count(10_000),
-              minValue(int.min), maxValue(int.max))();
-  quickCheck!(checkTruncate!double, count(10_000),
-              minValue(int.min), maxValue(int.max))();
+  Config config = { maxSuccess : 10_000, minValue : int.min, maxValue : int.max, };
+
+  quickCheck!(checkTruncate!float)(config);
+  quickCheck!(checkTruncate!double)(config);
 }
 unittest {
   runClampToRange();

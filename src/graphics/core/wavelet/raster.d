@@ -7,7 +7,6 @@ import graphics.math.clamp, graphics.math.rounding, graphics.util.format, graphi
   graphics.core.edge_detail.algo, graphics.core.path, graphics.core.blitter,
   graphics.core.matrix, graphics.math.fixed_ary, graphics.bezier.cartesian;
 import guip.bitmap, guip.point, guip.rect, guip.size;
-import qcheck._;
 
 // version=DebugNoise;
 // version=StackStats;

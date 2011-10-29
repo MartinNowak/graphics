@@ -201,10 +201,15 @@ template paramTuple(TL...) {
 
 template verification(T) {
   bool run() {
-    alias paramTuple!(Policies.RandomizeMembers, count(1_000), minValue(0), maxValue(5)) params;
-    return quickCheck!(verifyLines!T, lineMaker!T, params)() &&
-      quickCheck!(verifyQuads!T, quadMaker!T, params)() &&
-      quickCheck!(verifyCubics!T, cubicMaker!T, params)();
+    Config config;
+    config.maxSuccess = 1000;
+    config.randomizeFields = true;
+    config.minValue = 0;
+    config.maxValue = 5;
+
+    return quickCheck!(verifyLines!T, lineMaker!T)(config) &&
+        quickCheck!(verifyQuads!T, quadMaker!T)(config) &&
+        quickCheck!(verifyCubics!T, cubicMaker!T)(config);
   }
 }
 
