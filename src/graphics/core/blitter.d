@@ -13,7 +13,6 @@ private {
 
   import guip.bitmap;
   import graphics.core.pmcolor;
-  import graphics.core.device;
   import graphics.core.matrix;
   import graphics.core.paint;
   import graphics.core.pmcolor;

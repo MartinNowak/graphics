@@ -5,7 +5,6 @@ private {
   import guip.bitmap;
   import graphics.core.blitter;
   import graphics.core.pmcolor;
-  import graphics.core.device;
   import graphics.core.glyph;
   import graphics.core.matrix;
   import graphics.core.paint;
@@ -29,7 +28,6 @@ public:
   Bitmap bitmap;
   Matrix matrix;
   IRect clip;
-  Device device;
   // DrawProcs drawProcs;
 
   this(Bitmap bitmap) {

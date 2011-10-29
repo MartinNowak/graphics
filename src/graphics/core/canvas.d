@@ -3,7 +3,6 @@ module graphics.core.canvas;
 private {
   import guip.bitmap;
   import graphics.core.pmcolor;
-  import graphics.core.device;
   import graphics.core.draw;
   import graphics.core.drawfilter;
   import graphics.core.drawlooper;
@@ -47,8 +46,7 @@ enum PointMode
     etc.
 */
 class Canvas {
-  DeviceFactory deviceFactory;
-  Device device;
+  Bitmap _bitmap;
   DrawFilter drawFilter;
   MCRec[] mcRecs;
   bool deviceCMClean;
@@ -65,19 +63,14 @@ class Canvas {
   }
 
 public:
-  /** Construct a canvas with the specified device to draw into.  The device
-    * factory will be retrieved from the passed device.
+  /** Construct a canvas with the specified device to draw into.
     * Params:
-    *     device   Specifies a device for the canvas to draw into.
-  */
+    *     bitmap   Specifies the bitmap for the canvas to draw into.
+    */
   this(Bitmap bitmap) {
-    this(new Device(bitmap));
-  }
-
-  this(Device device) {
     this.mcRecs ~= MCRec();
+    this.bitmap = bitmap;
     this.resetMatrix();
-    this.setDevice(device);
   }
 
   @property Matrix curMatrix() const {
@@ -87,13 +80,17 @@ public:
     return this.mcRecs.length;
   }
 
-  void setDevice(Device device) {
-    this.device = device;
-    auto bounds = device ? device.bounds : IRect();
+  void bitmap(Bitmap bitmap) {
+    this._bitmap = bitmap;
+    auto bounds = bitmap.bounds;
     foreach(ref mcRec; this.mcRecs) {
       mcRec.clip.intersect(bounds);
     }
     this.curMCRec.clip = bounds;
+  }
+
+  private Bitmap bitmap() {
+    return this._bitmap;
   }
 
   void setMatrix(in Matrix matrix) {
@@ -333,7 +330,7 @@ public:
     int opApply(DrawIterDg dg) {
       int res = 0;
       do {
-        auto draw = Draw(this.outer.device.accessBitmap(),
+        auto draw = Draw(this.outer.bitmap,
           this.outer.curMCRec.matrix, this.outer.curMCRec.clip);
         // TODO: implement DrawIter here
         res = dg(draw);
