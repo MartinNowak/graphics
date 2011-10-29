@@ -53,18 +53,27 @@ Path randomPath(Path.Verb[] verbs, FPoint[] pts) {
   return path;
 }
 
-QCheckResult benchPathToWavelet(Path path) {
-  if (path.empty)
-    return QCheckResult.Discard;
-  auto wr = pathToWavelet(path, path.ibounds);
-  return QCheckResult.Ok;
+Path path;
+static this()
+{
+  auto config = Config().maxSuccess(20).minValue(0).maxValue(1024).maxSize(500);
+  randomSeed = 1;
+
+  do
+      path = getArbitrary!(Path, randomPath)(config);
+  while (path.empty);
 }
 
-QCheckResult benchPathToBlit(Path path) {
-  if (path.empty)
-    return QCheckResult.Discard;
+void benchPathToWavelet()
+{
+  pathToWavelet(path, path.ibounds);
+  //  quickCheck!(benchPathToBlit, randomPath)(config);
+}
+
+void benchPathToBlit()
+{
   auto clip = path.ibounds;
-  auto wr = pathToWavelet(path, path.ibounds);
+  auto wr = pathToWavelet(path, clip);
   auto topLeft = wr.clipRect.pos;
 
   void dummyBlit(int y, int xstart, int xend, ubyte alpha) {
@@ -75,16 +84,9 @@ QCheckResult benchPathToBlit(Path path) {
 
   writeNodeToGrid!(dummyBlit)(
       wr.root, wr.rootConst, topLeft, 1<< wr.depth);
-  return QCheckResult.Ok;
 }
 
-/**
- *
- */
 void runWavelet(BenchmarkReporter reporter) {
-  auto config = Config().maxSuccess(20).minValue(0).maxValue(1024).maxSize(500);
-  randomSeed = 1;
-
-  quickCheck!(benchPathToWavelet, randomPath)(config);
-  //  quickCheck!(benchPathToBlit, randomPath)(config);
+  reporter.bench!(benchPathToWavelet)();
+  reporter.bench!(benchPathToBlit)();
 }
