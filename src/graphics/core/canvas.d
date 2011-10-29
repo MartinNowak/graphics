@@ -4,8 +4,6 @@ private {
   import guip.bitmap;
   import graphics.core.pmcolor;
   import graphics.core.draw;
-  import graphics.core.drawfilter;
-  import graphics.core.drawlooper;
   import graphics.core.matrix;
   import graphics.core.paint;
   import graphics.core.path;
@@ -47,7 +45,6 @@ enum PointMode
 */
 class Canvas {
   Bitmap _bitmap;
-  DrawFilter drawFilter;
   MCRec[] mcRecs;
   bool deviceCMClean;
 
@@ -103,19 +100,13 @@ public:
     this.setMatrix(Matrix.identityMatrix());
   }
 
-  void setDrawFilter(DrawFilter filter) {
-    this.drawFilter = filter;
-  }
-
   /****************************************
    * Draw functions
    */
   void drawPaint(Paint paint) {
     assert(!paint.antiAlias, "Check you're paint");
-    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Paint);
-    foreach(ref draw; cycle) {
-      draw.drawPaint(paint);
-    }
+    auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
+    draw.drawPaint(paint);
   }
 
   void drawColor(in Color c) {
@@ -131,10 +122,8 @@ public:
 
   void drawPath(in Path path, Paint paint) {
     // TODO: quickReject
-    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Path);
-    foreach(ref draw; cycle) {
-      draw.drawPath(path, paint);
-    }
+    auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
+    draw.drawPath(path, paint);
   }
 
   /**
@@ -142,17 +131,13 @@ public:
    */
   void drawBitmap(in Bitmap bitmap, Paint paint) {
     //! TODO: quickReject
-    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Bitmap);
-    foreach(ref draw; cycle) {
-      draw.drawBitmap(bitmap, paint);
-    }
+    auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
+    draw.drawBitmap(bitmap, paint);
   }
 
   void drawRect(in FRect rect, Paint paint) {
-    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Path);
-    foreach(ref draw; cycle) {
-      draw.drawRect(rect, paint);
-    }
+    auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
+    draw.drawRect(rect, paint);
   }
   void drawRect(in IRect rect, Paint paint) {
     drawRect(fRect(rect), paint);
@@ -197,26 +182,20 @@ public:
     return this.drawText(text, FPoint(x, y), paint);
   }
   void drawText(string text, FPoint pt, TextPaint paint) {
-    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
-    foreach(ref draw; cycle) {
-      draw.drawText(text, pt, paint);
-    }
+    auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
+    draw.drawText(text, pt, paint);
   }
   final void drawText(string text, IPoint pt, TextPaint paint) {
     return this.drawText(text, fPoint(pt), paint);
   }
 
   void drawTextAsPaths(string text, FPoint pt, TextPaint paint) {
-    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
-    foreach(ref draw; cycle) {
-      draw.drawTextAsPaths(text, pt, paint);
-    }
+    auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
+    draw.drawTextAsPaths(text, pt, paint);
   }
   void drawTextOnPath(string text, in Path path, TextPaint paint) {
-    scope auto cycle = new DrawCycle(paint, DrawFilter.Type.Text);
-    foreach(ref draw; cycle) {
-      draw.drawTextOnPath(text, path, paint);
-    }
+    auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
+    draw.drawTextOnPath(text, path, paint);
   }
 
   bool quickReject(in IRect rect, EdgeType et) const {
@@ -303,141 +282,13 @@ public:
   debug(WHITEBOX) auto opDispatch(string m, Args...)(Args a) {
     throw new Exception("Unimplemented method "~m);
   }
-
-  private class DrawCycle {
-    Paint paint;
-    DrawLooper drawLooper;
-    DrawFilter.Type type;
-    bool needFilterRestore;
-
-    this(Paint paint, DrawFilter.Type type) {
-      this.type = type;
-      this.paint = paint;
-      if (paint.drawLooper) {
-        this.drawLooper = paint.drawLooper;
-        this.drawLooper.init(this.outer, paint);
-      }
-    }
-
-    ~this() {
-      this.restoreFilter();
-      if (this.drawLooper) {
-        this.drawLooper.restore();
-      }
-    }
-
-    alias int delegate(ref Draw) DrawIterDg;
-    int opApply(DrawIterDg dg) {
-      int res = 0;
-      do {
-        auto draw = Draw(this.outer.bitmap,
-          this.outer.curMCRec.matrix, this.outer.curMCRec.clip);
-        // TODO: implement DrawIter here
-        res = dg(draw);
-      } while (res == 0 && this.drawAgain());
-      return res;
-    }
-
-  private:
-
-    bool drawAgain() {
-      this.restoreFilter();
-
-      return this.drawLooper !is null
-        && this.drawLooper.drawAgain()
-        && this.doFilter();
-    }
-
-    bool doFilter() {
-      bool repeatDraw;
-      if (this.outer.drawFilter) {
-        repeatDraw = this.outer.drawFilter.filter(
-          this.outer, this.paint, this.type);
-        this.needFilterRestore = repeatDraw;
-      }
-      return repeatDraw;
-    }
-    void restoreFilter() {
-      if (this.needFilterRestore) {
-        assert(this.outer.drawFilter);
-        this.outer.drawFilter.restore(
-          this.outer, this.paint, this.type);
-        this.needFilterRestore = false;
-      }
-    }
-  }
-};
+}
 
 struct MCRec {
-  this(in Matrix matrix, in IRect clip, DrawFilter filter = null) {
+  this(in Matrix matrix, in IRect clip) {
     this.matrix = matrix;
     this.clip = clip;
-    this.filter = filter;
   }
   Matrix matrix;
   IRect clip;
-  DrawFilter filter;
 }
-
-struct AutoDrawLooper {
-  DrawFilter filter;
-  DrawLooper drawLooper;
-  Canvas     canvas;
-  Paint      paint;
-  DrawFilter.Type type;
-  bool        once;
-  bool        needFilterRestore;
-
-public:
-  this(Canvas canvas, Paint paint, DrawFilter.Type type) {
-    this.canvas = canvas;
-    this.paint = paint;
-    this.type = type;
-    this.drawLooper = paint.drawLooper;
-    if (this.drawLooper)
-      paint.drawLooper.init(canvas, paint);
-    else
-      this.once = true;
-    this.filter = canvas.drawFilter;
-    this.needFilterRestore = false;
-  }
-
-  ~this() {
-    this.restoreFilter();
-    if (this.drawLooper) {
-      this.drawLooper.restore();
-    }
-  }
-
-  bool drawAgain() {
-    // if we drew earlier with a filter, then we need to restore first
-    this.restoreFilter();
-
-    bool result;
-
-    if (this.drawLooper) {
-      result = this.drawLooper.drawAgain();
-    } else {
-      result = this.once;
-      this.once = false;
-    }
-
-    // if we're gonna draw, give the filter a chance to do its work
-    if (result && this.filter) {
-      auto continueDrawing = this.filter.filter(
-        this.canvas, this.paint, this.type);
-      this.needFilterRestore = result = continueDrawing;
-    }
-    return result;
-  }
-
-private:
-
-  void restoreFilter() {
-    if (this.needFilterRestore) {
-      assert(this.filter);
-      this.filter.restore(this.canvas, this.paint, this.type);
-      this.needFilterRestore = false;
-    }
-  }
-};

@@ -1,12 +1,10 @@
 module graphics.core.paint;
 
 private {
-  import std.array : appender;
   import std.bitmanip;
-  import std.format : formattedWrite;
+  import std.string;
 
   import graphics.core.pmcolor;
-  import graphics.core.drawlooper;
   import graphics.core.path;
   import graphics.core.patheffect;
   import graphics.core.shader;
@@ -28,7 +26,6 @@ class Paint
   Color color;
   float strokeWidth=0.0f;
 
-  DrawLooper drawLooper;
   XferMode xferMode;
   PathEffect pathEffect;
   Shader shader;
@@ -54,11 +51,8 @@ class Paint
   }
 
   override @property string toString() const {
-    auto writer = appender!string();
-    auto fmt = "Paint aa: %s fillStyle: %s color: %col looper: %s";
-    formattedWrite(writer, fmt, this.antiAlias, this.fillStyle,
-                   this.color, this.drawLooper);
-    return writer.data;
+    return std.string.format("Paint aa: %s fillStyle: %s color: %col",
+                             this.antiAlias, this.fillStyle, this.color);
   }
 
   Path getFillPath(in Path src, out bool doFill) const {
