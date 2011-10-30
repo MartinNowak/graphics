@@ -125,7 +125,7 @@ public:
   @property Matrix inverted() const {
     // TODO: matrix inversion code missing
     auto scale = inverseDeterminant();
-    enforce(scale != 0.0, "Matrix determinant underflow");
+    enforce(isFinite(scale), "Matrix determinant underflow");
     Matrix res;
     if (this.perspective) {
       res[0][0] = scale * (this[1][1] * this[2][2]  - this[1][2] * this[2][1]);
@@ -166,8 +166,7 @@ public:
   }
 
   private real inverseDeterminant() const {
-    real det = this.determinant();
-    return abs(det) < 1e-5 ? 0.0 : 1.0 / det;
+    return 1.0 / this.determinant();
   }
 
   private real determinant() const {
