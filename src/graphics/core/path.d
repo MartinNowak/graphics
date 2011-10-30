@@ -14,7 +14,6 @@ private {
   import graphics.bezier.chop;
   import graphics.core.path_detail._;
   import guip.rect;
-  import graphics.math.fixed_ary;
 }
 
 public import graphics.core.path_detail._ : QuadCubicFlattener;
@@ -540,57 +539,34 @@ public:
     return res;
   }
 
-  void transform(in Matrix matrix) {
-    if (matrix.perspective) {
-      Path tmp;
-      //! Bezier curves are only invariant to affine transformations.
-      void iterate(Verb verb, in FPoint[] pts) {
-        final switch (verb) {
-        case Verb.Move:
-          tmp.moveTo(pts[0]);
-          break;
-        case Verb.Line:
-          tmp.lineTo(pts[1]);
-          break;
-        case Verb.Quad:
-          subdivide(tmp, fixedAry!3(pts), verb);
-          break;
-        case Verb.Cubic:
-          subdivide(tmp, fixedAry!4(pts), verb);
-          break;
-        case Verb.Close:
-          tmp.close();
-          break;
-        }
-      }
-      this.forEach(&iterate);
-      matrix.mapPoints(tmp._points.data);
-      this = tmp;
-    } else {
-      if (matrix.rectStaysRect && this.points.length > 1) {
-        FRect mapped;
-        matrix.mapRect(this.bounds, mapped);
-        this._bounds = mapped;
-      } else {
-        this.boundsIsClean = false;
-      }
+    void transform(in Matrix matrix)
+    {
+        if (matrix.perspective)
+        {
+            Path tmp;
+            tmp._verbs.reserve(this._verbs.data.length);
+            tmp._points.reserve(this._points.data.length);
 
-      matrix.mapPoints(this._points.data);
+            this.forEach!(QuadCubicFlattener)(
+                (Verb verb, in FPoint[] pts) { tmp._verbs.put(verb); tmp._points.put(pts); }
+            );
+            this = tmp;
+        }
+        else
+        {
+            if (matrix.rectStaysRect && this.points.length > 1)
+            {
+                FRect mapped;
+                matrix.mapRect(this.bounds, mapped);
+                this._bounds = mapped;
+            }
+            else
+            {
+                this.boundsIsClean = false;
+            }
+        }
+        matrix.mapPoints(this._points.data);
     }
-  }
-  static void subdivide(size_t K)(ref Path path, in FPoint[K] pts,
-                               size_t subLevel=K) if (K==3 || K==4) {
-    if (subLevel-- > 0) {
-      auto split = splitBezier(pts, 0.5f);
-      subdivide(path, split[0], subLevel);
-      subdivide(path, split[1], subLevel);
-    } else {
-      static if (K == 3)
-        path.quadTo(pts[1], pts[2]);
-      else
-        path.cubicTo(pts[1], pts[2], pts[3]);
-    }
-  }
 
   debug(WHITEBOX) private auto opDispatch(string m, Args...)(Args a) {
     throw new Exception("Unimplemented property "~m);

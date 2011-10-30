@@ -1,12 +1,10 @@
 module graphics.core.wavelet.raster;
 
-import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.random, std.string, std.typecons;
-import std.datetime : benchmark, StopWatch;
-import std.metastrings;
+import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.metastrings,
+    std.random, std.string, std.typecons, std.c.string;
 import std.allocators.region;
 import graphics.math.clamp, graphics.math.rounding, graphics.bezier.chop,
-  graphics.core.path, graphics.core.blitter,
-  graphics.core.matrix, graphics.math.fixed_ary, graphics.bezier.cartesian;
+    graphics.core.path, graphics.core.blitter, graphics.core.matrix, graphics.bezier.cartesian;
 import guip.bitmap, guip.point, guip.rect, guip.size;
 
 // version=DebugNoise;
@@ -247,26 +245,37 @@ void blitEdges(in Path path, IRect clip, Blitter blitter, int ystart, int yend) 
       wr.root, wr.rootConst, topLeft, 1<< wr.depth);
 }
 
-WaveletRaster pathToWavelet(in Path path, IRect clip) {
-  auto ir = path.ibounds;
-  if (!ir.intersect(clip))
-    return WaveletRaster.init;
-  WaveletRaster wr = WaveletRaster(ir);
+WaveletRaster pathToWavelet(in Path path, IRect clip)
+{
+    auto ir = path.ibounds;
+    if (!ir.intersect(clip))
+        return WaveletRaster.init;
+    WaveletRaster wr = WaveletRaster(ir);
 
-  path.forEach((Path.Verb verb, in FPoint[] pts) {
-      final switch(verb) {
-      case Path.Verb.Move, Path.Verb.Close:
-        break;
-      case Path.Verb.Line:
-        wr.insertEdge(fixedAry!2(pts));
-        break;
-      case Path.Verb.Quad:
-        wr.insertEdge(fixedAry!3(pts));
-        break;
-      case Path.Verb.Cubic:
-        wr.insertEdge(fixedAry!4(pts));
-        break;
-      }
+    path.forEach((Path.Verb verb, in FPoint[] pts)
+    {
+        final switch(verb)
+        {
+        case Path.Verb.Move:
+        case Path.Verb.Close:
+            break;
+
+        case Path.Verb.Line:
+            FPoint[2] fpts = void;
+            memcpy(fpts.ptr, pts.ptr, 2 * FPoint.sizeof);
+            wr.insertEdge(fpts);
+            break;
+        case Path.Verb.Quad:
+            FPoint[3] fpts = void;
+            memcpy(fpts.ptr, pts.ptr, 3 * FPoint.sizeof);
+            wr.insertEdge(fpts);
+            break;
+        case Path.Verb.Cubic:
+            FPoint[4] fpts = void;
+            memcpy(fpts.ptr, pts.ptr, 4 * FPoint.sizeof);
+            wr.insertEdge(fpts);
+            break;
+        }
     });
-  return wr;
+    return wr;
 }

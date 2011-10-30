@@ -16,8 +16,6 @@ private {
   import guip.rect;
   import guip.size;
   import Scan = graphics.core.scan;
-
-  import graphics.math.fixed_ary;
 }
 
 // debug=PRINTF;
@@ -209,53 +207,61 @@ public:
     }
   }
 
-  private Path morphPath(in Path path, in PathMeasure meas, in Matrix matrix) {
-    Path dst;
+    private Path morphPath(in Path path, in PathMeasure meas, in Matrix matrix)
+    {
+        Path dst;
 
-    path.forEach((Path.Verb verb, in FPoint[] pts) {
-        final switch(verb) {
-        case Path.Verb.Move:
-          FPoint[1] mpts = morphPoints(fixedAry!1(pts), meas, matrix);
-          dst.moveTo(mpts[0]);
-          break;
+        path.forEach((Path.Verb verb, in FPoint[] pts)
+        {
+            final switch(verb)
+            {
+            case Path.Verb.Move:
+                FPoint[1] mpts = void;
+                mpts[0] = pts[0];
+                morphPoints(mpts, meas, matrix);
+                dst.moveTo(mpts[0]);
+                break;
 
-        case Path.Verb.Line:
-          //! use quad to allow curvature
-          FPoint[2] mpts = fixedAry!2(pts);
-          mpts[0] = (mpts[0] + mpts[1]) * 0.5f;
-          mpts = morphPoints(mpts, meas, matrix);
-          dst.quadTo(mpts[0], mpts[1]);
-          break;
+            case Path.Verb.Line:
+                //! use quad to allow curvature
+                FPoint[2] mpts = void;
+                mpts[0] = (pts[0] + pts[1]) * 0.5f;
+                mpts[1] = pts[1];
+                morphPoints(mpts, meas, matrix);
+                dst.quadTo(mpts[0], mpts[1]);
+                break;
 
-        case Path.Verb.Quad:
-          FPoint[2] mpts = morphPoints(fixedAry!2(pts[1..$]), meas, matrix);
-          dst.quadTo(mpts[0], mpts[1]);
-          break;
+            case Path.Verb.Quad:
+                FPoint[2] mpts = void;
+                memcpy(mpts.ptr, pts.ptr, 2 * FPoint.sizeof);
+                morphPoints(mpts, meas, matrix);
+                dst.quadTo(mpts[0], mpts[1]);
+                break;
 
-        case Path.Verb.Cubic:
-          FPoint[3] mpts = morphPoints(fixedAry!3(pts[1..$]), meas, matrix);
-          dst.cubicTo(mpts[0], mpts[1], mpts[2]);
-          break;
+            case Path.Verb.Cubic:
+                FPoint[3] mpts = void;
+                memcpy(mpts.ptr, pts.ptr, 3 * FPoint.sizeof);
+                morphPoints(mpts, meas, matrix);
+                dst.cubicTo(mpts[0], mpts[1], mpts[2]);
+                break;
 
-        case Path.Verb.Close:
-          dst.close();
-          break;
-        }
-      });
-    return dst;
-  }
-
-  private FPoint[K] morphPoints(size_t K)(FPoint[K] pts, in PathMeasure meas, in Matrix matrix) {
-    FPoint[K] dst;
-    FPoint[K] trans = pts;
-
-    matrix.mapPoints(trans);
-
-    for (auto i = 0; i < K; ++i) {
-      FVector normal;
-      auto pos = meas.getPosAndNormalAtDistance(trans[i].x, normal);
-      dst[i] = pos - normal * trans[i].y;
+            case Path.Verb.Close:
+                dst.close();
+                break;
+            }
+        });
+        return dst;
     }
-    return dst;
-  }
+
+    private void morphPoints(size_t K)(ref FPoint[K] pts, in PathMeasure meas, in Matrix matrix)
+    {
+        matrix.mapPoints(pts);
+
+        for (size_t i = 0; i < K; ++i)
+        {
+            FVector normal;
+            auto pos = meas.getPosAndNormalAtDistance(pts[i].x, normal);
+            pts[i] = pos - normal * pts[i].y;
+        }
+    }
 };

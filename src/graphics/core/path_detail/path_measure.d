@@ -1,8 +1,7 @@
 module graphics.core.path_detail.path_measure;
 
-import std.array, std.algorithm, std.range : assumeSorted;
-import graphics.bezier.chop, graphics.bezier.curve, graphics.core.path, graphics.bezier.curve,
-  graphics.math.fixed_ary, graphics.math.clamp;
+import std.array, std.algorithm, std.range, std.c.string;
+import graphics.bezier.chop, graphics.bezier.curve, graphics.core.path, graphics.bezier.curve, graphics.math.clamp;
 import guip.point;
 
 struct PathMeasure {
@@ -124,8 +123,9 @@ private:
     return cast(const(Segment[]))(cast(Appender!(Segment[]))this.segments).data;
   }
 
-  void buildSegments(in Path path) {
-    path.forEach!(QuadCubicFlattener)((Path.Verb verb, in FPoint[] pts){
+    void buildSegments(in Path path)
+    {
+        path.forEach!(QuadCubicFlattener)((Path.Verb verb, in FPoint[] pts){
         final switch(verb) {
         case Path.Verb.Move:
           this.segments.put(getSegment(this.curDist, this.points.length));
@@ -133,19 +133,19 @@ private:
           break;
 
         case Path.Verb.Line:
-          auto dist = this.curDist + curveLength(fixedAry!2(pts));
+          auto dist = this.curDist + curveLength!2(pts);
           this.segments.put(getSegment(dist, this.points.length - 1));
           this.lineTo(pts[1]);
           break;
 
         case Path.Verb.Quad:
-          auto dist = this.curDist + curveLength(fixedAry!3(pts));
+          auto dist = this.curDist + curveLength!3(pts);
           this.segments.put(getSegment(dist, this.points.length - 1));
           this.quadTo(pts[1], pts[2]);
           break;
 
         case Path.Verb.Cubic:
-          auto dist = this.curDist + curveLength(fixedAry!4(pts));
+          auto dist = this.curDist + curveLength!4(pts);
           this.segments.put(getSegment(dist, this.points.length - 1));
           this.cubicTo(pts[1], pts[2], pts[3]);
           break;
@@ -158,52 +158,66 @@ private:
     assert(this.verbs.length == this.segments.data.length);
   }
 
-  static float curveLength(size_t K)(FPoint[K] pts)
-  {
-    return distance(pts.front, pts.back);
-  }
-
-  FPoint calcPos(in Segment segment, Path.Verb verb, float t) const {
-    switch (verb) {
-    case Path.Verb.Line:
-      auto pts = fixedAry!2(this.points[segment.pointIndex .. segment.pointIndex + 2]);
-      return evalBezier(pts, t);
-    case Path.Verb.Quad:
-      auto pts = fixedAry!3(this.points[segment.pointIndex .. segment.pointIndex + 3]);
-      return evalBezier(pts, t);
-    case Path.Verb.Cubic:
-      auto pts = fixedAry!4(this.points[segment.pointIndex .. segment.pointIndex + 4]);
-      return evalBezier(pts, t);
-    default:
-      assert(0, to!string(verb));
+    static float curveLength(size_t K)(in FPoint[] pts)
+    {
+        assert(pts.length >= K);
+        return distance(pts[0], pts[K-1]);
     }
-  }
 
-  FVector calcNormal(in Segment segment, Path.Verb verb, float t) const {
-    FVector normal;
-    switch (verb) {
-    case Path.Verb.Line:
-      auto pts = fixedAry!2(this.points[segment.pointIndex .. segment.pointIndex + 2]);
-      normal.setNormalize(evalBezierDer(pts, t));
-      break;
-    case Path.Verb.Quad:
-      auto pts = fixedAry!3(this.points[segment.pointIndex .. segment.pointIndex + 3]);
-      normal.setNormalize(evalBezierDer(pts, t));
-      break;
-    case Path.Verb.Cubic:
-      auto pts = fixedAry!4(this.points[segment.pointIndex .. segment.pointIndex + 4]);
-      normal.setNormalize(evalBezierDer(pts, t));
-      break;
-    default:
-      assert(0, to!string(verb));
+    FPoint calcPos(in Segment segment, Path.Verb verb, float t) const
+    {
+        switch (verb)
+        {
+        case Path.Verb.Line:
+            FPoint[2] pts = void;
+            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 2 * FPoint.sizeof);
+            return evalBezier(pts, t);
+        case Path.Verb.Quad:
+            FPoint[3] pts = void;
+            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 3 * FPoint.sizeof);
+            return evalBezier(pts, t);
+        case Path.Verb.Cubic:
+            FPoint[4] pts = void;
+            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 4 * FPoint.sizeof);
+            return evalBezier(pts, t);
+
+        default:
+            assert(0);
+        }
     }
-    normal.rotateCCW();
-    return normal;
-  }
 
-  @property float curDist() const {
-    return this.constSegments.length ? this.constSegments[$ - 1].distance : 0.0f;
-  }
+    FVector calcNormal(in Segment segment, Path.Verb verb, float t) const
+    {
+        FVector normal;
+        switch (verb)
+        {
+        case Path.Verb.Line:
+            FPoint[2] pts = void;
+            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 2 * FPoint.sizeof);
+            normal.setNormalize(evalBezierDer(pts, t));
+            break;
+        case Path.Verb.Quad:
+            FPoint[3] pts = void;
+            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 3 * FPoint.sizeof);
+            normal.setNormalize(evalBezierDer(pts, t));
+            break;
+        case Path.Verb.Cubic:
+            FPoint[4] pts = void;
+            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 4 * FPoint.sizeof);
+            normal.setNormalize(evalBezierDer(pts, t));
+            break;
+
+        default:
+            assert(0);
+        }
+        normal.rotateCCW();
+        return normal;
+    }
+
+    @property float curDist() const
+    {
+        return this.constSegments.length ? this.constSegments[$ - 1].distance : 0.0f;
+    }
 }
 
 private:
@@ -231,44 +245,72 @@ Segment distComparable(float dist) {
 }
 
 static void appendChopped(string interval="[]")(ref Appender!(FPoint[]) app, in FPoint[] pts, double startT, double stopT)
-in {
+in
+{
   assert(fitsIntoRange!("[]")(startT, 0.0, 1.0));
   assert(fitsIntoRange!("[]")(stopT, 0.0, 1.0));
   assert(stopT > startT);
-} body {
-  switch(pts.length) {
-  case 2: trimApp!(interval)(app, chopBezier(fixedAry!2(pts), startT, stopT)); break;
-  case 3: trimApp!(interval)(app, chopBezier(fixedAry!3(pts), startT, stopT)); break;
-  case 4: trimApp!(interval)(app, chopBezier(fixedAry!4(pts), startT, stopT)); break;
-  default: assert(0);
+}
+body
+{
+  switch(pts.length)
+  {
+  case 2:
+      FPoint[2] fpts = void;
+      memcpy(fpts.ptr, pts.ptr, 2 * FPoint.sizeof);
+      chopBezier(fpts, startT, stopT);
+      trimApp!(interval)(app, fpts);
+      break;
+
+  case 3:
+      FPoint[3] fpts = void;
+      memcpy(fpts.ptr, pts.ptr, 3 * FPoint.sizeof);
+      chopBezier(fpts, startT, stopT);
+      trimApp!(interval)(app, fpts);
+      break;
+
+  case 4:
+      FPoint[4] fpts = void;
+      memcpy(fpts.ptr, pts.ptr, 4 * FPoint.sizeof);
+      chopBezier(fpts, startT, stopT);
+      trimApp!(interval)(app, fpts);
+      break;
+
+  default:
+      assert(0);
   }
 }
 
-void trimApp(string interval, size_t K)(ref Appender!(FPoint[]) app, FPoint[K] pts) {
-  enum leftOff = intervalOffset(interval[0]);
-  enum rightOff = intervalOffset(interval[1]);
-  app.put(pts[leftOff .. $ - rightOff]);
+void trimApp(string interval, size_t K)(ref Appender!(FPoint[]) app, FPoint[K] pts)
+{
+    enum leftOff = intervalOffset(interval[0]);
+    enum rightOff = intervalOffset(interval[1]);
+    app.put(pts[leftOff .. $ - rightOff]);
 }
 
-FPoint[K] chopBezier(size_t K)(FPoint[K] pts, double startT, double stopT) {
-  if (startT > 0.0)
-    pts = splitBezier(pts, startT)[1];
+void chopBezier(size_t K)(ref FPoint[K] pts, double startT, double stopT)
+{
+    FPoint[K] tmp = void;
+    if (startT > 0.0)
+        splitBezier(tmp, pts, startT);
 
-  if (startT > 0.0 && stopT < 1.0)
-    stopT = (stopT - startT) / (1.0 - startT);
+    if (startT > 0.0 && stopT < 1.0)
+        stopT = (stopT - startT) / (1.0 - startT);
 
-  if (stopT < 1.0)
-    pts = splitBezier(pts, stopT)[0];
-
-  return pts;
+    if (stopT < 1.0)
+    {
+        splitBezier(tmp, pts, stopT);
+        pts = tmp;
+    }
 }
 
-size_t intervalOffset(dchar c) {
-  switch (c) {
-  case '(': return 1;
-  case ')': return 1;
-  case '[': return 0;
-  case ']': return 0;
-  default: assert(0);
-  }
+size_t intervalOffset(dchar c)
+{
+    switch (c) {
+    case '(': return 1;
+    case ')': return 1;
+    case '[': return 0;
+    case ']': return 0;
+    default: assert(0);
+    }
 }
