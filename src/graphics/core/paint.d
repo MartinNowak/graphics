@@ -11,8 +11,6 @@ private {
   import graphics.core.stroke;
   import graphics.core.fonthost._;
 
-  import graphics.util.format;
-
   version(No_DefaultAntiAlias) {
     enum DefaultAntiAlias = false;
   } else {
@@ -133,7 +131,7 @@ class TextPaint : Paint {
 
   struct FontMetrics {
     @property string toString() const {
-      return fmtString(
+      return std.string.format(
           "FontMetrics top:%f ascent:%f descent:%f bottom:%f leading:%f \n" ~
           "\txmin:%f xmax:%f underlinePos:%f underlineThickness:%f",
           top, ascent, descent, bottom, leading,

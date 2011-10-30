@@ -1,7 +1,7 @@
 module graphics.core.glyph;
 
-import std.conv;
-import graphics.core.path, graphics.core.fonthost._, graphics.util.format;
+import std.conv, std.string;
+import graphics.core.path, graphics.core.fonthost._;
 import freetype.freetype, guip.bitmap, guip.point, guip.size;
 debug import std.stdio;
 
@@ -17,7 +17,7 @@ static float measureText(string text, GlyphCache cache) {
 struct Glyph {
 
   @property string toString() const {
-    return fmtString("Glyph bmpPos:%s adv:%s path:%s", bmpPos, advance, path.bounds);
+    return std.string.format("Glyph bmpPos:%s adv:%s path:%s", bmpPos, advance, path.bounds);
   }
 
   FPoint bmpPos;

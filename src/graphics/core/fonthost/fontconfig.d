@@ -1,9 +1,8 @@
 module graphics.core.fonthost.fontconfig;
 
-import std.bitmanip, std.conv, std.exception, std.traits, std.string : toStringz;
+import std.bitmanip, std.conv, std.exception, std.traits, std.string;
 import core.sync.mutex, core.atomic;
 import fontconfig.fontconfig;
-import graphics.util.format;
 
 //debug=PRINTF;
 debug(PRINTF) import std.stdio;
@@ -11,8 +10,8 @@ debug(PRINTF) import std.stdio;
 struct TypeFace {
 
   @property string toString() const {
-    return fmtString("TypeFace file:%s weigth:%s slant:%s fixedWidth:%s",
-                        filename, weight, slant, _fixedWidth);
+    return std.string.format("TypeFace file:%s weigth:%s slant:%s fixedWidth:%s",
+                             filename, weight, slant, _fixedWidth);
   }
 
   enum Weight { Thin, Light, Normal, Bold, Heavy }

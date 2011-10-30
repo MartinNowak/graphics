@@ -3,7 +3,7 @@ module graphics.bezier.cartesian;
 import guip.point, guip.rect, guip.size;
 import graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
 import std.algorithm, std.conv, std.exception, std.math, std.metastrings, std.range;
-import graphics.math.clamp, graphics.math.poly, graphics.util.format;
+import graphics.math.clamp, graphics.math.poly;
 import qcheck._;
 
 //debug=Illinois;

@@ -22,7 +22,6 @@ private {
   import graphics.core.scan : AAScale;
   import graphics.core.blitter_detail._;
 
-  import graphics.util.format;
   import graphics.math._;
 }
 

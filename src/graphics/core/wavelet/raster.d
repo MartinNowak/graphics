@@ -1,10 +1,10 @@
 module graphics.core.wavelet.raster;
 
-import std.algorithm, std.array, std.bitmanip, std.math, std.random, std.typecons, std.conv : to;
+import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.random, std.string, std.typecons;
 import std.datetime : benchmark, StopWatch;
 import std.metastrings;
 import std.allocators.region;
-import graphics.math.clamp, graphics.math.rounding, graphics.util.format, graphics.bezier.chop,
+import graphics.math.clamp, graphics.math.rounding, graphics.bezier.chop,
   graphics.core.path, graphics.core.blitter,
   graphics.core.matrix, graphics.math.fixed_ary, graphics.bezier.cartesian;
 import guip.bitmap, guip.point, guip.rect, guip.size;
@@ -28,10 +28,10 @@ version (calcCoeffs_C) {
 
 struct Node {
   @property string toString() const {
-    auto str = fmtString("Node coeffs:%s", coeffs);
+    auto str = std.string.format("Node coeffs:%s", coeffs);
     foreach(i; 0 .. 4)
       if (hasChild(i))
-        str ~= fmtString("\n%d:%s", i, children[i].toString());
+        str ~= std.string.format("\n%d:%s", i, children[i].toString());
     return str;
   }
 

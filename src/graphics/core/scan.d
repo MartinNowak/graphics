@@ -3,7 +3,7 @@ module graphics.core.scan;
 import std.algorithm, std.math, std.range;
 import graphics.core.blitter, graphics.core.blitter_detail.clipping_blitter,
     graphics.core.path, graphics.core.wavelet.raster,
-    graphics.math._, graphics.util.format;
+    graphics.math._;
 import guip.rect, guip.point;
 
 

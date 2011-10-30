@@ -2,7 +2,7 @@ module graphics.core.path_detail.path_measure;
 
 import std.array, std.algorithm, std.range : assumeSorted;
 import graphics.bezier.chop, graphics.bezier.curve, graphics.core.path, graphics.bezier.curve,
-  graphics.math.fixed_ary, graphics.math.clamp, graphics.util.format;
+  graphics.math.fixed_ary, graphics.math.clamp;
 import guip.point;
 
 struct PathMeasure {
