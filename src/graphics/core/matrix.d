@@ -247,8 +247,9 @@ public:
   }
 
   FPoint mapPoint(FPoint pt) const {
-    auto pts = [pt];
-    this.mapPoints(pts);
+    FPoint[1] pts = void;
+    pts[0] = pt;
+    this.mapPoints(pts[]);
     return pts[0];
   }
 
