@@ -10,7 +10,6 @@ private {
   //  pragma(build, benchmark);
 
   import benchmark.fill;
-  import benchmark.math;
   import benchmark.matrix;
   import benchmark.wavelet;
 }

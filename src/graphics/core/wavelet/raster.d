@@ -3,7 +3,7 @@ module graphics.core.wavelet.raster;
 import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.metastrings,
     std.random, std.string, std.typecons, std.c.string;
 import std.allocators.region;
-import graphics.math.clamp, graphics.math.rounding, graphics.bezier.chop,
+import graphics.math.clamp, graphics.bezier.chop,
     graphics.core.path, graphics.core.blitter, graphics.core.matrix, graphics.bezier.cartesian;
 import guip.bitmap, guip.point, guip.rect, guip.size;
 

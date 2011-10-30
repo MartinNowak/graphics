@@ -22,7 +22,7 @@ private {
   import graphics.core.scan : AAScale;
   import graphics.core.blitter_detail._;
 
-  import graphics.math._;
+  import graphics.math.clamp;
 }
 
 class Blitter
