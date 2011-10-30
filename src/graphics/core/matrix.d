@@ -9,7 +9,7 @@ private {
   import guip.rect;
   import guip.point;
   debug import std.stdio : writefln;
-  import Detail = graphics.core.matrix_detail._;
+  import Detail = graphics.core.matrix_detail.map_points;
 }
 
 // TODO: move matrix implementation into matrix_detail and leave an
