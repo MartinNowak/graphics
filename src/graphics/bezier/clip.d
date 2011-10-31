@@ -4,6 +4,78 @@ import graphics.bezier.chop, graphics.bezier.curve, graphics.math.clamp, graphic
 import guip.point, guip.rect;
 import std.algorithm, std.conv, std.exception, std.math, std.metastrings, std.numeric;
 
+/*
+ * Splits a bezier curve into monotonic segments and clip each one to
+ * fit into $(D_Param clip).  Calls ($D_Param dg) for each of these
+ * segments. Calls $(D_Param borderdg) for border segments connecting
+ * the monotone segments.
+ */
+void clippedMonotonic(T, size_t K)(
+    ref const Point!T[K] curve,
+    Rect!T clip,
+    scope void delegate(ref const Point!T[K] monoSeg) dg,
+    scope void delegate(ref const Point!T[2] line) borderdg)
+{
+    Point!T[K][1 + 2*(K-2)] monos = void;
+    auto monocnt = clipBezier(curve, clip, monos);
+
+    Point!T pos = curve[0];
+    for (size_t i = 0; i < monocnt; ++i)
+    {
+        if (pos != monos[i][0])
+            joinSegment(pos, monos[i][0], clip, borderdg);
+        dg(monos[i]);
+        pos = monos[i][$-1];
+    }
+    if (pos != curve[$-1])
+        joinSegment(pos, curve[$-1], clip, borderdg);
+}
+
+private void joinSegment(T)(Point!T a, Point!T b, Rect!T clip, scope void delegate(ref const Point!T[2]) dg)
+{
+    a.x = clampToRange(a.x, clip.left, clip.right);
+    a.y = clampToRange(a.y, clip.top, clip.bottom);
+    b.x = clampToRange(b.x, clip.left, clip.right);
+    b.y = clampToRange(b.y, clip.top, clip.bottom);
+    auto diff = b - a;
+    Point!T[2] line = void;
+    line[0] = a;
+    line[1] = a;
+
+    if (approxEqual(a.x, clip.left) || approxEqual(a.x, clip.right))
+    {
+        // y first
+        if (diff.y != 0)
+        {
+            line[1].y += diff.y;
+            dg(line);
+            line[0].y += diff.y;
+        }
+        if (diff.x != 0)
+        {
+            line[1].x += diff.x;
+            dg(line);
+            line[0].x += diff.x;
+        }
+    }
+    else
+    {
+        // x first
+        if (diff.x != 0)
+        {
+            line[1].x += diff.x;
+            dg(line);
+            line[0].x += diff.x;
+        }
+        if (diff.y != 0)
+        {
+            line[1].y += diff.y;
+            dg(line);
+            line[0].y += diff.y;
+        }
+    }
+}
+
 int clipBezier(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref const Rect!T rect, ref Point!T[K][MS] clipped) {
   auto monocnt = chopMonotonic(curve, clipped);
   uint clipcnt;

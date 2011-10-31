@@ -1,177 +1,254 @@
 module graphics.core.wavelet.raster;
 
 import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.metastrings,
-    std.random, std.string, std.typecons, std.c.string;
+    std.random, std.string, std.typecons, std.c.string, core.bitop;
 import std.allocators.region;
 import graphics.math.clamp, graphics.bezier.chop,
-    graphics.core.path, graphics.core.blitter, graphics.core.matrix, graphics.bezier.cartesian;
+    graphics.core.path, graphics.core.blitter, graphics.core.matrix, graphics.bezier.cartesian, graphics.bezier.clip;
 import guip.bitmap, guip.point, guip.rect, guip.size;
 
 // version=DebugNoise;
 // version=StackStats;
 // version=calcCoeffs_C;
 
-version (calcCoeffs_C) {
-  extern(C) {
-    void calcCoeffs_2(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
-    void calcCoeffs_3(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
-    void calcCoeffs_4(uint half, uint qidx, IPoint* pos, const FPoint* pts, float* coeffs);
-  }
-} else {
-  import graphics.core.wavelet.calc_coeffs;
-  alias calcCoeffs!2 calcCoeffs_2;
-  alias calcCoeffs!3 calcCoeffs_3;
-  alias calcCoeffs!4 calcCoeffs_4;
-}
-
-struct Node {
-  @property string toString() const {
-    auto str = std.string.format("Node coeffs:%s", coeffs);
-    foreach(i; 0 .. 4)
-      if (hasChild(i))
-        str ~= std.string.format("\n%d:%s", i, children[i].toString());
-    return str;
-  }
-
-  void insertEdge(size_t K)(IPoint pos, FPoint[K] pts, uint depth)
-  in {
-    fitsIntoRange!("[)")(pos.x, 0, 1 << depth);
-    fitsIntoRange!("[)")(pos.y, 0, 1 << depth);
-  } body {
-
-    auto node = &this;
-    for(;;) {
-
-      debug {
-        foreach(pt; pts)
-          assert(fitsIntoRange!("[]")(pt.x, -1e-1, (1<<depth+1)+1e-1)
-                 && fitsIntoRange!("[]")(pt.y, -1e-1, (1<<depth+1)+1e-1),
-                 to!string(pts) ~ "|" ~ to!string(depth));
-      }
-
-      const half = 1 << --depth;
-      const right = pos.x >= half;
-      const bottom = pos.y >= half;
-      const qidx = bottom << 1 | right;
-
-      version (calcCoeffs_C)
-        mixin(Format!(q{calcCoeffs_%s(half, qidx, &pos, pts.ptr, node.coeffs.ptr);}, K));
-      else
-        calcCoeffs!K(half, qidx, pos, pts, node.coeffs);
-
-      if (depth == 0)
-        break;
-      node = &node.getChild(qidx);
+version (calcCoeffs_C)
+{
+    extern(C)
+    {
+        void calcCoeffs_2(IPoint pos, uint half, const FPoint* pts, float* coeffs);
+        void calcCoeffs_3(IPoint pos, uint half, const FPoint* pts, float* coeffs);
+        void calcCoeffs_4(IPoint pos, uint half, const FPoint* pts, float* coeffs);
     }
-  }
+}
+else
+{
+    import graphics.core.wavelet.calc_coeffs;
+    alias calcCoeffs!2 calcCoeffs_2;
+    alias calcCoeffs!3 calcCoeffs_3;
+    alias calcCoeffs!4 calcCoeffs_4;
+}
 
-  ref Node getChild(uint idx) {
-    assert(children.length == 0 || children.length == 4 || children.length == 20);
+struct Node
+{
+    @property string toString() const
+    {
+        auto str = std.string.format("Node coeffs:%s", coeffs);
+        foreach(i; 0 .. 4)
+            if (hasChild(i))
+                str ~= std.string.format("\n%d:%s", i, children[i].toString());
+        return str;
+    }
 
-    if (_children is null)
-      _children = allocNodes();;
-    this.chmask |= (1 << idx);
-    return children[idx];
-  }
+    void insertEdge(size_t K)(IPoint pos, FPoint[K] pts, uint depth)
+    in
+    {
+        fitsIntoRange!("[)")(pos.x, 0, 1 << depth);
+        fitsIntoRange!("[)")(pos.y, 0, 1 << depth);
+    }
+    body
+    {
 
-  bool hasChild(uint idx) const {
-    return (this.chmask & (1 << idx)) != 0;
-  }
+        auto node = &this;
+        for(;;)
+        {
 
-  static Node[4]* allocNodes() {
-    auto res = cast(Node[4]*)ralloc.allocate(4 * Node.sizeof);
-    foreach(i; 0 .. 4)
-        res[i] = Node.init;
-    return res;
-  }
+            debug
+            {
+                foreach(pt; pts)
+                    assert(fitsIntoRange!("[]")(pt.x, -1e-1, (1<<depth+1)+1e-1)
+                           && fitsIntoRange!("[]")(pt.y, -1e-1, (1<<depth+1)+1e-1),
+                           to!string(pts) ~ "|" ~ to!string(depth));
+            }
 
-  static RegionAllocator ralloc;
+            const half = 1 << --depth;
+            const right = pos.x >= half;
+            const bottom = pos.y >= half;
+            const qidx = bottom << 1 | right;
 
-  static void initAllocator() {
-    ralloc = newRegionAllocator();
-  }
+            version (calcCoeffs_C)
+                mixin(Format!(q{calcCoeffs_%s(half, qidx, &pos, pts.ptr, node.coeffs.ptr);}, K));
+            else
+                calcCoeffs!K(half, qidx, pos, pts, node.coeffs);
 
-  static void freeAllocator() {
-    ralloc = RegionAllocator.init;
-  }
+            if (depth == 0)
+                break;
+            node = &node.getChild(qidx);
+        }
+    }
 
-  ref Node[4] children() { return *_children; }
-  ref const(Node[4]) children() const { return *_children; }
+    ref Node getChild(uint idx, ref RegionAllocator alloc)
+    {
+        if (_children is null)
+            _children = allocNodes(alloc);;
+        this.chmask |= (1 << idx);
+        return children[idx];
+    }
 
-  Node[4]* _children;
-  float[3] coeffs = 0.0f;
-  ubyte chmask;
+    bool hasChild(uint idx) const
+    {
+        return (this.chmask & (1 << idx)) != 0;
+    }
+
+    static Node[4]* allocNodes(ref RegionAllocator alloc)
+    {
+        auto res = cast(Node[4]*)alloc.allocate(4 * Node.sizeof);
+        foreach(i; 0 .. 4)
+            res[i] = Node.init;
+        return res;
+    }
+
+    ref Node[4] children() { return *_children; }
+    ref const(Node[4]) children() const { return *_children; }
+
+    Node[4]* _children;
+    float[3] coeffs = 0.0f;
+    ubyte chmask;
 }
 
 
-struct WaveletRaster {
-  this(IRect clipRect) {
-    this.depth = to!uint(ceil(log2(max(clipRect.width, clipRect.height))));
-    this.clipRect = clipRect;
-    Node.initAllocator();
-  }
+struct WaveletRaster
+{
+    this(IRect clipRect)
+    in
+    {
+        assert(!clipRect.empty);
+    }
+    body
+    {
+        immutable msz = max(clipRect.width, clipRect.height);
+        _depth = bsr(msz);
+        if (msz & (1 << _depth) - 1) // round up
+            ++_depth;
+        _clipRect = clipRect;
+        _ralloc = newRegionAllocator();
+        _tStack = _ralloc.newArray!(float[])(_depth);
+        _nodeStack = _ralloc.newArray!(Node*[])(_depth);
+        _nodeStack[0] = _ralloc.create!Node();
+    }
 
-  ~this() {
-    Node.freeAllocator();
-  }
+    void insertSlice2(ref const FPoint[2] slice)
+    {
+        if (_depth)
+            updateCoeffs(slice);
 
-    void insertSlice2(IPoint pos, ref FPoint[2] slice) {
-    this.rootConst += (1.f / (1 << this.depth) ^^ 2) * determinant(slice[0], slice[1]) / 2;
-    if (this.depth)
-      this.root.insertEdge(pos, slice, this.depth);
-  }
+        _rootConst += (1.f / (1 << _depth) ^^ 2) * determinant(slice[0], slice[1]) / 2;
+    }
 
-  void insertSlice3(IPoint pos, ref FPoint[3] slice) {
-    this.rootConst += (1.f / (6.f * (1 << this.depth) ^^ 2)) * (
-        2 * (determinant(slice[0], slice[1]) + determinant(slice[1], slice[2]))
-        + determinant(slice[0], slice[2]));
-    if (this.depth)
-      root.insertEdge(pos, slice, depth);
-  }
+    void insertSlice3(ref const FPoint[3] slice)
+    {
+        if (_depth)
+            updateCoeffs(slice);
 
-  void insertSlice4(IPoint pos, ref FPoint[4] slice) {
-    this.rootConst += (1.f / (20.f * (1 << this.depth) ^^ 2)) * (
-        6 * determinant(slice[0], slice[1]) + 3 * determinant(slice[1], slice[2])
-        + 6 * determinant(slice[2], slice[3]) + 3 * determinant(slice[0], slice[2])
-        + 3 * determinant(slice[1], slice[3]) + 1 * determinant(slice[0], slice[3])
-    );
-    if (this.depth)
-      root.insertEdge(pos, slice, this.depth);
-  };
+        _rootConst += (1.f / (6.f * (1 << _depth) ^^ 2)) * (
+            2 * (determinant(slice[0], slice[1]) + determinant(slice[1], slice[2]))
+            + determinant(slice[0], slice[2]));
+    }
 
-  void insertEdge(FPoint[2] pts) {
-    //    assert(pointsAreClipped(pts));
-    foreach(ref pt; pts)
-      pt -= fPoint(this.clipRect.pos);
-    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice2, &this.insertSlice2);
-  }
+    void insertSlice4(ref const FPoint[4] slice)
+    {
+        if (_depth)
+            updateCoeffs(slice);
 
-  void insertEdge(FPoint[3] pts) {
-    //    assert(pointsAreClipped(pts));
-    foreach(ref pt; pts)
-      pt -= fPoint(this.clipRect.pos);
-    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice3, &this.insertSlice2);
-  }
+        _rootConst += (1.f / (20.f * (1 << _depth) ^^ 2)) * (
+            6 * determinant(slice[0], slice[1]) + 3 * determinant(slice[1], slice[2])
+            + 6 * determinant(slice[2], slice[3]) + 3 * determinant(slice[0], slice[2])
+            + 3 * determinant(slice[1], slice[3]) + 1 * determinant(slice[0], slice[3])
+        );
+    }
 
-  void insertEdge(FPoint[4] pts) {
-    //    assert(pointsAreClipped(pts), to!string(pts));
-    foreach(ref pt; pts)
-      pt -= fPoint(this.clipRect.pos);
-    cartesianBezierWalker(pts, FRect(fRect(this.clipRect).size), FSize(1, 1), &this.insertSlice4, &this.insertSlice2);
-  }
+    void updateCoeffs(size_t K)(ref const FPoint[K] curve)
+    {
+        auto cartesian = cartesianBezierWalkerRange(curve);
+        auto pos = cartesian.pos;
+        /*
+         * This can only happen with vertical/horizontal lines.  If
+         * they lie directly on the right/bottom border they actually
+         * belong to the next pixels. But they are assigned to the
+         * inner ones, which has the same effect for the inner wavelet
+         * coefficients but doesn't need an increased depth.
+         */
+        pos.x -= (pos.x == 1 << _depth);
+        pos.y -= (pos.y == 1 << _depth);
 
-  bool pointsAreClipped(in FPoint[] pts) {
-    foreach(pt; pts)
-      if (!fitsIntoRange!("[]")(pt.x, 0.0f, 1.0f) || !fitsIntoRange!("[]")(pt.y, 0.0f, 1.0f))
-        return false;
+        _tStack[] = 0.0f;
+        for (size_t d = 0; d < _depth - 1; ++d)
+        {
+            immutable half = 1 << _depth - d - 1;
+            immutable qidx = !!(pos.y & half) << 1 | !!(pos.x & half);
+            _nodeStack[d + 1] = &_nodeStack[d].getChild(qidx, _ralloc);
+        }
 
-    return true;
-  }
+        for (bool cont=true; cont;)
+        {
+            double nt = void;
+            size_t nup = void;
+            IPoint npos = void;
+            if (cartesian.empty)
+            {
+                cont = false;
+                nt = 1.0;
+                nup = _depth - 1;
+            }
+            else
+            {
+                nt = cartesian.front;
+                cartesian.popFront;
+                npos = cartesian.pos;
+                assert(npos != pos);
+                npos.x -= (npos.x == 1 << _depth);
+                npos.y -= (npos.y == 1 << _depth);
+                nup = bsr(npos.x ^ pos.x | npos.y ^ pos.y);
+                assert(nup < _depth);
+            }
 
-  Node root;
-  float rootConst = 0.0f;
-  uint depth;
-  IRect clipRect;
+            do
+            {
+                FPoint[K] tmp = void;
+                sliceBezier(curve, _tStack[$-nup-1], nt, tmp);
+                _tStack[$-nup-1] = nt;
+                immutable half = 1 << nup;
+                calcCoeffs(pos, half, tmp, _nodeStack[$-nup-1].coeffs);
+
+                if (cont && nup + 1 < _depth) // update node stack, but not the root node
+                {
+                    immutable qidx = !!(npos.y & 2 * half) << 1 | !!(npos.x & 2 * half);
+                    _nodeStack[$-nup-1] = &_nodeStack[$-nup-2].getChild(qidx, _ralloc);
+                }
+            } while (nup--);
+
+            if (cont)
+                pos = npos;
+        }
+    }
+
+    void insertEdge(FPoint[2] pts)
+    {
+        foreach(ref pt; pts)
+            pt -= fPoint(_clipRect.pos);
+        clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice2, &insertSlice2);
+    }
+
+    void insertEdge(FPoint[3] pts)
+    {
+        foreach(ref pt; pts)
+            pt -= fPoint(_clipRect.pos);
+        clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice3, &insertSlice2);
+    }
+
+    void insertEdge(FPoint[4] pts)
+    {
+        foreach(ref pt; pts)
+            pt -= fPoint(_clipRect.pos);
+        clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice4, &insertSlice2);
+    }
+
+    Node _root;
+    float _rootConst = 0.0f;
+    uint _depth;
+    IRect _clipRect;
+    RegionAllocator _ralloc;
+    float[] _tStack;
+    Node*[] _nodeStack;
 }
 
 void writeGridValue(alias blit)(float val, IPoint off, uint locRes) {
@@ -235,14 +312,14 @@ void writeNodeToGrid(alias blit, alias timeout=false)
 
 void blitEdges(in Path path, IRect clip, Blitter blitter, int ystart, int yend) {
   auto wr = pathToWavelet(path, clip);
-  auto topLeft = wr.clipRect.pos;
+  auto topLeft = wr._clipRect.pos;
   void blitRow(int y, int xstart, int xend, ubyte alpha) {
     if (fitsIntoRange!("[)")(y, max(ystart, clip.top), min(yend, clip.bottom))) {
       blitter.blitAlphaH(y, clampToRange(xstart, clip.left, clip.right), clampToRange(xend, clip.left, clip.right), alpha);
     }
   }
   writeNodeToGrid!(blitRow)(
-      wr.root, wr.rootConst, topLeft, 1<< wr.depth);
+      *wr._nodeStack[0], wr._rootConst, topLeft, 1 << wr._depth);
 }
 
 WaveletRaster pathToWavelet(in Path path, IRect clip)

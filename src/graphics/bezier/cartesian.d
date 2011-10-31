@@ -80,13 +80,15 @@ struct BezIota(T, size_t K) {
     }
   }
 
-  int direction() const {
+  @property int direction() const {
     return _direction;
   }
 
-  int position() const {
+  @property int pos() const {
     return this._position;
   }
+
+  alias pos position;
 
   static if (K == 2) {
     double findT() {
@@ -222,6 +224,61 @@ unittest {
   quickCheck!(testBeziota!(float, 4))(config);
   quickCheck!(testBeziota!(double, 4))(smconfig);
   quickCheck!(testBeziota!(double, 4))(config);
+}
+
+auto cartesianBezierWalkerRange(T, size_t K)(ref const Point!T[K] curve, Size!T grid=Size!T(1, 1))
+{
+    static struct Result
+    {
+        this(ref const Point!T[K] curve, Size!T grid=Size!T(1, 1))
+        {
+            _xwalk = beziota!("x")(curve, grid.width);
+            _ywalk = beziota!("y")(curve, grid.height);
+        }
+
+        bool empty() const
+        {
+            return _xwalk.empty && _ywalk.empty;
+        }
+
+        double front()
+        {
+            if (_xwalk.empty)
+                return _ywalk.front;
+            else if (_ywalk.empty)
+                return _xwalk.front;
+            else
+                // TODO: consider averaging
+                return min(_xwalk.front, _ywalk.front);
+        }
+
+        void popFront()
+        {
+            if (_xwalk.empty)
+                _ywalk.popFront;
+            else if (_ywalk.empty)
+                _xwalk.popFront;
+            else if (approxEqual(_xwalk.front, _ywalk.front, 1e-6, 1e-6))
+            {
+                _xwalk.popFront; _ywalk.popFront;
+            }
+            else if (_xwalk.front < _ywalk.front)
+                _xwalk.popFront;
+            else if (_ywalk.front < _xwalk.front)
+                _ywalk.popFront;
+            else
+                assert(0, "Unordered relation");
+        }
+
+        @property IPoint pos() const
+        {
+            return IPoint(_xwalk.position, _ywalk.position);
+        }
+
+        BezIota!(T, K) _xwalk, _ywalk;
+    }
+
+    return Result(curve, grid);
 }
 
 void cartesianBezierWalker(T, size_t K)(

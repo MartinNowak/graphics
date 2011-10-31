@@ -74,7 +74,7 @@ void benchPathToBlit()
 {
   auto clip = path.ibounds;
   auto wr = pathToWavelet(path, clip);
-  auto topLeft = wr.clipRect.pos;
+  auto topLeft = wr._clipRect.pos;
 
   void dummyBlit(int y, int xstart, int xend, ubyte alpha) {
     assert(fitsIntoRange!("[)")(y, clip.top, clip.bottom));
@@ -83,7 +83,7 @@ void benchPathToBlit()
   }
 
   writeNodeToGrid!(dummyBlit)(
-      wr.root, wr.rootConst, topLeft, 1<< wr.depth);
+      *wr._nodeStack[0], wr._rootConst, topLeft, 1 << wr._depth);
 }
 
 void runWavelet(BenchmarkReporter reporter) {

@@ -107,38 +107,37 @@ void addInterim(Quad Q : Quad._11)(in Interim tmp, ref float[3] coeffs) {
 
 //------------------------------------------------------------------------------
 
-void calcCoeffs(size_t K)(uint half, uint qidx, ref IPoint pos, ref FPoint[K] pts, ref float[3] coeffs) {
-  switch (qidx) {
-  case 0b00:
-    // (0, 0)
-    updateCoeffs!(K, Quad._00)(half, pts, coeffs);
-    break;
-
-  case 0b01:
-    pos.x -= half;
+void calcCoeffs(size_t K)(IPoint pos, uint half, ref FPoint[K] pts, ref float[3] coeffs)
+{
+    immutable qidx = !!(pos.y & half) << 1 | !!(pos.x & half);
+    pos.x &= ~(half - 1);
+    pos.y &= ~(half - 1);
     foreach(i; 0 .. K)
-      pts[i].x -= half;
-    updateCoeffs!(K, Quad._01)(half, pts, coeffs);
-    break;
-
-  case 0b10:
-    pos.y -= half;
-    foreach(i; 0 .. K)
-      pts[i].y -= half;
-    updateCoeffs!(K, Quad._10)(half, pts, coeffs);
-    break;
-
-  case 0b11:
-    pos.x -= half;
-    pos.y -= half;
-    foreach(i; 0 .. K) {
-      pts[i].x -= half;
-      pts[i].y -= half;
+    {
+        pts[i].x -= pos.x;
+        pts[i].y -= pos.y;
     }
-    updateCoeffs!(K, Quad._11)(half, pts, coeffs);
-    break;
 
-  default:
-    assert(0);
-  }
+    switch (qidx)
+    {
+    case 0b00:
+        // (0, 0)
+        updateCoeffs!(K, Quad._00)(half, pts, coeffs);
+        break;
+
+    case 0b01:
+        updateCoeffs!(K, Quad._01)(half, pts, coeffs);
+        break;
+
+    case 0b10:
+        updateCoeffs!(K, Quad._10)(half, pts, coeffs);
+        break;
+
+    case 0b11:
+        updateCoeffs!(K, Quad._11)(half, pts, coeffs);
+        break;
+
+    default:
+        assert(0);
+    }
 }
