@@ -144,34 +144,30 @@ void addInterim<Quad11>(const Interim& tmp, float coeffs[3]) {
 //------------------------------------------------------------------------------
 
 template<unsigned K>
-void calcCoeffs(unsigned half, unsigned qidx, IPoint* pos, FPoint pts[K], float coeffs[3]) {
+void calcCoeffs(IPoint pos, unsigned half, FPoint pts[K], float coeffs[K]) {
+    unsigned qidx = !!(pos.y & half) << 1 | !!(pos.x & half);
+    pos.x &= ~(half - 1);
+    pos.y &= ~(half - 1);
+    for (unsigned i = 0; i < K; ++i)
+    {
+        pts[i].x -= pos.x;
+        pts[i].y -= pos.y;
+    }
+
   switch (qidx) {
-  case 0b00:
-    // (0, 0)
+  case 0x0 << 1 | 0x0:
     updateCoeffs<K, Quad00>(half, pts, coeffs);
     break;
 
-  case 0b01:
-    pos->x -= half;
-    for (unsigned i = 0; i < K; ++i)
-      pts[i].x -= half;
+  case 0x0 << 1 | 0x1:
     updateCoeffs<K, Quad01>(half, pts, coeffs);
     break;
 
-  case 0b10:
-    pos->y -= half;
-    for (unsigned i = 0; i < K; ++i)
-      pts[i].y -= half;
+  case 0x1 << 1 | 0x0:
     updateCoeffs<K, Quad10>(half, pts, coeffs);
     break;
 
-  case 0b11:
-    pos->x -= half;
-    pos->y -= half;
-    for (unsigned i = 0; i < K; ++i) {
-      pts[i].x -= half;
-      pts[i].y -= half;
-    }
+  case 0x1 << 1 | 0x1:
     updateCoeffs<K, Quad11>(half, pts, coeffs);
     break;
   }
@@ -182,10 +178,11 @@ void calcCoeffs(unsigned half, unsigned qidx, IPoint* pos, FPoint pts[K], float 
 
 //------------------------------------------------------------------------------
 
-#define DECL(K) \
-  void calcCoeffs_##K(unsigned half, unsigned qidx, IPoint* pos, FPoint pts[K], float coeffs[K]) { \
-    calcCoeffs<K>(half, qidx, pos, pts, coeffs);                         \
-  }
+#define DECL(K)                                                         \
+void calcCoeffs_##K(IPoint pos, unsigned half, FPoint pts[K], float coeffs[K]) \
+{                                                                       \
+    calcCoeffs<K>(pos, half, pts, coeffs);                              \
+}
 
 extern "C" {
   DECL(2);

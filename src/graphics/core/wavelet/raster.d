@@ -15,9 +15,9 @@ version (calcCoeffs_C)
 {
     extern(C)
     {
-        void calcCoeffs_2(IPoint pos, uint half, const FPoint* pts, float* coeffs);
-        void calcCoeffs_3(IPoint pos, uint half, const FPoint* pts, float* coeffs);
-        void calcCoeffs_4(IPoint pos, uint half, const FPoint* pts, float* coeffs);
+        void calcCoeffs_2(IPoint pos, uint half, FPoint* pts, float* coeffs);
+        void calcCoeffs_3(IPoint pos, uint half, FPoint* pts, float* coeffs);
+        void calcCoeffs_4(IPoint pos, uint half, FPoint* pts, float* coeffs);
     }
 }
 else
@@ -207,7 +207,10 @@ struct WaveletRaster
                 sliceBezier(curve, _tStack[$-nup-1], nt, tmp);
                 _tStack[$-nup-1] = nt;
                 immutable half = 1 << nup;
-                calcCoeffs(pos, half, tmp, _nodeStack[$-nup-1].coeffs);
+                version (calcCoeffs_C)
+                    mixin(Format!(q{calcCoeffs_%s(pos, half, tmp.ptr, _nodeStack[$-nup-1].coeffs.ptr);}, K));
+                else
+                    calcCoeffs!K(pos, half, tmp, _nodeStack[$-nup-1].coeffs);
 
                 if (cont && nup + 1 < _depth) // update node stack, but not the root node
                 {
