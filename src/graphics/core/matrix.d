@@ -260,16 +260,18 @@ private:
    * [sinV, cosV , 0.0f],
    * [0.0f  , 0.0f  , 1.0f]];
    */
-  void setSinCos(float sinV, float cosV) {
-    this[0][0] = cosV;
-    this[0][1] = -sinV;
-    this[1][0] = sinV;
-    this[1][1] = cosV;
+  public void setSinCos(float sinV, float cosV) {
+    data[0][0] = cosV;
+    // @@ workaround Bug6877 @@
+    data[0][1] = sinV;
+    data[0][1] *= -1;
+    data[1][0] = sinV;
+    data[1][1] = cosV;
   }
   void setSinCos(float sinV, float cosV, float px, float py) {
     this.setSinCos(sinV, cosV);
-    this[0][2] = sinV*py - cosV*px + px;
-    this[1][2] = -sinV*px - cosV*py + py;
+    data[0][2] = sinV*py - cosV*px + px;
+    data[1][2] = -sinV*px - cosV*py + py;
   }
 
   Matrix opBinary(string op)(in Matrix rhs) const
@@ -284,9 +286,9 @@ private:
       for(size_t row = 0; row < 3; ++row) {
         for (size_t col = 0; col < 3; ++col) {
           tmp[row][col] =
-            this[row][0] * rhs[0][col]
-            + this[row][1] * rhs[1][col]
-            + this[row][2] * rhs[2][col];
+            data[row][0] * rhs[0][col]
+            + data[row][1] * rhs[1][col]
+            + data[row][2] * rhs[2][col];
         }
       }
       tmp.setDirty();
