@@ -57,70 +57,6 @@ in {
                   evalBezierDer(pts, t0) * (t1 - t0), evalBezierDer(pts, t1) * (t1 - t0), result);
 }
 
-RollingSlicer!(K, T) rollingSlicer(size_t K, T)(ref const Point!T[K] curve, double startT) {
-  return RollingSlicer!(K, T)(curve, startT);
-}
-
-struct RollingSlicer(size_t K, T) if (K == 2) {
-  this(ref const Point!T[K] curve, double startT) {
-    this.curve = &curve;
-    this.curPt = evalBezier(curve, startT);
-  }
-
-  void advance(double nextT, ref Point!T[K] slice) {
-    Point!T nextPt = evalBezier(*this.curve, nextT);
-    constructBezier(this.curPt, nextPt, slice);
-    this.curPt = nextPt;
-  }
-
-  const Point!T[K]* curve;
-  Point!T curPt;
-}
-
-struct RollingSlicer(size_t K, T) if (K == 3) {
-  this(ref const Point!T[K] curve, double startT) {
-    this.curve = &curve;
-    this.curT = startT;
-    this.curPt = evalBezier(curve, startT);
-  }
-
-  void advance(double nextT, ref Point!T[K] slice) {
-    assert(nextT > this.curT);
-    Point!T nextPt = evalBezier(*this.curve, nextT);
-    constructBezier(this.curPt, nextPt, evalBezierDer(*this.curve, this.curT) * (nextT - this.curT), slice);
-    this.curT = nextT;
-    this.curPt = nextPt;
-  }
-
-  const Point!T[K]* curve;
-  double curT;
-  Point!T curPt;
-}
-
-struct RollingSlicer(size_t K, T) if (K == 4) {
-  this(ref const Point!T[K] curve, double startT) {
-    this.curve = &curve;
-    this.curT = startT;
-    this.curPt = evalBezier(*this.curve, startT);
-    this.curDer = evalBezierDer(*this.curve, startT);
-  }
-
-  void advance(double nextT, ref Point!T[K] slice) {
-    assert(nextT > this.curT);
-    Point!T nextPt = evalBezier(*this.curve, nextT);
-    Vector!T nextDer = evalBezierDer(*this.curve, nextT);
-    constructBezier(this.curPt, nextPt, this.curDer * (nextT - this.curT), nextDer * (nextT - this.curT), slice);
-    this.curT = nextT;
-    this.curPt = nextPt;
-    this.curDer = nextDer;
-  }
-
-  const Point!T[K]* curve;
-  double curT;
-  Point!T curPt;
-  Vector!T curDer;
-}
-
 version(none) {
   import std.stdio;
   unittest {
@@ -153,7 +89,6 @@ in {
   monos[0] = curve;
   return 1;
 }
-
 
 int chopMonotonic(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref Point!T[K][MS] monos) if(K>2)
 in {
