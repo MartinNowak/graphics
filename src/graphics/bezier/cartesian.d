@@ -2,238 +2,312 @@ module graphics.bezier.cartesian;
 
 import guip.point, guip.rect, guip.size;
 import graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
-import std.algorithm, std.conv, std.exception, std.math, std.metastrings, std.range;
+import std.algorithm, std.conv, std.exception, std.math, std.metastrings, std.range, std.traits;
 import graphics.math.clamp, graphics.math.poly;
 import qcheck._;
 
 //debug=Illinois;
 debug(Illinois) import std.stdio;
 
-BezIota!(T, K) beziota(string dir, T, size_t K)(ref const Point!T[K] curve, double step) {
-  T[K] cs = void;
-  foreach(i; 0 .. K)
-    cs[i] = mixin(Format!(q{curve[i].%s}, dir));
-  return typeof(return)(cs, step);
+BezIota!(T, K) beziota(string dir, T, size_t K)(ref const Point!T[K] curve, T roundHint=T.max)
+{
+    T[K] cs = void;
+    foreach(i; 0 .. K)
+        cs[i] = mixin(Format!(q{curve[i].%s}, dir));
+    return typeof(return)(cs, roundHint);
 }
 
-BezIota!(T, 2) beziota(T)(T c0, T c1, double step) {
-  T[2] cs = void; cs[0] = c0; cs[1] = c1;
-  return typeof(return)(cs, step);
+BezIota!(T, 2) beziota(T)(T c0, T c1, T roundHint=T.max)
+{
+    T[2] cs = void; cs[0] = c0; cs[1] = c1;
+    return typeof(return)(cs, roundHint);
 }
 
-struct BezIota(T, size_t K) {
-  this(ref const T[K] cs, double step) {
-    this._direction = checkedTo!int(sgn(cs[$-1] - cs[0]));
-    double adv = this._direction * step;
-
-    // round towards next gridpos with a small additional offset in
-    // case cs[0] already is close to a gridpos
-    immutable gridpos = round((cs[0] + (0.5 + 1e-5) * adv) / step);
-
-    // pixels are floor indexed (1.2, 1.2) is pos (1, 1)
-    this._position = checkedTo!int(floor(cs[0] + 1e-5 * adv));
-
-    if (this._direction != 0) {
-      double start = gridpos * step;
-      // no gridpos between start and end
-      if ((cs[$-1] - start) * this._direction <= 0)
-        return;
-      // start is at least tolerance away from cs[0]
-      assert((start - cs[0]) * this._direction > 1e-5 * step);
-
-      this.steps = iota(start, cast(double)cs[$-1], adv);
-      assert(!this.steps.empty);
-
-      // remove last iota value if it falls near cs[$-1]
-      immutable last = this.steps[this.steps.length - 1];
-      if (fabs(cs[$-1] - last) < 2 * float.epsilon * fabs(cs[$-1] - cs[0]))
-        this.steps.popBack;
-
-      convertPoly(cs, this.coeffs);
-      static if (K == 4)
-        this.endV = cs[$-1];
+/*
+ * Iterates t positions of a bernstein polynom in gridded distance.
+ */
+struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
+{
+    this(ref const T[K] cs, T roundHint=T.max)
+    in
+    {
+        // require partial ordered input
+        for (size_t i = 0; i < K; ++i)
+            for (size_t j = 0; j < i + 1; ++j)
+                assert(cs[i] <>= cs[j]);
     }
-  }
+    body
+    {
+        _position = checkedTo!int(floor(cs[0]));
+        immutable ongrid = _position == cs[0];
+        immutable delta = cs[$-1] - cs[0];
 
-  @property bool empty() const {
-    return steps.empty;
-  }
-
-  @property double front() {
-    assert(!empty);
-    if (isNaN(curT)) {
-      curT = findT();
-      assert(fitsIntoRange!("()")(curT, 0, 1));
-    }
-    return curT;
-  }
-
-  void popFront() {
-    curT = curT.nan;
-    steps.popFront;
-    this._position += this._direction;
-  }
-
-  static if (hasLength!(typeof(steps))) {
-    @property size_t length() const {
-      return steps.length;
-    }
-  }
-
-  @property int direction() const {
-    return _direction;
-  }
-
-  @property int pos() const {
-    return this._position;
-  }
-
-  alias pos position;
-
-  static if (K == 2) {
-    double findT() {
-      double t = void;
-      auto rootcnt = polyRoots(coeffs[0], coeffs[1] - steps.front, t);
-      assert(rootcnt);
-      return t;
-    }
-  } else static if (K == 3) {
-    double findT() {
-      double ts[2] = void;
-      auto rootcnt = polyRoots(coeffs[0], coeffs[1], coeffs[2] - steps.front, ts);
-      if (rootcnt == 1) {
-        return ts[0];
-      } else {
-        assert(rootcnt == 2);
-        if (ts[0] < ts[1] && ts[0] >= 0) {
-          assert(!fitsIntoRange!("()")(ts[1], 0, 1));
-          return ts[0];
-        } else {
-          return ts[1];
+        // empty
+        if (delta == 0)
+        {
+            // no dimension and exactly on grid border => adjust towards roundHint
+            if (ongrid && roundHint < cs[0])
+            {
+                --_position;
+            }
+            _pastend = _position;
         }
-      }
-    }
-  } else static if (K == 4) {
-    double findT() {
-      //    auto evaldg = (double t) { return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v; };
-      const v = steps.front;
-      return findCubicRoot(coeffs, this.coeffs[3] - v, this.endV - v, v);
-    }
-  } else
-    static assert(0, "unimplemented");
+        else
+        {
+            if (delta > 0)
+            {
+                if (_position + 1 >= cs[$-1])
+                {
+                    _pastend = _position; // empty
+                }
+                else
+                {
+                    _pastend = checkedTo!int(ceil(cs[$-1]));
+                    assert(_pastend > _position);
+                }
+            }
+            else if (delta < 0)
+            {
+                if (ongrid)
+                    --_position;
 
-  static void convertPoly(ref const T[K] cs, ref T[K] polycs) {
-    static if (K == 2) {
-      polycs[0] = cs[1] - cs[0];
-      polycs[1] = cs[0];
-    } else static if (K == 3) {
-      polycs[0] = cs[0] - 2 * cs[1] + cs[2];
-      polycs[1] = 2 * (-cs[0] + cs[1]);
-      polycs[2] = cs[0];
-    } else static if (K == 4) {
-      polycs[0] = -cs[0] + 3 * (cs[1] - cs[2]) + cs[3];
-      polycs[1] = 3 * (cs[0] - 2 * cs[1] + cs[2]);
-      polycs[2] = 3 * (-cs[0] + cs[1]);
-      polycs[3] = cs[0];
-    } else
-      static assert(0);
-  }
+                if (_position <= cs[$-1])
+                {
+                    _pastend = _position; // empty
+                }
+                else
+                {
+                    _pastend = checkedTo!int(floor(cs[$-1]));
+                    assert(_pastend < _position);
+                }
+            }
+            else
+                assert(0);
 
-  int _direction;
-  int _position;
-  T[K] coeffs;
-  typeof(iota(0.0, 0.0, 0.0)) steps;
-  double curT;
-  static if (K == 4)
-    T endV;
+            if (!empty)
+            {
+                convertPoly(cs, _coeffs);
+                static if (K == 4)
+                    _endV = cs[$-1];
+            }
+        }
+    }
+
+    @property bool empty() const
+    {
+        return _position + (_pastend > _position) == _pastend;
+    }
+
+    @property double front()
+    {
+        assert(!empty);
+        if (isNaN(_curT))
+        {
+            _curT = findT();
+            assert(fitsIntoRange!("()")(_curT, 0, 1), text(_curT, " ", _position, " ", _pastend, " ",  _coeffs));
+        }
+        return _curT;
+    }
+
+    void popFront()
+    {
+        _curT = _curT.nan;
+        _position += direction;
+    }
+
+    @property size_t length() const
+    {
+        return abs(_pastend - _position) - (_pastend > _position);
+    }
+
+    @property int direction() const
+    {
+        immutable diff = _pastend - _position;
+        return !!diff - 2 * !!(diff & (1 << 31));
+    }
+
+    @property int pos() const
+    {
+        return _position;
+    }
+
+    alias pos position;
+
+    static if (K == 2)
+    {
+        double findT()
+        {
+            double t = void;
+            auto rootcnt = polyRoots(_coeffs[0], _coeffs[1] - (_position + (_pastend > _position)), t);
+            assert(rootcnt);
+            return t;
+        }
+    }
+    else static if (K == 3)
+    {
+        double findT()
+        {
+            double ts[2] = void;
+            auto rootcnt = polyRoots(_coeffs[0], _coeffs[1], _coeffs[2] - (_position + (_pastend > _position)), ts);
+            if (rootcnt == 1)
+            {
+                return ts[0];
+            }
+            else
+            {
+                assert(rootcnt == 2);
+                if (ts[0] < ts[1] && ts[0] >= 0)
+                {
+                    assert(!fitsIntoRange!("()")(ts[1], 0, 1));
+                    return ts[0];
+                }
+                else
+                {
+                    return ts[1];
+                }
+            }
+        }
+    }
+    else static if (K == 4)
+    {
+        double findT()
+        {
+            //    auto evaldg = (double t) { return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v; };
+            const v = _position + (_pastend > _position);
+            return findCubicRoot(_coeffs, _coeffs[3] - v, _endV - v, v);
+        }
+    }
+    else
+        static assert(0);
+
+    static void convertPoly(ref const T[K] cs, ref T[K] polycs)
+    {
+        static if (K == 2)
+        {
+            polycs[0] = cs[1] - cs[0];
+            polycs[1] = cs[0];
+        }
+        else static if (K == 3)
+        {
+            polycs[0] = cs[0] - 2 * cs[1] + cs[2];
+            polycs[1] = 2 * (-cs[0] + cs[1]);
+            polycs[2] = cs[0];
+        }
+        else static if (K == 4)
+        {
+            polycs[0] = -cs[0] + 3 * (cs[1] - cs[2]) + cs[3];
+            polycs[1] = 3 * (cs[0] - 2 * cs[1] + cs[2]);
+            polycs[2] = 3 * (-cs[0] + cs[1]);
+            polycs[3] = cs[0];
+        }
+        else
+            static assert(0);
+    }
+
+    int _position;
+    int _pastend;
+    T[K] _coeffs;
+    double _curT;
+    static if (K == 4)
+        T _endV;
 }
 
 
 unittest {
-  assert(beziota(1.0, 3.0, 1.0).length == 1);
-  assert(beziota(1.0 - 1e-10, 3.0, 1.0).length == 1);
-  assert(beziota(0.99, 3.0, 1.0).length == 2);
-  assert(beziota(1.1, 3.0, 1.0).length == 1);
-  assert(beziota(1.6, 3.0, 1.0).length == 1);
-  assert(beziota(1.0, 3.01, 1.0).length == 2);
-  assert(beziota(1.1, 3.01, 1.0).length == 2);
-  assert(beziota(1.6, 3.01, 1.0).length == 2);
-  assert(beziota(3.0, 1.0, 1.0).length == 1);
-  assert(beziota(3.1, 1.0, 1.0).length == 2);
-  assert(beziota(3.1, 0.9, 1.0).length == 3);
-  assert(beziota(3.0, 0.9, 1.0).length == 2);
-  assert(beziota(-1.0, -3.0, 1.0).length == 1);
-  assert(beziota(-1.0, -3.1, 1.0).length == 2);
-  assert(beziota(-1.1, -3.1, 1.0).length == 2);
-  assert(beziota(-1.6, -3.1, 1.0).length == 2);
+  assert(beziota(1.0, 3.0).length == 1);
+  assert(beziota(1.0 - 1e-10, 3.0).length == 2);
+  assert(beziota(0.99, 3.0).length == 2);
+  assert(beziota(1.1, 3.0).length == 1);
+  assert(beziota(1.6, 3.0).length == 1);
+  assert(beziota(1.0, 3.01).length == 2);
+  assert(beziota(1.1, 3.01).length == 2);
+  assert(beziota(1.6, 3.01).length == 2);
+  assert(beziota(3.0, 1.0).length == 1);
+  assert(beziota(3.1, 1.0).length == 2);
+  assert(beziota(3.1, 0.9).length == 3);
+  assert(beziota(3.0, 0.9).length == 2);
+  assert(beziota(-1.0, -3.0).length == 1);
+  assert(beziota(-1.0, -3.1).length == 2);
+  assert(beziota(-1.1, -3.1).length == 2);
+  assert(beziota(-1.6, -3.1).length == 2);
 
-  assert(beziota(1.0, 3.0, 1.0).position == 1);
-  assert(beziota(1.0+1e-10, -1.0, 1.0).position == 0);
-  assert(beziota(1.1, 3.0, 1.0).position == 1);
-  assert(beziota(1.6, 3.0, 1.0).position == 1);
-  assert(beziota(1.1, 3.01, 1.0).position == 1);
-  assert(beziota(3.0, 1.0, 1.0).position == 2);
-  assert(beziota(0.0, 1.0, 1.0).position == 0);
-  assert(beziota(0.0, -2.0, 1.0).position == -1);
-  assert(beziota(0.6, 3.0, 1.0).position == 0);
-  assert(beziota(1.0 - 1e-10, 3.0, 1.0).position == 1);
+  assert(beziota(1.0, 3.0).position == 1);
+  assert(beziota(1.0, -1.0).position == 0);
+  assert(beziota(1.1, 3.0).position == 1);
+  assert(beziota(1.6, 3.0).position == 1);
+  assert(beziota(1.1, 3.01).position == 1);
+  assert(beziota(3.0, 1.0).position == 2);
+  assert(beziota(0.0, 1.0).position == 0);
+  assert(beziota(0.0, -2.0).position == -1);
+  assert(beziota(0.6, 3.0).position == 0);
+  assert(beziota(1.0 - 1e-10, 3.0).position == 0);
 
   // test empty beziotas for correct position
-  assert(beziota(0.0, 0.0, 1.0).position == 0);
-  assert(beziota(0.1, 0.1, 1.0).position == 0);
-  assert(beziota(0.6, 0.6, 1.0).position == 0);
-  assert(beziota(1.0, 1.0, 1.0).position == 1);
-  assert(beziota(1.0+1e-10, 1.0+1e-10, 1.0).position == 1);
-  assert(beziota(1.0-1e-10, 1.0-1e-10, 1.0).position == 0);
-  assert(beziota(0.0, 0.5, 1.0).position == 0);
-  assert(beziota(-0.1, 0.5, 1.0).position == -1);
+  assert(beziota(0.0, 0.0).position == 0);
+  assert(beziota(0.1, 0.1).position == 0);
+  assert(beziota(0.6, 0.6).position == 0);
+  assert(beziota(1.0, 1.0).position == 1);
+  assert(beziota(1.0+1e-10, 1.0+1e-10).position == 1);
+  assert(beziota(1.0-1e-10, 1.0-1e-10).position == 0);
+  assert(beziota(0.0, 0.5).position == 0);
+  assert(beziota(-0.1, 0.5).position == -1);
 
-  foreach(t; beziota(0.300140381f, 0.0f, 1.0))
+  foreach(t; beziota(0.300140381f, 0.0f))
     assert(fitsIntoRange!("()")(t, 0, 1));
 
-  QCheckResult testBeziota(T, size_t K)(Point!T[K] pts, double step) {
-    if (step <= 0)
-      return QCheckResult.Discard;
-    foreach(t; beziota!("x", T, K)(pts, step))
-      assert(fitsIntoRange!("()")(t, 0, 1));
-    foreach(t; beziota!("y", T, K)(pts, step))
-      assert(fitsIntoRange!("()")(t, 0, 1));
+  QCheckResult testBeziota(T, size_t K)(Point!T[K] pts)
+  {
+      if (!monotonic!"x"(pts) || !monotonic!"y"(pts))
+          return QCheckResult.Discard;
 
-    static if (K < 4) {
-      // TODO: fix for cubics
+      foreach(t; beziota!("x", T, K)(pts))
+          assert(fitsIntoRange!("()")(t, 0, 1));
+      foreach(t; beziota!("y", T, K)(pts))
+          assert(fitsIntoRange!("()")(t, 0, 1));
+
       auto testf = (double a, double b) { assert(b > a); return b; };
-      reduce!(testf)(0.0, beziota!("x", T, K)(pts, step));
-      reduce!(testf)(0.0, beziota!("y", T, K)(pts, step));
-    }
+      reduce!(testf)(0.0, beziota!("x", T, K)(pts));
+      reduce!(testf)(0.0, beziota!("y", T, K)(pts));
 
-    return QCheckResult.Ok;
+      return QCheckResult.Ok;
   }
 
-  auto config = Config().maxSuccess(100);
-  auto smconfig = Config().maxSuccess(100).minValue(-1).maxValue(1);
+  // funny parser error w/o static
+  static Point!T[K] gen(T, size_t K)()
+  {
+      auto xdir = sgn(getArbitrary!int());
+      auto ydir = sgn(getArbitrary!int());
 
-  quickCheck!(testBeziota!(float, 2))(smconfig);
-  quickCheck!(testBeziota!(float, 2))(config);
-  quickCheck!(testBeziota!(double, 2))(smconfig);
-  quickCheck!(testBeziota!(double, 2))(config);
-  quickCheck!(testBeziota!(float, 3))(smconfig);
-  quickCheck!(testBeziota!(float, 3))(config);
-  quickCheck!(testBeziota!(double, 3))(smconfig);
-  quickCheck!(testBeziota!(double, 3))(config);
-  quickCheck!(testBeziota!(float, 4))(smconfig);
-  quickCheck!(testBeziota!(float, 4))(config);
-  quickCheck!(testBeziota!(double, 4))(smconfig);
-  quickCheck!(testBeziota!(double, 4))(config);
+      Point!T[K] res = void;
+      auto config = Config().minValue(-1_000).maxValue(1_000);
+      res[0] = getArbitrary!(Point!T)(config);
+      foreach(i; 1 .. K)
+      {
+          auto d = getArbitrary!(Vector!T)(config);
+          res[i].x = res[i-1].x + xdir * abs(d.x);
+          res[i].y = res[i-1].y + ydir * abs(d.y);
+      }
+      return res;
+  }
+
+  import std.typetuple;
+  foreach(T; TypeTuple!(float, double))
+  {
+      foreach(K; TypeTuple!(2, 3, 4))
+      {
+          quickCheck!(testBeziota!(T , K), gen!(T, K))();
+      }
+  }
 }
 
-auto cartesianBezierWalkerRange(T, size_t K)(ref const Point!T[K] curve, Size!T grid=Size!T(1, 1))
+auto cartesianBezierWalker(T, size_t K)(ref const Point!T[K] curve, Point!T roundHint=Point!T(T.max, T.max))
 {
     static struct Result
     {
-        this(ref const Point!T[K] curve, Size!T grid=Size!T(1, 1))
+        this(ref const Point!T[K] curve, Point!T roundHint)
         {
-            _xwalk = beziota!("x")(curve, grid.width);
-            _ywalk = beziota!("y")(curve, grid.height);
+            _xwalk = beziota!("x")(curve, roundHint.x);
+            _ywalk = beziota!("y")(curve, roundHint.y);
         }
 
         bool empty() const
@@ -278,7 +352,7 @@ auto cartesianBezierWalkerRange(T, size_t K)(ref const Point!T[K] curve, Size!T 
         BezIota!(T, K) _xwalk, _ywalk;
     }
 
-    return Result(curve, grid);
+    return Result(curve, roundHint);
 }
 
 enum tolerance = 1e-2;

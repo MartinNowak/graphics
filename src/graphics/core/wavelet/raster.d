@@ -158,17 +158,9 @@ struct WaveletRaster
 
     void updateCoeffs(size_t K)(ref const FPoint[K] curve)
     {
-        auto cartesian = cartesianBezierWalkerRange(curve);
+        auto center = FPoint(0.5 * _clipRect.width, 0.5 * _clipRect.height);
+        auto cartesian = cartesianBezierWalker(curve, center);
         auto pos = cartesian.pos;
-        /*
-         * This can only happen with vertical/horizontal lines.  If
-         * they lie directly on the right/bottom border they actually
-         * belong to the next pixels. But they are assigned to the
-         * inner ones, which has the same effect for the inner wavelet
-         * coefficients but doesn't need an increased depth.
-         */
-        pos.x -= (pos.x == 1 << _depth);
-        pos.y -= (pos.y == 1 << _depth);
 
         _tStack[] = 0.0f;
         for (size_t d = 0; d < _depth - 1; ++d)
@@ -195,10 +187,8 @@ struct WaveletRaster
                 cartesian.popFront;
                 npos = cartesian.pos;
                 assert(npos != pos);
-                npos.x -= (npos.x == 1 << _depth);
-                npos.y -= (npos.y == 1 << _depth);
                 nup = bsr(npos.x ^ pos.x | npos.y ^ pos.y);
-                assert(nup < _depth);
+                assert(nup < _depth, std.string.format("%s %s %s", nt, pos, npos));
             }
 
             do
