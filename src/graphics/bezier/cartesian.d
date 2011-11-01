@@ -361,7 +361,17 @@ auto cartesianBezierWalker(T, size_t K)(ref const Point!T[K] curve, Point!T roun
     return Result(curve, roundHint);
 }
 
-enum tolerance = 1e-2;
+enum tolerance = 1e-4;
+// debug = IllinoisStats;
+debug(IllinoisStats)
+{
+    size_t sumIterations;
+    size_t numRuns;
+    static ~this()
+    {
+        std.stdio.writefln("mean iterations %s", 1.0 * sumIterations / numRuns);
+    }
+}
 
 T findRoot(T, R)(scope R delegate(T) f, T a, T b)
 {
@@ -379,8 +389,14 @@ T findRoot(T, R)(scope R delegate(T) f, T a, T b)
                                 " c: ", c, " fc: ", fc);
         if (fabs(fc) !> tolerance)
         {
-            debug(Illinois) writeln("converged after: ", iterations,
-                                    " at: ", c);
+            debug(Illinois)
+                writeln("converged after: ", iterations,
+                        " at: ", c);
+            debug(IllinoisStats)
+            {
+                .sumIterations += iterations + 1;
+                ++.numRuns;
+            }
             return c;
         }
         else
