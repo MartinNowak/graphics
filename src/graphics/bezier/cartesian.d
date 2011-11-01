@@ -2,7 +2,8 @@ module graphics.bezier.cartesian;
 
 import guip.point, guip.rect, guip.size;
 import graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
-import std.algorithm, std.conv, std.exception, std.math, std.metastrings, std.range, std.traits;
+import std.algorithm, std.conv, std.exception, std.math, std.metastrings,
+    std.numeric, std.range, std.traits;
 import graphics.math.clamp, graphics.math.poly;
 import qcheck._;
 
@@ -172,9 +173,14 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
     {
         double findT()
         {
-            //    auto evaldg = (double t) { return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v; };
-            const v = _position + (_pastend > _position);
-            return findCubicRoot(_coeffs, _coeffs[3] - v, _endV - v, v);
+            immutable v = _position + (_pastend > _position);
+
+            double evalT(double t)
+            {
+                return ((_coeffs[0] * t + _coeffs[1]) * t + _coeffs[2]) * t + _coeffs[3] - v;
+            }
+
+            return findRoot(&evalT, 0.0, 1.0);
         }
     }
     else
@@ -356,36 +362,44 @@ auto cartesianBezierWalker(T, size_t K)(ref const Point!T[K] curve, Point!T roun
 }
 
 enum tolerance = 1e-2;
-double findCubicRoot(T)(ref const T[4] coeffs, double fa, double fb, double v) {
-  size_t iterations;
-  double evalT(double t) {
-    return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v;
-  }
-  double a = 0.0, b = 1.0;
-  double gamma = 1.0;
-  while (++iterations < 1000) {
-    double c = (gamma * b * fa - a * fb) / (gamma * fa - fb);
-    double fc = evalT(c);
-    debug(Illinois) writeln("illinois step: ", iterations,
-                            " a: ", a, " fa: ", fa,
-                            " b: ", b, " fb: ", fb,
-                            " c: ", c, " fc: ", fc);
-    if (fabs(fc) < tolerance) {
-      debug(Illinois) writeln("converged after: ", iterations,
-                              " at: ", c);
-      return c;
-    } else {
-      if (fc * fb < 0) {
-        a = b;
-        fa = fb;
-        gamma = 1.0;
-      } else {
-        gamma = 0.5;
-      }
-      b = c;
-      fb = fc;
-    }
-  }
-  assert(0, std.string.format(
-             "Failed to converge for '%s' and '%s'", coeffs, v));
+
+T findRoot(T, R)(scope R delegate(T) f, T a, T b)
+{
+    size_t iterations;
+    FPTemporary!R fa = f(a);
+    FPTemporary!R fb = f(b);
+    FPTemporary!T gamma = 1.0;
+    do
+    {
+        FPTemporary!T c = (gamma * b * fa - a * fb) / (gamma * fa - fb);
+        FPTemporary!T fc = f(c);
+        debug(Illinois) writeln("illinois step: ", iterations,
+                                " a: ", a, " fa: ", fa,
+                                " b: ", b, " fb: ", fb,
+                                " c: ", c, " fc: ", fc);
+        if (fabs(fc) !> tolerance)
+        {
+            debug(Illinois) writeln("converged after: ", iterations,
+                                    " at: ", c);
+            return c;
+        }
+        else
+        {
+            if (signbit(fc) != signbit(fb))
+            {
+                a = b;
+                fa = fb;
+                gamma = 1.0;
+            }
+            else
+            {
+                gamma = 0.5;
+            }
+            b = c;
+            fb = fc;
+        }
+    } while (++iterations < 1000);
+    assert(0, std.string.format(
+               "Failed to converge. Interval [f(%s)=%s .. f(%s)=%s]",
+               a, fa, b, fb));
 }
