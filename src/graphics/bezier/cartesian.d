@@ -357,14 +357,13 @@ auto cartesianBezierWalker(T, size_t K)(ref const Point!T[K] curve, Point!T roun
 
 enum tolerance = 1e-2;
 double findCubicRoot(T)(ref const T[4] coeffs, double fa, double fb, double v) {
-  //  size_t iterations;
+  size_t iterations;
   double evalT(double t) {
     return ((coeffs[0] * t + coeffs[1]) * t + coeffs[2]) * t + coeffs[3] - v;
   }
   double a = 0.0, b = 1.0;
   double gamma = 1.0;
-  while (true) {
-    //    ++iterations;
+  while (++iterations < 1000) {
     double c = (gamma * b * fa - a * fb) / (gamma * fa - fb);
     double fc = evalT(c);
     debug(Illinois) writeln("illinois step: ", iterations,
@@ -387,4 +386,6 @@ double findCubicRoot(T)(ref const T[4] coeffs, double fa, double fb, double v) {
       fb = fc;
     }
   }
+  assert(0, std.string.format(
+             "Failed to converge for '%s' and '%s'", coeffs, v));
 }
