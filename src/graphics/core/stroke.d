@@ -52,7 +52,7 @@ struct Stroke
         if (_radius <= 0)
             return Path();
 
-        path.forEach!QuadCubicFlattener((Path.Verb verb, in FPoint[] pts)
+        foreach(verb, pts; path)
         {
             final switch(verb)
             {
@@ -71,7 +71,7 @@ struct Stroke
             case Path.Verb.Close:
                 close();
             }
-        });
+        };
 
         done();
 

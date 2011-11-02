@@ -4,7 +4,7 @@ import std.math, std.traits, std.c.string;
 import graphics.bezier.chop, graphics.core.path;
 import guip.point;
 
-static assert(is(ReturnType!(Path.IterDg) == void), "need to adopt Flattener::call()");
+static assert(is(ReturnType!(Path.IterDg) == int), "need to adopt Flattener::call()");
 
 struct NoopFlattener
 {
@@ -14,9 +14,9 @@ struct NoopFlattener
         this.dg = dg;
     }
 
-    void call(Path.Verb verb, in FPoint[] pts)
+    int call(Path.Verb verb, in FPoint[] pts)
     {
-        this.dg(verb, pts);
+        return this.dg(verb, pts);
     }
 }
 
@@ -28,7 +28,7 @@ struct QuadCubicFlattener
         this.dg = dg;
     }
 
-    void call(Path.Verb verb, in FPoint[] pts)
+    int call(Path.Verb verb, in FPoint[] pts)
     {
         final switch (verb) {
         case Path.Verb.Move, Path.Verb.Close:
@@ -45,17 +45,20 @@ struct QuadCubicFlattener
         }
     }
 
-    void __line(in FPoint[] pts)
+    int __line(in FPoint[] pts)
     {
         assert(pts.length == 2);
 
         if (degenerate(pts[0], pts[1]))
-            return;
+            return 0;
         else
-            return this.dg(Path.Verb.Line, pts);
+        {
+            Path.Verb verb = Path.Verb.Line;
+            return this.dg(verb, pts);
+        }
     }
 
-    void __quad(in FPoint[] pts)
+    int __quad(in FPoint[] pts)
     {
         assert(pts.length == 3);
 
@@ -74,17 +77,21 @@ struct QuadCubicFlattener
                 FPoint[3] ptss0 = void, ptss1 = void;
                 memcpy(ptss1.ptr, pts.ptr, ptss1.sizeof);
                 splitBezier(ptss0, ptss1, 0.5);
-                this.__quad(ptss0);
-                this.__quad(ptss1);
+                if (auto res = this.__quad(ptss0))
+                    return res;
+                if (auto res = this.__quad(ptss1))
+                    return res;
+                return 0;
             }
             else
             {
-                this.dg(Path.Verb.Quad, pts);
+                Path.Verb verb = Path.Verb.Quad;
+                return this.dg(verb, pts);
             }
         }
     }
 
-    void __cubic(in FPoint[] pts)
+    int __cubic(in FPoint[] pts)
     {
         assert(pts.length == 4);
 
@@ -104,12 +111,16 @@ struct QuadCubicFlattener
                 FPoint[4] ptss0 = void, ptss1 = void;
                 memcpy(ptss1.ptr, pts.ptr, ptss1.sizeof);
                 splitBezier(ptss0, ptss1, 0.5);
-                this.__cubic(ptss0);
-                this.__cubic(ptss1);
+                if (auto res = this.__cubic(ptss0))
+                    return res;
+                if (auto res = this.__cubic(ptss1))
+                    return res;
+                return 0;
             }
             else
             {
-                this.dg(Path.Verb.Cubic, pts);
+                Path.Verb verb = Path.Verb.Cubic;
+                return this.dg(verb, pts);
             }
         }
     }

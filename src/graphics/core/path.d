@@ -60,13 +60,13 @@ public:
     {
         string res;
         res ~= "Path, bounds: " ~ to!string(_bounds) ~ "\n";
-        forEach((Verb verb, in FPoint[] pts)
+        foreach(verb, pts; this)
         {
             res ~= to!string(verb) ~ ": ";
             foreach(FPoint pt; pts)
                 res ~= to!string(pt) ~ ", ";
             res ~= "\n";
-        });
+        };
         return res;
     }
 
@@ -147,11 +147,11 @@ public:
             _bounds.join(bounds);
     }
 
-    alias void delegate(Verb, in FPoint[]) IterDg;
-    void forEach(Flattener=NoopFlattener)(scope IterDg dg) const
+    alias int delegate(ref const Verb, ref const FPoint[]) IterDg;
+    int forEach(Flattener=NoopFlattener)(scope IterDg dg) const
     {
         if (empty)
-            return;
+            return 0;
 
         FPoint moveTo;
         FPoint[4] tmpPts;
@@ -169,13 +169,15 @@ public:
             case Verb.Move:
                 moveTo = tmpPts[0] = pts.front;
                 pts.popFront;
-                flattener.call(Verb.Move, tmpPts[0 .. 1]);
+                if (auto res = flattener.call(Verb.Move, tmpPts[0 .. 1]))
+                    return res;
                 break;
 
             case Verb.Line, Verb.Quad, Verb.Cubic:
                 memcpy(tmpPts.ptr + 1, pts.ptr, verb * FPoint.sizeof);
                 popFrontN(pts, verb);
-                flattener.call(verb, tmpPts[0 .. verb + 1]);
+                if (auto res = flattener.call(verb, tmpPts[0 .. verb + 1]))
+                    return res;
                 tmpPts[0] = tmpPts[verb];
                 break;
 
@@ -183,13 +185,18 @@ public:
                 if (tmpPts[0] != moveTo)
                 {
                     tmpPts[1] = moveTo;
-                    flattener.call(Verb.Line, tmpPts[0 .. 2]);
+                    if (auto res = flattener.call(Verb.Line, tmpPts[0 .. 2]))
+                        return res;
                     tmpPts[0] = moveTo;
                 }
-                flattener.call(Verb.Close, null);
+                if (auto res = flattener.call(Verb.Close, null))
+                    return res;
             }
         }
+        return 0;
     }
+
+    alias forEach!NoopFlattener opApply;
 
     bool isClosedContour()
     {
@@ -642,9 +649,12 @@ public:
             tmp._verbs.reserve(this._verbs.data.length);
             tmp._points.reserve(this._points.data.length);
 
-            this.forEach!(QuadCubicFlattener)(
-                (Verb verb, in FPoint[] pts) { tmp._verbs.put(verb); tmp._points.put(pts); }
-            );
+            this.forEach!(QuadCubicFlattener)((ref const Verb verb, ref const FPoint[] pts)
+            {
+                tmp._verbs.put(verb);
+                tmp._points.put(pts);
+                return 0;
+            });
             this = tmp;
         }
         else
@@ -686,14 +696,13 @@ public:
             [],
         ];
 
-        void iterate(Verb verb, in FPoint[] pts)
+        foreach(verb, pts; p)
         {
             assert(verb == verbExp[0]);
             assert(pts == ptsExp[0]);
             verbExp.popFront();
             ptsExp.popFront();
         }
-        p.forEach(&iterate);
 
         assert(p.isClosedContour() == true);
         assert(p.empty() == false);

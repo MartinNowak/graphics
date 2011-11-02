@@ -211,7 +211,7 @@ public:
     {
         Path dst;
 
-        path.forEach((Path.Verb verb, in FPoint[] pts)
+        foreach(verb, pts; path)
         {
             final switch(verb)
             {
@@ -249,7 +249,7 @@ public:
                 dst.close();
                 break;
             }
-        });
+        };
         return dst;
     }
 

@@ -322,7 +322,7 @@ WaveletRaster pathToWavelet(in Path path, IRect clip)
         return WaveletRaster.init;
     WaveletRaster wr = WaveletRaster(ir);
 
-    path.forEach((Path.Verb verb, in FPoint[] pts)
+    foreach(verb, pts; path)
     {
         final switch(verb)
         {
@@ -346,6 +346,6 @@ WaveletRaster pathToWavelet(in Path path, IRect clip)
             wr.insertEdge(fpts);
             break;
         }
-    });
+    };
     return wr;
 }

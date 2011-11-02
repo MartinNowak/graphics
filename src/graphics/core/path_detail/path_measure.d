@@ -125,7 +125,7 @@ private:
 
     void buildSegments(in Path path)
     {
-        path.forEach!(QuadCubicFlattener)((Path.Verb verb, in FPoint[] pts){
+        path.forEach!(QuadCubicFlattener)((ref const Path.Verb verb, ref const FPoint[] pts){
         final switch(verb) {
         case Path.Verb.Move:
           this.segments.put(getSegment(this.curDist, this.points.length));
@@ -154,6 +154,7 @@ private:
           this.isClosed = true;
           break;
         }
+        return 0;
       });
     assert(this.verbs.length == this.segments.data.length);
   }
