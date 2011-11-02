@@ -11,12 +11,6 @@ private {
 }
 
 class SpriteBlitter : Blitter {
-  //! TODO: stub
-  static SpriteBlitter CreateD16(Bitmap device, in Bitmap source,
-                                 Paint paint, IPoint ioff) {
-    assert(device.config == Bitmap.Config.RGB_565);
-    assert(0, "unimplemented");
-  }
 
   static SpriteBlitter CreateD32(Bitmap device, in Bitmap source,
                                  Paint paint, IPoint ioff) {

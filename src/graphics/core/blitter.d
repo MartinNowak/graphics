@@ -59,8 +59,6 @@ class Blitter
 
   static Blitter ChooseSprite(Bitmap device, Paint paint, in Bitmap source, IPoint ioff) {
     switch (device.config) {
-    case Bitmap.Config.RGB_565:
-      return SpriteBlitter.CreateD16(device, source, paint, ioff);
     case Bitmap.Config.ARGB_8888:
       return SpriteBlitter.CreateD32(device, source, paint, ioff);
     default:
