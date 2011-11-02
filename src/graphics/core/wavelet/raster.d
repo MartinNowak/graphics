@@ -39,43 +39,6 @@ struct Node
         return str;
     }
 
-    void insertEdge(size_t K)(IPoint pos, FPoint[K] pts, uint depth)
-    in
-    {
-        fitsIntoRange!("[)")(pos.x, 0, 1 << depth);
-        fitsIntoRange!("[)")(pos.y, 0, 1 << depth);
-    }
-    body
-    {
-
-        auto node = &this;
-        for(;;)
-        {
-
-            debug
-            {
-                foreach(pt; pts)
-                    assert(fitsIntoRange!("[]")(pt.x, -1e-1, (1<<depth+1)+1e-1)
-                           && fitsIntoRange!("[]")(pt.y, -1e-1, (1<<depth+1)+1e-1),
-                           to!string(pts) ~ "|" ~ to!string(depth));
-            }
-
-            const half = 1 << --depth;
-            const right = pos.x >= half;
-            const bottom = pos.y >= half;
-            const qidx = bottom << 1 | right;
-
-            version (calcCoeffs_C)
-                mixin(Format!(q{calcCoeffs_%s(half, qidx, &pos, pts.ptr, node.coeffs.ptr);}, K));
-            else
-                calcCoeffs!K(half, qidx, pos, pts, node.coeffs);
-
-            if (depth == 0)
-                break;
-            node = &node.getChild(qidx);
-        }
-    }
-
     ref Node getChild(uint idx, ref RegionAllocator alloc)
     {
         if (_children is null)
