@@ -235,19 +235,22 @@ public:
         return verbs.length == 0 ? false : verbs[$-1] == verb;
     }
 
-    void ensureStart()
+    private bool ensureStart(in FPoint pt)
     {
         if (_verbs.data.empty)
         {
             assert(_points.data.empty);
-            _points.put(fPoint());
+            _points.put(pt);
             _verbs.put(Verb.Move);
+            return true;
         }
+        return false;
     }
 
-    void primTo(FPoint[] pts...)
+    void primTo(const(FPoint)[] pts...)
     {
-        ensureStart();
+        if (ensureStart(pts[0]))
+            pts.popFront;
         _points.put(pts);
         _verbs.put(cast(Verb)pts.length);
         _boundsIsClean = false;
@@ -589,7 +592,7 @@ public:
 
     void arcTo(FPoint center, FPoint endPt, Direction dir = Direction.CW)
     {
-        ensureStart();
+        ensureStart(center);
         auto startPt = this.lastPoint;
         immutable FVector start = startPt - center;
         immutable FVector   end = endPt   - center;
