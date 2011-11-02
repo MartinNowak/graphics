@@ -6,50 +6,50 @@ import graphics.core.stroke_detail._;
 
 struct Stroke
 {
-    float radius;
+    float _radius;
     //  float invMiterLimit;
 
-    FVector prevNormal;
-    Path outer;
-    Path inner;
-    Path result;
+    FVector _prevNormal;
+    Path _outer;
+    Path _inner;
+    Path _result;
 
-    Capper capper;
-    Joiner joiner;
-    bool fillSrcPath;
+    Capper _capper;
+    Joiner _joiner;
+    bool _fillSrcPath;
 
     this(in Paint paint, float width)
     {
         assert(width > 0);
-        this.radius = width * 0.5;
-        this.capper = getCapper(paint.capStyle);
-        this.joiner = getJoiner(paint.joinStyle);
-        this.fillSrcPath = paint.fillStyle == Paint.Fill.FillAndStroke;
+        _radius = width * 0.5;
+        _capper = getCapper(paint.capStyle);
+        _joiner = getJoiner(paint.joinStyle);
+        _fillSrcPath = paint.fillStyle == Paint.Fill.FillAndStroke;
     }
 
     void done()
     {
-        if (!this.outer.empty)
-            this.finishContour(false);
+        if (!_outer.empty)
+            finishContour(false);
     }
 
     void close()
     {
-        assert(!this.outer.empty);
-        this.finishContour(true);
+        assert(!_outer.empty);
+        finishContour(true);
     }
 
     FVector getNormal(FPoint pt1, FPoint pt2)
     {
         FVector normal = pt1 - pt2;
-        normal.setLength(radius);
+        normal.setLength(_radius);
         normal.rotateCCW();
         return normal;
     }
 
     Path strokePath(in Path path)
     {
-        if (radius <= 0)
+        if (_radius <= 0)
             return Path();
 
         path.forEach!QuadCubicFlattener((Path.Verb verb, in FPoint[] pts)
@@ -57,83 +57,83 @@ struct Stroke
             final switch(verb)
             {
             case Path.Verb.Move:
-                this.moveTo(pts[0]);
+                moveTo(pts[0]);
                 break;
             case Path.Verb.Line:
-                this.lineTo(pts);
+                lineTo(pts);
                 break;
             case Path.Verb.Quad:
-                this.quadTo(pts);
+                quadTo(pts);
                 break;
             case Path.Verb.Cubic:
-                this.cubicTo(pts);
+                cubicTo(pts);
                 break;
             case Path.Verb.Close:
-                this.close();
+                close();
             }
         });
 
-        this.done();
+        done();
 
-        if (this.fillSrcPath)
-            this.result.addPath(path);
+        if (_fillSrcPath)
+            _result.addPath(path);
 
-        return this.result;
+        return _result;
     }
 
     void join(FPoint pt, FVector normalAfter)
     {
-        if (!this.outer.empty)
+        if (!_outer.empty)
         {
-            this.joiner(pt, this.prevNormal, normalAfter, this.inner, this.outer);
+            _joiner(pt, _prevNormal, normalAfter, _inner, _outer);
         }
         else
         {
-            this.inner.moveTo(pt - normalAfter);
-            this.outer.moveTo(pt + normalAfter);
+            _inner.moveTo(pt - normalAfter);
+            _outer.moveTo(pt + normalAfter);
         }
     }
 
     void finishContour(bool close)
     {
-        const opts = this.outer.points;
+        const opts = _outer.points;
 
         if (close)
         {
             auto firstNormal = getNormal(opts[0], opts[1]);
-            FPoint pt = (inner.points[$-1] + opts[$-1]) * 0.5;
+            FPoint pt = (_inner.points[$-1] + opts[$-1]) * 0.5;
             join(pt, firstNormal);
-            outer.close();
+            _outer.close();
 
-            outer.moveTo(inner.points[$-1]);
-            outer.reversePathTo(inner);
-            outer.close();
+            _outer.moveTo(_inner.points[$-1]);
+            _outer.reversePathTo(_inner);
+            _outer.close();
         }
         else
         {
             FVector normal = getNormal(opts[$-1], opts[$-2]);
-            FPoint pt = (this.inner.points[$-1] + opts[$-1]) * 0.5;
-            this.capper(pt, normal, outer);
+            FPoint pt = (_inner.points[$-1] + opts[$-1]) * 0.5;
+            _capper(pt, normal, _outer);
 
-            outer.reversePathTo(inner);
-            assert(inner.points[0] == outer.points[$-1]);
+            _outer.reversePathTo(_inner);
+            assert(_inner.points[0] == _outer.points[$-1]);
 
             auto firstNormal = getNormal(opts[0], opts[1]);
-            pt = (inner.points[0] + opts[0]) * 0.5;
-            capper(pt, firstNormal, outer);
-            outer.close();
+            pt = (_inner.points[0] + opts[0]) * 0.5;
+            _capper(pt, firstNormal, _outer);
+            _outer.close();
         }
 
-        result.addPath(outer);
-        inner.reset();
-        outer.reset();
+        _result.addPath(_outer);
+        _inner.reset();
+        _outer.reset();
     }
 
     void moveTo(FPoint pt)
     {
-        if (!this.outer.empty)
+        if (!_outer.empty)
         {
-            this.finishContour(false);
+            finishContour(false);
         }
     }
 
@@ -152,12 +152,12 @@ struct Stroke
     body
     {
         auto normal = getNormal(pts[0], pts[1]);
-        this.join(pts[0], normal);
+        join(pts[0], normal);
 
-        this.outer.lineTo(pts[1] + normal);
-        this.inner.lineTo(pts[1] - normal);
+        _outer.lineTo(pts[1] + normal);
+        _inner.lineTo(pts[1] - normal);
 
-        this.prevNormal = normal;
+        _prevNormal = normal;
     }
 
     void quadTo(in FPoint[] pts)
@@ -170,15 +170,15 @@ struct Stroke
     body
     {
         auto normalAB = getNormal(pts[0], pts[1]);
-        this.join(pts[0], normalAB);
+        join(pts[0], normalAB);
 
         auto normalBC = getNormal(pts[1], pts[2]);
         auto normalB = getNormal(pts[0], pts[2]);
 
-        this.outer.quadTo(pts[1] + normalB, pts[2] + normalBC);
-        this.inner.quadTo(pts[1] - normalB, pts[2] - normalBC);
+        _outer.quadTo(pts[1] + normalB, pts[2] + normalBC);
+        _inner.quadTo(pts[1] - normalB, pts[2] - normalBC);
 
-        this.prevNormal = normalBC;
+        _prevNormal = normalBC;
     }
 
     void cubicTo(in FPoint[] pts)
@@ -191,15 +191,15 @@ struct Stroke
     body
     {
         auto normalAB = getNormal(pts[0], pts[1]);
-        this.join(pts[0], normalAB);
+        join(pts[0], normalAB);
 
         auto normalCD = getNormal(pts[2], pts[3]);
         auto normalB = getNormal(pts[0], pts[2]);
         auto normalC = getNormal(pts[1], pts[3]);
 
-        this.outer.cubicTo(pts[1] + normalB, pts[2] + normalC, pts[3] + normalCD);
-        this.inner.cubicTo(pts[1] - normalB, pts[2] - normalC, pts[3] - normalCD);
+        _outer.cubicTo(pts[1] + normalB, pts[2] + normalC, pts[3] + normalCD);
+        _inner.cubicTo(pts[1] - normalB, pts[2] - normalC, pts[3] - normalCD);
 
-        this.prevNormal = normalCD;
+        _prevNormal = normalCD;
     }
 }
