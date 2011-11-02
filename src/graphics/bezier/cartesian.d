@@ -87,9 +87,7 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
 
             if (!empty)
             {
-                convertPoly(cs, _coeffs);
-                static if (K == 4)
-                    _endV = cs[$-1];
+                convertToPoly(cs, _coeffs);
             }
         }
     }
@@ -186,7 +184,7 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
     else
         static assert(0);
 
-    static void convertPoly(ref const T[K] cs, ref T[K] polycs)
+    static void convertToPoly(ref const T[K] cs, ref T[K] polycs)
     {
         static if (K == 2)
         {
@@ -214,8 +212,6 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
     int _pastend;
     T[K] _coeffs;
     double _curT;
-    static if (K == 4)
-        T _endV;
 }
 
 
