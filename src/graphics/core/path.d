@@ -1,24 +1,11 @@
 module graphics.core.path;
 
-private {
-  import std.algorithm : swap;
-  import std.array;
-  import std.conv : to;
-  import std.math;
-  import std.numeric : FPTemporary;
-  import std.range;
-  import std.traits;
-
-  import graphics.core.matrix;
-  import guip.point;
-  import graphics.bezier.chop;
-  import graphics.core.path_detail._;
-  import guip.rect;
-}
+import std.algorithm, std.array, std.conv, std.math, std.numeric, std.range, std.traits, core.stdc.string;
+import graphics.bezier.chop, graphics.core.matrix, graphics.core.path_detail._;
+import guip.point, guip.rect;
 
 public import graphics.core.path_detail._ : QuadCubicFlattener;
 
-//debug=WHITEBOX;
 debug import std.stdio : writeln, printf;
 version=CUBIC_ARC;
 
@@ -30,176 +17,200 @@ struct Path
 
 private:
   FRect _bounds;
-  bool boundsIsClean;
   FillType _fillType;
-  ubyte isConvex;
+  bool _boundsIsClean;
 
 public:
 
-  void reset() {
-    this._points.clear();
-    this._verbs.clear();
-    this.boundsIsClean = false;
-    this._bounds = FRect();
-  }
-  enum FillType : ubyte {
-    EvenOdd = 0,
-    Winding = 1,
-    InverseEvenOdd = 2,
-    InverseWinding = 3,
-  }
-  enum Direction {
-    CW,
-    CCW,
-  }
-  enum CubicArcFactor = (SQRT2 - 1.0) * 4.0 / 3.0;
-
-  string toString() const {
-    string res;
-    res ~= "Path, bounds: " ~ to!string(this._bounds) ~ "\n";
-    this.forEach((Verb verb, in FPoint[] pts) {
-        res ~= verbToString(verb) ~ ": ";
-        foreach(FPoint pt; pts) {
-          res ~= to!string(pt) ~ ", ";
-        }
-        res ~= "\n";
-      });
-    return res;
-  }
-  static string verbToString(Verb verb) {
-    final switch(verb) {
-    case Verb.Move: return "Move";
-    case Verb.Line: return "Line";
-    case Verb.Quad: return "Quad";
-    case Verb.Cubic: return "Cubic";
-    case Verb.Close: return "Close";
+    void reset()
+    {
+        _points.clear();
+        _verbs.clear();
+        _boundsIsClean = false;
+        _bounds = FRect();
     }
-  }
 
-  this(in Path path) {
-    this = path;
-  }
-  void opAssign(in Path path) {
-    this._points = appender(path.points.dup);
-    this._verbs = appender(path.verbs.dup);
-    this._bounds = path._bounds;
-    this.boundsIsClean = path.boundsIsClean;
-    this._fillType = path._fillType;
-    this.isConvex = path.isConvex;
-  }
-
-  @property bool empty() const {
-    return this.verbs.length == 0
-      || this.verbs.length == 1 && this.verbs[0] == Verb.Move;
-  }
-  @property void fillType(FillType fillType) {
-    this._fillType = fillType;
-  }
-  @property FillType fillType() const {
-    return this._fillType;
-  }
-  @property bool inverseFillType() const { return (this.fillType & 2) != 0; }
-  void toggleInverseFillType() {
-    this._fillType ^= 0x2;
-  }
-
-  @property FRect bounds() const {
-    if (!this.boundsIsClean) {
-      auto ncthis = cast(Path*)&this;
-      ncthis._bounds = this.calcBounds();
-      ncthis.boundsIsClean = true;
+    enum Verb : ubyte
+    {
+        Move = 0,
+        Line  = 1,
+        Quad  = 2,
+        Cubic = 3,
+        Close = 4,
     }
-    return this._bounds;
-  }
 
-  @property IRect ibounds() const {
-    return this.bounds.roundOut();
-  }
+    // TODO: needed ?
+    enum FillType : ubyte
+    {
+        EvenOdd = 0,
+        Winding = 1,
+        InverseEvenOdd = 2,
+        InverseWinding = 3,
+    }
 
-  FRect calcBounds() const {
-    auto bnds = this.points.length > 0
-      ? FRect.calcBounds(this.points)
-      : FRect.emptyRect();
-    return bnds;
-  }
+    enum Direction
+    {
+        CW,
+        CCW,
+    }
 
-  void joinBounds(FRect bounds) {
-    if (this.boundsIsClean)
-      this._bounds.join(bounds);
-  }
+    private enum CubicArcFactor = (SQRT2 - 1.0) * 4.0 / 3.0;
 
-  enum Verb : ubyte
-  {
-    Move = 0,
-    Line  = 1,
-    Quad  = 2,
-    Cubic = 3,
-    Close = 4,
-  }
-
-  alias void delegate(Verb, in FPoint[]) IterDg;
-  void forEach(Flattener=NoopFlattener)(IterDg dg) const {
-    if (this.empty)
-      return;
-
-    FPoint moveTo;
-    FPoint[4] tmpPts;
-
-    auto vs = this.verbs.save;
-    auto points = this.points.save;
-    auto flattener = Flattener(dg);
-
-    while (!vs.empty) {
-      Verb verb = vs.front; vs.popFront();
-
-      final switch (verb) {
-      case Verb.Move:
-        tmpPts[0] = points.front;
-	points.popFront;
-	flattener.call(Verb.Move, tmpPts[0 .. 1]);
-        moveTo = tmpPts[0];
-	break;
-
-      case Verb.Line, Verb.Quad, Verb.Cubic:
-        foreach(i; 1 .. verb + 1) {
-          tmpPts[i] = points.front;
-          points.popFront;
-        }
-	flattener.call(verb, tmpPts[0 .. verb + 1]);
-	tmpPts[0] = tmpPts[verb];
-	break;
-
-      case Verb.Close:
-        if (tmpPts[0] != moveTo)
+    string toString() const
+    {
+        string res;
+        res ~= "Path, bounds: " ~ to!string(_bounds) ~ "\n";
+        forEach((Verb verb, in FPoint[] pts)
         {
-          tmpPts[1] = moveTo;
-          flattener.call(Verb.Line, tmpPts[0 .. 2]);
-          tmpPts[0] = moveTo;
+            res ~= to!string(verb) ~ ": ";
+            foreach(FPoint pt; pts)
+                res ~= to!string(pt) ~ ", ";
+            res ~= "\n";
+        });
+        return res;
+    }
+
+    // TODO: less copying, maybe COW
+    this(in Path path)
+    {
+        this = path;
+    }
+
+    // TODO: less copying, maybe COW
+    void opAssign(in Path path)
+    {
+        _points        = appender(path.points.dup);
+        _verbs         = appender(path.verbs.dup);
+        _bounds        = path._bounds;
+        _boundsIsClean = path._boundsIsClean;
+        _fillType      = path._fillType;
+    }
+
+    @property bool empty() const
+    {
+        return verbs.length == 0 ||
+            verbs.length == 1 && verbs[0] == Verb.Move;
+    }
+
+    @property void fillType(FillType fillType)
+    {
+        _fillType = fillType;
+    }
+
+    @property FillType fillType() const
+    {
+        return _fillType;
+    }
+
+    @property bool inverseFillType() const
+    {
+        return (this.fillType & 2) != 0;
+    }
+
+    void toggleInverseFillType()
+    {
+        this._fillType ^= 0x2;
+    }
+
+    // TODO: check if const is needed
+    @property FRect bounds() const
+    {
+        if (!_boundsIsClean)
+        {
+            auto pthis = cast(Path*)&this;
+            pthis._bounds = calcBounds();
+            pthis._boundsIsClean = true;
         }
-        flattener.call(Verb.Close, []);
-      }
+        return _bounds;
     }
-  }
 
-  bool isClosedContour() {
-    auto r = this.verbs.save;
-
-    if (r.front == Verb.Move)
-      r.popFront();
-
-    while(!r.empty) {
-      if (r.front == Verb.Move)
-        break;
-      if (r.front == Verb.Close)
-        return true;
-      r.popFront();
+    @property IRect ibounds() const
+    {
+        return bounds.roundOut();
     }
-    return false;
-  }
+
+    private FRect calcBounds() const
+    {
+        if (!points.empty)
+        {
+            return FRect.calcBounds(points);
+        }
+        else
+        {
+            return FRect.emptyRect();
+        }
+    }
+
+    private void joinBounds(FRect bounds)
+    {
+        if (_boundsIsClean)
+            _bounds.join(bounds);
+    }
+
+    alias void delegate(Verb, in FPoint[]) IterDg;
+    void forEach(Flattener=NoopFlattener)(scope IterDg dg) const
+    {
+        if (empty)
+            return;
+
+        FPoint moveTo;
+        FPoint[4] tmpPts;
+
+        auto vs = verbs.save;
+        auto pts = points.save;
+        auto flattener = Flattener(dg);
+
+        while (!vs.empty)
+        {
+            Verb verb = vs.front; vs.popFront();
+
+            final switch (verb)
+            {
+            case Verb.Move:
+                moveTo = tmpPts[0] = pts.front;
+                pts.popFront;
+                flattener.call(Verb.Move, tmpPts[0 .. 1]);
+                break;
+
+            case Verb.Line, Verb.Quad, Verb.Cubic:
+                memcpy(tmpPts.ptr + 1, pts.ptr, verb * FPoint.sizeof);
+                popFrontN(pts, verb);
+                flattener.call(verb, tmpPts[0 .. verb + 1]);
+                tmpPts[0] = tmpPts[verb];
+                break;
+
+            case Verb.Close:
+                if (tmpPts[0] != moveTo)
+                {
+                    tmpPts[1] = moveTo;
+                    flattener.call(Verb.Line, tmpPts[0 .. 2]);
+                    tmpPts[0] = moveTo;
+                }
+                flattener.call(Verb.Close, null);
+            }
+        }
+    }
+
+    bool isClosedContour()
+    {
+        auto r = verbs.save;
+
+        if (r.front == Verb.Move)
+            r.popFront;
+
+        for (; !r.empty; r.popFront)
+        {
+            if (r.front == Verb.Move)
+                break;
+            if (r.front == Verb.Close)
+                return true;
+        }
+        return false;
+    }
 
     @property const(FPoint)[] points() const
     {
-        return (cast()this._points).data.save;
+        return (cast()_points).data.save;
     }
 
     @property FPoint lastPoint() const
@@ -209,19 +220,19 @@ public:
 
     @property Verb[] verbs() const
     {
-        return (cast()this._verbs).data.save;
+        return (cast()_verbs).data.save;
     }
 
     bool lastVerbWas(Verb verb) const
     {
-        return this.verbs.length == 0 ? false : this.verbs[$-1] == verb;
+        return verbs.length == 0 ? false : verbs[$-1] == verb;
     }
 
     void ensureStart()
     {
-        if (this.verbs.empty)
+        if (_verbs.data.empty)
         {
-            assert(this.points.length == 0);
+            assert(_points.data.empty);
             _points.put(fPoint());
             _verbs.put(Verb.Move);
         }
@@ -232,20 +243,20 @@ public:
         ensureStart();
         _points.put(pts);
         _verbs.put(cast(Verb)pts.length);
-        boundsIsClean = false;
+        _boundsIsClean = false;
     }
 
     void rPrimTo(FPoint[] pts...)
     {
-        auto lPt = this.lastPoint;
+        auto last = lastPoint;
         foreach(ref pt; pts)
-            pt = pt + lPt;
+            pt = pt + last;
         primTo(pts);
     }
 
     void moveTo(in FPoint pt)
     {
-        if (this.lastVerbWas(Verb.Move))
+        if (lastVerbWas(Verb.Move))
         {
             _points.data[$-1] = pt;
         }
@@ -254,7 +265,7 @@ public:
             _points.put(pt);
             _verbs.put(Verb.Move);
         }
-        boundsIsClean = false;
+        _boundsIsClean = false;
     }
 
     void rMoveTo(in FPoint pt)
@@ -294,9 +305,9 @@ public:
 
     void close()
     {
-        if (this.verbs.length > 0)
+        if (_verbs.data.length > 0)
         {
-            final switch (this.verbs[$-1])
+            final switch (_verbs.data[$-1])
             {
             case Verb.Line, Verb.Quad, Verb.Cubic:
                 _verbs.put(Verb.Close);
@@ -304,6 +315,7 @@ public:
 
             case Verb.Close:
                 break;
+
             case Verb.Move:
                 assert(0, "Can't close path when last operation was a moveTo");
             }
@@ -314,7 +326,7 @@ public:
     {
         _verbs.put(path.verbs);
         _points.put(path.points);
-        boundsIsClean = false;
+        _boundsIsClean = false;
     }
 
     void reversePathTo(in Path path)
@@ -327,7 +339,7 @@ public:
         _points.reserve(points.length + path.points.length);
 
         //! skip initial moveTo
-        assert(this.verbs[0] == Verb.Move);
+        assert(verbs.front == Verb.Move);
         auto vs = path.verbs[1..$].retro;
         auto rpts = path.points[0..$-1].retro;
 
@@ -370,208 +382,257 @@ public:
         assert(path.points == [FPoint(0, 0), FPoint(40, 60), FPoint(100, 100)], to!string(path.points));
     }
 
-  void addRect(in FRect rect, Direction dir = Direction.CW) {
-    FPoint[4] quad = rect.toQuad;
+    void addRect(in FRect rect, Direction dir = Direction.CW)
+    {
+        FPoint[4] quad = rect.toQuad;
 
-    if (dir == Direction.CCW)
-      swap(quad[1], quad[3]);
+        if (dir == Direction.CCW)
+            swap(quad[1], quad[3]);
 
-    this.moveTo(quad[0]);
-    foreach(pt; quad[1..$]) {
-      this.lineTo(pt);
+        moveTo(quad[0]);
+        foreach(ref pt; quad[1..$])
+        {
+            lineTo(pt);
+        }
+        close();
     }
-    this.close();
+
+    void addRoundRect(FRect rect, float rx, float ry, Direction dir = Direction.CW)
+    {
+        scope(success) joinBounds(rect);
+        if (rect.empty)
+            return;
+
+        immutable  skip_hori = 2 * rx >= rect.width;
+        immutable  skip_vert = 2 * ry >= rect.height;
+        if (skip_hori && skip_vert)
+            return addOval(rect, dir);
+
+        if (skip_hori)
+            rx = 0.5 * rect.width;
+        if (skip_vert)
+            ry = 0.5 * rect.height;
+
+        immutable sx = rx * CubicArcFactor;
+        immutable sy = ry * CubicArcFactor;
+
+        moveTo(FPoint(rect.right - rx, rect.top));
+
+        if (dir == Direction.CCW)
+        {
+            // top
+            if (!skip_hori)
+                lineTo(FPoint(rect.left + rx, rect.top));
+
+            // top-left
+            cubicTo(
+                FPoint(rect.left + rx - sx, rect.top),
+                FPoint(rect.left, rect.top + ry - sy),
+                FPoint(rect.left, rect.top + ry)
+            );
+
+            // left
+            if (!skip_vert)
+                lineTo(FPoint(rect.left, rect.bottom - ry));
+
+            // bot-left
+            cubicTo(
+                FPoint(rect.left, rect.bottom - ry + sy),
+                FPoint(rect.left + rx - sx, rect.bottom),
+                FPoint(rect.left + rx, rect.bottom)
+            );
+
+            // bottom
+            if (!skip_hori)
+                lineTo(FPoint(rect.right - rx, rect.bottom));
+
+            // bot-right
+            cubicTo(
+                FPoint(rect.right - rx + sx, rect.bottom),
+                FPoint(rect.right, rect.bottom - ry + sy),
+                FPoint(rect.right, rect.bottom - ry)
+            );
+
+            if (!skip_vert)
+                lineTo(FPoint(rect.right, rect.top + ry));
+
+            // top-right
+            cubicTo(
+                FPoint(rect.right, rect.top + ry - sy),
+                FPoint(rect.right - rx + sx, rect.top),
+                FPoint(rect.right - rx, rect.top)
+            );
+        } // CCW
+        else
+        {
+            // top-right
+            cubicTo(
+                FPoint(rect.right - rx + sx, rect.top),
+                FPoint(rect.right, rect.top + ry - sy),
+                FPoint(rect.right, rect.top + ry)
+            );
+
+            if (!skip_vert)
+                lineTo(FPoint(rect.right, rect.bottom - ry));
+
+            // bot-right
+            cubicTo(
+                FPoint(rect.right, rect.bottom - ry + sy),
+                FPoint(rect.right - rx + sx, rect.bottom),
+                FPoint(rect.right - rx, rect.bottom)
+            );
+
+            // bottom
+            if (!skip_hori)
+                lineTo(FPoint(rect.left + rx, rect.bottom));
+
+            // bot-left
+            cubicTo(
+                FPoint(rect.left + rx - sx, rect.bottom),
+                FPoint(rect.left, rect.bottom - ry + sy),
+                FPoint(rect.left, rect.bottom - ry)
+            );
+
+            // left
+            if (!skip_vert)
+                lineTo(FPoint(rect.left, rect.top + ry));
+
+            // top-left
+            cubicTo(
+                FPoint(rect.left, rect.top + ry - sy),
+                FPoint(rect.left + rx - sx, rect.top),
+                FPoint(rect.left + rx, rect.top)
+            );
+
+            // top
+            if (!skip_hori)
+                this.lineTo(FPoint(rect.right - rx, rect.top));
+        } // CW
+
+        close();
   }
 
-  void addRoundRect(FRect rect, float rx, float ry,
-                    Direction dir = Direction.CW) {
-    scope(success) this.joinBounds(rect);
-    if (rect.empty)
-      return;
+    void addOval(FRect oval, Direction dir = Direction.CW)
+    {
+        immutable cx = oval.centerX;
+        immutable cy = oval.centerY;
+        immutable rx = 0.5 * oval.width;
+        immutable ry = 0.5 * oval.height;
 
-    auto skip_hori = 2*rx >= rect.width;
-    auto skip_vert = 2*ry >= rect.height;
-    if (skip_hori && skip_vert)
-      return this.addOval(rect, dir);
+        version(CUBIC_ARC)
+        {
+            immutable sx = rx * CubicArcFactor;
+            immutable sy = ry * CubicArcFactor;
 
-    if (skip_hori)
-      rx = 0.5 * rect.width;
-    if (skip_vert)
-      ry = 0.5 * rect.height;
+            moveTo(FPoint(cx + rx, cy));
+            if (dir == Direction.CCW)
+            {
+                cubicTo(FPoint(cx + rx, cy - sy), FPoint(cx + sx, cy - ry), FPoint(cx     , cy - ry));
+                cubicTo(FPoint(cx - sx, cy - ry), FPoint(cx - rx, cy - sy), FPoint(cx - rx, cy     ));
+                cubicTo(FPoint(cx - rx, cy + sy), FPoint(cx - sx, cy + ry), FPoint(cx     , cy + ry));
+                cubicTo(FPoint(cx + sx, cy + ry), FPoint(cx + rx, cy + sy), FPoint(cx + rx, cy     ));
+            }
+            else
+            {
+                cubicTo(FPoint(cx + rx, cy + sy), FPoint(cx + sx, cy + ry), FPoint(cx     , cy + ry));
+                cubicTo(FPoint(cx - sx, cy + ry), FPoint(cx - rx, cy + sy), FPoint(cx - rx, cy     ));
+                cubicTo(FPoint(cx - rx, cy - sy), FPoint(cx - sx, cy - ry), FPoint(cx     , cy - ry));
+                cubicTo(FPoint(cx + sx, cy - ry), FPoint(cx + rx, cy - sy), FPoint(cx + rx, cy     ));
+            }
+        }
+        else
+        {
+            enum TAN_PI_8 = tan(PI_4 * 0.5);
+            immutable sx = rx * TAN_PI_8;
+            immutable sy = ry * TAN_PI_8;
+            immutable mx = rx * SQRT1_2;
+            immutable my = ry * SQRT1_2;
+            immutable L = oval.left;
+            immutable T = oval.top;
+            immutable R = oval.right;
+            immutable B = oval.bottom;
 
-    auto sx = rx * CubicArcFactor;
-    auto sy = ry * CubicArcFactor;
-    this.moveTo(FPoint(rect.right - rx, rect.top));
-    if (dir == Direction.CCW) {
-      if (!skip_hori)
-        this.lineTo(FPoint(rect.left + rx, rect.top));    // top
+            moveTo(FPoint(R, cy));
+            if (dir == Direction.CCW)
+            {
+                quadTo(FPoint(R      ,  cy - sy), FPoint(cx + mx, cy - my));
+                quadTo(FPoint(cx + sx,  T      ), FPoint(cx     , T      ));
+                quadTo(FPoint(cx - sx,  T      ), FPoint(cx - mx, cy - my));
+                quadTo(FPoint(L      ,  cy - sy), FPoint(L      , cy     ));
+                quadTo(FPoint(L      ,  cy + sy), FPoint(cx - mx, cy + my));
+                quadTo(FPoint(cx - sx,  B      ), FPoint(cx     , B      ));
+                quadTo(FPoint(cx + sx,  B      ), FPoint(cx + mx, cy + my));
+                quadTo(FPoint(R      ,  cy + sy), FPoint(R      , cy     ));
+            }
+            else
+            {
+                quadTo(FPoint(R      ,  cy + sy), FPoint(cx + mx, cy + my));
+                quadTo(FPoint(cx + sx,  B      ), FPoint(cx     , B      ));
+                quadTo(FPoint(cx - sx,  B      ), FPoint(cx - mx, cy + my));
+                quadTo(FPoint(L      ,  cy + sy), FPoint(L      , cy     ));
+                quadTo(FPoint(L      ,  cy - sy), FPoint(cx - mx, cy - my));
+                quadTo(FPoint(cx - sx,  T      ), FPoint(cx     , T      ));
+                quadTo(FPoint(cx + sx,  T      ), FPoint(cx + mx, cy - my));
+                quadTo(FPoint(R      ,  cy - sy), FPoint(R      , cy     ));
+            }
+        }
 
-      this.cubicTo(FPoint(rect.left + rx - sx, rect.top),
-                   FPoint(rect.left, rect.top + ry - sy),
-                   FPoint(rect.left, rect.top + ry));     // top-left
-
-      if (!skip_vert)
-        this.lineTo(FPoint(rect.left, rect.bottom - ry)); // left
-
-      this.cubicTo(FPoint(rect.left, rect.bottom - ry + sy),
-                   FPoint(rect.left + rx - sx, rect.bottom),
-                   FPoint(rect.left + rx, rect.bottom));         // bot-left
-      if (!skip_hori)
-        this.lineTo(FPoint(rect.right - rx, rect.bottom));// bottom
-
-      this.cubicTo(FPoint(rect.right - rx + sx, rect.bottom),
-                   FPoint(rect.right, rect.bottom - ry + sy),
-                   FPoint(rect.right, rect.bottom - ry));      // bot-right
-      if (!skip_vert)
-        this.lineTo(FPoint(rect.right, rect.top + ry));
-
-      this.cubicTo(FPoint(rect.right, rect.top + ry - sy),
-                   FPoint(rect.right - rx + sx, rect.top),
-                   FPoint(rect.right - rx, rect.top));         // top-right
-    } else {
-      this.cubicTo(FPoint(rect.right - rx + sx, rect.top),
-                   FPoint(rect.right, rect.top + ry - sy),
-                   FPoint(rect.right, rect.top + ry));         // top-right
-
-      if (!skip_vert)
-        this.lineTo(FPoint(rect.right, rect.bottom - ry));
-
-      this.cubicTo(FPoint(rect.right, rect.bottom - ry + sy),
-                   FPoint(rect.right - rx + sx, rect.bottom),
-                   FPoint(rect.right - rx, rect.bottom));      // bot-right
-
-      if (!skip_hori)
-        this.lineTo(FPoint(rect.left + rx, rect.bottom));    // bottom
-
-      this.cubicTo(FPoint(rect.left + rx - sx, rect.bottom),
-                   FPoint(rect.left, rect.bottom - ry + sy),
-                   FPoint(rect.left, rect.bottom - ry));       // bot-left
-
-      if (!skip_vert)
-        this.lineTo(FPoint(rect.left, rect.top + ry));       // left
-
-      this.cubicTo(FPoint(rect.left, rect.top + ry - sy),
-                   FPoint(rect.left + rx - sx, rect.top),
-                   FPoint(rect.left + rx, rect.top));          // top-left
-
-      if (!skip_hori)
-        this.lineTo(FPoint(rect.right - rx, rect.top));      // top
+        close();
     }
-    this.close();
-  }
 
-  void addOval(FRect oval, Direction dir = Direction.CW) {
-    auto cx = oval.centerX;
-    auto cy = oval.centerY;
-    auto rx = 0.5 * oval.width;
-    auto ry = 0.5 * oval.height;
+    void arcTo(FPoint center, FPoint endPt, Direction dir = Direction.CW)
+    {
+        ensureStart();
+        auto startPt = this.lastPoint;
+        immutable FVector start = startPt - center;
+        immutable FVector   end = endPt   - center;
+        FPTemporary!float     radius = (start.length + end.length) * 0.5;
+        FPTemporary!float startAngle = atan2(start.y, start.x);
+        FPTemporary!float   endAngle = atan2(end.y, end.x);
+        FPTemporary!float sweepAngle = endAngle - startAngle;
 
-  version(CUBIC_ARC) {
-    auto sx = rx * CubicArcFactor;
-    auto sy = ry * CubicArcFactor;
+        // unwrap angle
+        if (sweepAngle < 0)
+            sweepAngle += 2*PI;
+        if (dir == Direction.CCW)
+            sweepAngle -= 2*PI;
 
-    this.moveTo(FPoint(cx + rx, cy));
-    if (dir == Direction.CCW) {
-      this.cubicTo(FPoint(cx + rx, cy - sy), FPoint(cx + sx, cy - ry),
-                   FPoint(cx, cy - ry));
-      this.cubicTo(FPoint(cx - sx, cy - ry), FPoint(cx - rx, cy - sy),
-                   FPoint(cx - rx, cy));
-      this.cubicTo(FPoint(cx - rx, cy + sy), FPoint(cx - sx, cy + ry),
-                   FPoint(cx, cy + ry));
-      this.cubicTo(FPoint(cx + sx, cy + ry), FPoint(cx + rx, cy + sy),
-                   FPoint(cx + rx, cy));
-    } else {
-      this.cubicTo(FPoint(cx + rx, cy + sy), FPoint(cx + sx, cy + ry),
-                   FPoint(cx, cy + ry));
-      this.cubicTo(FPoint(cx - sx, cy + ry), FPoint(cx - rx, cy + sy),
-                   FPoint(cx - rx, cy));
-      this.cubicTo(FPoint(cx - rx, cy - sy), FPoint(cx - sx, cy - ry),
-                   FPoint(cx, cy - ry));
-      this.cubicTo(FPoint(cx + sx, cy - ry), FPoint(cx + rx, cy - sy),
-                   FPoint(cx + rx, cy));
+        assert(abs(sweepAngle) <= 2*PI);
+        FPTemporary!float midAngle = startAngle + 0.5 * sweepAngle;
+        auto middle = FVector(expi(midAngle));
+
+        if (abs(sweepAngle) > PI_4)
+        {   //! recurse
+            middle.setLength(radius);
+            FPoint middlePt = center + middle;
+            arcTo(center, middlePt, dir);
+            arcTo(center, endPt, dir);
+        }
+        else
+        {   //! based upon a deltoid, calculate length of the long axis.
+            FPTemporary!float hc = 0.5 * (startPt - endPt).length;
+            FPTemporary!float b = hc / sin(0.5 * (PI - abs(sweepAngle)));
+            FPTemporary!float longAxis = sqrt(radius * radius + b * b);
+            middle.setLength(longAxis);
+            quadTo(center + middle, endPt);
+        }
     }
-  } else {
-    enum TAN_PI_8 = tan(PI_4 * 0.5);
-    auto sx = rx * TAN_PI_8;
-    auto sy = ry * TAN_PI_8;
-    auto mx = rx * SQRT1_2;
-    auto my = ry * SQRT1_2;
-    const L = oval.left;
-    const T = oval.top;
-    const R = oval.right;
-    const B = oval.bottom;
 
-    this.moveTo(FPoint(R, cy));
-    if (dir == Direction.CCW) {
-      this.quadTo(FPoint(R,  cy - sy), FPoint(cx + mx, cy - my));
-      this.quadTo(FPoint(cx + sx,  T), FPoint(cx, T));
-      this.quadTo(FPoint(cx - sx,  T), FPoint(cx - mx, cy - my));
-      this.quadTo(FPoint(L,  cy - sy), FPoint(L, cy));
-      this.quadTo(FPoint(L,  cy + sy), FPoint(cx - mx, cy + my));
-      this.quadTo(FPoint(cx - sx,  B), FPoint(cx, B));
-      this.quadTo(FPoint(cx + sx,  B), FPoint(cx + mx, cy + my));
-      this.quadTo(FPoint(R,  cy + sy), FPoint(R, cy));
-    } else {
-      this.quadTo(FPoint(R,  cy + sy), FPoint(cx + mx, cy + my));
-      this.quadTo(FPoint(cx + sx,  B), FPoint(cx, B));
-      this.quadTo(FPoint(cx - sx,  B), FPoint(cx - mx, cy + my));
-      this.quadTo(FPoint(L,  cy + sy), FPoint(L, cy));
-      this.quadTo(FPoint(L,  cy - sy), FPoint(cx - mx, cy - my));
-      this.quadTo(FPoint(cx - sx,  T), FPoint(cx, T));
-      this.quadTo(FPoint(cx + sx,  T), FPoint(cx + mx, cy - my));
-      this.quadTo(FPoint(R,  cy - sy), FPoint(R, cy));
+    void addArc(FPoint center, FPoint startPt, FPoint endPt, Direction dir = Direction.CW)
+    {
+        moveTo(center);
+        lineTo(startPt);
+        arcTo(center, endPt, dir);
+        lineTo(center);
     }
-  } // version(CUBIC_ARC)
 
-    this.close();
-  }
-
-  void arcTo(FPoint center, FPoint endPt, Direction dir = Direction.CW) {
-    this.ensureStart();
-    auto startPt = this.lastPoint;
-    FVector start = startPt - center;
-    FVector end = endPt - center;
-    FPTemporary!float radius = (start.length + end.length) * 0.5;
-    FPTemporary!float startAngle = atan2(start.y, start.x);
-    FPTemporary!float endAngle = atan2(end.y, end.x);
-    FPTemporary!float sweepAngle = endAngle - startAngle;
-    if (sweepAngle < 0)
-      sweepAngle += 2*PI;
-    if (dir == Direction.CCW)
-      sweepAngle -= 2*PI;
-
-    assert(abs(sweepAngle) <= 2*PI);
-    FPTemporary!float midAngle = startAngle + 0.5 * sweepAngle;
-    auto middle = FVector(expi(midAngle));
-
-    if (abs(sweepAngle) > PI_4) {
-      middle.setLength(radius);
-      FPoint middlePt = center + middle;
-      this.arcTo(center, middlePt, dir);
-      this.arcTo(center, endPt, dir);
-    } else {
-      //! based upon a deltoid, calculate length of the long axis.
-      FPTemporary!float hc = 0.5 * (startPt - endPt).length;
-      FPTemporary!float b = hc / sin(0.5 * (PI - abs(sweepAngle)));
-      FPTemporary!float longAxis = sqrt(radius * radius + b * b);
-      middle.setLength(longAxis);
-      this.quadTo(center + middle, endPt);
+    Path transformed(in Matrix matrix) const
+    {
+        Path res;
+        res = this;
+        res.transform(matrix);
+        return res;
     }
-  }
-
-  void addArc(FPoint center, FPoint startPt, FPoint endPt, Direction dir = Direction.CW) {
-    this.moveTo(center);
-    this.lineTo(startPt);
-    this.arcTo(center, endPt, dir);
-    this.lineTo(center);
-  }
-
-  Path transformed(in Matrix matrix) const {
-    Path res;
-    res = this;
-    res.transform(matrix);
-    return res;
-  }
 
     void transform(in Matrix matrix)
     {
@@ -596,49 +657,45 @@ public:
             }
             else
             {
-                this.boundsIsClean = false;
+                _boundsIsClean = false;
             }
         }
         matrix.mapPoints(this._points.data);
     }
 
-  debug(WHITEBOX) private auto opDispatch(string m, Args...)(Args a) {
-    throw new Exception("Unimplemented property "~m);
-  }
+    unittest
+    {
+        Path p;
+        p._verbs.put(Verb.Move);
+        p._points.put(FPoint(1, 1));
+        p._verbs.put(Verb.Line);
+        p._points.put(FPoint(1, 3));
+        p._verbs.put(Verb.Quad);
+        p._points.put([FPoint(2, 4), FPoint(3, 3)]);
+        p._verbs.put(Verb.Cubic);
+        p._points.put([FPoint(4, 2), FPoint(2, -1), FPoint(0, 0)]);
+        p._verbs.put(Verb.Close);
 
-  unittest
-  {
-    Path p;
-    p._verbs.put(Verb.Move);
-    p._points.put(FPoint(1, 1));
-    p._verbs.put(Verb.Line);
-    p._points.put(FPoint(1, 3));
-    p._verbs.put(Verb.Quad);
-    p._points.put([FPoint(2, 4), FPoint(3, 3)]);
-    p._verbs.put(Verb.Cubic);
-    p._points.put([FPoint(4, 2), FPoint(2, -1), FPoint(0, 0)]);
-    p._verbs.put(Verb.Close);
+        Verb[] verbExp = [Verb.Move, Verb.Line, Verb.Quad, Verb.Cubic, Verb.Line, Verb.Close];
+        FPoint[][] ptsExp = [
+            [FPoint(1,1)],
+            [FPoint(1,1), FPoint(1,3)],
+            [FPoint(1,3), FPoint(2,4), FPoint(3,3)],
+            [FPoint(3,3), FPoint(4,2), FPoint(2,-1), FPoint(0,0)],
+            [FPoint(0,0), FPoint(1,1)],
+            [],
+        ];
 
-    Verb[] verbExp = [Verb.Move, Verb.Line, Verb.Quad, Verb.Cubic, Verb.Line, Verb.Close];
-    FPoint[][] ptsExp = [
-      [FPoint(1,1)],
-      [FPoint(1,1), FPoint(1,3)],
-      [FPoint(1,3), FPoint(2,4), FPoint(3,3)],
-      [FPoint(3,3), FPoint(4,2), FPoint(2,-1), FPoint(0,0)],
-      [FPoint(0,0), FPoint(1,1)],
-      [],
-			 ];
+        void iterate(Verb verb, in FPoint[] pts)
+        {
+            assert(verb == verbExp[0]);
+            assert(pts == ptsExp[0]);
+            verbExp.popFront();
+            ptsExp.popFront();
+        }
+        p.forEach(&iterate);
 
-    void iterate(Verb verb, in FPoint[] pts) {
-      assert(verb == verbExp[0]);
-      assert(pts == ptsExp[0]);
-      verbExp.popFront();
-      ptsExp.popFront();
+        assert(p.isClosedContour() == true);
+        assert(p.empty() == false);
     }
-    p.forEach(&iterate);
-
-    assert(p.isClosedContour() == true);
-    assert(p.empty() == false);
-  }
-
 }

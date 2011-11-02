@@ -1,7 +1,7 @@
 module graphics.core.fonthost.freetype;
 
 import core.atomic, core.sync.mutex, core.sync.rwmutex, std.exception, std.string, std.traits;
-import std.algorithm;
+import std.algorithm, std.conv;
 import freetype.freetype, freetype.outline, guip.bitmap, guip.point, guip.size;
 import graphics.core.glyph, graphics.core.fonthost.fontconfig, graphics.core.paint, graphics.core.path;
 
