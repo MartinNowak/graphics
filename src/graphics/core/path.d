@@ -197,144 +197,178 @@ public:
     return false;
   }
 
-  @property typeof(this.points.retro) pointsRetro() const {
-    return this.points.retro;
-  }
-  @property const(FPoint)[] points() const {
-    return (cast()this._points).data.save;
-  }
-
-  @property FPoint lastPoint() const {
-    return this.pointsRetro[0];
-  }
-
-  @property Verb[] verbs() const {
-    return (cast()this._verbs).data.save;
-  }
-
-  bool lastVerbWas(Verb verb) const {
-    return this.verbs.length == 0 ? false : this.verbs[$-1] == verb;
-  }
-
-  void ensureStart() {
-    if (this.verbs.empty) {
-      assert(this.points.length == 0);
-      this._points.put(fPoint());
-      this._verbs.put(Verb.Move);
+    @property const(FPoint)[] points() const
+    {
+        return (cast()this._points).data.save;
     }
-  }
 
-  void primTo(R)(R pts) {
-    static assert(isInputRange!R);
-    this.ensureStart();
-    this._points.put(pts);
-    this._verbs.put(cast(Verb)walkLength(pts));
-    this.boundsIsClean = false;
-  }
-
-  void rPrimTo(FPoint[] pts) {
-    auto lPt = this.lastPoint;
-    foreach(ref pt; pts) {
-      pt = pt + lPt;
+    @property FPoint lastPoint() const
+    {
+        return points[$-1];
     }
-    FPoint pt;
-    this.primTo(pts);
-  }
 
-  void moveTo(in FPoint pt) {
-    if (this.lastVerbWas(Verb.Move)) {
-      this._points.data[$-1] = pt;
+    @property Verb[] verbs() const
+    {
+        return (cast()this._verbs).data.save;
     }
-    else {
-      this._points.put(pt);
-      this._verbs.put(Verb.Move);
+
+    bool lastVerbWas(Verb verb) const
+    {
+        return this.verbs.length == 0 ? false : this.verbs[$-1] == verb;
     }
-    this.boundsIsClean = false;
-  }
-  void rMoveTo(in FPoint pt) {
-    this.moveTo(this.lastPoint + pt);
-  }
 
-  void lineTo(in FPoint pt) {
-    this.primTo([pt]);
-  }
-  void rLineTo(in FPoint pt) {
-    this.rPrimTo([pt]);
-  }
-
-  void quadTo(in FPoint pt1, in FPoint pt2) {
-    this.primTo([pt1, pt2]);
-  }
-  void rQuadTo(in FPoint pt1, in FPoint pt2) {
-    this.rPrimTo([pt1, pt2]);
-  }
-
-  void cubicTo(in FPoint pt1, in FPoint pt2, in FPoint pt3) {
-    this.primTo([pt1, pt2, pt3]);
-  }
-  void rCubicTo(in FPoint pt1, in FPoint pt2, in FPoint pt3) {
-    this.rPrimTo([pt1, pt2, pt3]);
-  }
-
-  void close() {
-    if (this.verbs.length > 0) {
-      final switch (this.verbs[$-1]) {
-      case Verb.Line, Verb.Quad, Verb.Cubic:
-        this._verbs.put(Verb.Close);
-        break;
-      case Verb.Close:
-        break;
-      case Verb.Move:
-        assert(0);
-      }
+    void ensureStart()
+    {
+        if (this.verbs.empty)
+        {
+            assert(this.points.length == 0);
+            _points.put(fPoint());
+            _verbs.put(Verb.Move);
+        }
     }
-  }
 
-  void addPath(in Path path) {
-    this._verbs.put(path.verbs);
-    this._points.put(path.points);
-    this.boundsIsClean = false;
-  }
-
-  void reversePathTo(in Path path) {
-    if (path.empty)
-      return;
-
-    debug auto initialLength= this.verbs.length;
-    this._verbs.reserve(this.verbs.length + path.verbs.length);
-    this._points.reserve(this.points.length + path.points.length);
-
-    //! skip initial moveTo
-    assert(this.verbs[0] == Verb.Move);
-    auto vs = path.verbs[1..$].retro;
-    auto rpts = path.pointsRetro;
-    rpts.popFront;
-
-    while (!vs.empty) {
-      auto verb = vs.front;
-      switch (verb) {
-      case Verb.Line: .. case Verb.Cubic:
-        this.primTo(take(rpts, verb));
-        popFrontN(rpts, verb);
-        break;
-      default:
-        assert(0, "bad verb in reversePathTo: " ~ to!string(path.verbs));
-      }
-      vs.popFront;
+    void primTo(FPoint[] pts...)
+    {
+        ensureStart();
+        _points.put(pts);
+        _verbs.put(cast(Verb)pts.length);
+        boundsIsClean = false;
     }
-    assert(rpts.empty);
-  }
 
-  unittest {
-    Path rev;
-    rev.moveTo(FPoint(100, 100));
-    rev.quadTo(FPoint(40,60), FPoint(0, 0));
-    Path path;
-    path.moveTo(FPoint(0, 0));
-    path.reversePathTo(rev);
-    assert(path.verbs == [Verb.Move, Verb.Quad], to!string(path.verbs));
-    assert(path.points == [FPoint(0, 0), FPoint(40, 60), FPoint(100, 100)], to!string(path.points));
-  }
+    void rPrimTo(FPoint[] pts...)
+    {
+        auto lPt = this.lastPoint;
+        foreach(ref pt; pts)
+            pt = pt + lPt;
+        primTo(pts);
+    }
+
+    void moveTo(in FPoint pt)
+    {
+        if (this.lastVerbWas(Verb.Move))
+        {
+            _points.data[$-1] = pt;
+        }
+        else
+        {
+            _points.put(pt);
+            _verbs.put(Verb.Move);
+        }
+        boundsIsClean = false;
+    }
+
+    void rMoveTo(in FPoint pt)
+    {
+        moveTo(lastPoint + pt);
+    }
+
+    void lineTo(in FPoint pt)
+    {
+        primTo(pt);
+    }
+
+    void rLineTo(in FPoint pt)
+    {
+        rPrimTo(pt);
+    }
+
+    void quadTo(in FPoint pt1, in FPoint pt2)
+    {
+        primTo(pt1, pt2);
+    }
+
+    void rQuadTo(in FPoint pt1, in FPoint pt2)
+    {
+        rPrimTo(pt1, pt2);
+    }
+
+    void cubicTo(in FPoint pt1, in FPoint pt2, in FPoint pt3)
+    {
+        primTo(pt1, pt2, pt3);
+    }
+
+    void rCubicTo(in FPoint pt1, in FPoint pt2, in FPoint pt3)
+    {
+        rPrimTo(pt1, pt2, pt3);
+    }
+
+    void close()
+    {
+        if (this.verbs.length > 0)
+        {
+            final switch (this.verbs[$-1])
+            {
+            case Verb.Line, Verb.Quad, Verb.Cubic:
+                _verbs.put(Verb.Close);
+                break;
+
+            case Verb.Close:
+                break;
+            case Verb.Move:
+                assert(0, "Can't close path when last operation was a moveTo");
+            }
+        }
+    }
+
+    void addPath(in Path path)
+    {
+        _verbs.put(path.verbs);
+        _points.put(path.points);
+        boundsIsClean = false;
+    }
+
+    void reversePathTo(in Path path)
+    {
+        if (path.empty)
+            return;
+
+        debug auto initialLength= this.verbs.length;
+        _verbs.reserve(verbs.length + path.verbs.length);
+        _points.reserve(points.length + path.points.length);
+
+        //! skip initial moveTo
+        assert(this.verbs[0] == Verb.Move);
+        auto vs = path.verbs[1..$].retro;
+        auto rpts = path.points[0..$-1].retro;
+
+        for (; !vs.empty; vs.popFront)
+        {
+            auto verb = vs.front;
+            switch (verb)
+            {
+            case Verb.Line:
+                primTo(rpts[0]);
+                rpts.popFront;
+                break;
+
+            case Verb.Quad:
+                primTo(rpts[0], rpts[1]);
+                popFrontN(rpts, 2);
+                break;
+
+            case Verb.Cubic:
+                primTo(rpts[0], rpts[1], rpts[2]);
+                popFrontN(rpts, 3);
+                break;
+
+            default:
+                assert(0, "bad verb in reversePathTo: " ~ to!string(path.verbs));
+            }
+        }
+        assert(rpts.empty);
+    }
+
+    unittest
+    {
+        Path rev;
+        rev.moveTo(FPoint(100, 100));
+        rev.quadTo(FPoint(40,60), FPoint(0, 0));
+        Path path;
+        path.moveTo(FPoint(0, 0));
+        path.reversePathTo(rev);
+        assert(path.verbs == [Verb.Move, Verb.Quad], to!string(path.verbs));
+        assert(path.points == [FPoint(0, 0), FPoint(40, 60), FPoint(100, 100)], to!string(path.points));
+    }
 
   void addRect(in FRect rect, Direction dir = Direction.CW) {
     FPoint[4] quad = rect.toQuad;

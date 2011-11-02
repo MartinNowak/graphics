@@ -96,34 +96,37 @@ struct Stroke
 
     void finishContour(bool close)
     {
+        const opts = this.outer.points;
+
         if (close)
         {
-            auto firstNormal = this.getNormal(this.outer.points[0], this.outer.points[1]);
-            FPoint pt = (this.inner.lastPoint + this.outer.lastPoint) * 0.5;
-            this.join(pt, firstNormal);
-            this.outer.close();
+            auto firstNormal = getNormal(opts[0], opts[1]);
+            FPoint pt = (inner.points[$-1] + opts[$-1]) * 0.5;
+            join(pt, firstNormal);
+            outer.close();
 
-            this.outer.moveTo(this.inner.lastPoint);
-            this.outer.reversePathTo(this.inner);
-            this.outer.close();
+            outer.moveTo(inner.points[$-1]);
+            outer.reversePathTo(inner);
+            outer.close();
         }
         else
         {
-            FVector normal = this.getNormal(this.outer.pointsRetro[0], this.outer.pointsRetro[1]);
-            FPoint pt = (this.inner.lastPoint + this.outer.lastPoint) * 0.5;
-            this.capper(pt, normal, this.outer);
+            FVector normal = getNormal(opts[$-1], opts[$-2]);
+            FPoint pt = (this.inner.points[$-1] + opts[$-1]) * 0.5;
+            this.capper(pt, normal, outer);
 
-            this.outer.reversePathTo(this.inner);
+            outer.reversePathTo(inner);
+            assert(inner.points[0] == outer.points[$-1]);
 
-            auto firstNormal = this.getNormal(this.outer.points[0], this.outer.points[1]);
-            pt = (this.outer.pointsRetro[0] + this.outer.points[0]) * 0.5;
-            this.capper(pt, firstNormal, this.outer);
-            this.outer.close();
+            auto firstNormal = getNormal(opts[0], opts[1]);
+            pt = (inner.points[0] + opts[0]) * 0.5;
+            capper(pt, firstNormal, outer);
+            outer.close();
         }
 
-        this.result.addPath(this.outer);
-        this.inner.reset();
-        this.outer.reset();
+        result.addPath(outer);
+        inner.reset();
+        outer.reset();
     }
 
     void moveTo(FPoint pt)
