@@ -256,7 +256,7 @@ public:
         _boundsIsClean = false;
     }
 
-    void rPrimTo(FPoint[] pts...)
+    void relPrimTo(FVector[] pts...)
     {
         auto last = lastPoint;
         foreach(ref pt; pts)
@@ -278,7 +278,7 @@ public:
         _boundsIsClean = false;
     }
 
-    void rMoveTo(in FPoint pt)
+    void relMoveTo(in FVector pt)
     {
         moveTo(lastPoint + pt);
     }
@@ -288,9 +288,9 @@ public:
         primTo(pt);
     }
 
-    void rLineTo(in FPoint pt)
+    void relLineTo(in FVector pt)
     {
-        rPrimTo(pt);
+        relPrimTo(pt);
     }
 
     void quadTo(in FPoint pt1, in FPoint pt2)
@@ -298,9 +298,9 @@ public:
         primTo(pt1, pt2);
     }
 
-    void rQuadTo(in FPoint pt1, in FPoint pt2)
+    void relQuadTo(in FVector pt1, in FVector pt2)
     {
-        rPrimTo(pt1, pt2);
+        relPrimTo(pt1, pt2);
     }
 
     void cubicTo(in FPoint pt1, in FPoint pt2, in FPoint pt3)
@@ -308,9 +308,9 @@ public:
         primTo(pt1, pt2, pt3);
     }
 
-    void rCubicTo(in FPoint pt1, in FPoint pt2, in FPoint pt3)
+    void relCubicTo(in FVector pt1, in FVector pt2, in FVector pt3)
     {
-        rPrimTo(pt1, pt2, pt3);
+        relPrimTo(pt1, pt2, pt3);
     }
 
     void close()
