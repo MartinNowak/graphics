@@ -606,7 +606,8 @@ public:
 
         assert(abs(sweepAngle) <= 2*PI);
         FPTemporary!float midAngle = startAngle + 0.5 * sweepAngle;
-        auto middle = FVector(expi(midAngle));
+        immutable cossin = expi(midAngle);
+        auto middle = FVector(cossin.re, cossin.im);
 
         if (abs(sweepAngle) > PI_4)
         {   //! recurse
