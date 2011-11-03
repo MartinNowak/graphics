@@ -4,95 +4,113 @@ import guip.point;
 import graphics.math.clamp, graphics.math.poly;
 import std.algorithm, std.metastrings;
 
-Point!T evalBezier(T)(ref const Point!T[2] line, double t) {
-  assert(fitsIntoRange!("[]")(t, 0.0, 1.0));
+void bezToPoly(T)(ref const Point!T[2] line, ref T[2] x, ref T[2] y)
+{
+    x[0] = -line[0].x + line[1].x;
+    x[1] = line[0].x;
 
-  const x0 = -line[0].x + line[1].x;
-  const x1 = line[0].x;
-
-  const y0 = -line[0].y + line[1].y;
-  const y1 = line[0].y;
-
-  return Point!T(x0 * t + x1, y0 * t + y1);
+    y[0] = -line[0].y + line[1].y;
+    y[1] = line[0].y;
 }
 
-Point!T evalBezier(T)(ref const Point!T[3] quad, double t) {
-  assert(fitsIntoRange!("[]")(t, 0.0, 1.0));
+void bezToPoly(T)(ref const Point!T[3] quad, ref T[3] x, ref T[3] y)
+{
+    x[0] = quad[0].x - 2 * quad[1].x + quad[2].x;
+    x[1] = 2 * (-quad[0].x + quad[1].x);
+    x[2] = quad[0].x;
 
-  const x0 = quad[0].x - 2 * quad[1].x + quad[2].x;
-  const x1 = 2 * (-quad[0].x + quad[1].x);
-  const x2 = quad[0].x;
-
-  const y0 = quad[0].y - 2 * quad[1].y + quad[2].y;
-  const y1 = 2 * (-quad[0].y + quad[1].y);
-  const y2 = quad[0].y;
-
-  return Point!T((x0 * t + x1) * t + x2, (y0 * t + y1) * t + y2);
+    y[0] = quad[0].y - 2 * quad[1].y + quad[2].y;
+    y[1] = 2 * (-quad[0].y + quad[1].y);
+    y[2] = quad[0].y;
 }
 
-Point!T evalBezier(T)(ref const Point!T[4] cubic, double t) {
-  assert(fitsIntoRange!("[]")(t, 0.0, 1.0), to!string(t));
+void bezToPoly(T)(ref const Point!T[4] cubic, ref T[4] x, ref T[4] y)
+{
+    x[0] = -cubic[0].x + 3 * (cubic[1].x - cubic[2].x) + cubic[3].x;
+    x[1] = 3 * (cubic[0].x - 2 * cubic[1].x + cubic[2].x);
+    x[2] = 3 * (-cubic[0].x + cubic[1].x);
+    x[3] = cubic[0].x;
 
-  const x0 = -cubic[0].x + 3 * (cubic[1].x - cubic[2].x) + cubic[3].x;
-  const x1 = 3 * (cubic[0].x - 2 * cubic[1].x + cubic[2].x);
-  const x2 = 3 * (-cubic[0].x + cubic[1].x);
-  const x3 = cubic[0].x;
-
-  const y0 = -cubic[0].y + 3 * (cubic[1].y - cubic[2].y) + cubic[3].y;
-  const y1 = 3 * (cubic[0].y - 2 * cubic[1].y + cubic[2].y);
-  const y2 = 3 * (-cubic[0].y + cubic[1].y);
-  const y3 = cubic[0].y;
-
-  return Point!T(((x0 * t + x1) * t + x2) * t + x3, ((y0 * t + y1) * t + y2) * t + y3);
+    y[0] = -cubic[0].y + 3 * (cubic[1].y - cubic[2].y) + cubic[3].y;
+    y[1] = 3 * (cubic[0].y - 2 * cubic[1].y + cubic[2].y);
+    y[2] = 3 * (-cubic[0].y + cubic[1].y);
+    y[3] = cubic[0].y;
 }
 
-
-Vector!T evalBezierDer(T)(ref const Point!T[2] line, double t) {
-  return Vector!T(line[1].x - line[0].x, line[1].y - line[0].y);
+Point!T evalBezier(T, size_t K)(ref const Point!T[K] bez, double t)
+{
+    assert(fitsIntoRange!("[]")(t, 0.0, 1.0));
+    T[K] x=void, y=void;
+    bezToPoly(bez, x, y);
+    return Point!T(poly!T(x, t), poly!T(y, t));
 }
 
-Vector!T evalBezierDer(T)(ref const Point!T[3] quad, double t) {
-  const x0 = quad[0].x - 2 * quad[1].x + quad[2].x;
-  const x1 = quad[1].x - quad[0].x;
-
-  const y0 = quad[0].y - 2 * quad[1].y + quad[2].y;
-  const y1 = quad[1].y - quad[0].y;
-  return Vector!T(2 * (x0 * t + x1), 2 * (y0 * t + y1));
+Point!T evalBezierDer(T, size_t K)(ref const Point!T[K] bez, double t)
+{
+    assert(fitsIntoRange!("[]")(t, 0.0, 1.0));
+    T[K] x=void, y=void;
+    bezToPoly(bez, x, y);
+    return Point!T(polyDer!T(x, t), polyDer!T(y, t));
 }
 
-Vector!T evalBezierDer(T)(ref const Point!T[4] cubic, double t) {
-  const x0 =  - cubic[0].x + 3 * (cubic[1].x - cubic[2].x) + cubic[3].x;
-  const x1 = 2 * (cubic[0].x - 2 * cubic[1].x + cubic[2].x);
-  const x2 = cubic[1].x - cubic[0].x;
+/*
+ * Struct to hold bezier construction state.
+ */
+struct BezierCState(T, size_t K)
+{
+    static if (K == 2)
+        void constructBezier(ref Point!T[K] line)
+    {
+        line[0] = p0;
+        line[1] = p1;
+    }
 
-  const y0 =  - cubic[0].y + 3 * (cubic[1].y - cubic[2].y) + cubic[3].y;
-  const y1 = 2 * (cubic[0].y - 2 * cubic[1].y + cubic[2].y);
-  const y2 = cubic[1].y - cubic[0].y;
-  return Vector!T(3 * ((x0 * t + x1) * t + x2), 3 * ((y0 * t + y1) * t + y2));
+    static if (K == 3)
+        void constructBezier(ref Point!T[K] quad)
+    {
+        quad[1] = quad[0] = p0;
+        quad[1].x += 0.5 * d0.x;
+        quad[1].y += 0.5 * d0.y;
+        quad[2] = p1;
+    }
+
+    static if (K == 4)
+        void constructBezier(ref Point!T[K] cubic)
+    {
+        cubic[1] = cubic[0] = p0;
+        cubic[1].x += (1./3.) * d0.x;
+        cubic[1].y += (1./3.) * d0.y;
+        cubic[3] = cubic[2] = p1;
+        cubic[2].x -= (1./3.) * d1.x;
+        cubic[2].y -= (1./3.) * d1.y;
+    }
+
+    Point!T p0; // start point
+    Point!T p1; // end point
+    static if (K >= 3)
+    {
+        Vector!T d0; // derivative at start
+        Vector!T d1; // derivative at end
+    }
 }
-
 
 // creates a line from two points
-void constructBezier(T)(Point!T p0, Point!T p1, ref Point!T[2] line) {
-  line[0] = p0;
-  line[1] = p1;
+void constructBezier(T)(Point!T p0, Point!T p1, ref Point!T[2] line)
+{
+    BezierCState!(T, 2)(p0, p1).constructBezier(line);
 }
 
 // creates a quadratic bezier from two points and the derivative a t=0
-void constructBezier(T)(Point!T p0, Point!T p1, Vector!T d0, ref Point!T[3] quad) {
-  quad[0] = p0;
-  quad[1] = p0 + 0.5 * d0;
-  quad[$-1] = p1;
+void constructBezier(T)(Point!T p0, Point!T p1, Vector!T d0, ref Point!T[3] quad)
+{
+    BezierCState!(T, 3)(p0, p1, d0).constructBezier(quad);
 }
 
 // creates a cubic bezier from two points and the derivatives a t=0 and t=1
-void constructBezier(T)(Point!T p0, Point!T p1, Vector!T d0, Vector!T d1, ref Point!T[4] cubic) {
-  cubic[0] = p0;
-  cubic[1] = p0 + (1./3.) * d0;
-  cubic[2] = p1 - (1./3.) * d1;
-  cubic[$-1] = p1;
+void constructBezier(T)(Point!T p0, Point!T p1, Vector!T d0, Vector!T d1, ref Point!T[4] cubic)
+{
+    BezierCState!(T, 4)(p0, p1, d0, d1).constructBezier(cubic);
 }
-
 
 /**
  * calculates t parameter of quad x extrema
