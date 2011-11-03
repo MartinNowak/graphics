@@ -337,17 +337,37 @@ auto cartesianBezierWalker(T, size_t K)(
         {
             int opApplyRes;
 
-            int callDg(double nt)
+            int callDg(T nt, bool usex, bool usey)
             {
-                _cstate.p1.x = poly!T(_xwalk._coeffs, nt);
-                _cstate.p1.y = poly!T(_ywalk._coeffs, nt);
+                if (usex)
+                {
+                    _cstate.p1.x = _xwalk.pos + (_xwalk._pastend > _xwalk.pos);
+                    _xwalk.popFront;
+                }
+                else
+                {
+                    _cstate.p1.x = poly!T(_xwalk._coeffs, nt);
+                }
+
+                if (usey)
+                {
+                    _cstate.p1.y = _ywalk.pos + (_ywalk._pastend > _ywalk.pos);
+                    _ywalk.popFront;
+                }
+                else
+                {
+                    _cstate.p1.y = poly!T(_ywalk._coeffs, nt);
+                }
+
                 static if (K >= 3)
                 {
                     _cstate.d1.x = polyDer!T(_xwalk._coeffs, nt);
                     _cstate.d1.y = polyDer!T(_ywalk._coeffs, nt);
                 }
 
-                auto pos = IPoint(_xwalk.pos, _ywalk.pos);
+                IPoint pos = void;
+                pos.x = _xwalk.pos;
+                pos.y = _ywalk.pos;
                 if (auto res = dg(pos))
                     return res;
 
@@ -367,21 +387,17 @@ auto cartesianBezierWalker(T, size_t K)(
                 else if (approxEqual(_xwalk.front, _ywalk.front, 1e-6, 1e-6))
                 {
                     immutable nt = 0.5 * (_xwalk.front + _ywalk.front);
-                    _xwalk.popFront;
-                    _ywalk.popFront;
-                    opApplyRes = callDg(nt);
+                    opApplyRes = callDg(nt, true, true);
                 }
                 else if (_xwalk.front < _ywalk.front)
                 {
                     immutable nt = _xwalk.front;
-                    _xwalk.popFront;
-                    opApplyRes = callDg(nt);
+                    opApplyRes = callDg(nt, true, false);
                 }
                 else if (_ywalk.front < _xwalk.front)
                 {
                     immutable nt = _ywalk.front;
-                    _ywalk.popFront;
-                    opApplyRes = callDg(nt);
+                    opApplyRes = callDg(nt, false, true);
                 }
                 else
                     assert(0);
@@ -391,8 +407,7 @@ auto cartesianBezierWalker(T, size_t K)(
             while (!_ywalk.empty && !opApplyRes)
             {
                 immutable nt = _ywalk.front;
-                _ywalk.popFront;
-                opApplyRes = callDg(nt);
+                opApplyRes = callDg(nt, false, true);
             }
             goto LReturn;
 
@@ -400,8 +415,7 @@ auto cartesianBezierWalker(T, size_t K)(
             while (!_xwalk.empty && !opApplyRes)
             {
                 immutable nt = _xwalk.front;
-                _xwalk.popFront;
-                opApplyRes = callDg(nt);
+                opApplyRes = callDg(nt, true, false);
             }
 
         LReturn:
