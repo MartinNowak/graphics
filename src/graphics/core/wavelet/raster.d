@@ -123,100 +123,96 @@ struct WaveletRaster
 
     void updateCoeffs(size_t K)(ref const FPoint[K] curve)
     {
-        immutable center = FPoint(0.5 * _clipRect.width, 0.5 * _clipRect.height);
-        auto cartesian = cartesianBezierWalker(curve, center);
-        auto pos = cartesian.pos;
-
-        // Initialize start points/derivatives for each level.
-        _ptStack[] = curve[0];
+        BezierCState!(float, K) cstate = void;
+        _ptStack[] = cstate.p0 = curve[0];
         static if (K >= 3)
-            _derStack[] = evalBezierDer(curve, 0.0);
+            _derStack[] = cstate.d0 = evalBezierDer(curve, 0.0);
+
+        immutable center = FPoint(0.5 * _clipRect.width, 0.5 * _clipRect.height);
+        auto cartesian = cartesianBezierWalker!(float, K)(curve, center, &cstate);
+        auto g0 = cartesian.pos;
 
         for (size_t d = 0; d < _depth - 1; ++d)
         {
             immutable half = 1 << _depth - d - 1;
-            immutable qidx = !!(pos.y & half) << 1 | !!(pos.x & half);
+            immutable qidx = !!(g0.y & half) << 1 | !!(g0.x & half);
             _nodeStack[d + 1] = &_nodeStack[d].getChild(qidx, _ralloc);
         }
 
-        for (bool cont=true; cont;)
+        // Iterate of all crossings of a bezier curve with
+        // cartesian coordinates. At each crossing we need to
+        // create a slice of the curve and update the wavelet
+        // coefficients. Higher levels are updated every 2^N
+        // crossings.
+        foreach(g1; cartesian)
         {
-            size_t nup = void;
-            IPoint npos = void;
-            FPoint npt = void;
-            static if (K >= 3) // derivatives not needed for lines
-                FVector nder = void;
+            assert(g0 != g1);
 
-            // Iterate of all crossings of a bezier curve with
-            // cartesian coordinates. At each crossing we need to
-            // create a slice of the curve and update the wavelet
-            // coefficients. Higher levels are updated every 2^N
-            // crossings.
-            if (cartesian.empty)
-            {
-                cont = false;
-                npt = curve[$-1];
-                static if (K >= 3)
-                    nder = evalBezierDer(curve, 1.0);
-                nup = _depth - 1;
-            }
-            else
-            {
-                immutable nt = cartesian.front;
-                npt = evalBezier(curve, nt);
-                static if (K >= 3)
-                    nder = evalBezierDer(curve, nt);
-                cartesian.popFront;
-                npos = cartesian.pos;
-                assert(npos != pos);
-                // Determine how many levels need updates.
-                nup = bsr(npos.x ^ pos.x | npos.y ^ pos.y);
-                assert(nup < _depth, std.string.format("%s %s %s", nt, pos, npos));
-            }
+            // number of log2 levels to update determined by number of bits
+            // changed in grid coordinates
+            size_t nup = bsr(g0.x ^ g1.x | g0.y ^ g1.y);
+            assert(nup < _depth, std.string.format("%s %s %s", g0, g1, cstate));
 
             do
             {
                 // Construct bezier slice from point/derivative at
                 // start and end position. The values at start are on
                 // the stack.
+                cstate.p0 = _ptStack[$-nup-1];
+                static if (K >= 3)
+                    cstate.d0 = _derStack[$-nup-1];
                 FPoint[K] tmp = void;
-                static if (K == 2)
-                    constructBezier(_ptStack[$-nup-1], npt, tmp);
-                else static if (K == 3)
-                    constructBezier(_ptStack[$-nup-1], npt, _derStack[$-nup-1], tmp);
-                else static if (K == 4)
-                    constructBezier(_ptStack[$-nup-1], npt, _derStack[$-nup-1], nder, tmp);
-                else
-                    static assert(0, "unimplemented");
+                cstate.constructBezier(tmp);
 
-                if (cont)
-                {
-                    // Move the end values on the stack to reuse them for
-                    // the next start.
-                    _ptStack[$-nup-1] = npt;
-                    static if (K >= 3)
-                        _derStack[$-nup-1] = nder;
-                }
+                // Move the end values on the stack to reuse them for
+                // the next start.
+                _ptStack[$-nup-1] = cstate.p1;
+                static if (K >= 3)
+                    _derStack[$-nup-1] = cstate.d1;
 
                 // Update wavelet coefficient for this node/level.
                 immutable half = 1 << nup;
                 version (calcCoeffs_C)
-                    mixin(Format!(q{calcCoeffs_%s(pos, half, tmp.ptr, _nodeStack[$-nup-1].coeffs.ptr);}, K));
+                    mixin(Format!(q{calcCoeffs_%s(g0, half, tmp.ptr, _nodeStack[$-nup-1].coeffs.ptr);}, K));
                 else
-                    calcCoeffs!K(pos, half, tmp, _nodeStack[$-nup-1].coeffs);
+                    calcCoeffs!K(g0, half, tmp, _nodeStack[$-nup-1].coeffs);
 
-                if (cont && nup + 1 < _depth)
+                if (nup + 1 < _depth)
                 {
                     // We've changed the quadrant at this level, so
                     // get a new node pointer on the stack from the
                     // parent node.
-                    immutable qidx = !!(npos.y & 2 * half) << 1 | !!(npos.x & 2 * half);
+                    immutable qidx = !!(g1.y & 2 * half) << 1 | !!(g1.x & 2 * half);
                     _nodeStack[$-nup-1] = &_nodeStack[$-nup-2].getChild(qidx, _ralloc);
                 }
             } while (nup--);
 
-            if (cont)
-                pos = npos;
+            // shift grid position
+            g0 = g1;
+        }
+
+        // Finish off the remaining non-grid part
+        if (curve[K-1] != _ptStack[0])
+        {
+            cstate.p1 = curve[K-1];
+            static if (K >= 3)
+                cstate.d1 = evalBezierDer(curve, 1.0);
+
+            for (size_t i = 0; i < _depth; ++i)
+            {
+                cstate.p0 = _ptStack[i];
+                static if (K >= 3)
+                    cstate.d0 = _derStack[i];
+                FPoint[K] tmp = void;
+                cstate.constructBezier(tmp);
+
+                // Update wavelet coefficient for this node/level.
+                immutable half = 1 << _depth - i - 1;
+                version (calcCoeffs_C)
+                    mixin(Format!(q{calcCoeffs_%s(g0, half, tmp.ptr, _nodeStack[i].coeffs.ptr);}, K));
+                else
+                    calcCoeffs!K(g0, half, tmp, _nodeStack[i].coeffs);
+            }
         }
     }
 

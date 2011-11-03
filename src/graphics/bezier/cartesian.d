@@ -3,7 +3,7 @@ module graphics.bezier.cartesian;
 import guip.point, guip.rect, guip.size;
 import graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
 import std.algorithm, std.conv, std.exception, std.math, std.metastrings,
-    std.numeric, std.range, std.traits;
+    std.numeric, std.range, std.traits, std.typetuple;
 import graphics.math.clamp, graphics.math.poly;
 import qcheck._;
 
@@ -29,7 +29,7 @@ BezIota!(T, 2) beziota(T)(T c0, T c1, T roundHint=T.max)
  */
 struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
 {
-    this(ref const T[K] cs, T roundHint=T.max)
+    this(ref const T[K] cs, in T roundHint=T.max)
     in
     {
         // require partial ordered input
@@ -84,12 +84,9 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
             }
             else
                 assert(0);
-
-            if (!empty)
-            {
-                convertToPoly(cs, _coeffs);
-            }
         }
+
+        convertToPoly(cs, _coeffs);
     }
 
     @property bool empty() const
@@ -121,8 +118,12 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
 
     @property int direction() const
     {
-        immutable diff = _pastend - _position;
-        return !!diff - 2 * !!(diff & (1 << 31));
+        int res = 0;
+        if (_pastend > _position)
+            res = 1;
+        else if (_pastend < _position)
+            res = -1;
+        return res;
     }
 
     @property int pos() const
@@ -302,14 +303,29 @@ unittest {
   }
 }
 
-auto cartesianBezierWalker(T, size_t K)(ref const Point!T[K] curve, Point!T roundHint=Point!T(T.max, T.max))
+template SIota(size_t start, size_t end) if (start < end)
+{
+    alias TypeTuple!(start, SIota!(start + 1, end)) SIota;
+}
+
+template SIota(size_t start, size_t end) if (start == end)
+{
+    alias TypeTuple!() SIota;
+}
+
+auto cartesianBezierWalker(T, size_t K)(
+    ref const Point!T[K] curve,
+    in Point!T roundHint,
+    BezierCState!(float, K)* cstate
+)
 {
     static struct Result
     {
-        this(ref const Point!T[K] curve, Point!T roundHint)
+        this(ref const Point!T[K] curve, in Point!T roundHint, BezierCState!(float, K)* cstate)
         {
-            _xwalk = beziota!("x")(curve, roundHint.x);
-            _ywalk = beziota!("y")(curve, roundHint.y);
+            _xwalk = beziota!("x")(curve, cast(T)roundHint.x);
+            _ywalk = beziota!("y")(curve, cast(T)roundHint.y);
+            _cstate = cstate;
         }
 
         bool empty() const
@@ -317,44 +333,90 @@ auto cartesianBezierWalker(T, size_t K)(ref const Point!T[K] curve, Point!T roun
             return _xwalk.empty && _ywalk.empty;
         }
 
-        double front()
+        int opApply(scope int delegate(ref IPoint pos) dg)
         {
-            if (_xwalk.empty)
-                return _ywalk.front;
-            else if (_ywalk.empty)
-                return _xwalk.front;
-            else
-                // TODO: consider averaging
-                return min(_xwalk.front, _ywalk.front);
-        }
+            int opApplyRes;
 
-        void popFront()
-        {
-            if (_xwalk.empty)
-                _ywalk.popFront;
-            else if (_ywalk.empty)
-                _xwalk.popFront;
-            else if (approxEqual(_xwalk.front, _ywalk.front, 1e-6, 1e-6))
+            int callDg(double nt)
             {
-                _xwalk.popFront; _ywalk.popFront;
+                _cstate.p1.x = poly!T(_xwalk._coeffs, nt);
+                _cstate.p1.y = poly!T(_ywalk._coeffs, nt);
+                static if (K >= 3)
+                {
+                    _cstate.d1.x = polyDer!T(_xwalk._coeffs, nt);
+                    _cstate.d1.y = polyDer!T(_ywalk._coeffs, nt);
+                }
+
+                auto pos = IPoint(_xwalk.pos, _ywalk.pos);
+                if (auto res = dg(pos))
+                    return res;
+
+                // must not be altered by client
+                _cstate.p0 = _cstate.p1;
+                static if (K >= 3)
+                    _cstate.d0 = _cstate.d1;
+                return 0;
             }
-            else if (_xwalk.front < _ywalk.front)
-                _xwalk.popFront;
-            else if (_ywalk.front < _xwalk.front)
+
+            while (!opApplyRes)
+            {
+                if (_xwalk.empty)
+                    goto LfinishY;
+                else if (_ywalk.empty)
+                    goto LfinishX;
+                else if (approxEqual(_xwalk.front, _ywalk.front, 1e-6, 1e-6))
+                {
+                    immutable nt = 0.5 * (_xwalk.front + _ywalk.front);
+                    _xwalk.popFront;
+                    _ywalk.popFront;
+                    opApplyRes = callDg(nt);
+                }
+                else if (_xwalk.front < _ywalk.front)
+                {
+                    immutable nt = _xwalk.front;
+                    _xwalk.popFront;
+                    opApplyRes = callDg(nt);
+                }
+                else if (_ywalk.front < _xwalk.front)
+                {
+                    immutable nt = _ywalk.front;
+                    _ywalk.popFront;
+                    opApplyRes = callDg(nt);
+                }
+                else
+                    assert(0);
+            }
+
+        LfinishY:
+            while (!_ywalk.empty && !opApplyRes)
+            {
+                immutable nt = _ywalk.front;
                 _ywalk.popFront;
-            else
-                assert(0, "Unordered relation");
+                opApplyRes = callDg(nt);
+            }
+            goto LReturn;
+
+        LfinishX:
+            while (!_xwalk.empty && !opApplyRes)
+            {
+                immutable nt = _xwalk.front;
+                _xwalk.popFront;
+                opApplyRes = callDg(nt);
+            }
+
+        LReturn:
+            return opApplyRes;
         }
 
         @property IPoint pos() const
         {
-            return IPoint(_xwalk.position, _ywalk.position);
+            return IPoint(_xwalk.pos, _ywalk.pos);
         }
 
+        BezierCState!(float, K)* _cstate; // from calling frame
         BezIota!(T, K) _xwalk, _ywalk;
     }
-
-    return Result(curve, roundHint);
+    return Result(curve, roundHint, cstate);
 }
 
 enum tolerance = 1e-4;
