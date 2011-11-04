@@ -33,7 +33,7 @@ Blitter getClippingBlitter(Blitter blitter, in IRect clip, in IRect ir)
     if (!clip.intersects(ir))
         return null;
 
-    if (clip.left >= ir.left || clip.right <= ir.right) // TODO: maybe use > <
+    if (clip.left > ir.left || clip.right < ir.right)
         return new RectBlitter(blitter, clip);
     else
         return blitter;
