@@ -309,11 +309,11 @@ void writeNodeToGrid(alias blit, alias timeout=false)
     writeGridValue!blit(cval, offset, locRes2);
 }
 
-void blitEdges(in Path path, IRect clip, Blitter blitter, int ystart, int yend) {
+void blitEdges(in Path path, IRect clip, Blitter blitter) {
   auto wr = pathToWavelet(path, clip);
   auto topLeft = wr._clipRect.pos;
   void blitRow(int y, int xstart, int xend, ubyte alpha) {
-    if (fitsIntoRange!("[)")(y, max(ystart, clip.top), min(yend, clip.bottom))) {
+    if (fitsIntoRange!("[)")(y, clip.top, clip.bottom)) {
       blitter.blitAlphaH(y, clampToRange(xstart, clip.left, clip.right), clampToRange(xend, clip.left, clip.right), alpha);
     }
   }

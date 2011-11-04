@@ -4,7 +4,7 @@ import std.array;
 import guip.point, guip.rect, guip.size, guip.bitmap;
 import graphics.core.blitter, graphics.core.fonthost._, graphics.core.glyph, graphics.core.matrix,
     graphics.core.paint, graphics.core.path, graphics.core.path_detail.path_measure,
-    graphics.core.pmcolor, graphics.core.raster, graphics.core.shader;
+    graphics.core.pmcolor, graphics.core.shader, graphics.core.wavelet.wavelet;
 
 struct Draw
 {
@@ -27,8 +27,9 @@ public:
 
     void drawPaint(Paint paint)
     {
-        if (!_clip.empty)
-            fillIRect(_bitmap.bounds, _clip, getBlitter(paint));
+        auto ir = _bitmap.bounds;
+        if (ir.intersect(_clip))
+            getBlitter(paint).blitRect(ir);
     }
 
     private Blitter getBlitter(Paint paint)
@@ -66,7 +67,7 @@ public:
         toBlit.transform(_matrix);
         scope Blitter blitter = getBlitter(paint);
 
-        fillPath(toBlit, _clip, blitter);
+        blitEdges(toBlit, _clip, blitter);
     }
 
     @property bool justTranslation() const
