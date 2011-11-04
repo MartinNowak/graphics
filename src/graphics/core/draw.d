@@ -130,8 +130,12 @@ public:
 
     void drawRect(in FRect rect, Paint paint)
     {
+        FRect fr = rect;
+        if (_clip.empty || !fr.intersect(fRect(_clip)))
+            return;
+
         Path path;
-        path.addRect(rect);
+        path.addRect(fr);
         drawPath(path, paint);
     }
 
