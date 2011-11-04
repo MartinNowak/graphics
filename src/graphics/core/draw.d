@@ -15,7 +15,7 @@ private {
   import guip.point;
   import guip.rect;
   import guip.size;
-  import Scan = graphics.core.raster;
+  import graphics.core.raster;
 }
 
 // debug=PRINTF;
@@ -40,7 +40,7 @@ public:
 
   void drawPaint(Paint paint) {
     if (!this.clip.empty)
-        Scan.fillIRect(this.bitmap.bounds, this.clip, this.getBlitter(paint));
+        fillIRect(this.bitmap.bounds, this.clip, this.getBlitter(paint));
   }
 
   private Blitter getBlitter(Paint paint) {
@@ -77,13 +77,9 @@ public:
     scope Blitter blitter = this.getBlitter(paint);
 
     if (doFill) {
-      return paint.antiAlias ?
-        Scan.antiFillPath(toBlit, this.clip, blitter)
-        : Scan.fillPath(toBlit, this.clip, blitter);
+        fillPath(toBlit, this.clip, blitter);
     } else {
-      return paint.antiAlias ?
-        Scan.antiHairPath(toBlit, this.clip, blitter)
-        : Scan.hairPath(toBlit, this.clip, blitter);
+        hairPath(toBlit, this.clip, blitter);
     }
   }
 
