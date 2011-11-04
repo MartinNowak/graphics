@@ -1,207 +1,202 @@
 module graphics.core.draw;
 
-private {
-  import std.array;
-  import guip.bitmap;
-  import graphics.core.blitter;
-  import graphics.core.pmcolor;
-  import graphics.core.glyph;
-  import graphics.core.matrix;
-  import graphics.core.paint;
-  import graphics.core.path;
-  import graphics.core.shader;
-  import graphics.core.path_detail.path_measure;
-  import graphics.core.fonthost._;
-  import guip.point;
-  import guip.rect;
-  import guip.size;
-  import graphics.core.raster;
-}
+import std.array;
+import guip.point, guip.rect, guip.size, guip.bitmap;
+import graphics.core.blitter, graphics.core.fonthost._, graphics.core.glyph, graphics.core.matrix,
+    graphics.core.paint, graphics.core.path, graphics.core.path_detail.path_measure,
+    graphics.core.pmcolor, graphics.core.raster, graphics.core.shader;
 
-// debug=PRINTF;
-debug(PRINTF) private import std.stdio : printf;
-
-struct Draw {
+struct Draw
+{
 public:
-  Bitmap bitmap;
-  Matrix matrix;
-  IRect clip;
-  // DrawProcs drawProcs;
+    Bitmap _bitmap;
+    Matrix _matrix;
+    IRect _clip;
 
-  this(Bitmap bitmap) {
-    this.bitmap = bitmap;
-  }
-
-  this(Bitmap bitmap, in Matrix matrix, in IRect clip) {
-    this(bitmap);
-    this.matrix = matrix;
-    this.clip = clip;
-  }
-
-  void drawPaint(Paint paint) {
-    if (!this.clip.empty)
-        fillIRect(this.bitmap.bounds, this.clip, this.getBlitter(paint));
-  }
-
-  private Blitter getBlitter(Paint paint) {
-    return Blitter.Choose(this.bitmap, this.matrix, paint);
-  }
-
-  private Blitter getBlitter(Paint paint, in Bitmap source, IPoint ioff) {
-    return Blitter.ChooseSprite(this.bitmap, paint, source, ioff);
-  }
-
-  void drawColor(in Color c) {
-    this.bitmap.eraseColor(PMColor(c));
-  }
-
-  void drawPath(in Path path, Paint paint) {
-    if (this.clip.empty)
-      return;
-
-    if (path.empty) {
-      assert(!path.inverseFillType);
-      return;
+    this(Bitmap bitmap)
+    {
+        _bitmap = bitmap;
     }
 
-    bool doFill;
-    Path toBlit;
-    if (paint.pathEffect || paint.fillStyle != Paint.Fill.Fill) {
-      toBlit = paint.getFillPath(path, doFill);
-    } else {
-      doFill = true;
-      toBlit = path;
+    this(Bitmap bitmap, in Matrix matrix, in IRect clip)
+    {
+        this(bitmap);
+        _matrix = matrix;
+        _clip = clip;
     }
 
-    toBlit.transform(this.matrix);
-    scope Blitter blitter = this.getBlitter(paint);
-
-    if (doFill) {
-        fillPath(toBlit, this.clip, blitter);
-    } else {
-        hairPath(toBlit, this.clip, blitter);
-    }
-  }
-
-  @property bool justTranslation() const {
-    // TODO: approx translation
-    return this.matrix.rectStaysRect && !(this.matrix.affine || this.matrix.scaling);
-  }
-
-  void drawBitmap(in Bitmap source, Paint paint) {
-    if (this.clip.empty || source.bounds.empty ||
-        source.config == Bitmap.Config.NoConfig ||
-        paint.color.a == 0) {
-        return;
+    void drawPaint(Paint paint)
+    {
+        if (!_clip.empty)
+            fillIRect(_bitmap.bounds, _clip, getBlitter(paint));
     }
 
-    auto ioff = IPoint(to!int(this.matrix[0][2]), to!int(this.matrix[1][2]));
-    auto ir = IRect(ioff, ioff + source.size);
-
-    if (this.justTranslation && source.config != Bitmap.Config.A8) {
-      if (ir.intersect(this.clip)) {
-        scope auto blitter = this.getBlitter(paint, source, ioff);
-        blitter.blitRect(ir);
-      }
-    } else {
-
-      if (source.config == Bitmap.Config.A8) {
-        // TODO: need to apply transformation
-        scope auto blitter = this.getBlitter(paint);
-        blitter.blitMask(ioff.x, ioff.y, source);
-      } else {
-        Shader oldshader = paint.shader;
-        scope(exit) paint.shader = oldshader;
-        paint.shader = new BitmapShader(source);
-
-        ir = IRect(source.size);
-        drawRect(fRect(ir), paint);
-      }
-    }
-  }
-
-  void drawRect(in FRect rect, Paint paint) {
-    Path path;
-    path.addRect(rect);
-    this.drawPath(path, paint);
-    /+
-    FRect transRect;
-    this.matrix.mapRect(fRect(rect), transRect);
-
-    auto doFill = paint.fillStyle == Paint.Fill.Fill
-      || paint.fillStyle == Paint.Fill.FillAndStroke;
-
-    // TODO: quickReject on clip before building blitter
-    Blitter blitter = this.getBlitter(paint);
-
-    if (doFill) {
-      return paint.antiAlias ?
-        Scan.antiFillRect(transRect, this.clip, blitter)
-        : Scan.fillRect(transRect, this.clip, blitter);
-    } else {
-      return paint.antiAlias ?
-        Scan.antiHairRect(transRect, this.clip, blitter)
-        : Scan.hairRect(transRect, this.clip, blitter);
-    }
-    +/
-  }
-
-  void drawText(string text, FPoint pt, TextPaint paint) {
-    if (text.empty || this.clip.empty ||
-        paint.color.a == 0)
-      return;
-
-    auto backUp = this.matrix;
-    scope(exit) this.matrix = backUp;
-
-    auto cache = getGlyphCache(paint.typeFace, paint.textSize);
-
-    float hOffset = 0;
-    if (paint.textAlign != TextPaint.TextAlign.Left) {
-      auto length = measureText(text, cache);
-      if (paint.textAlign == TextPaint.TextAlign.Center)
-        length *= 0.5;
-      hOffset = length;
+    private Blitter getBlitter(Paint paint)
+    {
+        return Blitter.Choose(_bitmap, _matrix, paint);
     }
 
-    this.matrix.preTranslate(pt.x, pt.y);
-    Matrix scaledMatrix = this.matrix;
-    // TODO: scale matrix according to freetype outline relation
-    // auto scale = PathGlyphStream.getScale();
-    // scaledMatrix.preScale(scale, scale);
-
-    FPoint pos = FPoint(0, 0);
-    foreach(gl; cache.glyphStream(text, Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path)) {
-      Matrix m;
-      m.setTranslate(pos.x - hOffset, 0);
-      this.matrix = scaledMatrix * m;
-      this.drawPath(gl.path, paint);
-      pos += gl.advance;
-    }
-  }
-
-  void drawTextOnPath(string text, in Path follow, TextPaint paint) {
-    auto meas = PathMeasure(follow);
-
-    float hOffset = 0;
-    if (paint.textAlign != TextPaint.TextAlign.Left) {
-      auto length = meas.length;
-      if (paint.textAlign == TextPaint.TextAlign.Center)
-        length *= 0.5;
-      hOffset = length;
+    private Blitter getBlitter(Paint paint, in Bitmap source, IPoint ioff)
+    {
+        return Blitter.ChooseSprite(_bitmap, paint, source, ioff);
     }
 
-    //! TODO: scaledMatrix
-
-    auto cache = getGlyphCache(paint.typeFace, paint.textSize);
-    FPoint pos = FPoint(0, 0);
-    foreach(gl; cache.glyphStream(text, Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path)) {
-      Matrix m;
-      m.setTranslate(pos.x + hOffset, 0);
-      this.drawPath(morphPath(gl.path, meas, m), paint);
-      pos += gl.advance;
+    void drawColor(in Color c)
+    {
+        _bitmap.eraseColor(PMColor(c));
     }
-  }
+
+    void drawPath(in Path path, Paint paint)
+    {
+        if (_clip.empty)
+            return;
+
+        if (path.empty)
+        {
+            assert(!path.inverseFillType);
+            return;
+        }
+
+        bool doFill;
+        Path toBlit;
+        if (paint.pathEffect || paint.fillStyle != Paint.Fill.Fill)
+        {
+            toBlit = paint.getFillPath(path, doFill);
+        }
+        else
+        {
+            doFill = true;
+            toBlit = path;
+        }
+
+        toBlit.transform(_matrix);
+        scope Blitter blitter = getBlitter(paint);
+
+        if (doFill)
+        {
+            fillPath(toBlit, _clip, blitter);
+        }
+        else
+        {
+            hairPath(toBlit, _clip, blitter);
+        }
+    }
+
+    @property bool justTranslation() const
+    {
+        // TODO: approx translation
+        return _matrix.rectStaysRect && !(_matrix.affine || _matrix.scaling);
+    }
+
+    void drawBitmap(in Bitmap source, Paint paint)
+    {
+        if (_clip.empty || source.bounds.empty ||
+            source.config == Bitmap.Config.NoConfig ||
+            paint.color.a == 0)
+        {
+            return;
+        }
+
+        auto ioff = IPoint(to!int(_matrix[0][2]), to!int(_matrix[1][2]));
+        auto ir = IRect(ioff, ioff + source.size);
+
+        if (justTranslation && source.config != Bitmap.Config.A8)
+        {
+            if (ir.intersect(_clip))
+            {
+                scope auto blitter = getBlitter(paint, source, ioff);
+                blitter.blitRect(ir);
+            }
+        }
+        else
+        {
+            if (source.config == Bitmap.Config.A8)
+            {
+                // TODO: need to apply transformation
+                scope auto blitter = this.getBlitter(paint);
+                blitter.blitMask(ioff.x, ioff.y, source);
+            }
+            else
+            {
+                Shader oldshader = paint.shader;
+                scope(exit) paint.shader = oldshader;
+                paint.shader = new BitmapShader(source);
+
+                ir = IRect(source.size);
+                drawRect(fRect(ir), paint);
+            }
+        }
+    }
+
+    void drawRect(in FRect rect, Paint paint)
+    {
+        Path path;
+        path.addRect(rect);
+        drawPath(path, paint);
+    }
+
+    void drawText(string text, FPoint pt, TextPaint paint)
+    {
+        if (text.empty || _clip.empty ||
+            paint.color.a == 0)
+            return;
+
+        auto backUp = _matrix;
+        scope(exit) _matrix = backUp;
+
+        auto cache = getGlyphCache(paint.typeFace, paint.textSize);
+
+        float hOffset = 0;
+        if (paint.textAlign != TextPaint.TextAlign.Left)
+        {
+            auto length = measureText(text, cache);
+            if (paint.textAlign == TextPaint.TextAlign.Center)
+                length *= 0.5;
+            hOffset = length;
+        }
+
+        _matrix.preTranslate(pt.x, pt.y);
+        Matrix scaledMatrix = _matrix;
+        // TODO: scale matrix according to freetype outline relation
+        // auto scale = PathGlyphStream.getScale();
+        // scaledMatrix.preScale(scale, scale);
+
+        FPoint pos = FPoint(0, 0);
+        foreach(gl; cache.glyphStream(text, Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+        {
+            Matrix m;
+            m.setTranslate(pos.x - hOffset, 0);
+            _matrix = scaledMatrix * m;
+            drawPath(gl.path, paint);
+            pos += gl.advance;
+        }
+    }
+
+    void drawTextOnPath(string text, in Path follow, TextPaint paint)
+    {
+        auto meas = PathMeasure(follow);
+
+        float hOffset = 0;
+        if (paint.textAlign != TextPaint.TextAlign.Left)
+        {
+            auto length = meas.length;
+            if (paint.textAlign == TextPaint.TextAlign.Center)
+                length *= 0.5;
+            hOffset = length;
+        }
+
+        //! TODO: scaledMatrix
+
+        auto cache = getGlyphCache(paint.typeFace, paint.textSize);
+        FPoint pos = FPoint(0, 0);
+        foreach(gl; cache.glyphStream(text, Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+        {
+            Matrix m;
+            m.setTranslate(pos.x + hOffset, 0);
+            this.drawPath(morphPath(gl.path, meas, m), paint);
+            pos += gl.advance;
+        }
+    }
 
     private Path morphPath(in Path path, in PathMeasure meas, in Matrix matrix)
     {
