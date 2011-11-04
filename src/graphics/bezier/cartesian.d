@@ -3,12 +3,9 @@ module graphics.bezier.cartesian;
 import guip.point, guip.rect, guip.size;
 import graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
 import std.algorithm, std.conv, std.exception, std.math, std.metastrings,
-    std.numeric, std.range, std.traits, std.typetuple;
+    std.numeric, std.range, std.traits;
 import graphics.math.clamp, graphics.math.poly;
 import qcheck._;
-
-//debug=Illinois;
-debug(Illinois) import std.stdio;
 
 BezIota!(T, K) beziota(string dir, T, size_t K)(ref const Point!T[K] curve, T roundHint=T.max)
 {
@@ -174,12 +171,8 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
         {
             immutable v = _position + (_pastend > _position);
 
-            double evalT(double t)
-            {
-                return ((_coeffs[0] * t + _coeffs[1]) * t + _coeffs[2]) * t + _coeffs[3] - v;
-            }
-
-            return findRoot(&evalT, 0.0, 1.0);
+            double dg(double t) { return poly!T(_coeffs, t) - v; }
+            return findRootIllinois(&dg, 0.0, 1.0);
         }
     }
     else
@@ -303,16 +296,6 @@ unittest {
   }
 }
 
-template SIota(size_t start, size_t end) if (start < end)
-{
-    alias TypeTuple!(start, SIota!(start + 1, end)) SIota;
-}
-
-template SIota(size_t start, size_t end) if (start == end)
-{
-    alias TypeTuple!() SIota;
-}
-
 auto cartesianBezierWalker(T, size_t K)(
     ref const Point!T[K] curve,
     in Point!T roundHint,
@@ -431,63 +414,4 @@ auto cartesianBezierWalker(T, size_t K)(
         BezIota!(T, K) _xwalk, _ywalk;
     }
     return Result(curve, roundHint, cstate);
-}
-
-enum tolerance = 1e-4;
-// debug = IllinoisStats;
-debug(IllinoisStats)
-{
-    size_t sumIterations;
-    size_t numRuns;
-    static ~this()
-    {
-        std.stdio.writefln("mean iterations %s", 1.0 * sumIterations / numRuns);
-    }
-}
-
-T findRoot(T, R)(scope R delegate(T) f, T a, T b)
-{
-    size_t iterations;
-    FPTemporary!R fa = f(a);
-    FPTemporary!R fb = f(b);
-    FPTemporary!T gamma = 1.0;
-    do
-    {
-        FPTemporary!T c = (gamma * b * fa - a * fb) / (gamma * fa - fb);
-        FPTemporary!T fc = f(c);
-        debug(Illinois) writeln("illinois step: ", iterations,
-                                " a: ", a, " fa: ", fa,
-                                " b: ", b, " fb: ", fb,
-                                " c: ", c, " fc: ", fc);
-        if (fabs(fc) !> tolerance)
-        {
-            debug(Illinois)
-                writeln("converged after: ", iterations,
-                        " at: ", c);
-            debug(IllinoisStats)
-            {
-                .sumIterations += iterations + 1;
-                ++.numRuns;
-            }
-            return c;
-        }
-        else
-        {
-            if (signbit(fc) != signbit(fb))
-            {
-                a = b;
-                fa = fb;
-                gamma = 1.0;
-            }
-            else
-            {
-                gamma = 0.5;
-            }
-            b = c;
-            fb = fc;
-        }
-    } while (++iterations < 1000);
-    assert(0, std.string.format(
-               "Failed to converge. Interval [f(%s)=%s .. f(%s)=%s]",
-               a, fa, b, fb));
 }

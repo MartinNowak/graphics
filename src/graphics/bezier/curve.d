@@ -4,37 +4,45 @@ import guip.point;
 import graphics.math.clamp, graphics.math.poly;
 import std.algorithm, std.metastrings;
 
-void bezToPoly(T)(ref const Point!T[2] line, ref T[2] x, ref T[2] y)
+void bezToPoly(T)(ref T[2] line)
 {
-    x[0] = -line[0].x + line[1].x;
-    x[1] = line[0].x;
-
-    y[0] = -line[0].y + line[1].y;
-    y[1] = line[0].y;
+    immutable c0 = -line[0] + line[1];
+    immutable c1 = line[0];
+    line[0] = c0;
+    line[1] = c1;
 }
 
-void bezToPoly(T)(ref const Point!T[3] quad, ref T[3] x, ref T[3] y)
+void bezToPoly(T)(ref T[3] quad)
 {
-    x[0] = quad[0].x - 2 * quad[1].x + quad[2].x;
-    x[1] = 2 * (-quad[0].x + quad[1].x);
-    x[2] = quad[0].x;
-
-    y[0] = quad[0].y - 2 * quad[1].y + quad[2].y;
-    y[1] = 2 * (-quad[0].y + quad[1].y);
-    y[2] = quad[0].y;
+    immutable c0 = quad[0] - 2 * quad[1] + quad[2];
+    immutable c1 = 2 * (-quad[0] + quad[1]);
+    immutable c2 = quad[0];
+    quad[0] = c0;
+    quad[1] = c1;
+    quad[2] = c2;
 }
 
-void bezToPoly(T)(ref const Point!T[4] cubic, ref T[4] x, ref T[4] y)
+void bezToPoly(T)(ref T[4] cubic)
 {
-    x[0] = -cubic[0].x + 3 * (cubic[1].x - cubic[2].x) + cubic[3].x;
-    x[1] = 3 * (cubic[0].x - 2 * cubic[1].x + cubic[2].x);
-    x[2] = 3 * (-cubic[0].x + cubic[1].x);
-    x[3] = cubic[0].x;
+    immutable c0 = -cubic[0] + 3 * (cubic[1] - cubic[2]) + cubic[3];
+    immutable c1 = 3 * (cubic[0] - 2 * cubic[1] + cubic[2]);
+    immutable c2 = 3 * (-cubic[0] + cubic[1]);
+    immutable c3 = cubic[0];
+    cubic[0] = c0;
+    cubic[1] = c1;
+    cubic[2] = c2;
+    cubic[3] = c3;
+}
 
-    y[0] = -cubic[0].y + 3 * (cubic[1].y - cubic[2].y) + cubic[3].y;
-    y[1] = 3 * (cubic[0].y - 2 * cubic[1].y + cubic[2].y);
-    y[2] = 3 * (-cubic[0].y + cubic[1].y);
-    y[3] = cubic[0].y;
+void bezToPoly(T, size_t K)(ref const Point!T[K] curve, ref T[K] x, ref T[K] y)
+{
+    foreach(i; SIota!(0, K))
+    {
+        x[i] = curve[i].x;
+        y[i] = curve[i].y;
+    }
+    bezToPoly(x);
+    bezToPoly(y);
 }
 
 Point!T evalBezier(T, size_t K)(ref const Point!T[K] bez, double t)
