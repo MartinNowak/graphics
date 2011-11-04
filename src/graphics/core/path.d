@@ -118,21 +118,21 @@ public:
             _bounds.join(bounds);
     }
 
-    alias int delegate(ref const Verb, ref const FPoint[]) IterDg;
+    alias int delegate(ref Verb, ref FPoint[]) IterDg;
     int apply(Flattener=void)(scope IterDg dg) const
     {
         if (empty)
             return 0;
 
-        FPoint moveTo;
-        FPoint[4] tmpPts;
+        FPoint moveTo=void, lastPt=void;
+        FPoint[4] tmpPts=void;
 
         auto vs = verbs.save;
         auto pts = points.save;
         static if (!is(Flattener == void))
             auto flattener = Flattener(dg);
 
-        int emit(Verb verb, in FPoint[] pts)
+        int emit(Verb verb, FPoint[] pts)
         {
             static if (!is(Flattener == void))
                 return flattener.call(verb, pts);
@@ -147,29 +147,31 @@ public:
             final switch (verb)
             {
             case Verb.Move:
-                moveTo = tmpPts[0] = pts.front;
+                moveTo = lastPt = tmpPts[0] = pts.front;
                 pts.popFront;
                 if (auto res = emit(Verb.Move, tmpPts[0 .. 1]))
                     return res;
                 break;
 
             case Verb.Line, Verb.Quad, Verb.Cubic:
+                tmpPts[0] = lastPt;
                 memcpy(tmpPts.ptr + 1, pts.ptr, verb * FPoint.sizeof);
+                lastPt = pts[verb - 1];
                 popFrontN(pts, verb);
                 if (auto res = emit(verb, tmpPts[0 .. verb + 1]))
                     return res;
-                tmpPts[0] = tmpPts[verb];
                 break;
 
             case Verb.Close:
-                if (tmpPts[0] != moveTo)
+                if (lastPt != moveTo)
                 {
+                    tmpPts[0] = lastPt;
                     tmpPts[1] = moveTo;
                     if (auto res = emit(Verb.Line, tmpPts[0 .. 2]))
                         return res;
-                    tmpPts[0] = moveTo;
+                    lastPt = moveTo;
                 }
-                if (auto res = emit(Verb.Close, cast(FPoint[])null))
+                if (auto res = emit(Verb.Close, tmpPts[0 .. 0]))
                     return res;
             }
         }

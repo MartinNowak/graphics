@@ -14,7 +14,7 @@ struct QuadCubicFlattener
         this.dg = dg;
     }
 
-    int call(Path.Verb verb, in FPoint[] pts)
+    int call(Path.Verb verb, FPoint[] pts)
     {
         final switch (verb) {
         case Path.Verb.Move, Path.Verb.Close:
@@ -31,7 +31,7 @@ struct QuadCubicFlattener
         }
     }
 
-    int __line(in FPoint[] pts)
+    int __line(FPoint[] pts)
     {
         assert(pts.length == 2);
 
@@ -44,7 +44,7 @@ struct QuadCubicFlattener
         }
     }
 
-    int __quad(in FPoint[] pts)
+    int __quad(FPoint[] pts)
     {
         assert(pts.length == 3);
 
@@ -77,7 +77,7 @@ struct QuadCubicFlattener
         }
     }
 
-    int __cubic(in FPoint[] pts)
+    int __cubic(FPoint[] pts)
     {
         assert(pts.length == 4);
 
