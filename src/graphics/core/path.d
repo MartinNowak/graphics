@@ -79,11 +79,13 @@ public:
     // TODO: less copying, maybe COW
     void opAssign(in Path path)
     {
-        _points        = appender(path.points.dup);
-        _verbs         = appender(path.verbs.dup);
-        _bounds        = path._bounds;
+        _points.clear();
+        _points.put(path.points);
+        _verbs.clear();
+        _verbs.put(path.verbs);
+        _bounds = path._bounds;
         _boundsIsClean = path._boundsIsClean;
-        _fillType      = path._fillType;
+        _fillType = path._fillType;
     }
 
     @property bool empty() const
