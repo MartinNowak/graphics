@@ -91,7 +91,7 @@ struct WaveletRaster
         _nodeStack[0] = _ralloc.create!Node();
     }
 
-    void insertSlice2(ref const FPoint[2] slice)
+    void insertSlice(ref const FPoint[2] slice)
     {
         if (_depth)
             updateCoeffs(slice);
@@ -99,7 +99,7 @@ struct WaveletRaster
         _rootConst += (1.f / (1 << _depth) ^^ 2) * determinant(slice[0], slice[1]) / 2;
     }
 
-    void insertSlice3(ref const FPoint[3] slice)
+    void insertSlice(ref const FPoint[3] slice)
     {
         if (_depth)
             updateCoeffs(slice);
@@ -109,7 +109,7 @@ struct WaveletRaster
             + determinant(slice[0], slice[2]));
     }
 
-    void insertSlice4(ref const FPoint[4] slice)
+    void insertSlice(ref const FPoint[4] slice)
     {
         if (_depth)
             updateCoeffs(slice);
@@ -216,28 +216,12 @@ struct WaveletRaster
         }
     }
 
-    void insertEdge(ref FPoint[2] pts)
+    void insertEdge(size_t K)(ref FPoint[K] pts)
     {
         immutable off = fPoint(_clipRect.pos);
-        foreach(i; SIota!(0, 2))
+        foreach(i; SIota!(0, K))
             pts[i] -= off;
-        clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice2, &insertSlice2);
-    }
-
-    void insertEdge(ref FPoint[3] pts)
-    {
-        immutable off = fPoint(_clipRect.pos);
-        foreach(i; SIota!(0, 3))
-            pts[i] -= off;
-        clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice3, &insertSlice2);
-    }
-
-    void insertEdge(ref FPoint[4] pts)
-    {
-        immutable off = fPoint(_clipRect.pos);
-        foreach(i; SIota!(0, 4))
-            pts[i] -= off;
-        clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice4, &insertSlice2);
+        clippedMonotonic!(float, K)(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice, &insertSlice);
     }
 
     Node _root;
