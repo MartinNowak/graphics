@@ -17,7 +17,6 @@ struct Path
 
 private:
   FRect _bounds;
-  FillType _fillType;
   bool _boundsIsClean;
 
 public:
@@ -37,15 +36,6 @@ public:
         Quad  = 2,
         Cubic = 3,
         Close = 4,
-    }
-
-    // TODO: needed ?
-    enum FillType : ubyte
-    {
-        EvenOdd = 0,
-        Winding = 1,
-        InverseEvenOdd = 2,
-        InverseWinding = 3,
     }
 
     enum Direction
@@ -85,33 +75,12 @@ public:
         _verbs.put(path.verbs);
         _bounds = path._bounds;
         _boundsIsClean = path._boundsIsClean;
-        _fillType = path._fillType;
     }
 
     @property bool empty() const
     {
         return verbs.length == 0 ||
             verbs.length == 1 && verbs[0] == Verb.Move;
-    }
-
-    @property void fillType(FillType fillType)
-    {
-        _fillType = fillType;
-    }
-
-    @property FillType fillType() const
-    {
-        return _fillType;
-    }
-
-    @property bool inverseFillType() const
-    {
-        return (this.fillType & 2) != 0;
-    }
-
-    void toggleInverseFillType()
-    {
-        this._fillType ^= 0x2;
     }
 
     // TODO: check if const is needed

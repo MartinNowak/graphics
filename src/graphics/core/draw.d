@@ -48,14 +48,8 @@ public:
 
     void drawPath(in Path path, Paint paint)
     {
-        if (_clip.empty)
+        if (_clip.empty || path.empty)
             return;
-
-        if (path.empty)
-        {
-            assert(!path.inverseFillType);
-            return;
-        }
 
         bool doFill;
         Path toBlit;

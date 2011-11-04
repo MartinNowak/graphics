@@ -16,36 +16,16 @@ void fillIRect(Blitter)(IRect rect, in IRect clip, Blitter blitter)
 }
 
 void fillPath(in Path path, in IRect clip, Blitter blitter)
+in
 {
-    if (clip.empty)
-    {
-        return;
-    }
-
+    assert(!clip.empty && !path.empty);
+}
+body
+{
     auto ir = path.ibounds;
 
-    if (ir.empty)
-    {
-        if (path.inverseFillType)
-        {
-            blitter.blitRect(clip);
-        }
-        return;
-    }
-
-    blitter = getClippingBlitter(blitter, clip, ir);
-
-    if (!(blitter is null))
-    {
-        if (path.inverseFillType)
-        {
-            blitAboveAndBelow(blitter, ir, clip);
-        }
-        else
-        {
-            graphics.core.wavelet.wavelet.blitEdges(path, clip, blitter, ir.top, ir.bottom);
-        }
-    }
+    if ((blitter = getClippingBlitter(blitter, clip, ir)) !is null)
+        blitEdges(path, clip, blitter, ir.top, ir.bottom);
 }
 
 Blitter getClippingBlitter(Blitter blitter, in IRect clip, in IRect ir)
@@ -59,32 +39,7 @@ Blitter getClippingBlitter(Blitter blitter, in IRect clip, in IRect ir)
         return blitter;
 }
 
-void blitAboveAndBelow(Blitter blitter, in IRect ir, in IRect clip)
-{
-    assert(0, "unimplemented");
-}
-
 void hairPath(in Path path, in IRect clip, Blitter blitter)
 {
-    if (path.empty)
-    {
-        return;
-    }
-
-    auto ir = path.ibounds.inset(-1, -1);
-
-    blitter = getClippingBlitter(blitter, clip, ir);
-
-    if (blitter)
-    {
-        if (path.inverseFillType)
-        {
-            // inverse and stroke ?
-            blitAboveAndBelow(blitter, ir, clip);
-        }
-        else
-        {
-            assert(0, "unimplemented");
-        }
-    }
+    assert(0, "unimplemented");
 }
