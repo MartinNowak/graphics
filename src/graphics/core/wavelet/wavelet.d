@@ -3,8 +3,9 @@ module graphics.core.wavelet.wavelet;
 import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.metastrings,
     std.random, std.string, std.typecons, std.c.string, core.bitop;
 import std.allocators.region;
-import graphics.math.clamp, graphics.bezier.chop, graphics.core.path, graphics.core.matrix;
+import graphics.bezier.chop, graphics.core.path, graphics.core.matrix;
 import graphics.bezier.cartesian, graphics.bezier.clip, graphics.bezier.curve;
+import graphics.math.clamp, graphics.math.poly;
 import guip.bitmap, guip.point, guip.rect, guip.size;
 
 // version=DebugNoise;
@@ -217,22 +218,25 @@ struct WaveletRaster
 
     void insertEdge(ref FPoint[2] pts)
     {
-        foreach(ref pt; pts)
-            pt -= fPoint(_clipRect.pos);
+        immutable off = fPoint(_clipRect.pos);
+        foreach(i; SIota!(0, 2))
+            pts[i] -= off;
         clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice2, &insertSlice2);
     }
 
     void insertEdge(ref FPoint[3] pts)
     {
-        foreach(ref pt; pts)
-            pt -= fPoint(_clipRect.pos);
+        immutable off = fPoint(_clipRect.pos);
+        foreach(i; SIota!(0, 3))
+            pts[i] -= off;
         clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice3, &insertSlice2);
     }
 
     void insertEdge(ref FPoint[4] pts)
     {
-        foreach(ref pt; pts)
-            pt -= fPoint(_clipRect.pos);
+        immutable off = fPoint(_clipRect.pos);
+        foreach(i; SIota!(0, 4))
+            pts[i] -= off;
         clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice4, &insertSlice2);
     }
 
