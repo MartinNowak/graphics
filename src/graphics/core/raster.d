@@ -38,8 +38,3 @@ Blitter getClippingBlitter(Blitter blitter, in IRect clip, in IRect ir)
     else
         return blitter;
 }
-
-void hairPath(in Path path, in IRect clip, Blitter blitter)
-{
-    assert(0, "unimplemented");
-}

@@ -51,29 +51,22 @@ public:
         if (_clip.empty || path.empty)
             return;
 
-        bool doFill;
         Path toBlit;
         if (paint.pathEffect || paint.fillStyle != Paint.Fill.Fill)
         {
+            bool doFill;
             toBlit = paint.getFillPath(path, doFill);
+            assert(doFill, "hair path unimplemented");
         }
         else
         {
-            doFill = true;
             toBlit = path;
         }
 
         toBlit.transform(_matrix);
         scope Blitter blitter = getBlitter(paint);
 
-        if (doFill)
-        {
-            fillPath(toBlit, _clip, blitter);
-        }
-        else
-        {
-            hairPath(toBlit, _clip, blitter);
-        }
+        fillPath(toBlit, _clip, blitter);
     }
 
     @property bool justTranslation() const
