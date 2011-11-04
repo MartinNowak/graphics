@@ -148,7 +148,7 @@ public:
     }
 
     alias int delegate(ref const Verb, ref const FPoint[]) IterDg;
-    int apply(Flattener=NoopFlattener)(scope IterDg dg) const
+    int apply(Flattener=void)(scope IterDg dg) const
     {
         if (empty)
             return 0;
@@ -158,7 +158,16 @@ public:
 
         auto vs = verbs.save;
         auto pts = points.save;
-        auto flattener = Flattener(dg);
+        static if (!is(Flattener == void))
+            auto flattener = Flattener(dg);
+
+        int emit(Verb verb, in FPoint[] pts)
+        {
+            static if (!is(Flattener == void))
+                return flattener.call(verb, pts);
+            else
+                return dg(verb, pts);
+        }
 
         while (!vs.empty)
         {
@@ -169,14 +178,14 @@ public:
             case Verb.Move:
                 moveTo = tmpPts[0] = pts.front;
                 pts.popFront;
-                if (auto res = flattener.call(Verb.Move, tmpPts[0 .. 1]))
+                if (auto res = emit(Verb.Move, tmpPts[0 .. 1]))
                     return res;
                 break;
 
             case Verb.Line, Verb.Quad, Verb.Cubic:
                 memcpy(tmpPts.ptr + 1, pts.ptr, verb * FPoint.sizeof);
                 popFrontN(pts, verb);
-                if (auto res = flattener.call(verb, tmpPts[0 .. verb + 1]))
+                if (auto res = emit(verb, tmpPts[0 .. verb + 1]))
                     return res;
                 tmpPts[0] = tmpPts[verb];
                 break;
@@ -185,18 +194,18 @@ public:
                 if (tmpPts[0] != moveTo)
                 {
                     tmpPts[1] = moveTo;
-                    if (auto res = flattener.call(Verb.Line, tmpPts[0 .. 2]))
+                    if (auto res = emit(Verb.Line, tmpPts[0 .. 2]))
                         return res;
                     tmpPts[0] = moveTo;
                 }
-                if (auto res = flattener.call(Verb.Close, null))
+                if (auto res = emit(Verb.Close, cast(FPoint[])null))
                     return res;
             }
         }
         return 0;
     }
 
-    alias apply!NoopFlattener opApply;
+    alias apply!() opApply;
 
     bool isClosedContour()
     {

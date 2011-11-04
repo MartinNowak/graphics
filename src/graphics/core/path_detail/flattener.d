@@ -6,20 +6,6 @@ import guip.point;
 
 static assert(is(ReturnType!(Path.IterDg) == int), "need to adopt Flattener::call()");
 
-struct NoopFlattener
-{
-    private Path.IterDg dg;
-    this(Path.IterDg dg)
-    {
-        this.dg = dg;
-    }
-
-    int call(Path.Verb verb, in FPoint[] pts)
-    {
-        return this.dg(verb, pts);
-    }
-}
-
 struct QuadCubicFlattener
 {
     private Path.IterDg dg;
