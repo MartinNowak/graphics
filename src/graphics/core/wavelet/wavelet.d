@@ -215,21 +215,21 @@ struct WaveletRaster
         }
     }
 
-    void insertEdge(FPoint[2] pts)
+    void insertEdge(ref FPoint[2] pts)
     {
         foreach(ref pt; pts)
             pt -= fPoint(_clipRect.pos);
         clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice2, &insertSlice2);
     }
 
-    void insertEdge(FPoint[3] pts)
+    void insertEdge(ref FPoint[3] pts)
     {
         foreach(ref pt; pts)
             pt -= fPoint(_clipRect.pos);
         clippedMonotonic(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice3, &insertSlice2);
     }
 
-    void insertEdge(FPoint[4] pts)
+    void insertEdge(ref FPoint[4] pts)
     {
         foreach(ref pt; pts)
             pt -= fPoint(_clipRect.pos);
@@ -343,19 +343,13 @@ WaveletRaster pathToWavelet(in Path path, IRect clip)
             break;
 
         case Path.Verb.Line:
-            FPoint[2] fpts = void;
-            memcpy(fpts.ptr, pts.ptr, 2 * FPoint.sizeof);
-            wr.insertEdge(fpts);
+            wr.insertEdge(*cast(FPoint[2]*)pts.ptr);
             break;
         case Path.Verb.Quad:
-            FPoint[3] fpts = void;
-            memcpy(fpts.ptr, pts.ptr, 3 * FPoint.sizeof);
-            wr.insertEdge(fpts);
+            wr.insertEdge(*cast(FPoint[3]*)pts.ptr);
             break;
         case Path.Verb.Cubic:
-            FPoint[4] fpts = void;
-            memcpy(fpts.ptr, pts.ptr, 4 * FPoint.sizeof);
-            wr.insertEdge(fpts);
+            wr.insertEdge(*cast(FPoint[4]*)pts.ptr);
             break;
         }
     };
