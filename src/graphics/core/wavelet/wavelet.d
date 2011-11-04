@@ -3,8 +3,7 @@ module graphics.core.wavelet.wavelet;
 import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.metastrings,
     std.random, std.string, std.typecons, std.c.string, core.bitop;
 import std.allocators.region;
-import graphics.math.clamp, graphics.bezier.chop, graphics.core.path,
-    graphics.core.blitter, graphics.core.matrix;
+import graphics.math.clamp, graphics.bezier.chop, graphics.core.path, graphics.core.matrix;
 import graphics.bezier.cartesian, graphics.bezier.clip, graphics.bezier.curve;
 import guip.bitmap, guip.point, guip.rect, guip.size;
 
@@ -309,15 +308,22 @@ void writeNodeToGrid(alias blit, alias timeout=false)
     writeGridValue!blit(cval, offset, locRes2);
 }
 
-void blitEdges(in Path path, IRect clip, Blitter blitter) {
-  auto wr = pathToWavelet(path, clip);
-  auto topLeft = wr._clipRect.pos;
-  void blitRow(int y, int xstart, int xend, ubyte alpha) {
-    if (fitsIntoRange!("[)")(y, clip.top, clip.bottom)) {
-      blitter.blitAlphaH(y, clampToRange(xstart, clip.left, clip.right), clampToRange(xend, clip.left, clip.right), alpha);
+alias void delegate(int y, int xstart, int xend, ubyte alpha) BlitRowDg;
+void rasterPath(in Path path, IRect clip, scope BlitRowDg dg)
+{
+    auto wr = pathToWavelet(path, clip);
+    auto topLeft = wr._clipRect.pos;
+
+    // TODO: avoid bound checks
+    void blitRow(int y, int xstart, int xend, ubyte alpha)
+    {
+        if (fitsIntoRange!("[)")(y, clip.top, clip.bottom))
+        {
+            dg(y, clampToRange(xstart, clip.left, clip.right), clampToRange(xend, clip.left, clip.right), alpha);
+        }
     }
-  }
-  writeNodeToGrid!(blitRow)(
+
+    writeNodeToGrid!(blitRow)(
       *wr._nodeStack[0], wr._rootConst, topLeft, 1 << wr._depth);
 }
 

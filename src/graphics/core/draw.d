@@ -67,7 +67,7 @@ public:
         toBlit.transform(_matrix);
         scope Blitter blitter = getBlitter(paint);
 
-        blitEdges(toBlit, _clip, blitter);
+        rasterPath(toBlit, _clip, &blitter.blitAlphaH);
     }
 
     @property bool justTranslation() const
