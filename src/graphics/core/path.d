@@ -215,25 +215,20 @@ public:
         return verbs.length == 0 ? false : verbs[$-1] == verb;
     }
 
-    private bool ensureStart(in FPoint pt)
-    {
-        if (_verbs.data.empty)
-        {
-            assert(_points.data.empty);
-            _points.put(pt);
-            _verbs.put(Verb.Move);
-            return true;
-        }
-        return false;
-    }
-
     void primTo(const(FPoint)[] pts...)
     {
-        if (ensureStart(pts[0]))
-            pts.popFront;
-        _points.put(pts);
-        _verbs.put(cast(Verb)pts.length);
-        _boundsIsClean = false;
+        // implicit moveTo when no preceded by point
+        if (_verbs.data.empty)
+        {
+            _points.put(pts[$-1]);
+            _verbs.put(Verb.Move);
+        }
+        else
+        {
+            _points.put(pts);
+            _verbs.put(cast(Verb)pts.length);
+            _boundsIsClean = false;
+        }
     }
 
     void relPrimTo(FVector[] pts...)
@@ -572,7 +567,14 @@ public:
 
     void arcTo(FPoint center, FPoint endPt, Direction dir = Direction.CW)
     {
-        ensureStart(center);
+        // implicit moveTo when no preceded by point
+        if (_verbs.data.empty)
+        {
+            _points.put(endPt);
+            _verbs.put(Verb.Move);
+            return;
+        }
+
         auto startPt = this.lastPoint;
         immutable FVector start = startPt - center;
         immutable FVector   end = endPt   - center;
