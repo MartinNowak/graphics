@@ -125,39 +125,39 @@ private:
 
     void buildSegments(in Path path)
     {
-        path.forEach!(QuadCubicFlattener)((ref const Path.Verb verb, ref const FPoint[] pts){
-        final switch(verb) {
-        case Path.Verb.Move:
-          this.segments.put(getSegment(this.curDist, this.points.length));
-          this.moveTo(pts[0]);
-          break;
+        foreach(verb, pts; &path.apply!QuadCubicFlattener)
+        {
+            final switch(verb) {
+            case Path.Verb.Move:
+                this.segments.put(getSegment(this.curDist, this.points.length));
+                this.moveTo(pts[0]);
+                break;
 
-        case Path.Verb.Line:
-          auto dist = this.curDist + curveLength!2(pts);
-          this.segments.put(getSegment(dist, this.points.length - 1));
-          this.lineTo(pts[1]);
-          break;
+            case Path.Verb.Line:
+                auto dist = this.curDist + curveLength!2(pts);
+                this.segments.put(getSegment(dist, this.points.length - 1));
+                this.lineTo(pts[1]);
+                break;
 
-        case Path.Verb.Quad:
-          auto dist = this.curDist + curveLength!3(pts);
-          this.segments.put(getSegment(dist, this.points.length - 1));
-          this.quadTo(pts[1], pts[2]);
-          break;
+            case Path.Verb.Quad:
+                auto dist = this.curDist + curveLength!3(pts);
+                this.segments.put(getSegment(dist, this.points.length - 1));
+                this.quadTo(pts[1], pts[2]);
+                break;
 
-        case Path.Verb.Cubic:
-          auto dist = this.curDist + curveLength!4(pts);
-          this.segments.put(getSegment(dist, this.points.length - 1));
-          this.cubicTo(pts[1], pts[2], pts[3]);
-          break;
+            case Path.Verb.Cubic:
+                auto dist = this.curDist + curveLength!4(pts);
+                this.segments.put(getSegment(dist, this.points.length - 1));
+                this.cubicTo(pts[1], pts[2], pts[3]);
+                break;
 
-        case Path.Verb.Close:
-          this.isClosed = true;
-          break;
-        }
-        return 0;
-      });
-    assert(this.verbs.length == this.segments.data.length);
-  }
+            case Path.Verb.Close:
+                this.isClosed = true;
+                break;
+            }
+        };
+        assert(this.verbs.length == this.segments.data.length);
+    }
 
     static float curveLength(size_t K)(in FPoint[] pts)
     {

@@ -148,7 +148,7 @@ public:
     }
 
     alias int delegate(ref const Verb, ref const FPoint[]) IterDg;
-    int forEach(Flattener=NoopFlattener)(scope IterDg dg) const
+    int apply(Flattener=NoopFlattener)(scope IterDg dg) const
     {
         if (empty)
             return 0;
@@ -196,7 +196,7 @@ public:
         return 0;
     }
 
-    alias forEach!NoopFlattener opApply;
+    alias apply!NoopFlattener opApply;
 
     bool isClosedContour()
     {
@@ -653,12 +653,11 @@ public:
             tmp._verbs.reserve(this._verbs.data.length);
             tmp._points.reserve(this._points.data.length);
 
-            this.forEach!(QuadCubicFlattener)((ref const Verb verb, ref const FPoint[] pts)
+            foreach(verb, pts; &apply!QuadCubicFlattener)
             {
                 tmp._verbs.put(verb);
                 tmp._points.put(pts);
-                return 0;
-            });
+            };
             this = tmp;
         }
         else
