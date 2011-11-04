@@ -19,7 +19,6 @@ private {
   import graphics.core.shader;
   import guip.point;
   import guip.rect;
-  import graphics.core.scan : AAScale;
   import graphics.core.blitter_detail._;
 
   import graphics.math.clamp;

@@ -1,8 +1,8 @@
-module graphics.core.scan;
+module graphics.core.raster;
 
 import std.algorithm, std.math, std.range;
 import graphics.core.blitter, graphics.core.blitter_detail.clipping_blitter,
-    graphics.core.path, graphics.core.wavelet.raster;
+    graphics.core.path, graphics.core.wavelet.wavelet;
 import guip.rect, guip.point;
 
 
@@ -53,7 +53,7 @@ void fillPathImpl(size_t Scale)
       blitAboveAndBelow(blitter, ir, clip);
     }
     else {
-      graphics.core.wavelet.raster.blitEdges(path, clip, blitter, ir.top, ir.bottom);
+      graphics.core.wavelet.wavelet.blitEdges(path, clip, blitter, ir.top, ir.bottom);
     }
   }
 }

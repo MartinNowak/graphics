@@ -15,7 +15,7 @@ private {
   import guip.point;
   import guip.rect;
   import guip.size;
-  import Scan = graphics.core.scan;
+  import Scan = graphics.core.raster;
 }
 
 // debug=PRINTF;

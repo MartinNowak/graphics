@@ -1,4 +1,4 @@
-module graphics.core.wavelet.raster;
+module graphics.core.wavelet.wavelet;
 
 import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.metastrings,
     std.random, std.string, std.typecons, std.c.string, core.bitop;

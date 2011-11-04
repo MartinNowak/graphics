@@ -1,6 +1,6 @@
 module benchmark.wavelet;
 
-import graphics.core.path, graphics.core.wavelet.raster, graphics.math.clamp;
+import graphics.core.path, graphics.core.wavelet.wavelet, graphics.math.clamp;
 import qcheck._, guip.point, std.range;
 import benchmark.registry;
 
