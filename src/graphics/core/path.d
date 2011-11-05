@@ -16,9 +16,7 @@ struct Path
     Appender!(Verb[]) _verbs;
 
 private:
-    FRect _bounds;
     PathEffect[] _pathEffects;
-    bool _boundsIsClean;
 
 public:
 
@@ -26,8 +24,6 @@ public:
     {
         _points.clear();
         _verbs.clear();
-        _boundsIsClean = false;
-        _bounds = FRect();
     }
 
     enum Verb : ubyte
@@ -50,7 +46,7 @@ public:
     string toString() const
     {
         string res;
-        res ~= "Path, bounds: " ~ to!string(_bounds) ~ "\n";
+        res ~= "Path, bounds: " ~ to!string(bounds) ~ "\n";
         foreach(verb, pts; this)
         {
             res ~= to!string(verb) ~ ": ";
@@ -74,8 +70,6 @@ public:
         _points.put(path.points);
         _verbs.clear();
         _verbs.put(path.verbs);
-        _bounds = path._bounds;
-        _boundsIsClean = path._boundsIsClean;
     }
 
     @property bool empty() const
@@ -84,33 +78,21 @@ public:
             verbs.length == 1 && verbs[0] == Verb.Move;
     }
 
-    // TODO: check if const is needed
     @property FRect bounds() const
     {
-        if (!_boundsIsClean)
+        if (points.empty)
         {
-            auto pthis = cast(Path*)&this;
-            pthis._bounds = calcBounds();
-            pthis._boundsIsClean = true;
+            return FRect.emptyRect();
         }
-        return _bounds;
+        else
+        {
+            return FRect.calcBounds(points);
+        }
     }
 
     @property IRect ibounds() const
     {
         return bounds.roundOut();
-    }
-
-    private FRect calcBounds() const
-    {
-        if (!points.empty)
-        {
-            return FRect.calcBounds(points);
-        }
-        else
-        {
-            return FRect.emptyRect();
-        }
     }
 
     void addPathEffect(PathEffect effect)
@@ -125,12 +107,6 @@ public:
         foreach(effect; _pathEffects)
             result = effect(result);
         return result;
-    }
-
-    private void joinBounds(FRect bounds)
-    {
-        if (_boundsIsClean)
-            _bounds.join(bounds);
     }
 
     alias int delegate(ref Verb, ref FPoint[]) IterDg;
@@ -244,7 +220,6 @@ public:
         {
             _points.put(pts);
             _verbs.put(cast(Verb)pts.length);
-            _boundsIsClean = false;
         }
     }
 
@@ -267,7 +242,6 @@ public:
             _points.put(pt);
             _verbs.put(Verb.Move);
         }
-        _boundsIsClean = false;
     }
 
     void relMoveTo(in FVector pt)
@@ -328,7 +302,6 @@ public:
     {
         _verbs.put(path.verbs);
         _points.put(path.points);
-        _boundsIsClean = false;
     }
 
     void reversePathTo(in Path path)
@@ -401,7 +374,6 @@ public:
 
     void addRoundRect(FRect rect, float rx, float ry, Direction dir = Direction.CW)
     {
-        scope(success) joinBounds(rect);
         if (rect.empty)
             return;
 
