@@ -19,7 +19,7 @@ abstract class Shader {
   }
 
   final FPoint mapPt(FPoint dst) {
-    return this.matrix.mapPoint(dst);
+    return this.matrix * dst;
   }
 
   protected final @property auto ref Matrix matrix() {

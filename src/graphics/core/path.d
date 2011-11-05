@@ -636,7 +636,7 @@ public:
         lineTo(center);
     }
 
-    Path transformed(in Matrix matrix) const
+    Path transformed(ref const Matrix matrix) const
     {
         Path res;
         res = this;
@@ -644,13 +644,13 @@ public:
         return res;
     }
 
-    void transform(in Matrix matrix)
+    void transform(ref const Matrix matrix)
     {
         if (matrix.perspective)
         {
             Path tmp;
-            tmp._verbs.reserve(this._verbs.data.length);
-            tmp._points.reserve(this._points.data.length);
+            tmp._verbs.reserve(_verbs.data.length);
+            tmp._points.reserve(_points.data.length);
 
             foreach(verb, pts; &apply!QuadCubicFlattener)
             {
@@ -659,20 +659,8 @@ public:
             };
             this = tmp;
         }
-        else
-        {
-            if (matrix.rectStaysRect && this.points.length > 1)
-            {
-                FRect mapped;
-                matrix.mapRect(this.bounds, mapped);
-                this._bounds = mapped;
-            }
-            else
-            {
-                _boundsIsClean = false;
-            }
-        }
-        matrix.mapPoints(this._points.data);
+        _boundsIsClean = false;
+        matrix.mapPoints(_points.data);
     }
 
     unittest

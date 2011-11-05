@@ -58,12 +58,6 @@ public:
         wr.blit(&blitter.blitAlphaH);
     }
 
-    @property bool justTranslation() const
-    {
-        // TODO: approx translation
-        return _matrix.rectStaysRect && !(_matrix.affine || _matrix.scaling);
-    }
-
     void drawBitmap(in Bitmap source, Paint paint)
     {
         if (_clip.empty || source.bounds.empty ||
@@ -76,7 +70,7 @@ public:
         auto ioff = IPoint(to!int(_matrix[0][2]), to!int(_matrix[1][2]));
         auto ir = IRect(ioff, ioff + source.size);
 
-        if (justTranslation && source.config != Bitmap.Config.A8)
+        if (_matrix.translativeOnly && source.config != Bitmap.Config.A8)
         {
             if (ir.intersect(_clip))
             {
@@ -239,14 +233,13 @@ public:
 
 static WaveletRaster pathToWavelet(in Path path, IRect clip)
 {
-    auto mat = Matrix.identityMatrix();
+    Matrix mat;
     return pathToWavelet(path, clip, mat);
 }
 
 static WaveletRaster pathToWavelet(in Path path, IRect clip, ref const Matrix mat)
 {
-    FRect bounds = void;
-    mat.mapRect(path.bounds, bounds);
+    FRect bounds = mat.mapRect(path.bounds);
     auto ir = bounds.roundOut;
 
     debug

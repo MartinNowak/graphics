@@ -97,7 +97,7 @@ public:
     return this.curMCRec.matrix;
   }
   void resetMatrix() {
-    this.setMatrix(Matrix.identityMatrix());
+    this.setMatrix(Matrix());
   }
 
     /****************************************
@@ -200,8 +200,7 @@ public:
     if (this.curMCRec.clip.empty)
       return true;
 
-    FRect mapped;
-    this.curMCRec.matrix.mapRect(fRect(rect), mapped);
+    FRect mapped = this.curMCRec.matrix.mapRect(fRect(rect));
     auto ir = mapped.roundOut();
     return !ir.intersects(this.curMCRec.clip);
   }
@@ -215,8 +214,7 @@ public:
    * true if resulting clipping is non-empty.
    */
   bool clipRect(in IRect rect) {
-    FRect mapped;
-    this.curMCRec.matrix.mapRect(fRect(rect), mapped);
+    FRect mapped = this.curMCRec.matrix.mapRect(fRect(rect));
     auto ir = mapped.round();
     if (this.curMCRec.clip.intersect(ir))
       return true;
@@ -225,28 +223,28 @@ public:
   }
 
   void translate(IPoint pt) {
-    this.translate(fPoint(pt));
+    this.translate(pt.x, pt.y);
   }
   void translate(FPoint pt) {
     this.translate(pt.x, pt.y);
   }
   void translate(float dx, float dy) {
-    this.curMCRec.matrix.preTranslate(dx, dy);
+    this.curMCRec.matrix = this.curMCRec.matrix.preTranslate(dx, dy);
   }
   void scale(FVector v) {
     this.scale(v.x, v.y);
   }
   void scale(float xs, float ys) {
-    this.curMCRec.matrix.preScale(xs, ys);
+    this.curMCRec.matrix = this.curMCRec.matrix.preScale(xs, ys);
   }
   void rotate(float deg) {
-    this.curMCRec.matrix.preRotate(deg);
+    this.curMCRec.matrix = this.curMCRec.matrix.preRotate(deg);
   }
   void rotate(float deg, float px, float py) {
-    this.curMCRec.matrix.preRotate(deg, px, py);
+    this.curMCRec.matrix = this.curMCRec.matrix.preRotate(deg, px, py);
   }
   void rotate(float deg, FPoint pt) {
-    this.curMCRec.matrix.preRotate(deg, pt.x, pt.y);
+    this.rotate(deg, pt.x, pt.y);
   }
 
   /****************************************
