@@ -11,10 +11,10 @@ version=CUBIC_ARC;
 
 private enum CubicArcFactor = (SQRT2 - 1.0) * 4.0 / 3.0;
 
-struct PathData
+struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
 {
-    Appender!(FPoint[]) _points;
-    Appender!(Path.Verb[]) _verbs;
+    Appender!(P[]) _points;
+    Appender!(V[]) _verbs;
 
     @property bool empty() const
     {
@@ -28,17 +28,17 @@ struct PathData
         _verbs.clear();
     }
 
-    @property const(FPoint)[] points() const
+    @property const(P)[] points() const
     {
         return (cast()_points).data.save;
     }
 
-    @property FPoint lastPoint() const
+    @property P lastPoint() const
     {
         return points[$-1];
     }
 
-    @property const(Path.Verb)[] verbs() const
+    @property const(V)[] verbs() const
     {
         return (cast()_verbs).data.save;
     }
@@ -439,7 +439,7 @@ struct PathData
 // TODO: FPoint -> Point!T
 struct Path
 {
-    PathData _data;
+    PathData!(FPoint, Verb) _data;
     PathEffect[] _pathEffects;
 
     alias _data this;
