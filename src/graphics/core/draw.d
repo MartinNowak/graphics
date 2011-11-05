@@ -5,6 +5,7 @@ import guip.point, guip.rect, guip.size, guip.bitmap;
 import graphics.core.blitter, graphics.core.fonthost._, graphics.core.glyph, graphics.core.matrix,
     graphics.core.paint, graphics.core.path, graphics.core.path_detail.path_measure,
     graphics.core.pmcolor, graphics.core.shader, graphics.core.wavelet.wavelet;
+import graphics.math.clamp;
 
 struct Draw
 {
@@ -52,11 +53,7 @@ public:
         if (_clip.empty || path.empty)
             return;
 
-        Path toBlit;
-        toBlit = path.filteredPath;
-        toBlit.transform(_matrix);
-
-        auto wr = pathToWavelet(toBlit, _clip);
+        auto wr = pathToWavelet(path.filteredPath, _clip, _matrix);
         scope Blitter blitter = getBlitter(paint);
         wr.blit(&blitter.blitAlphaH);
     }
@@ -242,12 +239,34 @@ public:
 
 static WaveletRaster pathToWavelet(in Path path, IRect clip)
 {
-    auto ir = path.ibounds;
+    auto mat = Matrix.identityMatrix();
+    return pathToWavelet(path, clip, mat);
+}
+
+static WaveletRaster pathToWavelet(in Path path, IRect clip, ref const Matrix mat)
+{
+    FRect bounds = void;
+    mat.mapRect(path.bounds, bounds);
+    auto ir = bounds.roundOut;
+
+    debug
+    {
+        auto outer = ir;
+        void checkPoints(FPoint[] pts)
+        {
+            foreach(pt; pts)
+            {
+                assert(fitsIntoRange!("[]")(pt.x, outer.left, outer.right)
+                       && fitsIntoRange!("[]")(pt.y, outer.top, outer.bottom), std.conv.text(pt, " ", outer));
+            }
+        }
+    }
+
     if (!ir.intersect(clip))
         return WaveletRaster.init;
     WaveletRaster wr = WaveletRaster(ir);
 
-    foreach(verb, pts; path)
+    foreach(verb, pts; mat.perspective ? &path.apply!(QuadCubicFlattener) : &path.opApply)
     {
         final switch(verb)
         {
@@ -256,12 +275,18 @@ static WaveletRaster pathToWavelet(in Path path, IRect clip)
             break;
 
         case Path.Verb.Line:
+            mat.mapPoints(pts);
+            debug checkPoints(pts);
             wr.insertEdge(*cast(FPoint[2]*)pts.ptr);
             break;
         case Path.Verb.Quad:
+            mat.mapPoints(pts);
+            debug checkPoints(pts);
             wr.insertEdge(*cast(FPoint[3]*)pts.ptr);
             break;
         case Path.Verb.Cubic:
+            mat.mapPoints(pts);
+            debug checkPoints(pts);
             wr.insertEdge(*cast(FPoint[4]*)pts.ptr);
             break;
         }
