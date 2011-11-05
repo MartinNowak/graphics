@@ -10,15 +10,19 @@ private {
 alias void function(FPoint pt, FVector normalBefore,
                     FVector normalAfter, ref Path inner, ref Path outer) Joiner;
 
-Joiner getJoiner(Paint.Join joinStyle) {
-  final switch(joinStyle) {
-  case Paint.Join.Miter:
-    return &MiterJoiner;
-  case Paint.Join.Round:
-    return &RoundJoiner;
-  case Paint.Join.Bevel:
-    return &BevelJoiner;
-  }
+enum JoinStyle { Miter, Round, Bevel, }
+
+Joiner getJoiner(JoinStyle joinStyle)
+{
+    final switch(joinStyle)
+    {
+    case JoinStyle.Miter:
+        return &MiterJoiner;
+    case JoinStyle.Round:
+        return &RoundJoiner;
+    case JoinStyle.Bevel:
+        return &BevelJoiner;
+    }
 }
 
 void BevelJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path inner, ref Path outer) {

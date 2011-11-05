@@ -9,7 +9,6 @@ private {
   import graphics._;
   //  pragma(build, benchmark);
 
-  import benchmark.fill;
   import benchmark.matrix;
   import benchmark.wavelet;
 }

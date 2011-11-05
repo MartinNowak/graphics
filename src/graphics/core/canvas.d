@@ -104,14 +104,12 @@ public:
    * Draw functions
    */
   void drawPaint(Paint paint) {
-    assert(!paint.antiAlias, "Check you're paint");
     auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
     draw.drawPaint(paint);
   }
 
   void drawColor(in Color c) {
     scope auto paint = new Paint(c);
-    paint.antiAlias = false;
     // TODO: TransferMode.SrcOver
     this.drawPaint(paint);
   }

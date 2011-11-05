@@ -1,7 +1,7 @@
 module graphics.core.path;
 
 import std.algorithm, std.array, std.conv, std.math, std.numeric, std.range, std.traits, core.stdc.string;
-import graphics.bezier.chop, graphics.core.matrix, graphics.core.path_detail._;
+import graphics.bezier.chop, graphics.core.matrix, graphics.core.patheffect, graphics.core.path_detail._;
 import guip.point, guip.rect;
 
 public import graphics.core.path_detail._ : QuadCubicFlattener;
@@ -12,12 +12,13 @@ version=CUBIC_ARC;
 // TODO: FPoint -> Point!T
 struct Path
 {
-  Appender!(FPoint[]) _points;
-  Appender!(Verb[]) _verbs;
+    Appender!(FPoint[]) _points;
+    Appender!(Verb[]) _verbs;
 
 private:
-  FRect _bounds;
-  bool _boundsIsClean;
+    FRect _bounds;
+    PathEffect[] _pathEffects;
+    bool _boundsIsClean;
 
 public:
 
@@ -110,6 +111,20 @@ public:
         {
             return FRect.emptyRect();
         }
+    }
+
+    void addPathEffect(PathEffect effect)
+    {
+        _pathEffects ~= effect;
+    }
+
+    @property const(Path) filteredPath() const
+    {
+        Path result;
+        result = this;
+        foreach(effect; _pathEffects)
+            result = effect(result);
+        return result;
     }
 
     private void joinBounds(FRect bounds)

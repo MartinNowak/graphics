@@ -16,15 +16,13 @@ struct Stroke
 
     Capper _capper;
     Joiner _joiner;
-    bool _fillSrcPath;
 
-    this(in Paint paint, float width)
+    this(float width, CapStyle caps, JoinStyle joins)
     {
         assert(width > 0);
         _radius = width * 0.5;
-        _capper = getCapper(paint.capStyle);
-        _joiner = getJoiner(paint.joinStyle);
-        _fillSrcPath = paint.fillStyle == Paint.Fill.FillAndStroke;
+        _capper = getCapper(caps);
+        _joiner = getJoiner(joins);
     }
 
     void done()
@@ -74,9 +72,6 @@ struct Stroke
         };
 
         done();
-
-        if (_fillSrcPath)
-            _result.addPath(path);
 
         return _result;
     }

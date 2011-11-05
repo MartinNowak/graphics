@@ -53,17 +53,7 @@ public:
             return;
 
         Path toBlit;
-        if (paint.pathEffect || paint.fillStyle != Paint.Fill.Fill)
-        {
-            bool doFill;
-            toBlit = paint.getFillPath(path, doFill);
-            assert(doFill, "hair path unimplemented");
-        }
-        else
-        {
-            toBlit = path;
-        }
-
+        toBlit = path.filteredPath;
         toBlit.transform(_matrix);
         scope Blitter blitter = getBlitter(paint);
 

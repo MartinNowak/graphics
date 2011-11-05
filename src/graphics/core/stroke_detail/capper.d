@@ -1,20 +1,22 @@
 module graphics.core.stroke_detail.capper;
 
-private {
-  import graphics.core.paint;
-  import graphics.core.path;
-  import guip.point;
-}
+import graphics.core.path, graphics.core.paint, guip.point;
+
+enum CapStyle { Butt, Square, Round, }
+
 alias void function(FPoint pt, FVector normal, ref Path path) Capper;
-Capper getCapper(Paint.Cap capStyle) {
-  final switch(capStyle) {
-  case Paint.Cap.Butt:
-    return &ButtCapper;
-  case Paint.Cap.Square:
-    return &SquareCapper;
-  case Paint.Cap.Round:
-    return &RoundCapper;
-  }
+
+Capper getCapper(CapStyle capStyle)
+{
+    final switch(capStyle)
+    {
+    case CapStyle.Butt:
+        return &ButtCapper;
+    case CapStyle.Square:
+        return &SquareCapper;
+    case CapStyle.Round:
+        return &RoundCapper;
+    }
 }
 
 void ButtCapper(FPoint pt, FVector normal, ref Path path) {

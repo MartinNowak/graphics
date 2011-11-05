@@ -1,6 +1,6 @@
 module examples.zrusin_path;
 
-import graphics._, guip._, graphics.core.matrix, graphics.effect.patheffects, graphics.core.shader;
+import graphics._, guip._, graphics.core.matrix, graphics.core.shader;
 import std.math;
 
 alias FPoint P;
