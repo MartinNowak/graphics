@@ -1,7 +1,7 @@
 module graphics.core.path;
 
 import std.algorithm, std.array, std.conv, std.math, std.numeric, std.range, std.traits, core.stdc.string;
-import graphics.bezier.chop, graphics.core.matrix, graphics.core.patheffect, graphics.core.path_detail._;
+import graphics.bezier.chop, graphics.core.patheffect, graphics.core.path_detail._;
 import guip.point, guip.rect;
 
 public import graphics.core.path_detail._ : QuadCubicFlattener;
@@ -634,33 +634,6 @@ public:
         lineTo(startPt);
         arcTo(center, endPt, dir);
         lineTo(center);
-    }
-
-    Path transformed(ref const Matrix matrix) const
-    {
-        Path res;
-        res = this;
-        res.transform(matrix);
-        return res;
-    }
-
-    void transform(ref const Matrix matrix)
-    {
-        if (matrix.perspective)
-        {
-            Path tmp;
-            tmp._verbs.reserve(_verbs.data.length);
-            tmp._points.reserve(_points.data.length);
-
-            foreach(verb, pts; &apply!QuadCubicFlattener)
-            {
-                tmp._verbs.put(verb);
-                tmp._points.put(pts);
-            };
-            this = tmp;
-        }
-        _boundsIsClean = false;
-        matrix.mapPoints(_points.data);
     }
 
     unittest
