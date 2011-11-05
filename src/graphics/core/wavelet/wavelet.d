@@ -3,8 +3,7 @@ module graphics.core.wavelet.wavelet;
 import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.metastrings,
     std.random, std.string, std.typecons, std.c.string, core.bitop;
 import std.allocators.region;
-import graphics.bezier.chop, graphics.core.path, graphics.core.matrix;
-import graphics.bezier.cartesian, graphics.bezier.clip, graphics.bezier.curve;
+import graphics.bezier.cartesian, graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
 import graphics.math.clamp, graphics.math.poly;
 import guip.bitmap, guip.point, guip.rect, guip.size;
 
@@ -224,6 +223,24 @@ struct WaveletRaster
         clippedMonotonic!(float, K)(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice, &insertSlice);
     }
 
+    alias void delegate(int y, int xstart, int xend, ubyte alpha) BlitDg;
+
+    void blit(scope BlitDg dg)
+    {
+        // TODO: avoid bound checks
+        void blitRow(int y, int xstart, int xend, ubyte alpha)
+        {
+            if (fitsIntoRange!("[)")(y, _clipRect.top, _clipRect.bottom))
+            {
+                dg(y, clampToRange(xstart, _clipRect.left, _clipRect.right),
+                   clampToRange(xend, _clipRect.left, _clipRect.right), alpha);
+            }
+        }
+
+        writeNodeToGrid!(blitRow)(
+            *_nodeStack[0], _rootConst, _clipRect.pos, 1 << _depth);
+    }
+
     Node _root;
     float _rootConst = 0.0f;
     uint _depth;
@@ -294,52 +311,4 @@ void writeNodeToGrid(alias blit, alias timeout=false)
     writeNodeToGrid!blit(n.children[3], cval, offset, locRes2);
   else
     writeGridValue!blit(cval, offset, locRes2);
-}
-
-alias void delegate(int y, int xstart, int xend, ubyte alpha) BlitRowDg;
-void rasterPath(in Path path, IRect clip, scope BlitRowDg dg)
-{
-    auto wr = pathToWavelet(path, clip);
-    auto topLeft = wr._clipRect.pos;
-
-    // TODO: avoid bound checks
-    void blitRow(int y, int xstart, int xend, ubyte alpha)
-    {
-        if (fitsIntoRange!("[)")(y, clip.top, clip.bottom))
-        {
-            dg(y, clampToRange(xstart, clip.left, clip.right), clampToRange(xend, clip.left, clip.right), alpha);
-        }
-    }
-
-    writeNodeToGrid!(blitRow)(
-      *wr._nodeStack[0], wr._rootConst, topLeft, 1 << wr._depth);
-}
-
-WaveletRaster pathToWavelet(in Path path, IRect clip)
-{
-    auto ir = path.ibounds;
-    if (!ir.intersect(clip))
-        return WaveletRaster.init;
-    WaveletRaster wr = WaveletRaster(ir);
-
-    foreach(verb, pts; path)
-    {
-        final switch(verb)
-        {
-        case Path.Verb.Move:
-        case Path.Verb.Close:
-            break;
-
-        case Path.Verb.Line:
-            wr.insertEdge(*cast(FPoint[2]*)pts.ptr);
-            break;
-        case Path.Verb.Quad:
-            wr.insertEdge(*cast(FPoint[3]*)pts.ptr);
-            break;
-        case Path.Verb.Cubic:
-            wr.insertEdge(*cast(FPoint[4]*)pts.ptr);
-            break;
-        }
-    };
-    return wr;
 }

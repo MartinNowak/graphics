@@ -55,9 +55,10 @@ public:
         Path toBlit;
         toBlit = path.filteredPath;
         toBlit.transform(_matrix);
-        scope Blitter blitter = getBlitter(paint);
 
-        rasterPath(toBlit, _clip, &blitter.blitAlphaH);
+        auto wr = pathToWavelet(toBlit, _clip);
+        scope Blitter blitter = getBlitter(paint);
+        wr.blit(&blitter.blitAlphaH);
     }
 
     @property bool justTranslation() const
@@ -238,3 +239,32 @@ public:
         }
     }
 };
+
+static WaveletRaster pathToWavelet(in Path path, IRect clip)
+{
+    auto ir = path.ibounds;
+    if (!ir.intersect(clip))
+        return WaveletRaster.init;
+    WaveletRaster wr = WaveletRaster(ir);
+
+    foreach(verb, pts; path)
+    {
+        final switch(verb)
+        {
+        case Path.Verb.Move:
+        case Path.Verb.Close:
+            break;
+
+        case Path.Verb.Line:
+            wr.insertEdge(*cast(FPoint[2]*)pts.ptr);
+            break;
+        case Path.Verb.Quad:
+            wr.insertEdge(*cast(FPoint[3]*)pts.ptr);
+            break;
+        case Path.Verb.Cubic:
+            wr.insertEdge(*cast(FPoint[4]*)pts.ptr);
+            break;
+        }
+    };
+    return wr;
+}
