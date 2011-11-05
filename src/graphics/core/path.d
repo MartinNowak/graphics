@@ -9,183 +9,23 @@ public import graphics.core.path_detail._ : QuadCubicFlattener;
 debug import std.stdio : writeln, printf;
 version=CUBIC_ARC;
 
-// TODO: FPoint -> Point!T
-struct Path
+private enum CubicArcFactor = (SQRT2 - 1.0) * 4.0 / 3.0;
+
+struct PathData
 {
     Appender!(FPoint[]) _points;
-    Appender!(Verb[]) _verbs;
+    Appender!(Path.Verb[]) _verbs;
 
-private:
-    PathEffect[] _pathEffects;
-
-public:
+    @property bool empty() const
+    {
+        return verbs.length == 0 ||
+            verbs.length == 1 && verbs[0] == Path.Verb.Move;
+    }
 
     void reset()
     {
         _points.clear();
         _verbs.clear();
-    }
-
-    enum Verb : ubyte
-    {
-        Move = 0,
-        Line  = 1,
-        Quad  = 2,
-        Cubic = 3,
-        Close = 4,
-    }
-
-    enum Direction
-    {
-        CW,
-        CCW,
-    }
-
-    private enum CubicArcFactor = (SQRT2 - 1.0) * 4.0 / 3.0;
-
-    string toString() const
-    {
-        string res;
-        res ~= "Path, bounds: " ~ to!string(bounds) ~ "\n";
-        foreach(verb, pts; this)
-        {
-            res ~= to!string(verb) ~ ": ";
-            foreach(FPoint pt; pts)
-                res ~= to!string(pt) ~ ", ";
-            res ~= "\n";
-        };
-        return res;
-    }
-
-    // TODO: less copying, maybe COW
-    this(in Path path)
-    {
-        this = path;
-    }
-
-    // TODO: less copying, maybe COW
-    void opAssign(in Path path)
-    {
-        _points.clear();
-        _points.put(path.points);
-        _verbs.clear();
-        _verbs.put(path.verbs);
-    }
-
-    @property bool empty() const
-    {
-        return verbs.length == 0 ||
-            verbs.length == 1 && verbs[0] == Verb.Move;
-    }
-
-    @property FRect bounds() const
-    {
-        if (points.empty)
-        {
-            return FRect.emptyRect();
-        }
-        else
-        {
-            return FRect.calcBounds(points);
-        }
-    }
-
-    @property IRect ibounds() const
-    {
-        return bounds.roundOut();
-    }
-
-    void addPathEffect(PathEffect effect)
-    {
-        _pathEffects ~= effect;
-    }
-
-    @property const(Path) filteredPath() const
-    {
-        Path result;
-        result = this;
-        foreach(effect; _pathEffects)
-            result = effect(result);
-        return result;
-    }
-
-    alias int delegate(ref Verb, ref FPoint[]) IterDg;
-    int apply(Flattener=void)(scope IterDg dg) const
-    {
-        if (empty)
-            return 0;
-
-        FPoint moveTo=void, lastPt=void;
-        FPoint[4] tmpPts=void;
-
-        auto vs = verbs.save;
-        auto pts = points.save;
-        static if (!is(Flattener == void))
-            auto flattener = Flattener(dg);
-
-        int emit(Verb verb, FPoint[] pts)
-        {
-            static if (!is(Flattener == void))
-                return flattener.call(verb, pts);
-            else
-                return dg(verb, pts);
-        }
-
-        while (!vs.empty)
-        {
-            Verb verb = vs.front; vs.popFront();
-
-            final switch (verb)
-            {
-            case Verb.Move:
-                moveTo = lastPt = tmpPts[0] = pts.front;
-                pts.popFront;
-                if (auto res = emit(Verb.Move, tmpPts[0 .. 1]))
-                    return res;
-                break;
-
-            case Verb.Line, Verb.Quad, Verb.Cubic:
-                tmpPts[0] = lastPt;
-                memcpy(tmpPts.ptr + 1, pts.ptr, verb * FPoint.sizeof);
-                lastPt = pts[verb - 1];
-                popFrontN(pts, verb);
-                if (auto res = emit(verb, tmpPts[0 .. verb + 1]))
-                    return res;
-                break;
-
-            case Verb.Close:
-                if (lastPt != moveTo)
-                {
-                    tmpPts[0] = lastPt;
-                    tmpPts[1] = moveTo;
-                    if (auto res = emit(Verb.Line, tmpPts[0 .. 2]))
-                        return res;
-                    lastPt = moveTo;
-                }
-                if (auto res = emit(Verb.Close, tmpPts[0 .. 0]))
-                    return res;
-            }
-        }
-        return 0;
-    }
-
-    alias apply!() opApply;
-
-    bool isClosedContour()
-    {
-        auto r = verbs.save;
-
-        if (r.front == Verb.Move)
-            r.popFront;
-
-        for (; !r.empty; r.popFront)
-        {
-            if (r.front == Verb.Move)
-                break;
-            if (r.front == Verb.Close)
-                return true;
-        }
-        return false;
     }
 
     @property const(FPoint)[] points() const
@@ -198,12 +38,12 @@ public:
         return points[$-1];
     }
 
-    @property Verb[] verbs() const
+    @property const(Path.Verb)[] verbs() const
     {
         return (cast()_verbs).data.save;
     }
 
-    bool lastVerbWas(Verb verb) const
+    bool lastVerbWas(Path.Verb verb) const
     {
         return verbs.length == 0 ? false : verbs[$-1] == verb;
     }
@@ -214,12 +54,12 @@ public:
         if (_verbs.data.empty)
         {
             _points.put(pts[$-1]);
-            _verbs.put(Verb.Move);
+            _verbs.put(Path.Verb.Move);
         }
         else
         {
             _points.put(pts);
-            _verbs.put(cast(Verb)pts.length);
+            _verbs.put(cast(Path.Verb)pts.length);
         }
     }
 
@@ -233,14 +73,14 @@ public:
 
     void moveTo(in FPoint pt)
     {
-        if (lastVerbWas(Verb.Move))
+        if (lastVerbWas(Path.Verb.Move))
         {
             _points.data[$-1] = pt;
         }
         else
         {
             _points.put(pt);
-            _verbs.put(Verb.Move);
+            _verbs.put(Path.Verb.Move);
         }
     }
 
@@ -285,83 +125,70 @@ public:
         {
             final switch (_verbs.data[$-1])
             {
-            case Verb.Line, Verb.Quad, Verb.Cubic:
-                _verbs.put(Verb.Close);
+            case Path.Verb.Line, Path.Verb.Quad, Path.Verb.Cubic:
+                _verbs.put(Path.Verb.Close);
                 break;
 
-            case Verb.Close:
+            case Path.Verb.Close:
                 break;
 
-            case Verb.Move:
+            case Path.Verb.Move:
                 assert(0, "Can't close path when last operation was a moveTo");
             }
         }
     }
 
-    void addPath(in Path path)
+    void addPath(in PathData data)
     {
-        _verbs.put(path.verbs);
-        _points.put(path.points);
+        _verbs.put(data.verbs);
+        _points.put(data.points);
     }
 
-    void reversePathTo(in Path path)
+    void reversePathTo(in PathData data)
     {
-        if (path.empty)
+        if (data.empty)
             return;
 
-        debug auto initialLength= this.verbs.length;
-        _verbs.reserve(verbs.length + path.verbs.length);
-        _points.reserve(points.length + path.points.length);
+        _verbs.reserve(verbs.length + data.verbs.length);
+        _points.reserve(points.length + data.points.length);
 
         //! skip initial moveTo
-        assert(verbs.front == Verb.Move);
-        auto vs = path.verbs[1..$].retro;
-        auto rpts = path.points[0..$-1].retro;
+        assert(verbs.front == Path.Verb.Move);
+        auto vs = data.verbs[1..$].retro;
+        auto rpts = data.points[0..$-1].retro;
 
         for (; !vs.empty; vs.popFront)
         {
             auto verb = vs.front;
             switch (verb)
             {
-            case Verb.Line:
+            case Path.Verb.Line:
                 primTo(rpts[0]);
                 rpts.popFront;
                 break;
 
-            case Verb.Quad:
+            case Path.Verb.Quad:
                 primTo(rpts[0], rpts[1]);
                 popFrontN(rpts, 2);
                 break;
 
-            case Verb.Cubic:
+            case Path.Verb.Cubic:
                 primTo(rpts[0], rpts[1], rpts[2]);
                 popFrontN(rpts, 3);
                 break;
 
             default:
-                assert(0, "bad verb in reversePathTo: " ~ to!string(path.verbs));
+                assert(0, "bad verb in reversePathTo: " ~ to!string(data.verbs));
             }
         }
         assert(rpts.empty);
     }
 
-    unittest
-    {
-        Path rev;
-        rev.moveTo(FPoint(100, 100));
-        rev.quadTo(FPoint(40,60), FPoint(0, 0));
-        Path path;
-        path.moveTo(FPoint(0, 0));
-        path.reversePathTo(rev);
-        assert(path.verbs == [Verb.Move, Verb.Quad], to!string(path.verbs));
-        assert(path.points == [FPoint(0, 0), FPoint(40, 60), FPoint(100, 100)], to!string(path.points));
-    }
-
-    void addRect(in FRect rect, Direction dir = Direction.CW)
+    void addRect(in FRect rect, Path.Direction dir = Path.Direction.CW)
     {
         FPoint[4] quad = rect.toQuad;
 
-        if (dir == Direction.CCW)
+        if (dir == Path.Direction.CCW)
             swap(quad[1], quad[3]);
 
         moveTo(quad[0]);
@@ -372,7 +199,7 @@ public:
         close();
     }
 
-    void addRoundRect(FRect rect, float rx, float ry, Direction dir = Direction.CW)
+    void addRoundRect(FRect rect, float rx, float ry, Path.Direction dir = Path.Direction.CW)
     {
         if (rect.empty)
             return;
@@ -392,7 +219,7 @@ public:
 
         moveTo(FPoint(rect.right - rx, rect.top));
 
-        if (dir == Direction.CCW)
+        if (dir == Path.Direction.CCW)
         {
             // top
             if (!skip_hori)
@@ -486,7 +313,7 @@ public:
         close();
   }
 
-    void addOval(FRect oval, Direction dir = Direction.CW)
+    void addOval(FRect oval, Path.Direction dir = Path.Direction.CW)
     {
         immutable cx = oval.centerX;
         immutable cy = oval.centerY;
@@ -499,7 +326,7 @@ public:
             immutable sy = ry * CubicArcFactor;
 
             moveTo(FPoint(cx + rx, cy));
-            if (dir == Direction.CCW)
+            if (dir == Path.Direction.CCW)
             {
                 cubicTo(FPoint(cx + rx, cy - sy), FPoint(cx + sx, cy - ry), FPoint(cx     , cy - ry));
                 cubicTo(FPoint(cx - sx, cy - ry), FPoint(cx - rx, cy - sy), FPoint(cx - rx, cy     ));
@@ -527,7 +354,7 @@ public:
             immutable B = oval.bottom;
 
             moveTo(FPoint(R, cy));
-            if (dir == Direction.CCW)
+            if (dir == Path.Direction.CCW)
             {
                 quadTo(FPoint(R      ,  cy - sy), FPoint(cx + mx, cy - my));
                 quadTo(FPoint(cx + sx,  T      ), FPoint(cx     , T      ));
@@ -554,13 +381,13 @@ public:
         close();
     }
 
-    void arcTo(FPoint center, FPoint endPt, Direction dir = Direction.CW)
+    void arcTo(FPoint center, FPoint endPt, Path.Direction dir = Path.Direction.CW)
     {
         // implicit moveTo when no preceded by point
         if (_verbs.data.empty)
         {
             _points.put(endPt);
-            _verbs.put(Verb.Move);
+            _verbs.put(Path.Verb.Move);
             return;
         }
 
@@ -575,7 +402,7 @@ public:
         // unwrap angle
         if (sweepAngle < 0)
             sweepAngle += 2*PI;
-        if (dir == Direction.CCW)
+        if (dir == Path.Direction.CCW)
             sweepAngle -= 2*PI;
 
         assert(abs(sweepAngle) <= 2*PI);
@@ -600,28 +427,205 @@ public:
         }
     }
 
-    void addArc(FPoint center, FPoint startPt, FPoint endPt, Direction dir = Direction.CW)
+    void addArc(FPoint center, FPoint startPt, FPoint endPt, Path.Direction dir = Path.Direction.CW)
     {
         moveTo(center);
         lineTo(startPt);
         arcTo(center, endPt, dir);
         lineTo(center);
     }
+}
+
+// TODO: FPoint -> Point!T
+struct Path
+{
+    PathData _data;
+    PathEffect[] _pathEffects;
+
+    alias _data this;
+
+    enum Verb : ubyte
+    {
+        Move  = 0,
+        Line  = 1,
+        Quad  = 2,
+        Cubic = 3,
+        Close = 4,
+    }
+
+    enum Direction
+    {
+        CW,
+        CCW,
+    }
+
+    this(in Path path)
+    {
+        this = path;
+    }
+
+    void opAssign(in Path path)
+    {
+        _data._points.clear();
+        _points.put(path.points);
+        _data._verbs.clear();
+        _verbs.put(path.verbs);
+    }
+
+    string toString() const
+    {
+        string res;
+        res ~= "Path, bounds: " ~ to!string(bounds) ~ "\n";
+        foreach(verb, pts; this)
+        {
+            res ~= to!string(verb) ~ ": ";
+            foreach(FPoint pt; pts)
+                res ~= to!string(pt) ~ ", ";
+            res ~= "\n";
+        };
+        return res;
+    }
+
+    @property FRect bounds() const
+    {
+        if (points.empty)
+        {
+            return FRect.emptyRect();
+        }
+        else
+        {
+            return FRect.calcBounds(points);
+        }
+    }
+
+    @property IRect ibounds() const
+    {
+        return bounds.roundOut();
+    }
+
+    void addPathEffect(PathEffect effect)
+    {
+        _pathEffects ~= effect;
+    }
+
+    @property const(Path) filteredPath() const
+    {
+        if (_pathEffects.empty)
+            return this;
+        else
+        {
+            Path result = _pathEffects[0](this);
+            foreach(effect; _pathEffects[1..$])
+                result = effect(result);
+            return result;
+        }
+    }
+
+    alias int delegate(ref Verb, ref FPoint[]) IterDg;
+    int apply(Flattener=void)(scope IterDg dg) const
+    {
+        if (_data.empty)
+            return 0;
+
+        FPoint moveTo=void, lastPt=void;
+        FPoint[4] tmpPts=void;
+
+        auto vs = verbs.save;
+        auto pts = points.save;
+        static if (!is(Flattener == void))
+            auto flattener = Flattener(dg);
+
+        int emit(Verb verb, FPoint[] pts)
+        {
+            static if (!is(Flattener == void))
+                return flattener.call(verb, pts);
+            else
+                return dg(verb, pts);
+        }
+
+        while (!vs.empty)
+        {
+            Verb verb = vs.front; vs.popFront();
+
+            final switch (verb)
+            {
+            case Path.Verb.Move:
+                moveTo = lastPt = tmpPts[0] = pts.front;
+                pts.popFront;
+                if (auto res = emit(Path.Verb.Move, tmpPts[0 .. 1]))
+                    return res;
+                break;
+
+            case Path.Verb.Line, Path.Verb.Quad, Path.Verb.Cubic:
+                tmpPts[0] = lastPt;
+                memcpy(tmpPts.ptr + 1, pts.ptr, verb * FPoint.sizeof);
+                lastPt = pts[verb - 1];
+                popFrontN(pts, verb);
+                if (auto res = emit(verb, tmpPts[0 .. verb + 1]))
+                    return res;
+                break;
+
+            case Path.Verb.Close:
+                if (lastPt != moveTo)
+                {
+                    tmpPts[0] = lastPt;
+                    tmpPts[1] = moveTo;
+                    if (auto res = emit(Path.Verb.Line, tmpPts[0 .. 2]))
+                        return res;
+                    lastPt = moveTo;
+                }
+                if (auto res = emit(Path.Verb.Close, tmpPts[0 .. 0]))
+                    return res;
+            }
+        }
+        return 0;
+    }
+
+    alias apply!() opApply;
+
+    bool isClosedContour()
+    {
+        auto r = verbs.save;
+
+        if (r.front == Path.Verb.Move)
+            r.popFront;
+
+        for (; !r.empty; r.popFront)
+        {
+            if (r.front == Path.Verb.Move)
+                break;
+            if (r.front == Path.Verb.Close)
+                return true;
+        }
+        return false;
+    }
+
+    unittest
+    {
+        Path rev;
+        rev.moveTo(FPoint(100, 100));
+        rev.quadTo(FPoint(40,60), FPoint(0, 0));
+        Path path;
+        path.moveTo(FPoint(0, 0));
+        path.reversePathTo(rev);
+        assert(path.verbs == [Path.Verb.Move, Path.Verb.Quad], to!string(path.verbs));
+        assert(path.points == [FPoint(0, 0), FPoint(40, 60), FPoint(100, 100)], to!string(path.points));
+    }
 
     unittest
     {
         Path p;
-        p._verbs.put(Verb.Move);
+        p._verbs.put(Path.Verb.Move);
         p._points.put(FPoint(1, 1));
-        p._verbs.put(Verb.Line);
+        p._verbs.put(Path.Verb.Line);
         p._points.put(FPoint(1, 3));
-        p._verbs.put(Verb.Quad);
+        p._verbs.put(Path.Verb.Quad);
         p._points.put([FPoint(2, 4), FPoint(3, 3)]);
-        p._verbs.put(Verb.Cubic);
+        p._verbs.put(Path.Verb.Cubic);
         p._points.put([FPoint(4, 2), FPoint(2, -1), FPoint(0, 0)]);
-        p._verbs.put(Verb.Close);
+        p._verbs.put(Path.Verb.Close);
 
-        Verb[] verbExp = [Verb.Move, Verb.Line, Verb.Quad, Verb.Cubic, Verb.Line, Verb.Close];
+        Verb[] verbExp = [Path.Verb.Move, Path.Verb.Line, Path.Verb.Quad, Path.Verb.Cubic, Path.Verb.Line, Path.Verb.Close];
         FPoint[][] ptsExp = [
             [FPoint(1,1)],
             [FPoint(1,1), FPoint(1,3)],
