@@ -100,29 +100,31 @@ public:
     this.setMatrix(Matrix.identityMatrix());
   }
 
-  /****************************************
-   * Draw functions
-   */
-  void drawPaint(Paint paint) {
-    auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
-    draw.drawPaint(paint);
-  }
+    /****************************************
+     * Draw functions
+     */
+    void drawPaint(Paint paint)
+    {
+        auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
+        draw.drawPaint(paint);
+    }
 
-  void drawColor(in Color c) {
-    scope auto paint = new Paint(c);
-    // TODO: TransferMode.SrcOver
-    this.drawPaint(paint);
-  }
+    void drawColor(in Color c)
+    {
+        drawPaint(Paint(c));
+    }
 
-  void drawARGB(ubyte a, ubyte r, ubyte g, ubyte b) {
-    this.drawColor(color(a, r, g, b));
-  }
+    void drawARGB(ubyte a, ubyte r, ubyte g, ubyte b)
+    {
+        drawColor(color(a, r, g, b));
+    }
 
-  void drawPath(in Path path, Paint paint) {
-    // TODO: quickReject
-    auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
-    draw.drawPath(path, paint);
-  }
+    void drawPath(in Path path, Paint paint)
+    {
+        // TODO: quickReject
+        auto draw = Draw(this.bitmap, this.curMCRec.matrix, this.curMCRec.clip);
+        draw.drawPath(path, paint);
+    }
 
   /**
      Blends the given bitmap at the current position to the canvas.

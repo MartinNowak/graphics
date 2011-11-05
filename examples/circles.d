@@ -7,7 +7,6 @@ void circles(string fpath)
 {
     auto bmp = Bitmap(Bitmap.Config.ARGB_8888, 800, 800);
     scope auto canvas = new Canvas(bmp);
-    scope auto paint = new Paint(Color.Black);
 
     canvas.drawColor(Color.White);
 
@@ -25,7 +24,7 @@ void circles(string fpath)
     auto angle = 360 * 4 * crad / (2 * PI * rad);
     foreach(_; 0 .. 3_000)
     {
-        canvas.drawPath(path, paint);
+        canvas.drawPath(path, Paint(Color.Black));
         canvas.scale(0.999, 0.999);
         canvas.rotate(angle);
     }

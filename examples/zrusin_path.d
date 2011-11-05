@@ -676,9 +676,8 @@ void zrusin_path(string fpath)
     auto bmp = Bitmap(Bitmap.Config.ARGB_8888, ir.width, ir.height);
     scope auto canvas = new Canvas(bmp);
 
-    Color c = Color.Blue;
-    c.a = 200;
-    scope auto paint = new Paint(c);
+    auto paint = Paint(Color.Blue);
+    paint.color.a = 200;
     canvas.drawPath(path, paint);
 
     bmp.save(fpath);
