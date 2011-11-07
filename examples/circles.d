@@ -17,9 +17,8 @@ void circles(string fpath)
 
     Path path;
     path.addOval(FRect(rad - crad, 0 - crad, rad + crad, 0 + crad));
-
-    path.addPathEffect(dashPath([2.0f, 1.0f]));
-    path.addPathEffect(strokePath(1.0f));
+    path = dashPath(path, [2.0f, 1.0f]);
+    path = strokePath(path, 1.0f);
 
     auto angle = 360 * 4 * crad / (2 * PI * rad);
     foreach(_; 0 .. 3_000)

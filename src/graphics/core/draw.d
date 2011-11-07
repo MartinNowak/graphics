@@ -53,7 +53,7 @@ public:
         if (_clip.empty || path.empty)
             return;
 
-        auto wr = pathToWavelet(path.filteredPath, _clip, _matrix);
+        auto wr = pathToWavelet(path, _clip, _matrix);
         scope Blitter blitter = getBlitter(paint);
         wr.blit(&blitter.blitAlphaH);
     }

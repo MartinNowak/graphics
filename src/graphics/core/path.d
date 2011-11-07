@@ -1,7 +1,7 @@
 module graphics.core.path;
 
 import std.algorithm, std.array, std.conv, std.math, std.numeric, std.range, std.traits, core.stdc.string;
-import graphics.bezier.chop, graphics.core.patheffect, graphics.core.path_detail._;
+import graphics.bezier.chop, graphics.core.path_detail._;
 import guip.point, guip.rect;
 
 public import graphics.core.path_detail._ : QuadCubicFlattener;
@@ -448,7 +448,6 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
 struct Path
 {
     ImmutablePathData _data;
-    PathEffect[] _pathEffects;
 
     alias _data this;
 
@@ -496,24 +495,6 @@ struct Path
     @property IRect ibounds() const
     {
         return bounds.roundOut();
-    }
-
-    void addPathEffect(PathEffect effect)
-    {
-        _pathEffects ~= effect;
-    }
-
-    @property const(Path) filteredPath() const
-    {
-        if (_pathEffects.empty)
-            return this;
-        else
-        {
-            Path result = _pathEffects[0](this);
-            foreach(effect; _pathEffects[1..$])
-                result = effect(result);
-            return result;
-        }
     }
 
     alias int delegate(ref Verb, ref FPoint[]) IterDg;
