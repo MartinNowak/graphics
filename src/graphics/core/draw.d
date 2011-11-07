@@ -5,7 +5,7 @@ import guip.point, guip.rect, guip.size, guip.bitmap;
 import graphics.core.blitter, graphics.core.fonthost._, graphics.core.glyph, graphics.core.matrix,
     graphics.core.paint, graphics.core.path, graphics.core.path_detail.path_measure,
     graphics.core.pmcolor, graphics.core.shader, graphics.core.wavelet.wavelet;
-import graphics.math.clamp;
+import graphics.math.clamp, graphics.math.poly;
 
 struct Draw
 {
@@ -268,17 +268,20 @@ static WaveletRaster pathToWavelet(in Path path, IRect clip, ref const Matrix ma
             break;
 
         case Path.Verb.Line:
-            mat.mapPoints(pts);
+            foreach(i; SIota!(0, 2))
+                pts[i] = mat * pts[i];
             debug checkPoints(pts);
             wr.insertEdge(*cast(FPoint[2]*)pts.ptr);
             break;
         case Path.Verb.Quad:
-            mat.mapPoints(pts);
+            foreach(i; SIota!(0, 3))
+                pts[i] = mat * pts[i];
             debug checkPoints(pts);
             wr.insertEdge(*cast(FPoint[3]*)pts.ptr);
             break;
         case Path.Verb.Cubic:
-            mat.mapPoints(pts);
+            foreach(i; SIota!(0, 4))
+                pts[i] = mat * pts[i];
             debug checkPoints(pts);
             wr.insertEdge(*cast(FPoint[4]*)pts.ptr);
             break;
