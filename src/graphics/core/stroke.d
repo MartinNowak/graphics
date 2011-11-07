@@ -10,8 +10,8 @@ struct Stroke
     //  float invMiterLimit;
 
     FVector _prevNormal;
-    Path _outer;
-    Path _inner;
+    MutablePathData _outer;
+    MutablePathData _inner;
     Path _result;
 
     Capper _capper;

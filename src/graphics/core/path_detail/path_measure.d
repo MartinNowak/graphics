@@ -245,7 +245,8 @@ Segment distComparable(float dist) {
   return seg;
 }
 
-static void appendChopped(string interval="[]")(ref Appender!(FPoint[]) app, in FPoint[] pts, double startT, double stopT)
+static void appendChopped(string interval="[]")(ref Appender!(immutable(FPoint)[]) app,
+                                                in FPoint[] pts, double startT, double stopT)
 in
 {
   assert(fitsIntoRange!("[]")(startT, 0.0, 1.0));
@@ -282,7 +283,7 @@ body
   }
 }
 
-void trimApp(string interval, size_t K)(ref Appender!(FPoint[]) app, FPoint[K] pts)
+void trimApp(string interval, size_t K)(ref Appender!(immutable(FPoint)[]) app, FPoint[K] pts)
 {
     enum leftOff = intervalOffset(interval[0]);
     enum rightOff = intervalOffset(interval[1]);

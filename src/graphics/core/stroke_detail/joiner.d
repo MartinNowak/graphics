@@ -7,8 +7,8 @@ private {
   import graphics.core.path;
   import guip.point;
 }
-alias void function(FPoint pt, FVector normalBefore,
-                    FVector normalAfter, ref Path inner, ref Path outer) Joiner;
+alias void function(FPoint pt, FVector normalBefore, FVector normalAfter,
+                    ref MutablePathData inner, ref MutablePathData outer) Joiner;
 
 enum JoinStyle { Miter, Round, Bevel, }
 
@@ -25,13 +25,15 @@ Joiner getJoiner(JoinStyle joinStyle)
     }
 }
 
-void BevelJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path inner, ref Path outer) {
+void BevelJoiner(FPoint pt, FVector normalBefore, FVector normalAfter,
+                 ref MutablePathData inner, ref MutablePathData outer) {
   // assert(outer.lastPoint - normalBefore == pt);
   outer.lineTo(pt + normalAfter);
   inner.lineTo(pt - normalAfter);
  }
 
-void RoundJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path inner, ref Path outer) {
+void RoundJoiner(FPoint pt, FVector normalBefore, FVector normalAfter,
+                 ref MutablePathData inner, ref MutablePathData outer) {
   enum tol = tan(0.1 * 2 * PI / 360);
 
   auto crossP = determinant(normalBefore, normalAfter);
@@ -47,7 +49,8 @@ void RoundJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path 
   }
 }
 
-void MiterJoiner(FPoint pt, FVector normalBefore, FVector normalAfter, ref Path inner, ref Path outer) {
+void MiterJoiner(FPoint pt, FVector normalBefore, FVector normalAfter,
+                 ref MutablePathData inner, ref MutablePathData outer) {
   auto crossP = determinant(normalBefore, normalAfter);
   auto radius = normalBefore.length;
   //  assert(normalAfter.length == radius);

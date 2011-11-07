@@ -16,6 +16,8 @@ Path randomPath(Path.Verb[] verbs, FPoint[] pts) {
  loop: while (!verbs.empty) {
     final switch (verbs.front) {
     case Path.Verb.Move:
+      if (path.lastVerbWas(Path.Verb.Move))
+          break;
       if (pts.length < 1)
         break loop;
       path.moveTo(pts.front);

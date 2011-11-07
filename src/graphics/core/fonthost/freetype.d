@@ -241,7 +241,7 @@ void updateGlyph(Glyph.LoadFlag f : Glyph.LoadFlag.Path)(FT_Face face, Glyph* gl
 {
     enforce(!FT_Load_Glyph(face, charIdx, FT_LOAD.NO_BITMAP));
 
-    glyph.path.reset();
+    assert(glyph.path.empty);
     enforce(!FT_Outline_Decompose(&face.glyph.outline, &outlineCallbacks, &glyph.path));
     glyph.path.close();
 

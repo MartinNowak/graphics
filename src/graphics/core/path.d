@@ -11,6 +11,9 @@ version=CUBIC_ARC;
 
 private enum CubicArcFactor = (SQRT2 - 1.0) * 4.0 / 3.0;
 
+alias PathData!(FPoint, Path.Verb) MutablePathData;
+alias PathData!(immutable FPoint, immutable Path.Verb) ImmutablePathData;
+
 struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
 {
     Appender!(P[]) _points;
@@ -22,10 +25,21 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
             verbs.length == 1 && verbs[0] == Path.Verb.Move;
     }
 
-    void reset()
+    static if (!is(P == immutable) && !is(V == immutable))
     {
-        _points.clear();
-        _verbs.clear();
+        void reset()
+        {
+            _points.clear();
+            _verbs.clear();
+        }
+    }
+    else
+    {
+        void reset()
+        {
+            _points = _points.init;
+            _verbs = _verbs.init;
+        }
     }
 
     @property const(P)[] points() const
@@ -73,15 +87,9 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
 
     void moveTo(in FPoint pt)
     {
-        if (lastVerbWas(Path.Verb.Move))
-        {
-            _points.data[$-1] = pt;
-        }
-        else
-        {
-            _points.put(pt);
-            _verbs.put(Path.Verb.Move);
-        }
+        assert(!lastVerbWas(Path.Verb.Move));
+        _points.put(pt);
+        _verbs.put(Path.Verb.Move);
     }
 
     void relMoveTo(in FVector pt)
@@ -138,7 +146,7 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
         }
     }
 
-    void addPath(in PathData data)
+    void addPath(P, V)(in PathData!(P, V) data)
     {
         _verbs.put(data.verbs);
         _points.put(data.points);
@@ -439,7 +447,7 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
 // TODO: FPoint -> Point!T
 struct Path
 {
-    PathData!(FPoint, Verb) _data;
+    ImmutablePathData _data;
     PathEffect[] _pathEffects;
 
     alias _data this;
@@ -457,19 +465,6 @@ struct Path
     {
         CW,
         CCW,
-    }
-
-    this(in Path path)
-    {
-        this = path;
-    }
-
-    void opAssign(in Path path)
-    {
-        _data._points.clear();
-        _points.put(path.points);
-        _data._verbs.clear();
-        _verbs.put(path.verbs);
     }
 
     string toString() const
