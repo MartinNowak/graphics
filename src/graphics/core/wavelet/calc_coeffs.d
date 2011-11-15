@@ -1,6 +1,7 @@
 module graphics.core.wavelet.calc_coeffs;
 
 import guip.point;
+import graphics.math.poly;
 
 enum Quad {
   _00, // top-left
@@ -112,7 +113,7 @@ void calcCoeffs(size_t K)(IPoint pos, uint half, ref FPoint[K] pts, ref float[3]
     immutable qidx = !!(pos.y & half) << 1 | !!(pos.x & half);
     pos.x &= ~(half - 1);
     pos.y &= ~(half - 1);
-    foreach(i; 0 .. K)
+    foreach(i; SIota!(0, K))
     {
         pts[i].x -= pos.x;
         pts[i].y -= pos.y;
