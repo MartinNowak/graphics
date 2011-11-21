@@ -28,7 +28,7 @@ struct PathMeasure {
 
     auto range = segmentRange(distance);
     auto t = calcT(distance, range[0], range[1]);
-    auto verb = this.verbs[$ - range.length + 1];
+    auto verb = _data.verbs[$ - range.length + 1];
     auto pos = calcPos(range[1], verb, t);
     return pos;
   }
@@ -43,10 +43,14 @@ struct PathMeasure {
 
     auto range = segmentRange(distance);
     auto t = calcT(distance, range[0], range[1]);
-    auto verb = this.verbs[$ - range.length + 1];
+    auto verb = _data.verbs[$ - range.length + 1];
     auto pos = calcPos(range[1], verb, t);
     normal = calcNormal(range[1], verb, t);
     return pos;
+  }
+
+  const(FPoint[]) segPoints(in Segment seg, Path.Verb verb) const {
+    return _data.points[seg.pointIndex .. seg.pointIndex + verb + 1];
   }
 
   void appendRangeToPath(float startD, float stopD, ref Path path) {
@@ -83,10 +87,6 @@ struct PathMeasure {
     }
     path._verbs.put(Path.Verb.Move);
     path._verbs.put(verbs);
-  }
-
-  const(FPoint[]) segPoints(in Segment seg, Path.Verb verb) const {
-    return this.points[seg.pointIndex .. seg.pointIndex + verb + 1];
   }
 
 private:
@@ -171,15 +171,15 @@ private:
         {
         case Path.Verb.Line:
             FPoint[2] pts = void;
-            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 2 * FPoint.sizeof);
+            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 2 * FPoint.sizeof);
             return evalBezier(pts, t);
         case Path.Verb.Quad:
             FPoint[3] pts = void;
-            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 3 * FPoint.sizeof);
+            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 3 * FPoint.sizeof);
             return evalBezier(pts, t);
         case Path.Verb.Cubic:
             FPoint[4] pts = void;
-            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 4 * FPoint.sizeof);
+            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 4 * FPoint.sizeof);
             return evalBezier(pts, t);
 
         default:
@@ -194,17 +194,17 @@ private:
         {
         case Path.Verb.Line:
             FPoint[2] pts = void;
-            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 2 * FPoint.sizeof);
+            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 2 * FPoint.sizeof);
             normal.setNormalize(evalBezierDer(pts, t));
             break;
         case Path.Verb.Quad:
             FPoint[3] pts = void;
-            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 3 * FPoint.sizeof);
+            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 3 * FPoint.sizeof);
             normal.setNormalize(evalBezierDer(pts, t));
             break;
         case Path.Verb.Cubic:
             FPoint[4] pts = void;
-            memcpy(pts.ptr, this.points.ptr + segment.pointIndex, 4 * FPoint.sizeof);
+            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 4 * FPoint.sizeof);
             normal.setNormalize(evalBezierDer(pts, t));
             break;
 
