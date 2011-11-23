@@ -4,6 +4,8 @@ import std.algorithm, std.math;
 import guip.point, guip.rect;
 import graphics.core.path, graphics.core.stroke, graphics.core.stroke_detail.capper, graphics.core.stroke_detail.joiner,
     graphics.core.path_detail.path_measure;
+public import graphics.core.stroke_detail.capper : CapStyle;
+public import graphics.core.stroke_detail.joiner : JoinStyle;
 
 Path strokePath
 (in Path path, float width, CapStyle caps=CapStyle.Butt, JoinStyle joins=JoinStyle.Miter)
