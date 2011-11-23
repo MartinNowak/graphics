@@ -215,6 +215,9 @@ struct WaveletRaster
 
     void blit(scope BlitDg dg)
     {
+        if (_clipRect.empty)
+            return;
+
         // TODO: avoid bound checks
         void blitRow(int y, int xstart, int xend, ubyte alpha)
         {
