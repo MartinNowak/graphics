@@ -195,23 +195,23 @@ private:
         case Path.Verb.Line:
             FPoint[2] pts = void;
             memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 2 * FPoint.sizeof);
-            normal.setNormalize(evalBezierDer(pts, t));
+            normal = evalBezierDer(pts, t).normalized;
             break;
         case Path.Verb.Quad:
             FPoint[3] pts = void;
             memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 3 * FPoint.sizeof);
-            normal.setNormalize(evalBezierDer(pts, t));
+            normal = evalBezierDer(pts, t).normalized;
             break;
         case Path.Verb.Cubic:
             FPoint[4] pts = void;
             memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 4 * FPoint.sizeof);
-            normal.setNormalize(evalBezierDer(pts, t));
+            normal = evalBezierDer(pts, t).normalized;
             break;
 
         default:
             assert(0);
         }
-        normal.rotateCCW();
+        normal = normal.rotatedCCW();
         return normal;
     }
 

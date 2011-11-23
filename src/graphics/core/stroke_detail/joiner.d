@@ -61,7 +61,7 @@ void MiterJoiner(FPoint pt, FVector normalBefore, FVector normalAfter,
     auto angle = asin(crossP / (radius * radius));
     auto midLength = radius / sin(angle * 0.5);
     auto mid = -normalBefore - normalAfter;
-    mid.setLength(midLength);
+    mid = mid.scaledTo(midLength);
     if (crossP > 0) { // clockwise (see below), but save recalculation
       inner.lineTo(pt + mid);
     } else {

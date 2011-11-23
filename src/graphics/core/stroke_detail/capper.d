@@ -31,7 +31,7 @@ void RoundCapper(FPoint pt, FVector normal, ref MutablePathData path) {
 
 void SquareCapper(FPoint pt, FVector normal, ref MutablePathData path) {
   FVector parallel = normal;
-  parallel.rotateCW();
+  parallel = parallel.rotatedCW();
   path.lineTo(pt - normal + parallel);
   path.lineTo(pt + normal + parallel);
   path.lineTo(pt + normal);

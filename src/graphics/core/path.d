@@ -420,7 +420,7 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
 
         if (abs(sweepAngle) > PI_4)
         {   //! recurse
-            middle.setLength(radius);
+            middle = middle.scaledTo(radius);
             FPoint middlePt = center + middle;
             arcTo(center, middlePt, dir);
             arcTo(center, endPt, dir);
@@ -430,7 +430,7 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
             FPTemporary!float hc = 0.5 * (startPt - endPt).length;
             FPTemporary!float b = hc / sin(0.5 * (PI - abs(sweepAngle)));
             FPTemporary!float longAxis = sqrt(radius * radius + b * b);
-            middle.setLength(longAxis);
+            middle = middle.scaledTo(longAxis);
             quadTo(center + middle, endPt);
         }
     }

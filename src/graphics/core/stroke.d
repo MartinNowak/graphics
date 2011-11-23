@@ -40,8 +40,8 @@ struct Stroke
     FVector getNormal(FPoint pt1, FPoint pt2)
     {
         FVector normal = pt1 - pt2;
-        normal.setLength(_radius);
-        normal.rotateCCW();
+        normal = normal.scaledTo(_radius);
+        normal = normal.rotatedCCW();
         return normal;
     }
 

@@ -16,7 +16,7 @@ class BitmapShader : MappingShader {
 
   static PMColor colorAt(BitmapShader pthis, in FPoint pt) {
     // round to nearest
-    auto ipt = pt.round();
+    auto ipt = pt.rounded();
     if (!fitsIntoRange!("[)")(ipt.x, 0, pthis.src.width)
         || !fitsIntoRange!("[)")(ipt.y, 0, pthis.src.height))
       // transparent
