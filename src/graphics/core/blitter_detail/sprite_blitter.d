@@ -78,7 +78,7 @@ public:
     auto curTop = rect.top;
     while (curTop < rect.bottom) {
       auto dst = this.device.getRange!(PMColor)(rect.left, rect.right, curTop);
-      auto src = this.source.getRangeConst!(const(PMColor))(
+      auto src = this.source.getRange!(PMColor)(
         rect.left - this.ioff.x, rect.right - this.ioff.x, curTop - this.ioff.y);
       blitRow(dst, src, this.alpha);
       ++curTop;

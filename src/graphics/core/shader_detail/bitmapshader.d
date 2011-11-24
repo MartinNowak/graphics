@@ -21,7 +21,7 @@ class BitmapShader : MappingShader {
         || !fitsIntoRange!("[)")(ipt.y, 0, pthis.src.height))
       // transparent
       return PMColor(Color(0));
-    return PMColor((cast(Bitmap*)&pthis.src).getLine(ipt.y)[ipt.x]);
+    return PMColor((cast(Bitmap*)&pthis.src).getLine!(PMColor)(ipt.y)[ipt.x]);
   }
 
   const Bitmap src;
