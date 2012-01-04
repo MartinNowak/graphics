@@ -155,7 +155,7 @@ private:
                 this.isClosed = true;
                 break;
             }
-        };
+        }
         assert(this.verbs.length == this.segments.data.length);
     }
 

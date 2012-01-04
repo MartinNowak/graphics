@@ -476,7 +476,7 @@ struct Path
             foreach(FPoint pt; pts)
                 res ~= to!string(pt) ~ ", ";
             res ~= "\n";
-        };
+        }
         return res;
     }
 

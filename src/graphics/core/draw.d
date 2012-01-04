@@ -214,7 +214,7 @@ public:
                 dst.close();
                 break;
             }
-        };
+        }
         return dst;
     }
 
@@ -286,6 +286,6 @@ static WaveletRaster pathToWavelet(in Path path, IRect clip, ref const Matrix ma
             wr.insertEdge(*cast(FPoint[4]*)pts.ptr);
             break;
         }
-    };
+    }
     return wr;
 }

@@ -69,7 +69,7 @@ struct Stroke
             case Path.Verb.Close:
                 close();
             }
-        };
+        }
 
         done();
 

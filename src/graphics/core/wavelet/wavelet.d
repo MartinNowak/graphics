@@ -42,7 +42,7 @@ struct Node
     ref Node getChild(uint idx, ref RegionAllocator alloc)
     {
         if (_children is null)
-            _children = allocNodes(alloc);;
+            _children = allocNodes(alloc);
         this.chmask |= (1 << idx);
         return children[idx];
     }
