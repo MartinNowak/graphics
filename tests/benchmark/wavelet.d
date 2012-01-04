@@ -2,7 +2,7 @@ module benchmark.wavelet;
 
 import graphics.core.draw, graphics.core.path, graphics.core.wavelet.wavelet, graphics.math.clamp;
 import qcheck._, guip.point, std.range;
-import benchmark.registry;
+import benchmark.registry, benchmark.reporter;
 
 static this() {
   registerBenchmark!(runWavelet)();
@@ -81,7 +81,7 @@ void benchPathToBlit()
   void dummyBlit(int y, int xstart, int xend, ubyte alpha) {
     assert(fitsIntoRange!("[)")(y, clip.top, clip.bottom));
     assert(fitsIntoRange!("[)")(xstart, clip.left, clip.right));
-    assert(fitsIntoRange!("[)")(xend, clip.left, clip.right), to!string(xend) ~ "|" ~ to!string(clip.right));
+    assert(fitsIntoRange!("[)")(xend, clip.left, clip.right));
   }
 
   writeNodeToGrid!(dummyBlit)(

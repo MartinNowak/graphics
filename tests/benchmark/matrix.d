@@ -4,7 +4,7 @@ private {
   import graphics.core.matrix;
   import guip.point;
 
-  import benchmark.registry;
+  import benchmark.registry, benchmark.reporter;
   import qcheck._;
   import std.stdio;
 }

@@ -17,7 +17,7 @@ Point!T[K][2] splitBezier(size_t K, T)(in Point!T[K] pts, double t) {
 // use ref here to allow uninitliazed arrays
 void splitBezier(size_t K, T)(/*out*/ref Point!T[K] left, ref Point!T[K] curve, double t)
 in {
-  assert(fitsIntoRange!("()")(t, 0.0, 1.0), to!string(t));
+  assert(fitsIntoRange!("()")(t, 0.0, 1.0));
 } body {
   static assert(K >= 2);
 

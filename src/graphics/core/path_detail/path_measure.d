@@ -1,6 +1,6 @@
 module graphics.core.path_detail.path_measure;
 
-import std.array, std.algorithm, std.range, std.c.string;
+import std.array, std.algorithm, std.conv, std.range, std.c.string;
 import graphics.bezier.chop, graphics.bezier.curve, graphics.core.path, graphics.bezier.curve, graphics.math.clamp;
 import guip.point;
 
@@ -98,7 +98,7 @@ private:
   in {
     assert(fitsIntoRange!("[]")(distance, 0.0, this.length));
   } out(range) {
-    assert(range.length >= 2, to!string(constSegments)~to!string(distance));
+    assert(range.length >= 2);
   } body {
 
     auto sorted = assumeSorted!("a.distance < b.distance")(constSegments);

@@ -1,17 +1,14 @@
 module benchmark.main;
 
-private {
-  import std.algorithm : find;
-  import std.array : empty;
-  import benchmark.registry : selectBenchmarks, excludeBenchmarks, NameFunc;
-  import benchmark.reporter;
+import std.algorithm, std.array, std.stdio;
+import benchmark.registry : selectBenchmarks, excludeBenchmarks, NameFunc;
+import benchmark.reporter;
 
-  import graphics._;
-  //  pragma(build, benchmark);
+import graphics._;
+//  pragma(build, benchmark);
 
-  import benchmark.matrix;
-  import benchmark.wavelet;
-}
+import benchmark.matrix;
+import benchmark.wavelet;
 
 int main(string[] argv) {
   scope auto reporter = new BenchmarkReporter(10);
