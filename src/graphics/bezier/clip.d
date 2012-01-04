@@ -143,7 +143,7 @@ body
     {
         static double intersection(ref const T[4] coeffs, double val)
         {
-            double dg(double t) { return poly!(const T)(coeffs, t) - val; }
+            double dg(double t) { return poly!(T)(coeffs, t) - val; }
             return findRootIllinois(&dg, 0.0, 1.0);
         }
     }
