@@ -32,25 +32,25 @@ void updateCoeffs(size_t K, Quad Q)(uint scale, const ref FPoint[K] pts, ref flo
 
 Interim calcInterim(size_t K : 2)(float rscale, const ref FPoint[2] pts) {
   Interim tmp = void;
-  tmp.Kx = (1.f / 4.f) * (pts[1].y - pts[0].y) * rscale;
-  tmp.Ky = (1.f / 4.f) * (pts[0].x - pts[1].x) * rscale;
+  tmp.Kx = (1.0f / 4.0f) * (pts[1].y - pts[0].y) * rscale;
+  tmp.Ky = (1.0f / 4.0f) * (pts[0].x - pts[1].x) * rscale;
 
-  tmp.Lx = (1.f / 2.f) * tmp.Kx * (pts[0].x + pts[1].x) * rscale;
-  tmp.Ly = (1.f / 2.f) * tmp.Ky * (pts[0].y + pts[1].y) * rscale;
+  tmp.Lx = (1.0f / 2.0f) * tmp.Kx * (pts[0].x + pts[1].x) * rscale;
+  tmp.Ly = (1.0f / 2.0f) * tmp.Ky * (pts[0].y + pts[1].y) * rscale;
 
   return tmp;
 }
 
 Interim calcInterim(size_t K : 3)(float rscale, const ref FPoint[3] pts) {
   Interim tmp = void;
-  tmp.Kx = (1.f / 4.f) * (pts[2].y - pts[0].y) * rscale;
-  tmp.Ky = (1.f / 4.f) * (pts[0].x - pts[2].x) * rscale;
+  tmp.Kx = (1.0f / 4.0f) * (pts[2].y - pts[0].y) * rscale;
+  tmp.Ky = (1.0f / 4.0f) * (pts[0].x - pts[2].x) * rscale;
 
-  immutable Lcommon = (1.f / 24.f) * (
+  immutable Lcommon = (1.0f / 24.0f) * (
       2 * (determinant(pts[0], pts[1]) + determinant(pts[1], pts[2]))
       + determinant(pts[0], pts[2])
   ) * rscale * rscale;
-  immutable Ldiff = (3.f / 24.f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y)  * rscale * rscale;
+  immutable Ldiff = (3.0f / 24.0f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y)  * rscale * rscale;
   tmp.Lx = Lcommon + Ldiff;
   tmp.Ly = Lcommon - Ldiff;
 
@@ -59,10 +59,10 @@ Interim calcInterim(size_t K : 3)(float rscale, const ref FPoint[3] pts) {
 
 Interim calcInterim(size_t K : 4)(float rscale, const ref FPoint[4] pts) {
   Interim tmp = void;
-  tmp.Kx = (1.f / 4.f) * (pts[3].y - pts[0].y) * rscale;
-  tmp.Ky = (1.f / 4.f) * (pts[0].x - pts[3].x) * rscale;
+  tmp.Kx = (1.0f / 4.0f) * (pts[3].y - pts[0].y) * rscale;
+  tmp.Ky = (1.0f / 4.0f) * (pts[0].x - pts[3].x) * rscale;
 
-  immutable Lcommon = (1.f / 80.f) * (
+  immutable Lcommon = (1.0f / 80.0f) * (
       3 * (
           2 * (determinant(pts[2], pts[3]) + determinant(pts[0], pts[1]))
           + determinant(pts[1], pts[2])
@@ -71,7 +71,7 @@ Interim calcInterim(size_t K : 4)(float rscale, const ref FPoint[4] pts) {
       )
       + determinant(pts[0], pts[3])
   ) * rscale * rscale;
-  immutable Ldiff = (10.f / 80.f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y)  * rscale * rscale;
+  immutable Ldiff = (10.0f / 80.0f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y)  * rscale * rscale;
   tmp.Lx = Lcommon + Ldiff;
   tmp.Ly = Lcommon - Ldiff;
 

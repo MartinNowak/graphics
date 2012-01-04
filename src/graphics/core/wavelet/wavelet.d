@@ -95,7 +95,7 @@ struct WaveletRaster
         if (_depth)
             updateCoeffs(slice);
 
-        _rootConst += (1.f / (1 << _depth) ^^ 2) * determinant(slice[0], slice[1]) / 2;
+        _rootConst += (1.0f / (1 << _depth) ^^ 2) * determinant(slice[0], slice[1]) / 2;
     }
 
     void insertSlice(ref const FPoint[3] slice)
@@ -103,7 +103,7 @@ struct WaveletRaster
         if (_depth)
             updateCoeffs(slice);
 
-        _rootConst += (1.f / (6.f * (1 << _depth) ^^ 2)) * (
+        _rootConst += (1.0f / (6.0f * (1 << _depth) ^^ 2)) * (
             2 * (determinant(slice[0], slice[1]) + determinant(slice[1], slice[2]))
             + determinant(slice[0], slice[2]));
     }
@@ -113,7 +113,7 @@ struct WaveletRaster
         if (_depth)
             updateCoeffs(slice);
 
-        _rootConst += (1.f / (20.f * (1 << _depth) ^^ 2)) * (
+        _rootConst += (1.0f / (20.0f * (1 << _depth) ^^ 2)) * (
             6 * determinant(slice[0], slice[1]) + 3 * determinant(slice[1], slice[2])
             + 6 * determinant(slice[2], slice[3]) + 3 * determinant(slice[0], slice[2])
             + 3 * determinant(slice[1], slice[3]) + 1 * determinant(slice[0], slice[3])

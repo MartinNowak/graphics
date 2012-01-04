@@ -12,8 +12,8 @@ void circles(string fpath)
 
     canvas.translate(IPoint(400, 400));
 
-    enum crad = 10.f;
-    enum rad = 400.f - crad;
+    enum crad = 10.0f;
+    enum rad = 400.0f - crad;
 
     Path path;
     path.addOval(FRect(rad - crad, 0 - crad, rad + crad, 0 + crad));
