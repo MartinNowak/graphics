@@ -1,6 +1,6 @@
 module graphics.core.matrix;
 
-import std.bitmanip, std.conv, std.exception, std.math;
+import std.ascii, std.bitmanip, std.conv, std.exception, std.math;
 import guip.point, guip.rect;
 import graphics.math.poly;
 
@@ -18,7 +18,7 @@ struct Matrix
 
     @property string toString()
     {
-        alias std.string.newline nl;
+        alias std.ascii.newline nl;
         return text(_data[0], nl, _data[1], nl, _data[2]);
     }
 
