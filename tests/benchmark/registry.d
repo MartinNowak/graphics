@@ -16,6 +16,13 @@ void registerBenchmark(alias func)() {
   __registeredBenchmarks ~= tuple(__traits(identifier, func), &func);
 }
 
+NameFunc[] allBenchmarks()
+{
+    return __registeredBenchmarks;
+}
+
+version (none) // inline bug
+{
 NameFunc[] selectBenchmarks(string select) {
   NameFunc[] result;
   foreach(benchTup; __registeredBenchmarks) {
@@ -35,4 +42,5 @@ NameFunc[] excludeBenchmarks(string exclude) {
     result ~= benchTup;
   }
   return result;
+}
 }

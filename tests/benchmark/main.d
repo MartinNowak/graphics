@@ -1,8 +1,7 @@
 module benchmark.main;
 
 import std.algorithm, std.array, std.stdio;
-import benchmark.registry : selectBenchmarks, excludeBenchmarks, NameFunc;
-import benchmark.reporter;
+import benchmark.registry, benchmark.reporter;
 
 import graphics._;
 //  pragma(build, benchmark);
@@ -16,15 +15,16 @@ int main(string[] argv) {
   if (argv.length > 1) {
 
     if (!argv[1..$].find("-l").empty || !argv[1..$].find("--list").empty) {
-      auto benchmarks = excludeBenchmarks("");
+      auto benchmarks = allBenchmarks();
       foreach(ref benchTup; benchmarks) {
         writeln(benchTup[0]);
       }
       return 0;
     }
   }
-  auto benchmarks = argv.length > 1 ? selectBenchmarks(argv[1]) :
-    excludeBenchmarks("");
+  auto benchmarks = allBenchmarks();
+//  auto benchmarks = argv.length > 1 ? selectBenchmarks(argv[1]) :
+//    excludeBenchmarks("");
 
   foreach(ref testTup; benchmarks) {
     reporter.info("--------------------Run BenchMarkSuite %s--------------------", testTup[0]);
