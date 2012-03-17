@@ -4,7 +4,7 @@ private {
   import std.array : save;
   import std.string;
   import std.typecons;
-  import benchmark.reporter : BenchmarkReporter;
+  import benchmark.reporter;
 }
 
 alias void function(BenchmarkReporter) BenchmarkFunc;
