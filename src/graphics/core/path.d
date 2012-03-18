@@ -1,6 +1,7 @@
 module graphics.core.path;
 
-import std.algorithm, std.array, std.conv, std.math, std.numeric, std.range, std.traits, core.stdc.string;
+import std.algorithm, std.array, std.conv, std.math, std.numeric, std.range, std.traits, std.typetuple;
+import graphics.math.poly;
 import graphics.bezier.chop, graphics.core.path_detail._;
 import guip.point, guip.rect;
 
@@ -532,15 +533,6 @@ struct Path
                     return res;
                 break;
 
-            case Path.Verb.Line, Path.Verb.Quad, Path.Verb.Cubic:
-                tmpPts[0] = lastPt;
-                memcpy(tmpPts.ptr + 1, pts.ptr, verb * FPoint.sizeof);
-                lastPt = pts[verb - 1];
-                popFrontN(pts, verb);
-                if (auto res = emit(verb, tmpPts[0 .. verb + 1]))
-                    return res;
-                break;
-
             case Path.Verb.Close:
                 if (lastPt != moveTo)
                 {
@@ -552,6 +544,18 @@ struct Path
                 }
                 if (auto res = emit(Path.Verb.Close, tmpPts[0 .. 0]))
                     return res;
+                break;
+
+            foreach(v; TypeTuple!(Path.Verb.Line, Path.Verb.Quad, Path.Verb.Cubic))
+            case v:
+                tmpPts[0] = lastPt;
+                foreach(i; SIota!(0, v))
+                    tmpPts[i+1] = pts[i];
+                lastPt = pts[v-1];
+                pts.popFrontN(v);
+                if (auto res = emit(verb, tmpPts[0 .. v+1]))
+                    return res;
+                break;
             }
         }
         return 0;
