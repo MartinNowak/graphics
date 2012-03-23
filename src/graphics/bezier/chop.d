@@ -1,6 +1,6 @@
 module graphics.bezier.chop;
 
-import graphics.bezier.curve, graphics.math.clamp;
+import graphics.bezier.curve, graphics.math.clamp, graphics.math.poly;
 import guip.point;
 
 /**
@@ -34,49 +34,42 @@ in {
 }
 
 
-void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 2)
-in {
-  assert(t1 > t0);
-} body {
-  constructBezier(evalBezier(pts, t0), evalBezier(pts, t1), result);
+void sliceBezier(size_t K, T)(ref const Point!T[K] pts, float t0, float t1, ref Point!T[K] result) if(K==2)
+in { assert(t1 > t0); }
+body
+{
+    T[K] x=void, y=void;
+    bezToPoly(pts, x, y);
+    immutable p0 = Point!T(poly!T(x, t0), poly!T(y, t0));
+    immutable p1 = Point!T(poly!T(x, t1), poly!T(y, t1));
+    constructBezier(p0, p1, result);
 }
 
-void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 3)
-in {
-  assert(t1 > t0);
-} body {
-  constructBezier(evalBezier(pts, t0), evalBezier(pts, t1),
-                  evalBezierDer(pts, t0) * (t1 - t0), result);
+void sliceBezier(size_t K, T)(ref const Point!T[K] pts, float t0, float t1, ref Point!T[K] result) if(K==3)
+in { assert(t1 > t0); }
+body
+{
+    T[K] x=void, y=void;
+    bezToPoly(pts, x, y);
+    immutable p0 = Point!T(poly!T(x, t0), poly!T(y, t0));
+    immutable p1 = Point!T(poly!T(x, t1), poly!T(y, t1));
+    immutable dt = t1 - t0;
+    immutable d0 = Vector!T(polyDer!T(x, t0) * dt, polyDer!T(y, t0) * dt);
+    constructBezier(p0, p1, d0, result);
 }
 
-void sliceBezier(size_t K, T)(Point!T[K] pts, double t0, double t1, ref Point!T[K] result) if(K == 4)
-in {
-  assert(t1 > t0);
-} body {
-  constructBezier(evalBezier(pts, t0), evalBezier(pts, t1),
-                  evalBezierDer(pts, t0) * (t1 - t0), evalBezierDer(pts, t1) * (t1 - t0), result);
-}
-
-version(none) {
-  import std.stdio;
-  unittest {
-    FPoint[3] res;
-    FPoint[3] test = [FPoint(0.0, 0.0), FPoint(0.5, 0.2), FPoint(1.0, 1.0)];
-    auto ptss = splitBezier(test, 0.4);
-    auto step = 0.2;
-    foreach(i; 1 .. 10) {
-      ptss = splitBezier(ptss[0], 0.2);
-      step *= 0.4;
-      std.stdio.writeln(step);
-    }
-    sliceBezier(test, 0.0, step, res);
-    std.stdio.writeln(evalBezierDer(test, 0));
-    std.stdio.writeln(evalBezierDer(ptss[0], 0));
-    std.stdio.writeln(evalBezierDer(res, 0));
-    std.stdio.writeln(evalBezierDer(ptss[0], 1));
-    std.stdio.writeln(evalBezierDer(res, 1));
-    std.stdio.writeln(ptss[0], res);
-  }
+void sliceBezier(size_t K, T)(ref const Point!T[K] pts, float t0, float t1, ref Point!T[K] result) if(K==4)
+in { assert(t1 > t0); }
+body
+{
+    T[K] x=void, y=void;
+    bezToPoly(pts, x, y);
+    immutable p0 = Point!T(poly!T(x, t0), poly!T(y, t0));
+    immutable p1 = Point!T(poly!T(x, t1), poly!T(y, t1));
+    immutable dt = t1 - t0;
+    immutable d0 = Vector!T(polyDer!T(x, t0) * dt, polyDer!T(y, t0) * dt);
+    immutable d1 = Vector!T(polyDer!T(x, t1) * dt, polyDer!T(y, t1) * dt);
+    constructBezier(p0, p1, d0, d1, result);
 }
 
 int chopMonotonic(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref Point!T[K][MS] monos) if(K==2)

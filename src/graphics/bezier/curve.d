@@ -72,8 +72,8 @@ void constructBezier(T)(Point!T p0, Point!T p1, ref Point!T[2] line)
 void constructBezier(T)(Point!T p0, Point!T p1, Vector!T d0, ref Point!T[3] quad)
 {
     quad[1] = quad[0] = p0;
-    quad[1].x += 0.5 * d0.x;
-    quad[1].y += 0.5 * d0.y;
+    quad[1].x += cast(T)0.5 * d0.x;
+    quad[1].y += cast(T)0.5 * d0.y;
     quad[2] = p1;
 }
 
@@ -81,11 +81,11 @@ void constructBezier(T)(Point!T p0, Point!T p1, Vector!T d0, ref Point!T[3] quad
 void constructBezier(T)(Point!T p0, Point!T p1, Vector!T d0, Vector!T d1, ref Point!T[4] cubic)
 {
     cubic[1] = cubic[0] = p0;
-    cubic[1].x += (1./3.) * d0.x;
-    cubic[1].y += (1./3.) * d0.y;
+    cubic[1].x += cast(T)(1./3.) * d0.x;
+    cubic[1].y += cast(T)(1./3.) * d0.y;
     cubic[3] = cubic[2] = p1;
-    cubic[2].x -= (1./3.) * d1.x;
-    cubic[2].y -= (1./3.) * d1.y;
+    cubic[2].x -= cast(T)(1./3.) * d1.x;
+    cubic[2].y -= cast(T)(1./3.) * d1.y;
 }
 
 /**
