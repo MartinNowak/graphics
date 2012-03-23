@@ -299,16 +299,14 @@ unittest {
 auto cartesianBezierWalker(T, size_t K)(
     ref const Point!T[K] curve,
     in Point!T roundHint,
-    BezierCState!(float, K)* cstate
 )
 {
     static struct Result
     {
-        this(ref const Point!T[K] curve, in Point!T roundHint, BezierCState!(float, K)* cstate)
+        this(ref const Point!T[K] curve, in Point!T roundHint)
         {
             _xwalk = beziota!("x")(curve, cast(T)roundHint.x);
             _ywalk = beziota!("y")(curve, cast(T)roundHint.y);
-            _cstate = cstate;
         }
 
         bool empty() const
@@ -316,48 +314,17 @@ auto cartesianBezierWalker(T, size_t K)(
             return _xwalk.empty && _ywalk.empty;
         }
 
-        int opApply(scope int delegate(ref IPoint pos) dg)
+        int opApply(scope int delegate(float t1, ref IPoint pos) dg)
         {
             int opApplyRes;
 
-            int callDg(T nt, bool usex, bool usey)
+            int callDg(T t1)
             {
-                if (usex)
-                {
-                    _cstate.p1.x = _xwalk.pos + (_xwalk._pastend > _xwalk.pos);
-                    _xwalk.popFront;
-                }
-                else
-                {
-                    _cstate.p1.x = poly!T(_xwalk._coeffs, nt);
-                }
-
-                if (usey)
-                {
-                    _cstate.p1.y = _ywalk.pos + (_ywalk._pastend > _ywalk.pos);
-                    _ywalk.popFront;
-                }
-                else
-                {
-                    _cstate.p1.y = poly!T(_ywalk._coeffs, nt);
-                }
-
-                static if (K >= 3)
-                {
-                    _cstate.d1.x = polyDer!T(_xwalk._coeffs, nt);
-                    _cstate.d1.y = polyDer!T(_ywalk._coeffs, nt);
-                }
-
                 IPoint pos = void;
                 pos.x = _xwalk.pos;
                 pos.y = _ywalk.pos;
-                if (auto res = dg(pos))
+                if (auto res = dg(t1, pos))
                     return res;
-
-                // must not be altered by client
-                _cstate.p0 = _cstate.p1;
-                static if (K >= 3)
-                    _cstate.d0 = _cstate.d1;
                 return 0;
             }
 
@@ -370,17 +337,21 @@ auto cartesianBezierWalker(T, size_t K)(
                 else if (approxEqual(_xwalk.front, _ywalk.front, 1e-6, 1e-6))
                 {
                     immutable nt = 0.5 * (_xwalk.front + _ywalk.front);
-                    opApplyRes = callDg(nt, true, true);
+                    _xwalk.popFront;
+                    _ywalk.popFront;
+                    opApplyRes = callDg(nt);
                 }
                 else if (_xwalk.front < _ywalk.front)
                 {
                     immutable nt = _xwalk.front;
-                    opApplyRes = callDg(nt, true, false);
+                    _xwalk.popFront;
+                    opApplyRes = callDg(nt);
                 }
                 else if (_ywalk.front < _xwalk.front)
                 {
                     immutable nt = _ywalk.front;
-                    opApplyRes = callDg(nt, false, true);
+                    _ywalk.popFront;
+                    opApplyRes = callDg(nt);
                 }
                 else
                     assert(0);
@@ -390,7 +361,8 @@ auto cartesianBezierWalker(T, size_t K)(
             while (!_ywalk.empty && !opApplyRes)
             {
                 immutable nt = _ywalk.front;
-                opApplyRes = callDg(nt, false, true);
+                _ywalk.popFront;
+                opApplyRes = callDg(nt);
             }
             goto LReturn;
 
@@ -398,7 +370,8 @@ auto cartesianBezierWalker(T, size_t K)(
             while (!_xwalk.empty && !opApplyRes)
             {
                 immutable nt = _xwalk.front;
-                opApplyRes = callDg(nt, true, false);
+                _xwalk.popFront;
+                opApplyRes = callDg(nt);
             }
 
         LReturn:
@@ -410,8 +383,7 @@ auto cartesianBezierWalker(T, size_t K)(
             return IPoint(_xwalk.pos, _ywalk.pos);
         }
 
-        BezierCState!(float, K)* _cstate; // from calling frame
         BezIota!(T, K) _xwalk, _ywalk;
     }
-    return Result(curve, roundHint, cstate);
+    return Result(curve, roundHint);
 }

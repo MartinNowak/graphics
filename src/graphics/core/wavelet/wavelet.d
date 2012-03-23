@@ -84,8 +84,7 @@ struct WaveletRaster
             ++_depth;
         _clipRect = clipRect;
         _ralloc = newRegionAllocator();
-        _ptStack = _ralloc.newArray!(FPoint[])(_depth);
-        _derStack = _ralloc.newArray!(FVector[])(_depth);
+        _tStack = _ralloc.newArray!(float[])(_depth);
         _nodeStack = _ralloc.newArray!(Node*[])(_depth);
         _nodeStack[$-1] = _ralloc.create!Node();
     }
@@ -122,13 +121,10 @@ struct WaveletRaster
 
     void updateCoeffs(size_t K)(ref const FPoint[K] curve)
     {
-        BezierCState!(float, K) cstate = void;
-        _ptStack[] = cstate.p0 = curve[0];
-        static if (K >= 3)
-            _derStack[] = cstate.d0 = evalBezierDer(curve, 0.0);
+        _tStack[] = 0;
 
         immutable center = FPoint(0.5 * _clipRect.width, 0.5 * _clipRect.height);
-        auto cartesian = cartesianBezierWalker!(float, K)(curve, center, &cstate);
+        auto cartesian = cartesianBezierWalker!(float, K)(curve, center);
         auto g0 = cartesian.pos;
         getNodes(_depth - 1, g0);
 
@@ -137,36 +133,28 @@ struct WaveletRaster
         // create a slice of the curve and update the wavelet
         // coefficients. Higher levels are updated every 2^N
         // crossings.
-        foreach(g1; cartesian)
+        foreach(t1, g1; cartesian)
         {
             assert(g0 != g1);
 
             // number of log2 levels to update determined by number of bits
             // changed in grid coordinates
             immutable nup = 1 + bsr(g0.x ^ g1.x | g0.y ^ g1.y);
-            assert(nup <= _depth, std.string.format("%s %s %s", g0, g1, std.conv.to!string(cstate)));
+            assert(nup <= _depth);
 
-            updateNodes(g0, nup, cstate);
+            updateNodes(curve, g0, t1, nup);
 
-            // Move the end values on the stack to reuse them for
-            // the next start.
-            _ptStack[0 .. nup] = cstate.p1;
-            static if (K >= 3)
-                _derStack[0 .. nup] = cstate.d1;
             // shift grid position and update node stack
+            _tStack[0 .. nup] = t1;
             g0 = g1;
 
             getNodes(nup, g1);
         }
 
         // Finish off the remaining non-grid part
-        if (curve[K-1] != _ptStack[0])
+        if (_tStack[0] < 1.0f)
         {
-            cstate.p1 = curve[K-1];
-            static if (K >= 3)
-                cstate.d1 = evalBezierDer(curve, 1.0);
-
-            updateNodes(g0, _depth, cstate);
+            updateNodes(curve, g0, 1.0f, _depth);
         }
     }
 
@@ -181,18 +169,13 @@ struct WaveletRaster
     }
 
     private void updateNodes(size_t K)
-        (ref const IPoint pos, size_t depth, ref BezierCState!(float, K) cstate)
+        (ref const FPoint[K] curve, ref const IPoint pos, float t1, size_t depth)
     {
         for (size_t d = 0; d < depth; ++d)
         {
-            // Construct bezier slice from point/derivative at
-            // start and end position. The values at start are on
-            // the stack.
-            cstate.p0 = _ptStack[d];
-            static if (K >= 3)
-                cstate.d0 = _derStack[d];
             FPoint[K] tmp = void;
-            cstate.constructBezier(tmp);
+            immutable t0 = _tStack[d];
+            sliceBezier(curve, t0, t1, tmp);
 
             // Update wavelet coefficient for this node/level.
             immutable half = 1 << d;
@@ -240,8 +223,7 @@ struct WaveletRaster
     RegionAllocator _ralloc;
 
     // temporary space allocated from _ralloc
-    FPoint[] _ptStack;
-    FVector[] _derStack;
+    float[] _tStack;
     Node*[] _nodeStack;
 }
 

@@ -61,63 +61,31 @@ Point!T evalBezierDer(T, size_t K)(ref const Point!T[K] bez, double t)
     return Point!T(polyDer!T(x, t), polyDer!T(y, t));
 }
 
-/*
- * Struct to hold bezier construction state.
- */
-struct BezierCState(T, size_t K)
-{
-    static if (K == 2)
-        void constructBezier(ref Point!T[K] line)
-    {
-        line[0] = p0;
-        line[1] = p1;
-    }
-
-    static if (K == 3)
-        void constructBezier(ref Point!T[K] quad)
-    {
-        quad[1] = quad[0] = p0;
-        quad[1].x += 0.5 * d0.x;
-        quad[1].y += 0.5 * d0.y;
-        quad[2] = p1;
-    }
-
-    static if (K == 4)
-        void constructBezier(ref Point!T[K] cubic)
-    {
-        cubic[1] = cubic[0] = p0;
-        cubic[1].x += (1./3.) * d0.x;
-        cubic[1].y += (1./3.) * d0.y;
-        cubic[3] = cubic[2] = p1;
-        cubic[2].x -= (1./3.) * d1.x;
-        cubic[2].y -= (1./3.) * d1.y;
-    }
-
-    Point!T p0; // start point
-    Point!T p1; // end point
-    static if (K >= 3)
-    {
-        Vector!T d0; // derivative at start
-        Vector!T d1; // derivative at end
-    }
-}
-
 // creates a line from two points
 void constructBezier(T)(Point!T p0, Point!T p1, ref Point!T[2] line)
 {
-    BezierCState!(T, 2)(p0, p1).constructBezier(line);
+    line[0] = p0;
+    line[1] = p1;
 }
 
 // creates a quadratic bezier from two points and the derivative a t=0
 void constructBezier(T)(Point!T p0, Point!T p1, Vector!T d0, ref Point!T[3] quad)
 {
-    BezierCState!(T, 3)(p0, p1, d0).constructBezier(quad);
+    quad[1] = quad[0] = p0;
+    quad[1].x += 0.5 * d0.x;
+    quad[1].y += 0.5 * d0.y;
+    quad[2] = p1;
 }
 
 // creates a cubic bezier from two points and the derivatives a t=0 and t=1
 void constructBezier(T)(Point!T p0, Point!T p1, Vector!T d0, Vector!T d1, ref Point!T[4] cubic)
 {
-    BezierCState!(T, 4)(p0, p1, d0, d1).constructBezier(cubic);
+    cubic[1] = cubic[0] = p0;
+    cubic[1].x += (1./3.) * d0.x;
+    cubic[1].y += (1./3.) * d0.y;
+    cubic[3] = cubic[2] = p1;
+    cubic[2].x -= (1./3.) * d1.x;
+    cubic[2].y -= (1./3.) * d1.y;
 }
 
 /**
