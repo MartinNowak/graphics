@@ -8,11 +8,6 @@ struct Paint
     Color color=Color.Black;
     Shader shader;
 
-    this(Color color)
-    {
-        this.color = color;
-    }
-
     @property string toString()
     {
         return std.string.format("Paint color: %s shader: %s", color, shader);
