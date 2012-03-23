@@ -113,6 +113,22 @@ struct Matrix
     alias  pre!q{setScale}  preScale;
     alias post!q{setScale} postScale;
 
+    void setSkewX(float sx)
+    {
+        reset();
+        _data[2][0] = sx;
+    }
+    alias  pre!q{setSkewX}  preSkewX;
+    alias post!q{setSkewX} postSkewX;
+
+    void setSkewY(float sy)
+    {
+        reset();
+        _data[2][1] = sy;
+    }
+    alias  pre!q{setSkewY}  preSkewY;
+    alias post!q{setSkewY} postSkewY;
+
     @property translativeOnly() const
     {
         return !perspective &&

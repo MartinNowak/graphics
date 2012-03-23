@@ -244,6 +244,16 @@ public:
         matrix = matrix.preRotate(deg, px, py);
     }
 
+    void skewX(float sx)
+    {
+        matrix = matrix.preSkewX(sx);
+    }
+
+    void skewY(float sy)
+    {
+        matrix = matrix.preSkewY(sy);
+    }
+
     /****************************************
      * Stub
      */
