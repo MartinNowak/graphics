@@ -30,8 +30,6 @@ struct PMColor
   }
 }
 
-alias ubyte Alpha;
-
 // This allows to shiftR 8 instead of divide by 255.
 ushort alphaScale(uint alpha) {
   return alphaScale(checkedTo!ubyte(alpha));
