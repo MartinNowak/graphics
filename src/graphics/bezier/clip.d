@@ -111,7 +111,11 @@ body
     if (v[0] == v[K-1])
     {
         if (fitsIntoRange!("[]")(v[0], lo, hi))
-            goto LNoChange;
+        {
+            if (&curve != &clipped)
+                clipped = curve;
+            return true;
+        }
         else
             return false;
     }
@@ -184,7 +188,6 @@ body
     immutable s1 = clampToRange(max(t0, t1), 0, 1);
     if (s0 == 0 && s1 == 1)
     {
-    LNoChange:
         if (&curve != &clipped)
             clipped = curve;
     }

@@ -548,6 +548,7 @@ struct Path
 
             foreach(v; TypeTuple!(Path.Verb.Line, Path.Verb.Quad, Path.Verb.Cubic))
             case v:
+            {
                 tmpPts[0] = lastPt;
                 foreach(i; SIota!(0, v))
                     tmpPts[i+1] = pts[i];
@@ -556,6 +557,7 @@ struct Path
                 if (auto res = emit(verb, tmpPts[0 .. v+1]))
                     return res;
                 break;
+            }
             }
         }
         return 0;

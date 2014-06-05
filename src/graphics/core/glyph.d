@@ -1,7 +1,7 @@
 module graphics.core.glyph;
 
 import std.conv, std.string;
-import graphics.core.path, graphics.core.fonthost._;
+import graphics.core.path, graphics.core.fonthost;
 import freetype.freetype, guip.bitmap, guip.point, guip.size;
 debug import std.stdio;
 

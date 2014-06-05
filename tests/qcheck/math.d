@@ -1,24 +1,19 @@
-module graphics.math.quickCheck;
-
-private {
-  import graphics.math._;
-  import graphics.math.rounding;
-  import qcheck._;
-  import std.stdio;
-}
+import graphics.math.clamp;
+import qcheck;
+import std.stdio;
 
 QCheckResult checkClampToRange(T)(T value, T left, T right) {
   if (left > right)
-    return QCheckResult.Reject;
+    return QCheckResult.discard;
 
   auto clamped = clampToRange(value, left, right);
   assert(clamped >= left);
   assert(clamped <= right);
   assert(!(value >= left && value <= right) || value == clamped);
-  return QCheckResult.Ok;
+  return QCheckResult.ok;
 }
 
-QCheckResult checkFitsIntoRange(T)(T value, T left, T right) {
+bool checkFitsIntoRange(T)(T value, T left, T right) {
   auto doesFit = fitsIntoRange(value, left, right);
   assert(doesFit ^ (value < left || value >= right));
 
@@ -34,7 +29,7 @@ QCheckResult checkFitsIntoRange(T)(T value, T left, T right) {
   doesFit = fitsIntoRange!("(]")(value, left, right);
   assert(doesFit ^ (value <= left || value > right));
 
-  return QCheckResult.Ok;
+  return true;
 }
 
 struct Comparable {
@@ -54,7 +49,7 @@ class ComparableClass {
 }
 
 void runClampToRange() {
-  Config config = { maxSuccess : 1000 };
+  Config config = { maxSuccess : 1000, maxDiscarded : 10_000 };
 
   quickCheck!(checkClampToRange!float)(config);
   quickCheck!(checkClampToRange!real)(config);
@@ -75,18 +70,7 @@ void runFitsIntoRange() {
   quickCheck!(checkFitsIntoRange!Comparable)(config);
   quickCheck!(checkFitsIntoRange!ComparableClass)(config);
 }
-QCheckResult checkTruncate(T)(T f) {
-  return stdMathTruncate(f) == SSETruncate(f) ?
-    QCheckResult.Ok : QCheckResult.Fail;
-}
-void runTruncate() {
-  Config config = { maxSuccess : 10_000, minValue : int.min, maxValue : int.max, };
-
-  quickCheck!(checkTruncate!float)(config);
-  quickCheck!(checkTruncate!double)(config);
-}
 unittest {
   runClampToRange();
   runFitsIntoRange();
-  runTruncate();
 }

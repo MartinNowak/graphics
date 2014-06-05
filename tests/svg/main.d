@@ -1,7 +1,6 @@
 import std.algorithm, std.conv, std.exception, std.file, std.path, std.range, std.stdio, std.string, std.xml;
-import graphics._;
+import graphics;
 import graphics.core.svg;
-import guip._;
 
 T convAttr(T)(in string[string] aa, string s, T def)
 {

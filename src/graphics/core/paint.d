@@ -1,7 +1,7 @@
 module graphics.core.paint;
 
 import std.bitmanip, std.string;
-import graphics.core.pmcolor, graphics.core.path, graphics.core.shader, graphics.core.stroke, graphics.core.fonthost._;
+import graphics.core.pmcolor, graphics.core.path, graphics.core.shader, graphics.core.stroke, graphics.core.fonthost;
 
 struct Paint
 {

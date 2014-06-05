@@ -9,20 +9,21 @@ struct PMColor
   Color _color;
   alias _color this; // TODO: remove to avoid implicit conversions
 
-  immutable PMColor Black     = PMColor(Color.Black);
-  immutable PMColor DarkGray  = PMColor(Color.DarkGray);
-  immutable PMColor Gray      = PMColor(Color.Gray);
-  immutable PMColor LightGray = PMColor(Color.LightGray);
-  immutable PMColor WarmGray  = PMColor(Color.WarmGray);
-  immutable PMColor ColdGray  = PMColor(Color.ColdGray);
-  immutable PMColor White     = PMColor(Color.White);
-  immutable PMColor Red       = PMColor(Color.Red);
-  immutable PMColor Green     = PMColor(Color.Green);
-  immutable PMColor Blue      = PMColor(Color.Blue);
-  immutable PMColor Yellow    = PMColor(Color.Yellow);
-  immutable PMColor Cyan      = PMColor(Color.Cyan);
-  immutable PMColor Magenta   = PMColor(Color.Magenta);
-  immutable PMColor Orange    = PMColor(Color.Orange);
+    static immutable PMColor
+        Black     = PMColor(Color.Black),
+        DarkGray  = PMColor(Color.DarkGray),
+        Gray      = PMColor(Color.Gray),
+        LightGray = PMColor(Color.LightGray),
+        WarmGray  = PMColor(Color.WarmGray),
+        ColdGray  = PMColor(Color.ColdGray),
+        White     = PMColor(Color.White),
+        Red       = PMColor(Color.Red),
+        Green     = PMColor(Color.Green),
+        Blue      = PMColor(Color.Blue),
+        Yellow    = PMColor(Color.Yellow),
+        Cyan      = PMColor(Color.Cyan),
+        Magenta   = PMColor(Color.Magenta),
+        Orange    = PMColor(Color.Orange);
 
   this(Color color) {
     this._color = alphaMul(color, alphaScale(color.a));

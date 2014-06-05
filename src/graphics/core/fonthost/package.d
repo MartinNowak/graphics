@@ -1,4 +1,4 @@
-module graphics.core.fonthost._;
+module graphics.core.fonthost;
 
 version (FreeBSD) {
   version = FreeType;

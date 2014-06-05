@@ -148,11 +148,13 @@ void addSVGPath(Path)(ref Path path, string s)
             pts[2] = parse!FPoint(s);
             goto Lcubic;
         case 'c':
+        {
             immutable rel = path.points[$-1];
             pts[0] = parse!FPoint(s) + rel;
             pts[1] = parse!FPoint(s) + rel;
             pts[2] = parse!FPoint(s) + rel;
             goto Lcubic;
+        }
 
         case 'S':
             pts[0] = path.points[$-1];
@@ -160,11 +162,13 @@ void addSVGPath(Path)(ref Path path, string s)
             pts[2] = parse!FPoint(s);
             goto Lscubic;
         case 's':
+        {
             immutable rel = path.points[$-1];
             pts[0] = pts[0];
             pts[1] = parse!FPoint(s) + rel;
             pts[2] = parse!FPoint(s) + rel;
             goto Lscubic;
+        }
 
         Lscubic:
             if (!path.verbs.empty && path.verbs[$-1] == Path.Verb.Cubic)
@@ -180,20 +184,24 @@ void addSVGPath(Path)(ref Path path, string s)
             pts[1] = parse!FPoint(s);
             goto Lquad;
         case 'q':
+        {
             immutable rel = path.points[$-1];
             pts[0] = parse!FPoint(s) + rel;
             pts[1] = parse!FPoint(s) + rel;
             goto Lquad;
+        }
 
         case 'T':
             pts[0] = path.points[$-1];
             pts[1] = parse!FPoint(s);
             goto Lsquad;
         case 't':
+        {
             immutable rel = path.points[$-1];
             pts[0] = rel;
             pts[1] = pts[0] + rel;
             goto Lsquad;
+        }
 
         Lsquad:
             if (!path.verbs.empty && path.verbs[$-1] == Path.Verb.Quad)
@@ -213,6 +221,7 @@ void addSVGPath(Path)(ref Path path, string s)
             goto Larc;
 
         case 'a':
+        {
             immutable rel = path.points[$-1];
             pts[0] = parse!FPoint(s) + rel;
             auto xrad = parse!float(s);
@@ -220,6 +229,7 @@ void addSVGPath(Path)(ref Path path, string s)
             auto sweep = parse!bool(s);
             pts[1] = parse!FPoint(s) + rel;
             goto Larc;
+        }
 
         Larc:
             // BUG: need to reimplement arcTo

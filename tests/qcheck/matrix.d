@@ -1,17 +1,11 @@
-module graphics.core.matrixTest;
+import std.array : appender;
+import std.math : abs;
+import std.string : format;
 
-private {
-  import std.array : appender;
-  import std.format : formattedWrite;
-  import std.math : abs;
+import graphics.core.matrix;
+import guip.point;
 
-  import graphics.core.matrix;
-  import guip.point;
-
-  import graphics.util.format;
-
-  import qcheck._;
-}
+import qcheck;
 
 FPoint Multiply(in Matrix m, FPoint pt) {
   auto xr = pt.x * m[0][0] + pt.y * m[0][1] + m[0][2];
@@ -34,8 +28,8 @@ void doRun() {
   void assertPointsEquality() {
     foreach(i, pt; ptsB) {
       auto mpt = Multiply(m, pt);
-      assert(abs(mpt.x - pts[i].x) < 10*float.epsilon, fmtString("unequal pts SSEM:%s FPUM:%s", pts[i], mpt));
-      assert(abs(mpt.y - pts[i].y) < 10*float.epsilon, fmtString("unequal pts SSEM:%s FPUM:%s", pts[i], mpt));
+      assert(abs(mpt.x - pts[i].x) < 10*float.epsilon, format("unequal pts SSEM:%s FPUM:%s", pts[i], mpt));
+      assert(abs(mpt.y - pts[i].y) < 10*float.epsilon, format("unequal pts SSEM:%s FPUM:%s", pts[i], mpt));
     }
   }
   m.setRotate(45);

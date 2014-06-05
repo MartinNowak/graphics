@@ -112,7 +112,7 @@ synchronized class GlyphStore
         d.glyphs[0] = Glyph(); // HACK needed to force creation of internal AA
         d.face = cast(shared)freeType.newFace(path);
         enforce(!FT_Set_Char_Size(cast(FT_Face)d.face, 0, to!FT_F26Dot6(textSize*64), 72, 72));
-        d.mtx = new shared(ReadWriteMutex)();
+        d.mtx = cast(shared)new ReadWriteMutex();
         return d;
     }
 

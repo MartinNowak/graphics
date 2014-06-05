@@ -3,7 +3,7 @@ module graphics.core.draw;
 import std.array, std.conv;
 import core.stdc.string;
 import guip.point, guip.rect, guip.size, guip.bitmap;
-import graphics.core.blitter, graphics.core.fonthost._, graphics.core.glyph, graphics.core.matrix,
+import graphics.core.blitter, graphics.core.fonthost, graphics.core.glyph, graphics.core.matrix,
     graphics.core.paint, graphics.core.path, graphics.core.path_detail.path_measure,
     graphics.core.pmcolor, graphics.core.shader, graphics.core.wavelet.wavelet;
 import graphics.math.clamp, graphics.math.poly;

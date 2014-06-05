@@ -1,0 +1,3 @@
+[submodule "TempAlloc"]
+	path = TempAlloc
+	url = git://github.com/dsimcha/TempAlloc.git

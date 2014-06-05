@@ -1,0 +1,11 @@
+{
+  "name": "graphics_qcheck",
+  "sourcePaths": ["."],
+  "importPaths": ["."],
+  "targetType": "library",
+  "dependencies": {
+    "graphics": "~master",
+    "qcheck": "~master",
+  },
+    "buildRequirements": ["silenceDeprecations", "silenceWarnings"],
+}
