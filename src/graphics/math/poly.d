@@ -75,18 +75,18 @@ debug(IllinoisStats)
 T findRootIllinois(T, R)(scope R delegate(T) f, T a, T b)
 {
     size_t iterations;
-    FPTemporary!R fa = f(a);
-    FPTemporary!R fb = f(b);
-    FPTemporary!T gamma = 1.0;
+    R fa = f(a);
+    R fb = f(b);
+    T gamma = 1.0;
     do
     {
-        FPTemporary!T c = (gamma * b * fa - a * fb) / (gamma * fa - fb);
-        FPTemporary!T fc = f(c);
+        T c = (gamma * b * fa - a * fb) / (gamma * fa - fb);
+        T fc = f(c);
         debug(Illinois) writeln("illinois step: ", iterations,
                                 " a: ", a, " fa: ", fa,
                                 " b: ", b, " fb: ", fb,
                                 " c: ", c, " fc: ", fc);
-        if (fabs(fc) !> tolerance)
+        if (fc < tolerance && fc > -tolerance)
         {
             debug(Illinois)
                 writeln("converged after: ", iterations,
@@ -100,7 +100,7 @@ T findRootIllinois(T, R)(scope R delegate(T) f, T a, T b)
         }
         else
         {
-            if (signbit(fc) != signbit(fb))
+            if ((fc < 0) != (fb < 0))
             {
                 a = b;
                 fa = fb;
