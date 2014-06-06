@@ -20,6 +20,54 @@ BezIota!(T, 2) beziota(T)(T c0, T c1, T roundHint=T.max)
     return typeof(return)(cs, roundHint);
 }
 
+double floor(double d)
+{
+    version (X86_64) static double asmFloor(double d)
+    {
+        asm { naked; cvttsd2si EAX, XMM0; cvtsi2sd XMM0, EAX; ret; }
+    }
+    auto res = asmFloor(d);
+    if (d < 0 && res != d)
+        return res - 1.0;
+    return res;
+}
+
+unittest
+{
+    assert(floor(-0.1) == -1.0);
+    assert(floor(-0.5) == -1.0);
+    assert(floor(-0.9) == -1.0);
+    assert(floor(-5.3) == -6.0);
+    assert(floor(0.1) == 0.0);
+    assert(floor(0.5) == 0.0);
+    assert(floor(0.9) == 0.0);
+    assert(floor(5.3) == 5.0);
+}
+
+double ceil(double d)
+{
+    version (X86_64) static double asmFloor(double d)
+    {
+        asm { naked; cvttsd2si EAX, XMM0; cvtsi2sd XMM0, EAX; ret; }
+    }
+    auto res = asmFloor(d);
+    if (d > 0 && res != d)
+        return res + 1.0;
+    return res;
+}
+
+unittest
+{
+    assert(ceil(-0.1) == -0.0);
+    assert(ceil(-0.5) == -0.0);
+    assert(ceil(-0.9) == -0.0);
+    assert(ceil(-5.3) == -5.0);
+    assert(ceil(0.1) == 1.0);
+    assert(ceil(0.5) == 1.0);
+    assert(ceil(0.9) == 1.0);
+    assert(ceil(5.3) == 6.0);
+}
+
 /*
  * Iterates t positions of a bernstein polynom in gridded distance.
  */
