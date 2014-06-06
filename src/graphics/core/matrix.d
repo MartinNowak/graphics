@@ -4,16 +4,20 @@ import std.ascii, std.bitmanip, std.conv, std.exception, std.math;
 import guip.point, guip.rect;
 import graphics.math.poly;
 
-immutable float[3][3] identity =
-[
-    [1.0f, 0.0f, 0.0f],
-    [0.0f, 1.0f, 0.0f],
-    [0.0f, 0.0f, 1.0f],
-];
-
 struct Matrix
 {
-    float[3][3] _data=identity;
+    static immutable float[3][3] identity = [
+        [1.0f, 0.0f, 0.0f],
+        [0.0f, 1.0f, 0.0f],
+        [0.0f, 0.0f, 1.0f],
+    ];
+
+    float[3][3] _data = [
+        [1.0f, 0.0f, 0.0f],
+        [0.0f, 1.0f, 0.0f],
+        [0.0f, 0.0f, 1.0f],
+    ];
+
     alias _data this;
 
     @property string toString()
