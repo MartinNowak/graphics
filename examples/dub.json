@@ -1,0 +1,10 @@
+{
+    "name": "examples",
+    "sourcePaths": ["."],
+    "mainSourceFile": "main.d",
+    "targetType": "executable",
+    "dependencies": {
+        "graphics": "~master",
+    },
+    "buildRequirements": ["silenceDeprecations", "silenceWarnings"],
+}

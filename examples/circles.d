@@ -1,6 +1,6 @@
 module examples.circles;
 
-import graphics._, guip._, graphics.core.matrix, graphics.core.patheffect, graphics.core.shader;
+import graphics, graphics.core.matrix, graphics.core.patheffect, graphics.core.shader;
 import std.math;
 
 void circles(string fpath)
