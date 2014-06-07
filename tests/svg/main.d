@@ -42,7 +42,7 @@ void renderSVG(string fn)
     auto bmp = Bitmap(Bitmap.Config.ARGB_8888, width, height);
     auto canvas = new Canvas(bmp);
 
-    static struct Style { bool transform; Color cstroke, cfill=Color.Black; float strokeWidth=0; }
+    static struct Style { bool transform; Color cstroke, cfill=Color.Black; float strokeWidth=1; }
     Style[] styles;
 
     Style pushStyle(in string[string] attr)
