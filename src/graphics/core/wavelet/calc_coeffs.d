@@ -22,9 +22,9 @@ struct Interim {
 
 //------------------------------------------------------------------------------
 
-void updateCoeffs(size_t K, Quad Q)(uint scale, const ref FPoint[K] pts, ref float[3] coeffs) {
+void updateCoeffs(size_t K)(Quad q, uint scale, const ref FPoint[K] pts, ref float[3] coeffs) {
   auto tmp = calcInterim!K(1.0f / scale, pts);
-  addInterim!Q(tmp, coeffs);
+  addInterim(q, tmp, coeffs);
 }
 
 
@@ -32,79 +32,89 @@ void updateCoeffs(size_t K, Quad Q)(uint scale, const ref FPoint[K] pts, ref flo
 
 Interim calcInterim(size_t K : 2)(float rscale, const ref FPoint[2] pts) {
   Interim tmp = void;
-  tmp.Kx = (1.0f / 4.0f) * (pts[1].y - pts[0].y) * rscale;
-  tmp.Ky = (1.0f / 4.0f) * (pts[0].x - pts[1].x) * rscale;
+  with (tmp)
+  {
+      Kx = (1.0f / 4.0f) * (pts[1].y - pts[0].y) * rscale;
+      Ky = (1.0f / 4.0f) * (pts[0].x - pts[1].x) * rscale;
 
-  tmp.Lx = (1.0f / 2.0f) * tmp.Kx * (pts[0].x + pts[1].x) * rscale;
-  tmp.Ly = (1.0f / 2.0f) * tmp.Ky * (pts[0].y + pts[1].y) * rscale;
-
+      Lx = (1.0f / 2.0f) * Kx * (pts[0].x + pts[1].x) * rscale;
+      Ly = (1.0f / 2.0f) * Ky * (pts[0].y + pts[1].y) * rscale;
+  }
   return tmp;
 }
 
 Interim calcInterim(size_t K : 3)(float rscale, const ref FPoint[3] pts) {
   Interim tmp = void;
-  tmp.Kx = (1.0f / 4.0f) * (pts[2].y - pts[0].y) * rscale;
-  tmp.Ky = (1.0f / 4.0f) * (pts[0].x - pts[2].x) * rscale;
+  with (tmp)
+  {
+      Kx = (1.0f / 4.0f) * (pts[2].y - pts[0].y) * rscale;
+      Ky = (1.0f / 4.0f) * (pts[0].x - pts[2].x) * rscale;
 
-  immutable Lcommon = (1.0f / 24.0f) * (
-      2 * (determinant(pts[0], pts[1]) + determinant(pts[1], pts[2]))
-      + determinant(pts[0], pts[2])
-  ) * rscale * rscale;
-  immutable Ldiff = (3.0f / 24.0f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y)  * rscale * rscale;
-  tmp.Lx = Lcommon + Ldiff;
-  tmp.Ly = Lcommon - Ldiff;
-
+      immutable Lcommon = (1.0f / 24.0f) * (
+          2 * (determinant(pts[0], pts[1]) + determinant(pts[1], pts[2]))
+          + determinant(pts[0], pts[2])
+      ) * rscale * rscale;
+      immutable Ldiff = (3.0f / 24.0f) * (pts[2].x*pts[2].y - pts[0].x * pts[0].y)  * rscale * rscale;
+      Lx = Lcommon + Ldiff;
+      Ly = Lcommon - Ldiff;
+  }
   return tmp;
 }
 
 Interim calcInterim(size_t K : 4)(float rscale, const ref FPoint[4] pts) {
   Interim tmp = void;
-  tmp.Kx = (1.0f / 4.0f) * (pts[3].y - pts[0].y) * rscale;
-  tmp.Ky = (1.0f / 4.0f) * (pts[0].x - pts[3].x) * rscale;
+  with (tmp)
+  {
+      Kx = (1.0f / 4.0f) * (pts[3].y - pts[0].y) * rscale;
+      Ky = (1.0f / 4.0f) * (pts[0].x - pts[3].x) * rscale;
 
-  immutable Lcommon = (1.0f / 80.0f) * (
-      3 * (
-          2 * (determinant(pts[2], pts[3]) + determinant(pts[0], pts[1]))
-          + determinant(pts[1], pts[2])
-          + determinant(pts[1], pts[3])
-          + determinant(pts[0], pts[2])
-      )
-      + determinant(pts[0], pts[3])
-  ) * rscale * rscale;
-  immutable Ldiff = (10.0f / 80.0f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y)  * rscale * rscale;
-  tmp.Lx = Lcommon + Ldiff;
-  tmp.Ly = Lcommon - Ldiff;
-
+      immutable Lcommon = (1.0f / 80.0f) * (
+          3 * (
+              2 * (determinant(pts[2], pts[3]) + determinant(pts[0], pts[1]))
+              + determinant(pts[1], pts[2])
+              + determinant(pts[1], pts[3])
+              + determinant(pts[0], pts[2])
+          )
+          + determinant(pts[0], pts[3])
+      ) * rscale * rscale;
+      immutable Ldiff = (10.0f / 80.0f) * (pts[3].x * pts[3].y - pts[0].x * pts[0].y)  * rscale * rscale;
+      Lx = Lcommon + Ldiff;
+      Ly = Lcommon - Ldiff;
+  }
   return tmp;
 }
 
 
 //------------------------------------------------------------------------------
 
-void addInterim(Quad Q : Quad._00)(in Interim tmp, ref float[3] coeffs) {
-  coeffs[0] += tmp.Lx;
-  coeffs[1] += tmp.Ly;
-  coeffs[2] += tmp.Lx;
-}
+void addInterim(Quad q, in ref Interim tmp, ref float[3] coeffs) {
+    with (tmp) final switch (q)
+    {
+    case Quad._00:
+        coeffs[0] += Lx;
+        coeffs[1] += Ly;
+        coeffs[2] += Lx;
+        break;
 
-void addInterim(Quad Q : Quad._01)(in Interim tmp, ref float[3] coeffs) {
-  coeffs[0] += tmp.Kx - tmp.Lx;
-  coeffs[1] += tmp.Ly;
-  coeffs[2] += tmp.Kx - tmp.Lx;
-}
+    case Quad._01:
+        coeffs[0] += Kx - Lx;
+        coeffs[1] += Ly;
+        coeffs[2] += Kx - Lx;
+        break;
 
-void addInterim(Quad Q : Quad._10)(in Interim tmp, ref float[3] coeffs) {
-  coeffs[0] += tmp.Lx;
-  coeffs[1] += tmp.Ky - tmp.Ly;
-  coeffs[2] += -tmp.Lx;
-}
+    case Quad._10:
+        coeffs[0] += Lx;
+        coeffs[1] += Ky - Ly;
+        coeffs[2] += -Lx;
+        break;
 
-void addInterim(Quad Q : Quad._11)(in Interim tmp, ref float[3] coeffs) {
-  coeffs[0] += tmp.Kx - tmp.Lx;
-  coeffs[1] += tmp.Ky - tmp.Ly;
-  coeffs[2] += -tmp.Kx + tmp.Lx;
+    case Quad._11:
+        coeffs[0] += Kx - Lx;
+        coeffs[1] += Ky - Ly;
+        coeffs[2] += -Kx + Lx;
+        break;
+    }
 }
-
 
 //------------------------------------------------------------------------------
 
@@ -120,15 +130,5 @@ void calcCoeffs(size_t K)(IPoint pos, uint half, Quad q, ref FPoint[K] pts, ref 
         pts[i].y -= yo;
     }
 
-    final switch (q)
-    {
-    case Quad._00:
-        return updateCoeffs!(K, Quad._00)(half, pts, coeffs);
-    case Quad._01:
-        return updateCoeffs!(K, Quad._01)(half, pts, coeffs);
-    case Quad._10:
-        return updateCoeffs!(K, Quad._10)(half, pts, coeffs);
-    case Quad._11:
-        return updateCoeffs!(K, Quad._11)(half, pts, coeffs);
-    }
+    return updateCoeffs!(K)(q, half, pts, coeffs);
 }
