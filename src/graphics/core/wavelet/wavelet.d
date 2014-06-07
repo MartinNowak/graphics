@@ -225,8 +225,7 @@ struct WaveletRaster
     private void updateNodes(size_t K)
         (ref const FPoint[K] curve, ref const IPoint pos, float t1, size_t depth)
     {
-        // div / 2 because coeffs represent 2x2 pixels
-        auto cidx = posToLinQuad(pos / 2);
+        auto cidx = posToLinQuad(pos);
 
         for (size_t d = 0; d < depth; ++d)
         {
@@ -234,6 +233,8 @@ struct WaveletRaster
             immutable t0 = _tStack[d];
             sliceBezier(curve, t0, t1, tmp);
 
+            immutable q = cast(Quad)(cidx % 4);
+            cidx /= 4;
             // Update wavelet coefficient for this node/level.
             if (!bts(_coeffMarks[d], cidx))
                 _coeffs[d][cidx][] = 0.0f;
@@ -242,9 +243,7 @@ struct WaveletRaster
             version (calcCoeffs_C)
                 mixin(Format!(q{calcCoeffs_%s(pos, half, tmp.ptr, _coeffs[d][cidx].ptr);}, K));
             else
-                calcCoeffs!K(pos, half, tmp, _coeffs[d][cidx]);
-
-            cidx /= 4;
+                calcCoeffs!K(pos, half, q, tmp, _coeffs[d][cidx]);
         }
     }
 

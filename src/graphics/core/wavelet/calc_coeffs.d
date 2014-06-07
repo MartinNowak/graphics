@@ -108,7 +108,7 @@ void addInterim(Quad Q : Quad._11)(in Interim tmp, ref float[3] coeffs) {
 
 //------------------------------------------------------------------------------
 
-void calcCoeffs(size_t K)(IPoint pos, uint half, ref FPoint[K] pts, ref float[3] coeffs)
+void calcCoeffs(size_t K)(IPoint pos, uint half, Quad q, ref FPoint[K] pts, ref float[3] coeffs)
 {
     pos.x &= ~(half - 1);
     pos.y &= ~(half - 1);
@@ -120,26 +120,15 @@ void calcCoeffs(size_t K)(IPoint pos, uint half, ref FPoint[K] pts, ref float[3]
         pts[i].y -= yo;
     }
 
-    if (pos.x & half)
+    final switch (q)
     {
-        if (pos.y & half)
-        {
-            updateCoeffs!(K, Quad._11)(half, pts, coeffs);
-        }
-        else
-        {
-            updateCoeffs!(K, Quad._01)(half, pts, coeffs);
-        }
-    }
-    else
-    {
-        if (pos.y & half)
-        {
-            updateCoeffs!(K, Quad._10)(half, pts, coeffs);
-        }
-        else
-        {
-            updateCoeffs!(K, Quad._00)(half, pts, coeffs);
-        }
+    case Quad._00:
+        return updateCoeffs!(K, Quad._00)(half, pts, coeffs);
+    case Quad._01:
+        return updateCoeffs!(K, Quad._01)(half, pts, coeffs);
+    case Quad._10:
+        return updateCoeffs!(K, Quad._10)(half, pts, coeffs);
+    case Quad._11:
+        return updateCoeffs!(K, Quad._11)(half, pts, coeffs);
     }
 }
