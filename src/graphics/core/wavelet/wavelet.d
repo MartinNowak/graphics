@@ -4,28 +4,10 @@ import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.metastrin
     std.random, std.string, std.typecons, std.c.string, core.bitop;
 import graphics.bezier.cartesian, graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
 import graphics.math.clamp, graphics.math.poly;
+import graphics.core.wavelet.calc_coeffs;
 import guip.bitmap, guip.point, guip.rect, guip.size;
 
 // version=DebugNoise;
-// version=StackStats;
-// version=calcCoeffs_C;
-
-version (calcCoeffs_C)
-{
-    extern(C)
-    {
-        void calcCoeffs_2(IPoint pos, uint half, FPoint* pts, float* coeffs);
-        void calcCoeffs_3(IPoint pos, uint half, FPoint* pts, float* coeffs);
-        void calcCoeffs_4(IPoint pos, uint half, FPoint* pts, float* coeffs);
-    }
-}
-else
-{
-    import graphics.core.wavelet.calc_coeffs;
-    alias calcCoeffs!2 calcCoeffs_2;
-    alias calcCoeffs!3 calcCoeffs_3;
-    alias calcCoeffs!4 calcCoeffs_4;
-}
 
 /// Wavelet coefficients for a 2x2 square, number of pixels depends on depth layer
 alias Coeffs = float[3];
@@ -240,10 +222,7 @@ struct WaveletRaster
                 _coeffs[d][cidx][] = 0.0f;
 
             immutable half = 1 << d;
-            version (calcCoeffs_C)
-                mixin(Format!(q{calcCoeffs_%s(pos, half, tmp.ptr, _coeffs[d][cidx].ptr);}, K));
-            else
-                calcCoeffs!K(pos, half, q, tmp, _coeffs[d][cidx]);
+            calcCoeffs!K(pos, half, q, tmp, _coeffs[d][cidx]);
         }
     }
 
