@@ -54,9 +54,8 @@ public:
         if (_clip.empty || path.empty)
             return;
 
-        auto wr = pathToWavelet(path, _clip, _matrix);
         scope Blitter blitter = getBlitter(paint);
-        wr.blit(&blitter.blitAlphaH);
+        waveletBlitPath(path, _clip, _matrix, &blitter.blitAlphaH);
     }
 
     void drawBitmap(in Bitmap source, Paint paint)
@@ -232,13 +231,7 @@ public:
     }
 };
 
-static WaveletRaster pathToWavelet(in Path path, IRect clip)
-{
-    Matrix mat;
-    return pathToWavelet(path, clip, mat);
-}
-
-static WaveletRaster pathToWavelet(in Path path, IRect clip, ref const Matrix mat)
+void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, scope WaveletRaster.BlitDg dg)
 {
     FRect bounds = mat.mapRect(path.bounds);
     auto ir = bounds.roundOut;
@@ -257,7 +250,7 @@ static WaveletRaster pathToWavelet(in Path path, IRect clip, ref const Matrix ma
     }
 
     if (!ir.intersect(clip))
-        return WaveletRaster.init;
+        return;
     WaveletRaster wr = WaveletRaster(ir);
 
     foreach(verb, pts; mat.perspective ? &path.apply!(QuadCubicFlattener) : &path.opApply)
@@ -288,5 +281,5 @@ static WaveletRaster pathToWavelet(in Path path, IRect clip, ref const Matrix ma
             break;
         }
     }
-    return wr;
+    wr.blit(dg);
 }

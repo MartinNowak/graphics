@@ -3,8 +3,6 @@
     "description": "A vector rendering library.",
     "copyright": "Copyright © 2014, dawg",
     "authors": ["dawg"],
-    "importPaths": ["src", "TempAlloc"],
-    "sourcePaths": ["src", "TempAlloc"],
     "dependencies": {
         "guip": "~master",
     },
