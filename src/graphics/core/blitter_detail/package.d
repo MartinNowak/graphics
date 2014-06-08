@@ -1,4 +1,4 @@
-module graphics.core.blitter_detail._;
+module graphics.core.blitter_detail;
 
 public import graphics.core.blitter_detail.blit_row_factory;
 public import graphics.core.blitter_detail.clipping_blitter;

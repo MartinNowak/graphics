@@ -3,26 +3,24 @@ module graphics.core.blitter;
 //debug = WHITEBOX;
 debug import std.stdio;
 
-private {
-  import std.algorithm;
-  import std.conv : to, roundTo;
-  import std.math : lrint, round, nearbyint;
-  import std.numeric : FPTemporary;
-  import std.array;
-  import std.range;
+import std.algorithm;
+import std.conv : to, roundTo;
+import std.math : lrint, round, nearbyint;
+import std.numeric : FPTemporary;
+import std.array;
+import std.range;
 
-  import guip.bitmap;
-  import graphics.core.pmcolor;
-  import graphics.core.matrix;
-  import graphics.core.paint;
-  import graphics.core.pmcolor;
-  import graphics.core.shader;
-  import guip.point;
-  import guip.rect;
-  import graphics.core.blitter_detail._;
+import guip.bitmap;
+import graphics.core.pmcolor;
+import graphics.core.matrix;
+import graphics.core.paint;
+import graphics.core.pmcolor;
+import graphics.core.shader;
+import guip.point;
+import guip.rect;
+import graphics.core.blitter_detail;
 
-  import graphics.math.clamp;
-}
+import graphics.math.clamp;
 
 class Blitter
 {

@@ -1,12 +1,10 @@
 module graphics.core.blitter_detail.blit_aa_span;
 
-private {
-  import std.range;
+import std.range;
 
-  import graphics.math.clamp : checkedTo;
-  import graphics.core.pmcolor;
-  import graphics.core.blitter_detail._;
-}
+import graphics.math.clamp : checkedTo;
+import graphics.core.pmcolor;
+import graphics.core.blitter_detail;
 
 void BlitAASpan(R1, R2)(R1 output, R2 aa, Color color) {
   auto colA = color.a;
