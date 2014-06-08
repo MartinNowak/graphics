@@ -133,7 +133,7 @@ static void Color32(Range)(Range dstR, Range srcR, PMColor pmColor)
 
           doFour:
             //! Load 4 pixel unaligned from src
-            movdqu XMM0, [ESI];
+            movdqu XMM0, [RSI];
 
             //! and with rb_mask -> XMM1 : src_rb
             movdqa XMM1, XMM2;
@@ -158,7 +158,7 @@ static void Color32(Range)(Range dstR, Range srcR, PMColor pmColor)
             paddb XMM1, XMM3;
 
             //! Write back result aligned
-            movdqa [EDI], XMM1;
+            movdqa [RDI], XMM1;
 
             add RSI, 16;
             add RDI, 16;
