@@ -176,7 +176,8 @@ bool monotonic(string dir, T, size_t K)(Point!T[K] curve) {
     const rel = mixin(Format!(
                         q{(curve[i].%s - curve[i-1].%s) * (curve[i+1].%s - curve[i].%s)},
                         dir, dir, dir, dir));
-    if (rel !>= 0)
+    assert(!rel.isNaN);
+    if (rel < 0)
       return false;
   }
   return true;

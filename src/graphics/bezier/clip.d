@@ -176,10 +176,9 @@ body
         }
     }
 
-    if (t0 !<> t1)
+    if (t0 == t1)
         return false;
 
-    assert(t0 <>= t1);
     assert(fitsIntoRange!("[]")(t0, 0-1e-6, 1+1e-6));
     assert(fitsIntoRange!("[]")(t1, 0-1e-6, 1+1e-6));
 

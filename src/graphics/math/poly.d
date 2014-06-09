@@ -21,8 +21,10 @@ template SIota(size_t start, size_t end) if (start == end)
  * Returns: the number of roots
  */
 int polyRoots(double a, double b, ref double x)
+in { assert(!a.isNaN && !b.isNaN); }
+body
 {
-    if (a !<> 0 || b !<>= 0)
+    if (a == 0 || b == 0)
         return 0;
     x = -b / a;
     return 1;
@@ -33,12 +35,14 @@ int polyRoots(double a, double b, ref double x)
  * Returns: the number of roots
  */
 int polyRoots(double a, double b, double c, ref double[2] x)
+in { assert(!a.isNaN && !b.isNaN && !c.isNaN); }
+body
 {
-    if (a !<> 0)
+    if (a == 0)
         return polyRoots(b, c, x[0]);
 
     immutable discriminant = b * b - 4 * a * c;
-    if (discriminant !>= 0)
+    if (discriminant < 0)
         return 0;
 
     immutable div = 1 / (2 * a);

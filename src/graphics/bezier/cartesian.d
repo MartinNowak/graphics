@@ -76,10 +76,8 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
     this(ref const T[K] cs, in T roundHint=T.max)
     in
     {
-        // require partial ordered input
-        for (size_t i = 0; i < K; ++i)
-            for (size_t j = 0; j < i + 1; ++j)
-                assert(cs[i] <>= cs[j]);
+        foreach (c; cs)
+            assert(!c.isNaN);
     }
     body
     {
