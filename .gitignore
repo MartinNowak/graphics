@@ -12,3 +12,4 @@ lib*/
 .unittest*/
 import/
 doc/
+.dub

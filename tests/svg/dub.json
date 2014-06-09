@@ -1,0 +1,9 @@
+{
+    "name": "svg",
+    "sourcePaths": ["."],
+    "mainSourceFile": "main.d",
+    "targetType": "executable",
+    "dependencies": {
+        "graphics": "~master",
+    },
+}

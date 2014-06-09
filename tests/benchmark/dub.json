@@ -1,0 +1,10 @@
+{
+    "name": "benchmark",
+    "sourcePaths": ["."],
+    "mainSourceFile": "main.d",
+    "targetType": "executable",
+    "dependencies": {
+        "graphics": "~master",
+        "qcheck": "~master",
+    },
+}
