@@ -2,7 +2,7 @@ module graphics.bezier.clip;
 
 import graphics.bezier.chop, graphics.bezier.curve, graphics.math.clamp, graphics.math.poly;
 import guip.point, guip.rect;
-import std.algorithm, std.conv, std.exception, std.math, std.metastrings, std.numeric;
+import std.algorithm, std.conv, std.exception, std.math, std.numeric;
 
 /*
  * Splits a bezier curve into monotonic segments and clip each one to
@@ -106,7 +106,7 @@ body
 {
     T[K] v = void;
     foreach(i; SIota!(0, K))
-        v[i] = mixin(`curve[i].`~dir);
+        v[i] = __traits(getMember, curve[i], dir);
 
     if (v[0] == v[K-1])
     {

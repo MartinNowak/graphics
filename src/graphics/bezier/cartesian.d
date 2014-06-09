@@ -2,15 +2,14 @@ module graphics.bezier.cartesian;
 
 import guip.point, guip.rect, guip.size;
 import graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
-import std.algorithm, std.conv, std.exception, std.math, std.metastrings,
-    std.numeric, std.range, std.traits;
+import std.algorithm, std.conv, std.exception, std.math, std.numeric, std.range, std.traits;
 import graphics.math.clamp, graphics.math.poly;
 
 BezIota!(T, K) beziota(string dir, T, size_t K)(ref const Point!T[K] curve, T roundHint=T.max)
 {
     T[K] cs = void;
     foreach(i; 0 .. K)
-        cs[i] = mixin(Format!(q{curve[i].%s}, dir));
+        cs[i] = __traits(getMember, curve[i], dir);
     return typeof(return)(cs, roundHint);
 }
 

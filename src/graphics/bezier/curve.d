@@ -2,7 +2,7 @@ module graphics.bezier.curve;
 
 import guip.point;
 import graphics.math.clamp, graphics.math.poly;
-import std.algorithm, std.metastrings;
+import std.algorithm;
 
 void bezToPoly(T)(ref T[2] line)
 {
@@ -173,9 +173,9 @@ private int cubicPolyRoots(double d10, double d21, double d32, ref double[2] ts)
 
 bool monotonic(string dir, T, size_t K)(Point!T[K] curve) {
   foreach(i; 1 .. K-1) {
-    const rel = mixin(Format!(
-                        q{(curve[i].%s - curve[i-1].%s) * (curve[i+1].%s - curve[i].%s)},
-                        dir, dir, dir, dir));
+    const rel =
+        (__traits(getMember, curve[i], dir) - __traits(getMember, curve[i-1], dir)) *
+        (__traits(getMember, curve[i+1], dir) - __traits(getMember, curve[i], dir));
     assert(!rel.isNaN);
     if (rel < 0)
       return false;
