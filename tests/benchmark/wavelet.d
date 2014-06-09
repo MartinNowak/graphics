@@ -1,7 +1,7 @@
 module benchmark.wavelet;
 
-import graphics.core.draw, graphics.core.path, graphics.core.wavelet.wavelet, graphics.math.clamp;
-import qcheck._, guip.point, std.range;
+import graphics, graphics.core.draw, graphics.core.matrix, graphics.math.clamp;
+import qcheck, guip.point, std.range;
 import benchmark.registry, benchmark.reporter;
 
 static this() {
@@ -58,7 +58,7 @@ Path randomPath(Path.Verb[] verbs, FPoint[] pts) {
 Path path;
 static this()
 {
-  auto config = Config().maxSuccess(20).minValue(0).maxValue(1024).maxSize(500);
+  Config config = {maxSuccess: 20, minValue: 0, maxValue: 1024, maxSize: 500};
   randomSeed = 1;
 
   do
@@ -66,17 +66,9 @@ static this()
   while (path.empty);
 }
 
-void benchPathToWavelet()
-{
-  pathToWavelet(path, path.ibounds);
-  //  quickCheck!(benchPathToBlit, randomPath)(config);
-}
-
-void benchPathToBlit()
+void benchWaveletBlitPath()
 {
   auto clip = path.ibounds;
-  auto wr = pathToWavelet(path, clip);
-  auto topLeft = wr._clipRect.pos;
 
   void dummyBlit(int y, int xstart, int xend, ubyte alpha) {
     assert(fitsIntoRange!("[)")(y, clip.top, clip.bottom));
@@ -84,11 +76,10 @@ void benchPathToBlit()
     assert(fitsIntoRange!("[)")(xend, clip.left, clip.right));
   }
 
-  writeNodeToGrid!(dummyBlit)(
-      *wr._nodeStack[0], wr._rootConst, topLeft, 1 << wr._depth);
+  Matrix mat;
+  waveletBlitPath(path, clip, mat,&dummyBlit);
 }
 
 void runWavelet(BenchmarkReporter reporter) {
-  reporter.bench!(benchPathToWavelet)();
-  reporter.bench!(benchPathToBlit)();
+  reporter.bench!(benchWaveletBlitPath)();
 }

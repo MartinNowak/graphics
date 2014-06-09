@@ -3,8 +3,7 @@ module benchmark.main;
 import std.algorithm, std.array, std.stdio;
 import benchmark.registry, benchmark.reporter;
 
-import graphics._;
-//  pragma(build, benchmark);
+import graphics;
 
 import benchmark.matrix;
 import benchmark.wavelet;
@@ -22,9 +21,8 @@ int main(string[] argv) {
       return 0;
     }
   }
-  auto benchmarks = allBenchmarks();
-//  auto benchmarks = argv.length > 1 ? selectBenchmarks(argv[1]) :
-//    excludeBenchmarks("");
+  // auto benchmarks = allBenchmarks();
+  auto benchmarks = argv.length > 1 ? selectBenchmarks(argv[1]) : excludeBenchmarks("");
 
   foreach(ref testTup; benchmarks) {
     reporter.info("--------------------Run BenchMarkSuite %s--------------------", testTup[0]);

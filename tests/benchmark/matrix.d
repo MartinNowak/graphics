@@ -1,13 +1,11 @@
 module benchmark.matrix;
 
-private {
-  import graphics.core.matrix;
-  import guip.point;
+import graphics.core.matrix;
+import guip.point;
 
-  import benchmark.registry, benchmark.reporter;
-  import qcheck._;
-  import std.stdio;
-}
+import benchmark.registry, benchmark.reporter;
+import qcheck;
+import std.stdio;
 
 static this() {
   registerBenchmark!(runMatrix)();
@@ -19,7 +17,7 @@ static this() {
 immutable Matrix[] ims;
 immutable FPoint[] ipts;
 static this() {
-  auto config = Config().maxSize(1000).randomizeFields(true);
+  Config config = {maxSize: 1000};
   ims = getArbitrary!(Matrix[])(config).idup;
   config.maxSize = 10_000;
   ipts = getArbitrary!(FPoint[])(config).idup;
