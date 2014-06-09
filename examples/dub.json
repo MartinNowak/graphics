@@ -6,5 +6,4 @@
     "dependencies": {
         "graphics": "~master",
     },
-    "buildRequirements": ["silenceDeprecations", "silenceWarnings"],
 }

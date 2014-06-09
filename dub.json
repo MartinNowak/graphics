@@ -6,7 +6,6 @@
     "dependencies": {
         "guip": "~master",
     },
-    "buildRequirements": ["silenceDeprecations", "silenceWarnings"],
     "versions-linux": ["FreeType"],
     "libs-linux": ["freetype", "fontconfig"],
 }
