@@ -140,9 +140,9 @@ synchronized class FontConfig
     }
 }
 
-enum int slantMap[TypeFace.Slant.max + 1] =
+enum int[TypeFace.Slant.max + 1] slantMap =
   [FC_SLANT_ROMAN, FC_SLANT_ITALIC, FC_SLANT_OBLIQUE];
-enum int weightMap[TypeFace.Weight.max + 1] =
+enum int[TypeFace.Weight.max + 1] weightMap =
   [FC_WEIGHT_THIN, FC_WEIGHT_LIGHT, FC_WEIGHT_NORMAL, FC_WEIGHT_BOLD, FC_WEIGHT_HEAVY];
 
 int fcSlant(TypeFace.Slant slant)

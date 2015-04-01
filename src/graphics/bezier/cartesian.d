@@ -188,7 +188,7 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
     {
         double findT()
         {
-            double ts[2] = void;
+            double[2] ts = void;
             auto rootcnt = polyRoots(_coeffs[0], _coeffs[1], _coeffs[2] - (_position + (_pastend > _position)), ts);
             if (rootcnt == 1)
             {

@@ -21,7 +21,7 @@ enum BlitRowFlags32 {
   SrcPixelAlpha   = 1 << 1,
 };
 
-static const BlitRowProc32 defaultProcs32[4] = [
+static const BlitRowProc32[4] defaultProcs32 = [
     &S32_Opaque_BlitRow32,
     &S32_Blend_BlitRow32,
     &S32A_Opaque_BlitRow32,

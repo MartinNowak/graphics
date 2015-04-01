@@ -124,7 +124,7 @@ body
     {
         static double intersection(ref const T[K] coeffs, double val)
         {
-            double ts[2] = void;
+            double[2] ts = void;
             auto cnt = polyRoots(coeffs[0], coeffs[1], coeffs[2] - val, ts);
             switch (cnt)
             {

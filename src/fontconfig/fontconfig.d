@@ -495,12 +495,12 @@ enum FC_CHARSET_DONE = uint.max;
 
 FcChar32
 FcCharSetFirstPage (const(FcCharSet)* a,
-		    FcChar32	    map[FC_CHARSET_MAP_SIZE],
+		    ref FcChar32[FC_CHARSET_MAP_SIZE] map,
 		    FcChar32	    *next);
 
 FcChar32
 FcCharSetNextPage (const FcCharSet  *a,
-		   FcChar32	    map[FC_CHARSET_MAP_SIZE],
+		   ref FcChar32[FC_CHARSET_MAP_SIZE] map,
 		   FcChar32	    *next);
 
 /*
@@ -921,7 +921,7 @@ enum FC_UTF8_MAX_LEN = 6;
 
 int
 FcUcs4ToUtf8 (FcChar32	ucs4,
-	      FcChar8	dest[FC_UTF8_MAX_LEN]);
+	      ref FcChar8[FC_UTF8_MAX_LEN] dest);
 
 int
 FcUtf16ToUcs4 (const FcChar8	*src_orig,
