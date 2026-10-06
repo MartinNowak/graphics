@@ -1,6 +1,6 @@
 module graphics.core.matrix;
 
-import std.ascii, std.bitmanip, std.conv, std.exception, std.math;
+import std.ascii, std.bitmanip, std.complex, std.conv, std.exception, std.math;
 import guip.point, guip.rect;
 import graphics.math.poly;
 

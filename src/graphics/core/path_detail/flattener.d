@@ -1,6 +1,7 @@
 module graphics.core.path_detail.flattener;
 
-import std.math, std.traits, std.c.string;
+import core.stdc.string;
+import std.math, std.traits;
 import graphics.bezier.chop, graphics.core.path;
 import guip.point;
 

@@ -1,6 +1,6 @@
 module graphics.math.poly;
 
-import std.algorithm, std.math, std.numeric, std.traits, std.typetuple;
+import std.algorithm, std.math, std.numeric, std.string, std.traits, std.typetuple;
 
 /*
  * this should live somewhere else

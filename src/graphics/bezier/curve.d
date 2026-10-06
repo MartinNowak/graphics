@@ -188,7 +188,7 @@ unittest {
   FPoint[3] quad = [FPoint(0, 0), FPoint(1, 1), FPoint(0, 0)];
   double t;
   assert(bezierExtremaY(quad, t) > 0);
-  assert(approxEqual(t, 0.5));
+  assert(isClose(t, 0.5));
   assert(bezierExtremaX(quad, t) > 0);
-  assert(approxEqual(t, 0.5));
+  assert(isClose(t, 0.5));
 }

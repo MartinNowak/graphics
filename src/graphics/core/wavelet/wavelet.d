@@ -1,7 +1,7 @@
 module graphics.core.wavelet.wavelet;
 
 import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.random,
-    std.string, std.typecons, std.c.string, core.bitop;
+    std.string, std.typecons, core.bitop;
 import graphics.bezier.cartesian, graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
 import graphics.math.clamp, graphics.math.poly;
 import graphics.core.wavelet.calc_coeffs;

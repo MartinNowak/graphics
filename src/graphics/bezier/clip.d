@@ -2,7 +2,7 @@ module graphics.bezier.clip;
 
 import graphics.bezier.chop, graphics.bezier.curve, graphics.math.clamp, graphics.math.poly;
 import guip.point, guip.rect;
-import std.algorithm, std.conv, std.exception, std.math, std.numeric;
+import std.algorithm, std.conv, std.exception, std.math, std.numeric, std.string;
 
 /*
  * Splits a bezier curve into monotonic segments and clip each one to
@@ -42,7 +42,7 @@ private void joinSegment(T)(Point!T a, Point!T b, Rect!T clip, scope void delega
     line[0] = a;
     line[1] = a;
 
-    if (approxEqual(a.x, clip.left) || approxEqual(a.x, clip.right))
+    if (isClose(a.x, clip.left) || isClose(a.x, clip.right))
     {
         // y first
         if (diff.y != 0)

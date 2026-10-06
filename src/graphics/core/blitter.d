@@ -50,7 +50,7 @@ class Blitter
           return new ARGB32Blitter(device, paint);
       }
     default:
-      assert(0, "no blitter implementation for bitmap config " ~ std.conv.to!string(device.config));
+      assert(0, "no blitter implementation for bitmap config " ~ to!string(device.config));
     }
   }
 
@@ -59,7 +59,7 @@ class Blitter
     case Bitmap.Config.ARGB_8888:
       return SpriteBlitter.CreateD32(device, source, paint, ioff);
     default:
-      assert(0, "no sprite blitter implementation for bitmap config " ~ std.conv.to!string(device.config));
+      assert(0, "no sprite blitter implementation for bitmap config " ~ to!string(device.config));
     }
   }
 

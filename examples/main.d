@@ -1,6 +1,6 @@
 module examples.main;
 
-import std.algorithm, std.datetime, std.stdio, std.typecons;
+import std.algorithm, std.datetime, std.datetime.stopwatch, std.stdio, std.typecons;
 import examples.circles, examples.zrusin_path;
 
 Tuple!(ulong, ulong) measure()
@@ -9,11 +9,11 @@ Tuple!(ulong, ulong) measure()
 
     auto sw = StopWatch(AutoStart.yes);
     circles("circles.png");
-    res[0] = sw.peek.usecs;
+    res[0] = sw.peek.total!"usecs";
 
     sw.reset();
     zrusin_path("zrusin.png");
-    res[1] = sw.peek.usecs;
+    res[1] = sw.peek.total!"usecs";
 
     return res;
 }

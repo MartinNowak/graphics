@@ -1,6 +1,6 @@
 module graphics.core.path;
 
-import std.algorithm, std.array, std.conv, std.math, std.numeric, std.range, std.traits, std.typetuple;
+import std.algorithm, std.array, std.complex, std.conv, std.math, std.numeric, std.range, std.traits, std.typetuple;
 import graphics.math.poly;
 import graphics.bezier.chop, graphics.core.path_detail._;
 import guip.point, guip.rect;

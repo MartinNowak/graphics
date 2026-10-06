@@ -42,7 +42,7 @@ private synchronized class FreeType
         return face;
     }
 
-    FT_Library library;
+    private FT_Library library;
 }
 
 enum Scale26D6 = 1.0f / 64;
@@ -123,7 +123,7 @@ synchronized class GlyphStore
         ReadWriteMutex mtx;
     }
 
-    Data[float][string] data;
+    private Data[float][string] data;
 }
 
 GlyphCache getGlyphCache(TypeFace typeFace, float textSize)

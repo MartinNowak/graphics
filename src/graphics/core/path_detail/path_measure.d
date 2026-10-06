@@ -1,6 +1,7 @@
 module graphics.core.path_detail.path_measure;
 
-import std.array, std.algorithm, std.conv, std.range, std.c.string;
+import core.stdc.string;
+import std.array, std.algorithm, std.conv, std.range;
 import graphics.bezier.chop, graphics.bezier.curve, graphics.core.path, graphics.bezier.curve, graphics.math.clamp;
 import guip.point;
 

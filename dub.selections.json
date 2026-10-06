@@ -1,0 +1,9 @@
+{
+	"fileVersion": 1,
+	"versions": {
+		"gamut": "3.5.1",
+		"guip": "~master",
+		"intel-intrinsics": "1.14.11",
+		"miniz": "0.0.4"
+	}
+}

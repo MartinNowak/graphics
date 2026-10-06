@@ -46,7 +46,7 @@ struct TextPaint
 
     enum TextAlign { Left, Center, Right, }
 
-    this(Color color=Color.Black, TypeFace typeFace=TypeFace.defaultFace())
+    this(Color color/*=Color.Black*/, TypeFace typeFace=TypeFace.defaultFace())
     {
         this.color = color;
         this.typeFace = typeFace;

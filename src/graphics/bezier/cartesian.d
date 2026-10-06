@@ -290,7 +290,7 @@ auto cartesianBezierWalker(T, size_t K)(
                     goto LfinishY;
                 else if (_ywalk.empty)
                     goto LfinishX;
-                else if (approxEqual(_xwalk.front, _ywalk.front, 1e-6, 1e-6))
+                else if (isClose(_xwalk.front, _ywalk.front, 1e-6, 1e-6))
                 {
                     immutable nt = 0.5 * (_xwalk.front + _ywalk.front);
                     _xwalk.popFront;
