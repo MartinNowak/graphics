@@ -282,7 +282,8 @@ static bool parse(T:bool)(ref string s)
         if (s[0] == '0') res = false;
         else if (s[0] == '1') res = true;
         else goto Lerror;
-        return s = s[1 .. $], res;
+        s = s[1 .. $];
+        return res;
     }
  Lerror: throw new ConvException("expected '0'|'1' not "~s);
 }

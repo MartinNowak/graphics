@@ -5,5 +5,6 @@
     "targetType": "executable",
     "dependencies": {
         "graphics": "~master",
+        "std-experimental-xml": "~>0.1.7",
     },
 }
