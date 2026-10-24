@@ -142,7 +142,9 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
                 break;
 
             case Path.Verb.Move:
-                assert(0, "Can't close path when last operation was a moveTo");
+                // A "Z" directly after a "M" closes a zero-area
+                // subpath; it draws nothing, so emit no Close verb.
+                break;
             }
         }
     }
