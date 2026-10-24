@@ -88,53 +88,43 @@ debug(IllinoisStats)
     }
 }
 
-T findRootIllinois(T, R)(scope R delegate(T) f, T a, T b)
+T findRootIllinois(alias f, T)(T a, T b, T fa, T fb)
 {
-    size_t iterations;
-    R fa = f(a);
-    R fb = f(b);
-    T gamma = 1.0;
-    do
+  size_t iterations;
+  do
+  {
+    T c = b - (b - a) * (fb / (fb - fa)); // numerically stable secant
+    T fc = f(c);
+
+    if (abs(fc) <= tolerance)
     {
-        T c = (gamma * b * fa - a * fb) / (gamma * fa - fb);
-        T fc = f(c);
-        debug(Illinois) writeln("illinois step: ", iterations,
-                                " a: ", a, " fa: ", fa,
-                                " b: ", b, " fb: ", fb,
-                                " c: ", c, " fc: ", fc);
-        if (fc < tolerance && fc > -tolerance)
-        {
-            debug(Illinois)
-                writeln("converged after: ", iterations,
-                        " at: ", c);
-            debug(IllinoisStats)
-            {
-                .sumIterations += iterations + 1;
-                ++.numRuns;
-            }
-            return c;
-        }
-        else
-        {
-            if ((fc < 0) != (fb < 0))
-            {
-                a = b;
-                fa = fb;
-                gamma = 1.0;
-            }
-            else
-            {
-                gamma = 0.5;
-            }
-            b = c;
-            fb = fc;
-        }
-    } while (++iterations < 1000);
-    assert(0, std.string.format(
+      debug(IllinoisStats)
+      {
+        .sumIterations += iterations + 1;
+        ++.numRuns;
+      }
+      return c;
+    }
+
+    if ((fc < 0) != (fb < 0))
+    {
+      a = b;
+      fa = fb;
+    }
+    else
+    {
+      // Anderson-Björck scaling factor (faster than plain 0.5 Illinois)
+      T m = 1.0 - fc / fb;
+      fa *= (m > 0.0) ? m : 0.5;
+    }
+    b = c;
+    fb = fc;
+  } while (++iterations < 1000);
+
+  assert(0, std.string.format(
                "Failed to converge. Interval [f(%s)=%s .. f(%s)=%s]",
                a, fa, b, fb));
 }
-
 /*
  * Evaluates polynome p[0] * t ^ (N-1) ... + p[N-1].
  */

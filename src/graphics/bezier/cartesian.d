@@ -148,7 +148,13 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
 
     void popFront()
     {
-        _curT = _curT.nan;
+        // If front() was evaluated, use it as the lower bound for the next step!
+        if (!isNaN(_curT))
+        {
+            _prevT = _curT;
+            _prevVal = _position + (direction > 0);
+        }
+        _curT = double.nan;
         _position += direction;
     }
 
@@ -215,8 +221,13 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
         {
             immutable v = _position + (_pastend > _position);
 
-            double dg(double t) { return poly!T(_coeffs, t) - v; }
-            return findRootIllinois(&dg, 0.0, 1.0);
+            scope eval = (double t) @nogc nothrow pure { return poly!T(_coeffs, t) - v; };
+            // Use previous root as lower bracket `a` if available!
+            T a = isNaN(_prevT) ? 0.0 : _prevT;
+            T fa = (isNaN(_prevT) ? _coeffs[3] : _prevVal) - v; // Avoids calling eval(a)!
+            T b = 1.0;
+            T fb = _coeffs[0] + _coeffs[1] + _coeffs[2] + _coeffs[3] - v; // Avoids multiplications for t=1.0!
+            return findRootIllinois!eval(a, b, fa, fb);
         }
     }
     else
@@ -249,7 +260,9 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
     int _position;
     int _pastend;
     T[K] _coeffs;
-    double _curT;
+    double _curT = double.nan;
+    double _prevT = double.nan;
+    T _prevVal = 0.0;
 }
 
 auto cartesianBezierWalker(T, size_t K)(
