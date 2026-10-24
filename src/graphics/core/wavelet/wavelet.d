@@ -170,12 +170,13 @@ struct WaveletRaster
 
     void updateCoeffs(size_t K)(ref const FPoint[K] curve)
     {
-        _tStack[] = 0;
+        _interimStack[] = Interim(0, 0, 0, 0);
 
         immutable center = FPoint(0.5 * _clipRect.width, 0.5 * _clipRect.height);
         auto cartesian = cartesianBezierWalker!(float, K)(curve, center);
         auto g0 = cartesian.pos;
 
+        auto t0 = 0.0f;
         // Iterate of all crossings of a bezier curve with
         // cartesian coordinates. At each crossing we need to
         // create a slice of the curve and update the wavelet
@@ -190,39 +191,59 @@ struct WaveletRaster
             immutable nup = 1 + bsr(g0.x ^ g1.x | g0.y ^ g1.y);
             assert(nup <= _depth);
 
-            updateNodes(curve, g0, t1, nup);
+            updateNodes(curve, g0, t0, t1, nup);
 
-            // shift grid position and update node stack
-            _tStack[0 .. nup] = t1;
+            // shift grid position
+            t0 = t1;
             g0 = g1;
         }
 
         // Finish off the remaining non-grid part
-        if (_tStack[0] < 1.0f)
+        if (t0 < 1.0f)
         {
-            updateNodes(curve, g0, 1.0f, _depth);
+            updateNodes(curve, g0, t0, 1.0f, _depth);
         }
     }
 
     private void updateNodes(size_t K)
-        (ref const FPoint[K] curve, ref const IPoint pos, float t1, size_t depth)
+        (in ref FPoint[K] curve, in ref IPoint pos, float t0, float t1, size_t depth)
     {
         auto cidx = posToLinQuad(pos);
 
+        // 1. Slice and integrate ONLY at the leaf level (d = 0, scale = 1)
+        FPoint[K] tmp = void;
+        sliceBezier(curve, t0, t1, tmp);
+
+        immutable float xo = pos.x;
+        immutable float yo = pos.y;
+        foreach (i; SIota!(0, K))
+        {
+            tmp[i].x -= xo;
+            tmp[i].y -= yo;
+        }
+
+        Interim imp = calcInterim!K(1.0f, tmp);
+
+        // 2. Propagate Interim up to `depth` levels
         for (size_t d = 0; d < depth; ++d)
         {
-            FPoint[K] tmp = void;
-            immutable t0 = _tStack[d];
-            sliceBezier(curve, t0, t1, tmp);
-
             immutable q = cast(Quad)(cidx % 4);
             cidx /= 4;
-            // Update wavelet coefficient for this node/level.
+
             if (!bts(_coeffMarks[d], cidx))
                 _coeffs[d][cidx][] = 0.0f;
 
-            immutable half = 1 << d;
-            calcCoeffs!K(pos, half, q, tmp, _coeffs[d][cidx]);
+            addInterim(q, imp, _coeffs[d][cidx]);
+
+            if (d + 1 < _depth)
+            {
+                addParentInterim(q, imp, _interimStack[d + 1]);
+                if (d + 1 < depth)
+                {
+                    imp = _interimStack[d + 1];
+                    _interimStack[d + 1] = Interim(0, 0, 0, 0);
+                }
+            }
         }
     }
 
@@ -264,7 +285,7 @@ struct WaveletRaster
     IRect _clipRect;
 
     enum MAX_DEPTH = 15; // limited by ushort for linearQuadtreeCoord
-    float[MAX_DEPTH] _tStack;
+    Interim[MAX_DEPTH] _interimStack;
     Coeffs[][MAX_DEPTH] _coeffs;
     size_t*[MAX_DEPTH] _coeffMarks;
 }

@@ -118,17 +118,31 @@ void addInterim(Quad q, in ref Interim tmp, ref float[3] coeffs) {
 
 //------------------------------------------------------------------------------
 
-void calcCoeffs(size_t K)(IPoint pos, uint half, Quad q, ref FPoint[K] pts, ref float[3] coeffs)
+void addParentInterim(Quad q, in ref Interim child, ref Interim parent)
 {
-    pos.x &= ~(half - 1);
-    pos.y &= ~(half - 1);
-    immutable float xo = pos.x;
-    immutable float yo = pos.y;
-    foreach(i; SIota!(0, K))
-    {
-        pts[i].x -= xo;
-        pts[i].y -= yo;
-    }
+    parent.Kx += 0.5f * child.Kx;
+    parent.Ky += 0.5f * child.Ky;
 
-    return updateCoeffs!(K)(q, half, pts, coeffs);
+    final switch (q)
+    {
+    case Quad._00:
+        parent.Lx += 0.25f * child.Lx;
+        parent.Ly += 0.25f * child.Ly;
+        break;
+
+    case Quad._01:
+        parent.Lx += 0.25f * (child.Lx + child.Kx);
+        parent.Ly += 0.25f * child.Ly;
+        break;
+
+    case Quad._10:
+        parent.Lx += 0.25f * child.Lx;
+        parent.Ly += 0.25f * (child.Ly + child.Ky);
+        break;
+
+    case Quad._11:
+        parent.Lx += 0.25f * (child.Lx + child.Kx);
+        parent.Ly += 0.25f * (child.Ly + child.Ky);
+        break;
+    }
 }
