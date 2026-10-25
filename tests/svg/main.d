@@ -1,4 +1,4 @@
-import std.algorithm, std.ascii, std.conv, std.exception, std.file, std.math, std.path, std.range, std.stdio, std.string;
+import std.algorithm, std.ascii, std.conv, std.exception, std.file, std.getopt, std.math, std.path, std.range, std.stdio, std.string;
 import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser, std.experimental.xml.sax;
 import std.experimental.xml.interfaces : isCursor;
 import graphics;
@@ -54,7 +54,7 @@ void parseViewBox(ref float[4] vb, string s)
     enforce(s.empty, "invalid viewBox: "~s);
 }
 
-void renderSVG(string fn)
+void renderSVG(string fn, float zoom)
 {
     string text = cast(string)std.file.read(fn);
 
@@ -73,6 +73,7 @@ void renderSVG(string fn)
         Canvas canvas;
         Style[] styles;
         Path path;
+        float zoom;
         bool inRoot;
 
         // Set up the canvas and the viewport zoom (viewBox -> canvas).
@@ -87,19 +88,20 @@ void renderSVG(string fn)
                 enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
             }
 
-            // canvas size: width/height attributes, else the viewBox dims
+            // canvas size: width/height attributes, else the viewBox dims,
+            // scaled by the CLI zoom factor
             // FIXME: <length>
-            uint width = ("width" in a) ? parseLength(*("width" in a)) : to!uint(round(vb[2]));
-            uint height = ("height" in a) ? parseLength(*("height" in a)) : to!uint(round(vb[3]));
+            immutable width = float(("width" in a) ? parseLength(*("width" in a)) : vb[2]) * zoom;
+            immutable height = float(("height" in a) ? parseLength(*("height" in a)) : vb[3]) * zoom;
 
-            bmp = Bitmap(Bitmap.Config.ARGB_8888, width, height);
+            bmp = Bitmap(Bitmap.Config.ARGB_8888, to!uint(round(width)), to!uint(round(height)));
             canvas = new Canvas(bmp);
 
             // Zoom: uniformly scale the viewBox into the canvas, preserving
             // aspect ratio and centering it ("xMidYMid meet").
-            immutable s = min(float(width) / vb[2], float(height) / vb[3]);
-            immutable tx = (float(width) - vb[2] * s) * 0.5f - vb[0] * s;
-            immutable ty = (float(height) - vb[3] * s) * 0.5f - vb[1] * s;
+            immutable s = min(width / vb[2], height / vb[3]);
+            immutable tx = (width - vb[2] * s) * 0.5f - vb[0] * s;
+            immutable ty = (height - vb[3] * s) * 0.5f - vb[1] * s;
             Matrix zoom;
             zoom[0][0] = s;
             zoom[1][1] = s;
@@ -328,6 +330,7 @@ void renderSVG(string fn)
     }
 
     auto sax = c.saxParser!(Handler);
+    sax.handler.zoom = zoom;
     sax.setSource(text);
     sax.processDocument();
     enforce(sax.handler.inRoot, "no <svg> root element");
@@ -335,8 +338,15 @@ void renderSVG(string fn)
     sax.handler.bmp.save(fn.setExtension("png"));
 }
 
+// Usage: svg [-z|--zoom <factor>] <file.svg> ...
+// -z/--zoom scales the canvas (and thus the rendering) uniformly.
 void main(string[] args)
 {
-    foreach(file; args[1 .. $])
-        renderSVG(file);
+    float zoom = 1.0f;
+    auto rslt = getopt(args, "zoom|z", "scale the canvas (default: 1)", &zoom);
+    if (rslt.helpWanted)
+        defaultGetoptPrinter("Render SVG files to PNG files.", rslt.options);
+    enforce(zoom > 0, "zoom factor must be positive");
+    foreach (file; args[1 .. $])
+        renderSVG(file, zoom);
 }
