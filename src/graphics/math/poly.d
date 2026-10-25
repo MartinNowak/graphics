@@ -42,25 +42,21 @@ body
     if (a == 0)
         return polyRoots(b, c, x[0]);
 
-    immutable discriminant = b * b - 4 * a * c;
-    if (discriminant < 0)
+    const delta4 = b * b / 4 - a * c;          // half-discriminant
+    if (delta4 < 0)
         return 0;
-
-    immutable div = 1 / (2 * a);
-    if (discriminant == 0)
+    if (delta4 == 0)
     {
-        x[0] = -b * div;
+        x[0] = -b / (2 * a);
         return 1;
     }
-    else
-    {
-        immutable root = sqrt(discriminant);
-        x[0] = (-b + root) * div;
-        x[1] = (-b - root) * div;
-        if (x[1] < x[0])
-            swap(x[0], x[1]);
-        return 2;
-    }
+    const d2 = sqrt(delta4);
+    const q = -(b / 2 + ((b > 0) ? d2 : -d2));  // |q| = |b/2| + d2 — no cancellation
+    x[0] = q / a;
+    x[1] = c / q;                               // Vieta partner (product = c/a)
+    if (x[1] < x[0])
+        swap(x[0], x[1]);
+    return 2;
 }
 
 unittest {
@@ -73,6 +69,13 @@ unittest {
     double[2] ts;
     assert(polyRoots(0.0, 1.0, 0.0, ts) == 1 && ts[0] == 0.0);  // degenerate quadratic (a == 0)
     assert(polyRoots(1.0, 1.0, 0.0, ts) == 2 && ts[0] == -1.0 && ts[1] == 0.0);
+    assert(polyRoots(1.0, 0.0, -1.0, ts) == 2 && ts[0] == -1.0 && ts[1] == 1.0);  // b == 0
+    assert(polyRoots(1.0, 2.0, 1.0, ts) == 1 && ts[0] == -1.0);  // double root
+    // near-coincident roots: the naive quadratic formula loses the small root
+    // to cancellation; q/Vieta keeps it (true value c/(2a) = 5e-17)
+    assert(polyRoots(1.0, -2.0, 1e-16, ts) == 2);
+    assert(isClose(ts[0], 5e-17));
+    assert(isClose(ts[1], 2.0));
 }
 
 enum tolerance = 1e-4;
