@@ -78,57 +78,6 @@ unittest {
     assert(isClose(ts[1], 2.0));
 }
 
-enum tolerance = 1e-4;
-// debug=Illinois;
-// debug = IllinoisStats;
-debug(IllinoisStats) import std.stdio;
-debug(IllinoisStats)
-{
-    size_t sumIterations;
-    size_t numRuns;
-    static ~this()
-    {
-        std.stdio.writefln("mean iterations %s", 1.0 * sumIterations / numRuns);
-    }
-}
-
-T findRootIllinois(alias f, T)(T a, T b, T fa, T fb)
-{
-  size_t iterations;
-  do
-  {
-    T c = b - (b - a) * (fb / (fb - fa)); // numerically stable secant
-    T fc = f(c);
-
-    if (abs(fc) <= tolerance)
-    {
-      debug(IllinoisStats)
-      {
-        .sumIterations += iterations + 1;
-        ++.numRuns;
-      }
-      return c;
-    }
-
-    if ((fc < 0) != (fb < 0))
-    {
-      a = b;
-      fa = fb;
-    }
-    else
-    {
-      // Anderson-Björck scaling factor (faster than plain 0.5 Illinois)
-      T m = 1.0 - fc / fb;
-      fa *= (m > 0.0) ? m : 0.5;
-    }
-    b = c;
-    fb = fc;
-  } while (++iterations < 1000);
-
-  assert(0, std.string.format(
-               "Failed to converge. Interval [f(%s)=%s .. f(%s)=%s]",
-               a, fa, b, fb));
-}
 /*
  * Evaluates polynomial p[0] * t^(K-1) + ... + p[K-1] and its derivative
  * p'(t) at t in one Horner pass.

@@ -2,7 +2,7 @@ module graphics.bezier.curve;
 
 import guip.point;
 import graphics.math.clamp, graphics.math.poly;
-import std.algorithm;
+import std.algorithm, std.math;
 
 void bezToPoly(T)(ref T[2] line)
 {
@@ -88,87 +88,68 @@ void constructBezier(T)(Point!T p0, Point!T p1, Vector!T d0, Vector!T d1, ref Po
     cubic[2].y -= cast(T)(1./3.) * d1.y;
 }
 
-/**
- * calculates t parameter of quad x extrema
- * Returns: number of found extremas (0 or 1)
- */
-int bezierExtremaX(T)(ref const Point!T[3] quad, ref double t) {
-  const b = quad[1].x - quad[0].x;
-  const a = quad[2].x - quad[1].x - b;
-  if (polyRoots(a, b, t) && fitsIntoRange!("()")(t, 0, 1))
-    return 1;
-  return 0;
+// Derivative's roots (critical points) of `curve` along `dir`, kept in the
+// open interval (0, 1). `ts` holds up to 2 results; returns the count,
+// sorted ascending.
+// K=2: none (returns 0)
+// K=3: derivative linear     -> 2-arg polyRoots (exact)
+// K=4: derivative quadratic  -> 3-arg polyRoots (stable q/Vieta)
+int criticalPoints(string dir, T, size_t K)(ref const Point!T[K] curve, ref double[2] ts)
+{
+    T[K] c = void;
+    foreach(i; SIota!(0, K))
+        c[i] = __traits(getMember, curve[i], dir);
+    static if (K == 2)
+        return 0;
+    else
+    {
+        bezToPoly(c);
+        static if (K == 3)
+        {
+            // p'(t) = 2 * c[0] * t + c[1]
+            int cnt = polyRoots(2 * c[0], c[1], ts[0]);
+            return cnt && fitsIntoRange!("()")(ts[0], 0, 1) ? 1 : 0;
+        }
+        else
+        {
+            // p'(t) = 3 * c[0] * t^2 + 2 * c[1] * t + c[2]
+            int cnt = polyRoots(3 * c[0], 2 * c[1], c[2], ts);
+            int res = 0;
+            foreach(i; 0 .. cnt)
+                if (fitsIntoRange!("()")(ts[i], 0, 1))
+                    ts[res++] = ts[i];
+            return res;
+        }
+    }
 }
 
-/**
- * calculates t parameter of quad x extrema
- * Returns: number of found extremas (0 or 1)
- */
-int bezierExtremaY(T)(ref const Point!T[3] quad, ref double t) {
-  const b = quad[1].y - quad[0].y;
-  const a = quad[2].y - quad[1].y - b;
-  if (polyRoots(a, b, t) && fitsIntoRange!("()")(t, 0, 1))
-    return 1;
-  return 0;
-}
-
-int bezierExtrema(T)(ref const Point!T[3] quad, ref double[2] ts) {
-  uint cnt;
-  cnt += bezierExtremaX(quad, ts[cnt]);
-  cnt += bezierExtremaY(quad, ts[cnt]);
-  sort(ts[0 .. cnt]);
-  return cnt;
-}
-
-
-/**
- * calculates t parameters of cubic x extrema
- * Returns: number of found extremas (0 or 1)
- */
-int bezierExtremaX(T)(ref const Point!T[4] cubic, ref double[2] ts) {
-  const d10 = cubic[1].x - cubic[0].x;
-  const d21 = cubic[2].x - cubic[1].x;
-  const d32 = cubic[3].x - cubic[2].x;
-  return cubicPolyRoots(d10, d21, d32, ts);
-}
-
-/**
- * calculates t parameters of cubic x extrema
- * Returns: number of found extremas (0 or 1)
- */
-int bezierExtremaY(T)(ref const Point!T[4] cubic, ref double[2] ts) {
-  const d10 = cubic[1].y - cubic[0].y;
-  const d21 = cubic[2].y - cubic[1].y;
-  const d32 = cubic[3].y - cubic[2].y;
-  return cubicPolyRoots(d10, d21, d32, ts);
-}
-
-int bezierExtrema(T)(ref const Point!T[4] cubic, ref double[4] ts) {
-  double[2] tx = void;
-  auto xcnt = bezierExtremaX(cubic, tx);
-  foreach(i; 0 .. xcnt)
-    ts[i] = tx[i];
-  double[2] ty = void;
-  auto ycnt = bezierExtremaY(cubic, ty);
-  foreach(i; 0 .. ycnt)
-    ts[xcnt + i] = ty[i];
-  sort(ts[0 .. xcnt + ycnt]);
-  return xcnt + ycnt;
-}
-
-private int cubicPolyRoots(double d10, double d21, double d32, ref double[2] ts) {
-  const a = d10 - 2 * d21 + d32;
-  const b = 2 * (d21 - d10);
-  const c = d10;
-
-  uint rootcnt = polyRoots(a, b, c, ts);
-  if (rootcnt > 1 && !fitsIntoRange!("()")(ts[0], 0, 1)) {
-    --rootcnt;
-    swap(ts[0], ts[1]);
+// thin count-only wrapper for asserts. Counts interior critical points,
+// except those whose extremum value lies within a few ulps of an endpoint
+// value: subdividing a curve whose derivative vanishes exactly at the
+// split point / endpoint in float shifts that critical point slightly
+// inside (0, 1), and the shift is value noise, not a real wiggle.
+int criticalCount(string dir, T, size_t K)(ref const Point!T[K] curve)
+{
+  double[2] ts = void;
+  auto cnt = criticalPoints!(dir, T, K)(curve, ts);
+  debug if (cnt >= 2) {
+    import graphics.math.poly: poly;
+    // two interior critical points are impossible on a monotone segment
+    // except as float noise at the endpoints; count only the real wiggles
+    T[K] v = void;
+    foreach(i; SIota!(0, K))
+      v[i] = __traits(getMember, curve[i], dir);
+    bezToPoly(v);
+    const v0 = poly!T(v, 0.0);
+    const v1 = poly!T(v, 1.0);
+    const tol = 16.0 * T.epsilon * max(cast(double)abs(v0), cast(double)abs(v1));
+    foreach (t; ts) {
+        const val = poly!T(v, t);
+        if (abs(val - v0) <= tol || abs(val - v1) <= tol)
+            --cnt;
+    }
   }
-  if (rootcnt > 0 && !fitsIntoRange!("()")(ts[rootcnt - 1], 0, 1))
-    --rootcnt;
-  return rootcnt;
+  return cnt;
 }
 
 bool monotonic(string dir, T, size_t K)(Point!T[K] curve) {
@@ -183,12 +164,13 @@ bool monotonic(string dir, T, size_t K)(Point!T[K] curve) {
   return true;
 }
 
-version(unittest) import std.math;
 unittest {
   FPoint[3] quad = [FPoint(0, 0), FPoint(1, 1), FPoint(0, 0)];
-  double t;
-  assert(bezierExtremaY(quad, t) > 0);
-  assert(isClose(t, 0.5));
-  assert(bezierExtremaX(quad, t) > 0);
-  assert(isClose(t, 0.5));
+  double[2] ts;
+  auto cnt = criticalPoints!"y"(quad, ts);
+  assert(cnt > 0);
+  assert(isClose(ts[0], 0.5));
+  cnt = criticalPoints!"x"(quad, ts);
+  assert(cnt > 0);
+  assert(isClose(ts[0], 0.5));
 }

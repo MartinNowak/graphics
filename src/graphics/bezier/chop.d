@@ -2,6 +2,7 @@ module graphics.bezier.chop;
 
 import graphics.bezier.curve, graphics.math.clamp, graphics.math.poly;
 import guip.point;
+import std.algorithm;
 
 /**
  * Split bezier curve with de Castlejau algorithm.
@@ -90,8 +91,16 @@ in {
 } body {
   static assert(MS >= 1 + 2 * (K-2));
 
+  double[2] tx = void, ty = void;
+  immutable xcnt = criticalPoints!"x"(curve, tx);
+  immutable ycnt = criticalPoints!"y"(curve, ty);
   double[2*(K-2)] ts;
-  auto cnt = bezierExtrema(curve, ts);
+  foreach(i; 0 .. xcnt)
+    ts[i] = tx[i];
+  foreach(i; 0 .. ycnt)
+    ts[xcnt + i] = ty[i];
+  auto cnt = xcnt + ycnt;
+  sort(ts[0 .. cnt]);
   if (cnt == 1) {
     monos[1] = curve;
     splitBezier(monos[0], monos[1], ts[0]);
@@ -116,6 +125,13 @@ in {
     } else
       constructBezier(lastPt, curve[$-1], lastDer * (1 - lastT), monos[cnt]);
   }
+  debug
+  {
+    // a monotone segment has at most one critical point (real wiggle);
+    // checked exactly where the segments are born
+    foreach(i; 0 .. cnt + 1)
+      assert(criticalCount!"x"(monos[i]) <= 1 && criticalCount!"y"(monos[i]) <= 1);
+  }
   return cnt + 1;
 }
 
@@ -133,4 +149,22 @@ unittest {
     assert(monotonic!"x"(mono) && monotonic!"y"(mono));
   assert(monos[0][0] == FPoint(0, 0));
   assert(monos[2][2] == FPoint(0, 0));
+}
+
+unittest {
+  // Regression (butterfly.svg): cubic with P2 == P3, so x' and y' vanish
+  // exactly at t = 1 and x' has one interior root at t = 34.5/262.5.
+  // Subdividing at that root in float shifts the endpoint critical points
+  // slightly inside (0, 1): the right segment's x derivative has two
+  // strictly-interior roots whose extremum values are within a few ulps of
+  // the endpoint values. That float noise must not be counted as real
+  // wiggles, or the monotonicity tripwire (and clipMonoBezierImpl's)
+  // fire on a segment that is monotone to within rounding.
+  FPoint[4] cubic = [FPoint(323.62, 177.12), FPoint(335.12, 168.12),
+                      FPoint(297.12, 168.12), FPoint(297.12, 168.12)];
+  FPoint[4][5] monos;
+  auto cnt = chopMonotonic(cubic, monos);
+  assert(cnt == 2);
+  foreach(i; 0 .. cnt)
+    assert(criticalCount!"x"(monos[i]) <= 1 && criticalCount!"y"(monos[i]) <= 1);
 }
