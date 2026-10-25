@@ -1,7 +1,8 @@
-import std.algorithm, std.conv, std.exception, std.file, std.path, std.range, std.string;
+import std.algorithm, std.ascii, std.conv, std.exception, std.file, std.math, std.path, std.range, std.stdio, std.string;
 import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser, std.experimental.xml.sax;
 import std.experimental.xml.interfaces : isCursor;
 import graphics;
+import graphics.core.matrix;
 import graphics.core.svg;
 
 T convAttr(T)(in string[string] aa, string s, T def)
@@ -39,6 +40,20 @@ uint parseLength(string s)
     return to!uint(res);
 }
 
+// Parse a viewBox value: "min-x min-y width height", whitespace/comma separated.
+void parseViewBox(ref float[4] vb, string s)
+{
+    foreach (ref v; vb)
+    {
+        while (!s.empty && (s[0] == ',' || isWhite(s[0])))
+            s = s[1 .. $];
+        v = std.conv.parse!float(s);
+    }
+    while (!s.empty && (s[0] == ',' || isWhite(s[0])))
+        s = s[1 .. $];
+    enforce(s.empty, "invalid viewBox: "~s);
+}
+
 void renderSVG(string fn)
 {
     string text = cast(string)std.file.read(fn);
@@ -60,16 +75,37 @@ void renderSVG(string fn)
         Path path;
         bool inRoot;
 
-        // Set up the canvas from the root element's width/height attributes.
+        // Set up the canvas and the viewport zoom (viewBox -> canvas).
         void setupRoot(in string[string] a)
         {
-            uint width = 1000, height = 1000;
+            // viewBox="min-x min-y width height"; fall back to a fixed viewBox
+            // when it is missing.
+            float[4] vb = [0.0f, 0.0f, 1000.0f, 1000.0f];
+            if (auto p = "viewBox" in a)
+            {
+                parseViewBox(vb, *p);
+                enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
+            }
+
+            // canvas size: width/height attributes, else the viewBox dims
             // FIXME: <length>
-            if (auto p = "width" in a) width = parseLength(*p);
-            if (auto p = "height" in a) height = parseLength(*p);
+            uint width = ("width" in a) ? parseLength(*("width" in a)) : to!uint(round(vb[2]));
+            uint height = ("height" in a) ? parseLength(*("height" in a)) : to!uint(round(vb[3]));
 
             bmp = Bitmap(Bitmap.Config.ARGB_8888, width, height);
             canvas = new Canvas(bmp);
+
+            // Zoom: uniformly scale the viewBox into the canvas, preserving
+            // aspect ratio and centering it ("xMidYMid meet").
+            immutable s = min(float(width) / vb[2], float(height) / vb[3]);
+            immutable tx = (float(width) - vb[2] * s) * 0.5f - vb[0] * s;
+            immutable ty = (float(height) - vb[3] * s) * 0.5f - vb[1] * s;
+            Matrix zoom;
+            zoom[0][0] = s;
+            zoom[1][1] = s;
+            zoom[0][2] = tx;
+            zoom[1][2] = ty;
+            canvas.matrix = zoom;
         }
 
         Style pushStyle(in string[string] attr)
