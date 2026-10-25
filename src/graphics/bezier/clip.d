@@ -90,10 +90,20 @@ int clipBezier(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref const Rec
 
 bool clipMonoBezier(T, size_t K)(ref const Point!T[K] curve, ref const Rect!T rect, ref Point!T[K] clipped) {
   assert(!rect.empty);
-  return
-    curve[0] != curve[$-1]
-    && clipMonoBezierImpl!("x")(curve, rect.left, rect.right, clipped)
-    && clipMonoBezierImpl!("y")(clipped, rect.top, rect.bottom, clipped);
+  if (curve[0] != curve[$-1]
+      && clipMonoBezierImpl!("x")(curve, rect.left, rect.right, clipped)
+      && clipMonoBezierImpl!("y")(clipped, rect.top, rect.bottom, clipped)) {
+      // sliceBezier rebuilds endpoints as poly(t); the float evaluation
+      // can land just outside the rect. Snap them back in.
+      // (The y clip re-derives x coordinates too, so this must run
+      // after both dimension clips, not inside clipMonoBezierImpl.)
+      clipped[0].x = clampToRange(clipped[0].x, rect.left, rect.right);
+      clipped[0].y = clampToRange(clipped[0].y, rect.top, rect.bottom);
+      clipped[$-1].x = clampToRange(clipped[$-1].x, rect.left, rect.right);
+      clipped[$-1].y = clampToRange(clipped[$-1].y, rect.top, rect.bottom);
+      return true;
+  }
+  return false;
 }
 
 bool clipMonoBezierImpl(string dir, T, size_t K)
