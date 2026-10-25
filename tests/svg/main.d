@@ -62,7 +62,12 @@ void renderSVG(string fn, float zoom)
     auto c = text.lexer.parser.cursor((CursorError e) {});
     alias C = typeof(c);
 
-    static struct Style { bool transform; Color cstroke, cfill=Color.Black; float strokeWidth=1; }
+    static struct Style
+    {
+        bool transform;
+        Color cstroke, cfill=Color.Black;
+        float strokeWidth=1, opacity=1, fillOpacity=1, strokeOpacity=1;
+    }
 
     // Push-style traversal of the SVG document: the SAX parser walks the whole
     // document (prolog, DTD, elements) and calls the matching `on*` handler
@@ -131,6 +136,18 @@ void renderSVG(string fn, float zoom)
                     style.cstroke = color(v);
                     break;
 
+                case "opacity":
+                    style.opacity = to!float(v);
+                    break;
+
+                case "fill-opacity":
+                    style.fillOpacity = to!float(v);
+                    break;
+
+                case "stroke-opacity":
+                    style.strokeOpacity = to!float(v);
+                    break;
+
                 case "transform":
                     style.transform = true;
                     canvas.save();
@@ -171,16 +188,26 @@ void renderSVG(string fn, float zoom)
         {
             immutable s = pushStyle(attr);
             scope (exit) popStyle();
+
+            // Effective paint alpha: the group `opacity` multiplies the
+            // per-paint opacity (fill-opacity/stroke-opacity) and the
+            // color's own alpha.
+            immutable op = clamp(s.opacity, 0f, 1f);
+
             if (s.cstroke.a != 0)
             {
                 import graphics.core.patheffect;
                 auto stroked = strokePath(path, s.strokeWidth);
-                canvas.drawPath(stroked, Paint(s.cstroke));
+                Color c = s.cstroke;
+                c.a = to!ubyte(round(c.a * op * clamp(s.strokeOpacity, 0f, 1f)));
+                canvas.drawPath(stroked, Paint(c));
             }
             if (s.cfill.a != 0)
             {
                 path.close();
-                canvas.drawPath(path, Paint(s.cfill));
+                Color c = s.cfill;
+                c.a = to!ubyte(round(c.a * op * clamp(s.fillOpacity, 0f, 1f)));
+                canvas.drawPath(path, Paint(c));
             }
             path.reset();
         }
