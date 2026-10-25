@@ -141,7 +141,11 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
         if (isNaN(_curT))
         {
             _curT = findT();
-            assert(fitsIntoRange!("()")(_curT, 0, 1), text(_curT, " ", _position, " ", _pastend, " ",  _coeffs));
+            // The crossing can legitimately land on a segment endpoint
+            // (the curve touches the grid line at t = 0|1); clamp the
+            // floating-point noise just outside [0, 1].
+            assert(fitsIntoRange!("[]")(_curT, 0, 1), text(_curT, " ", _position, " ", _pastend, " ",  _coeffs));
+            _curT = clampToRange(_curT, 0.0, 1.0);
         }
         return _curT;
     }
