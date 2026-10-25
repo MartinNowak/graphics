@@ -21,14 +21,13 @@ shared static this()
 
 static this()
 {
-  src = getArbitraryArray!(PMColor)(128);
   dst = getArbitraryArray!(PMColor)(128);
 }
 
 void benchColor32()
 {
     foreach (i; 0 .. 100_000)
-        Color32(dst, src, color);
+        Color32(dst, color);
 }
 
 void runBlit(BenchmarkReporter reporter)

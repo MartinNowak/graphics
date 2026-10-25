@@ -117,9 +117,23 @@ class ARGB32Blitter : RasterBlitter {
 
   override void blitMask(int x, int y, in Bitmap mask) {
     assert(mask.config == Bitmap.Config.A8);
+
+    auto src = (cast(Bitmap)mask);
+    auto w = src.width;
+    auto colA = this.color.a;
+
+    // Decode each mask row into runs of equal alpha; each run is one
+    // constant-alpha Color32 fill.
     for (auto h = 0; h < mask.height; ++h) {
-      BlitAASpan(this.bitmap.getRange!PMColor(x, x + mask.width, y + h),
-                 (cast(Bitmap)mask).getRange!ubyte(0, mask.width, h), this.color);
+      auto dst = this.bitmap.getRange!PMColor(x, x + w, y + h);
+      foreach (a, n; src.getRange!ubyte(0, w, h).group()) {
+        if (a) {
+          auto c = this.color;
+          c.a = alphaMul(colA, alphaScale(a));
+          Color32(dst[0..n], PMColor(c));
+        }
+        dst.popFrontExactly(n);
+      }
     }
   }
 }
@@ -155,6 +169,25 @@ class ShaderARGB32Blitter : ARGB32Blitter {
     this.data.length = xend - xstart;
     this.shader.getRange(xstart, y, this.data);
     this.blitRowAlpha(dst, this.data, alpha);
+  }
+
+  override void blitMask(int x, int y, in Bitmap mask) {
+    assert(mask.config == Bitmap.Config.A8);
+
+    auto src = (cast(Bitmap)mask);
+    auto w = src.width;
+
+    for (auto h = 0; h < mask.height; ++h) {
+      auto dst = this.bitmap.getRange!PMColor(x, x + w, y + h);
+      this.data.length = w;
+      this.shader.getRange(x, y + h, this.data);
+      foreach (a, n; src.getRange!ubyte(0, w, h).group()) {
+        if (a)
+          this.blitRowAlpha(dst[0..n], this.data[0..n], a);
+        dst.popFrontExactly(n);
+        this.data.popFrontExactly(n);
+      }
+    }
   }
 }
 

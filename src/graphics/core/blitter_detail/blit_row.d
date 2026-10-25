@@ -1,22 +1,18 @@
 module graphics.core.blitter_detail.blit_row;
 
 import std.array;
-import std.range : popFront, front, empty;
+import std.range : popFront, front, empty, isRandomAccessRange;
 import graphics.core.pmcolor;
 import graphics.core.blitter_detail.blit_row_factory;
 
 static void Color32(Range)(Range range, PMColor pmColor) {
   if (pmColor.a == 255) {
-    while (!range.empty) {
-      range.front = pmColor;
-      range.popFront;
-    }
+    foreach (ref px; range)
+      px = pmColor;
   } else {
     auto scale = invAlphaScale(pmColor.a);
-    while (!range.empty) {
-      range.front = alphaMul(range.front, scale) + pmColor;
-      range.popFront;
-    }
+    foreach (ref px; range)
+      px = alphaMul(px, scale) + pmColor;
   }
 }
 

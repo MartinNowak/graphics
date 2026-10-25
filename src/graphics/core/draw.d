@@ -55,7 +55,7 @@ public:
             return;
 
         scope Blitter blitter = getBlitter(paint);
-        waveletBlitPath(path, _clip, _matrix, &blitter.blitAlphaH);
+        waveletBlitPath(path, _clip, _matrix, blitter);
     }
 
     void drawBitmap(in Bitmap source, Paint paint)
@@ -231,7 +231,7 @@ public:
     }
 };
 
-void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, scope WaveletRaster.BlitDg dg)
+void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter blitter)
 {
     FRect bounds = mat.mapRect(path.bounds);
     auto ir = bounds.roundOut;
@@ -281,5 +281,15 @@ void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, scope Wavel
             break;
         }
     }
-    wr.blit(dg);
+
+    // Pass 1: reconstruct the wavelet into the rasterizer's row-major
+    // 8-bit alpha scratch bitmap. The quadtree's Z-order traversal only
+    // touches one byte per pixel here, so it cannot thrash the
+    // framebuffer.
+    wr.blit();
+
+    // Pass 2: hand the scratchpad to the blitter as an A8 mask. One
+    // linear scanline pass, per-pixel alpha, the framebuffer streamed
+    // exactly once.
+    blitter.blitMask(ir.left, ir.top, wr.scratch);
 }

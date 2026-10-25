@@ -1,6 +1,6 @@
 module benchmark.wavelet;
 
-import graphics, graphics.core.draw, graphics.core.matrix, graphics.math.clamp;
+import graphics, graphics.core.blitter, graphics.core.draw, graphics.core.matrix, graphics.math.clamp;
 import qcheck, guip.point, std.range;
 import benchmark.registry, benchmark.reporter;
 
@@ -70,16 +70,13 @@ void benchWaveletBlitPath()
 {
   auto clip = path.ibounds;
 
-  void dummyBlit(int y, int xstart, int xend, ubyte alpha) {
-    // `WaveletRaster.blit` guarantees `y` in `[)` and clamps
-    // `xstart`/`xend` into `[left, right]` (both ends inclusive).
-    assert(fitsIntoRange!("[)")(y, clip.top, clip.bottom));
-    assert(fitsIntoRange!("[]")(xstart, clip.left, clip.right));
-    assert(fitsIntoRange!("[]")(xend, clip.left, clip.right));
-  }
-
+  // NullBlitter keeps this a traversal + scratch-rasterization
+  // benchmark; the span contract invariants (`y` in `[top, bottom)`,
+  // `xstart`/`xend` in `[left, right]`) now live in the debug asserts
+  // of `WaveletRaster.blit`.
   Matrix mat;
-  waveletBlitPath(path, clip, mat,&dummyBlit);
+  scope auto blitter = new NullBlitter();
+  waveletBlitPath(path, clip, mat, blitter);
 }
 
 void runWavelet(BenchmarkReporter reporter) {

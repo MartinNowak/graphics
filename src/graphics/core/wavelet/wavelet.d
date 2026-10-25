@@ -118,6 +118,11 @@ struct WaveletRaster
         enforce(_depth <= MAX_DEPTH, "Wavelet size is too big.");
         _clipRect = clipRect;
 
+        // Row-major 8-bit alpha scratchpad, handed to the blitter as an
+        // A8 mask after `blit()` populates it.
+        scratch.setConfig(Bitmap.Config.A8, clipRect.width, clipRect.height,
+                          new ubyte[](clipRect.width * clipRect.height));
+
         foreach (d; 0 .. _depth)
         {
             // TODO: combine allocations
@@ -255,16 +260,35 @@ struct WaveletRaster
         clippedMonotonic!(float, K)(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice, &insertSlice);
     }
 
-    alias void delegate(int y, int xstart, int xend, ubyte alpha) BlitDg;
-
-    void blit(scope BlitDg dg)
+    /// Reconstruct the wavelet into the A8 scratch bitmap: pixel
+    /// `(x, y)` in the clip lands in scratch row `y - clipRect.top`,
+    /// column `x - clipRect.left`. Decouples the quadtree's Z-order
+    /// traversal from the framebuffer's linear scanline layout: the
+    /// traversal only touches one byte per pixel here, and the blitter
+    /// consumes the scratch line by line.
+    void blit()
     {
         if (_clipRect.empty)
             return;
 
+        void blitRow(int y, int xstart, int xend, ubyte alpha)
+        {
+            // Traversal contract: y in [top, bottom), xstart/xend in
+            // [left, right] (both ends inclusive).
+            debug
+            {
+                assert(fitsIntoRange!("[)")(y, _clipRect.top, _clipRect.bottom));
+                assert(fitsIntoRange!("[]")(xstart, _clipRect.left, _clipRect.right));
+                assert(fitsIntoRange!("[]")(xend, _clipRect.left, _clipRect.right));
+            }
+            auto row = scratch.getRange!ubyte(xstart - _clipRect.left, xend - _clipRect.left,
+                                             y - _clipRect.top);
+            row[] = alpha;
+        }
+
         // Can happen with only the root node on very small paths (1x1 pixels)
         if (_depth == 0)
-            writeGridValue!dg(quantizeVal(_rootConst), _clipRect.pos, 1, 1);
+            writeGridValue!blitRow(quantizeVal(_rootConst), _clipRect.pos, 1, 1);
         else
         {
             // Root square is 2^_depth; the grid is anchored at the clip
@@ -275,7 +299,7 @@ struct WaveletRaster
                 edge = cast(Edge)(edge | Edge.east);
             if (_clipRect.pos.y + sq > _clipRect.bottom)
                 edge = cast(Edge)(edge | Edge.south);
-            writeToGrid!dg(
+            writeToGrid!blitRow(
                 _coeffMarks[], _coeffs[], 0, _rootConst, _clipRect.pos, _depth - 1,
                 edge, _clipRect);
         }
@@ -284,6 +308,7 @@ struct WaveletRaster
     float _rootConst = 0.0f;
     uint _depth;
     IRect _clipRect;
+    Bitmap scratch;
 
     enum MAX_DEPTH = 15; // limited by ushort for linearQuadtreeCoord
     Interim[MAX_DEPTH] _interimStack;
@@ -515,5 +540,5 @@ unittest
     auto wr = WaveletRaster(IRect(0, 0, 2, 2));
     FPoint[2] line = [FPoint(0, 0), FPoint(2, 2)];
     wr.insertEdge(line);
-    wr.blit((y, x, xe, ub) {});
+    wr.blit();
 }
