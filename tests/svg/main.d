@@ -71,7 +71,7 @@ void renderSVG(string fn, float zoom)
     {
         Bitmap bmp;
         Canvas canvas;
-        Style[] styles;
+        Appender!(Style[]) styles;
         Path path;
         float zoom;
         bool inRoot;
@@ -112,7 +112,7 @@ void renderSVG(string fn, float zoom)
 
         Style pushStyle(in string[string] attr)
         {
-            Style style = styles.length ? styles[$-1] : Style.init;
+            Style style = styles.length ? styles.data.back : Style.init;
             style.transform = false;
 
             void apply(string k, string v)
@@ -162,9 +162,9 @@ void renderSVG(string fn, float zoom)
 
         void popStyle()
         {
-            if (styles[$-1].transform)
+            if (styles.data.back.transform)
                 canvas.restore();
-            --styles.length;
+            styles.shrinkTo(styles.length - 1);
         }
 
         void flushPath(in string[string] attr)
