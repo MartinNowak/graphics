@@ -2,7 +2,7 @@ module benchmark.reporter;
 
 private {
   import std.stdio : writeln, writefln;
-  import std.datetime;
+  import std.datetime.stopwatch;
 }
 
 enum LogLevel {
@@ -30,28 +30,29 @@ class BenchmarkReporter {
   void bench(alias func)() {
     this.bench!(func)(this.numHint);
   }
+
   void bench(alias func)(uint times) {
     enum name = __traits(identifier, func);
     this.log!(LogLevel.Info)("Bench %s count:%s", name, times);
-    auto results = benchmark!(func)(times);
-    this.reportResult(name, results[0].msecs / times);
+    auto res = time!(typeof(&func))(&func, times);
+    this.reportResult(name, res / times);
   }
-  void bench(Dg)(Dg dg) {
-    this.bench(dg, this.numHint);
-  }
-  void bench(Dg)(Dg dg, size_t times) {
-    enum name = __traits(identifier, dg);
-    this.log!(LogLevel.Info)("Bench %s count:%s", name, times);
 
-    StopWatch sw;
-    sw.start();
-    foreach (j; 0 .. times)
-    {
-      dg();
+  /// Run `f` `times` iterations in several rounds and return the
+  /// shortest total elapsed time in milliseconds.
+  double time(F)(F f, uint times) {
+    double best = double.infinity;
+    for (int round = 0; round < 3; ++round) {
+      StopWatch sw;
+      sw.start();
+      foreach(_; 0 .. times)
+        f();
+      sw.stop();
+      auto ms = sw.peek.total!"msecs"();
+      if (ms < best)
+        best = ms;
     }
-    sw.stop();
-
-    this.reportResult(name, sw.peek.msecs / times);
+    return best;
   }
 
   void log(LogLevel level)(string msg) {

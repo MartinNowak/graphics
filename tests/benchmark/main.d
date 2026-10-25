@@ -1,6 +1,6 @@
 module benchmark.main;
 
-import std.algorithm, std.array, std.stdio;
+import std.algorithm, std.stdio;
 import benchmark.registry, benchmark.reporter;
 
 import graphics;
@@ -13,7 +13,7 @@ int main(string[] argv) {
 
   if (argv.length > 1) {
 
-    if (!argv[1..$].find("-l").empty || !argv[1..$].find("--list").empty) {
+    if (canFind(argv[1..$], "-l") || canFind(argv[1..$], "--list")) {
       auto benchmarks = allBenchmarks();
       foreach(ref benchTup; benchmarks) {
         writeln(benchTup[0]);

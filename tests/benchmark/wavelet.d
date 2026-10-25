@@ -71,9 +71,11 @@ void benchWaveletBlitPath()
   auto clip = path.ibounds;
 
   void dummyBlit(int y, int xstart, int xend, ubyte alpha) {
+    // `WaveletRaster.blit` guarantees `y` in `[)` and clamps
+    // `xstart`/`xend` into `[left, right]` (both ends inclusive).
     assert(fitsIntoRange!("[)")(y, clip.top, clip.bottom));
-    assert(fitsIntoRange!("[)")(xstart, clip.left, clip.right));
-    assert(fitsIntoRange!("[)")(xend, clip.left, clip.right));
+    assert(fitsIntoRange!("[]")(xstart, clip.left, clip.right));
+    assert(fitsIntoRange!("[]")(xend, clip.left, clip.right));
   }
 
   Matrix mat;

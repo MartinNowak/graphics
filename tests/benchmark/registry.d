@@ -1,7 +1,6 @@
 module benchmark.registry;
 
 private {
-  import std.array : save;
   import std.string;
   import std.typecons;
   import benchmark.reporter;
@@ -34,10 +33,9 @@ NameFunc[] selectBenchmarks(string select) {
 NameFunc[] excludeBenchmarks(string exclude) {
   NameFunc[] result;
   foreach(benchTup; __registeredBenchmarks) {
-    if (indexOf(benchTup[0], exclude, CaseSensitive.no) == -1)
-      continue;
-
-    result ~= benchTup;
+    // keep every benchmark whose name does not contain `exclude`
+    if (exclude.empty || indexOf(benchTup[0], exclude, CaseSensitive.no) == -1)
+      result ~= benchTup;
   }
   return result;
 }

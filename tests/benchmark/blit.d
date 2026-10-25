@@ -13,11 +13,16 @@ PMColor[] src;
 PMColor[] dst;
 immutable PMColor color;
 
+// immutable globals may only be initialized in a `shared static this`
+shared static this()
+{
+  color = getArbitrary!(PMColor)();
+}
+
 static this()
 {
   src = getArbitraryArray!(PMColor)(128);
   dst = getArbitraryArray!(PMColor)(128);
-  color = getArbitrary!(PMColor)();
 }
 
 void benchColor32()
@@ -28,5 +33,5 @@ void benchColor32()
 
 void runBlit(BenchmarkReporter reporter)
 {
-    reporter.bench(&benchColor32);
+    reporter.bench!(benchColor32)();
 }
