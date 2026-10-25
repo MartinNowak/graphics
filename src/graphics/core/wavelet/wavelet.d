@@ -262,22 +262,23 @@ struct WaveletRaster
         if (_clipRect.empty)
             return;
 
-        // TODO: avoid bound checks
-        void blitRow(int y, int xstart, int xend, ubyte alpha)
-        {
-            if (fitsIntoRange!("[)")(y, _clipRect.top, _clipRect.bottom))
-            {
-                dg(y, clampToRange(xstart, _clipRect.left, _clipRect.right),
-                   clampToRange(xend, _clipRect.left, _clipRect.right), alpha);
-            }
-        }
-
         // Can happen with only the root node on very small paths (1x1 pixels)
         if (_depth == 0)
-            writeGridValue!blitRow(_rootConst, _clipRect.pos, 1);
+            writeGridValue!dg(quantizeVal(_rootConst), _clipRect.pos, 1, 1);
         else
-            writeToGrid!blitRow(
-                _coeffMarks[], _coeffs[], 0, _rootConst, _clipRect.pos, _depth - 1);
+        {
+            // Root square is 2^_depth; the grid is anchored at the clip
+            // origin, so only east/south border contact is possible.
+            auto sq = 1u << _depth;
+            auto edge = Edge.inside;
+            if (_clipRect.pos.x + sq > _clipRect.right)
+                edge = cast(Edge)(edge | Edge.east);
+            if (_clipRect.pos.y + sq > _clipRect.bottom)
+                edge = cast(Edge)(edge | Edge.south);
+            writeToGrid!dg(
+                _coeffMarks[], _coeffs[], 0, _rootConst, _clipRect.pos, _depth - 1,
+                edge, _clipRect);
+        }
     }
 
     float _rootConst = 0.0f;
@@ -290,72 +291,223 @@ struct WaveletRaster
     size_t*[MAX_DEPTH] _coeffMarks;
 }
 
-void writeGridValue(alias blit)(float val, IPoint off, uint locRes) {
-  assert(locRes > 0);
-  version(DebugNoise) {
-    enum noise = 55;
-    auto ubval = clampTo!ubyte(abs(val * (255-noise)) + uniform(0, noise));
-  } else {
-    auto ubval = clampTo!ubyte(abs(val * 255));
-  }
+// Border contact of a node square: the grid is anchored at the clip
+// origin, so only the east/south borders can ever be touched.
+enum Edge : ubyte
+{
+    inside = 0,
+    east   = 1 << 0,
+    south  = 1 << 1
+}
+
+// Quantize a wavelet value to the 8-bit alpha the blit delegate expects.
+// (Done per pixel that is actually written, so the DebugNoise random
+// stream is only consumed for painted pixels.)
+ubyte quantizeVal(float val)
+{
+    version(DebugNoise) {
+        enum noise = 55;
+        return clampTo!ubyte(abs(val * (255-noise)) + uniform(0, noise));
+    } else {
+        return clampTo!ubyte(abs(val * 255));
+    }
+}
+
+void writeGridValue(alias blit)(ubyte ubval, IPoint off, uint w, uint h) {
+  assert(w > 0);
+  assert(h > 0);
   if (ubval == 0)
     return;
 
   auto left = off.x;
-  auto right = off.x + locRes;
-  foreach(y; off.y .. off.y + locRes) {
+  auto right = off.x + w;
+  foreach(y; off.y .. off.y + h) {
     blit(y, left, right, ubval);
   }
 }
 
-void writeToGrid(alias blit, alias timeout=false)
-    (in size_t*[] coeffMarks, Coeffs[][] coeffs, uint cidx, float val, IPoint offset, uint depth)
+// Flat block write. Interior blocks are written at full size with no
+// bounds arithmetic. Border blocks are culled when fully outside, then
+// clamped: cull + edge flag together guarantee the width/height fall in
+// [1, locRes], so a single subtract is exact at every level.
+void writeBlock(alias blit)(float cval, IPoint off, uint locRes, Edge edge,
+                           in IRect clip)
+{
+    if (edge == Edge.inside)
+    {
+        auto ubval = quantizeVal(cval);
+        if (!ubval)
+            return;
+        writeGridValue!blit(ubval, off, locRes, locRes);
+        return;
+    }
+
+    if (off.x >= clip.right || off.y >= clip.bottom)
+        return;
+    auto w = edge & Edge.east ? uint(clip.right) - off.x : locRes;
+    auto h = edge & Edge.south ? uint(clip.bottom) - off.y : locRes;
+    auto ubval = quantizeVal(cval);
+    if (!ubval)
+        return;
+    writeGridValue!blit(ubval, off, w, h);
+}
+
+// Leaf level: the 2x2 pixel quad at `off`. Values come from the 2D Haar
+// butterfly (8 float ops). Written as row-major runs, coalescing
+// horizontal neighbours that quantize to the same alpha — the merge
+// only reduces call count, never coverage.
+void writeQuadDepth0(alias blit)(float val, in Coeffs coeff, IPoint off,
+                                Edge edge, in IRect clip)
+{
+    uint w, h;
+    if (edge == Edge.inside)
+    {
+        w = 2u;
+        h = 2u;
+    }
+    else
+    {
+        // Fully outside: cull (no mark can be set on such a cell).
+        if (off.x >= clip.right || off.y >= clip.bottom)
+            return;
+        // At this level the overhang is at most one pixel per axis and
+        // the cull guarantees positivity, so the clamp is one subtract.
+        w = edge & Edge.east ? uint(clip.right) - off.x : 2u;
+        h = edge & Edge.south ? uint(clip.bottom) - off.y : 2u;
+    }
+
+    // A row of the quad: `a` at `off.x`, `b` at `off.x + 1` when
+    // `w == 2`, coalesced into a single run when the quantized values
+    // are equal.
+    void row(float a, float b, int y)
+    {
+        auto qa = quantizeVal(a);
+        if (w == 2)
+        {
+            auto qb = quantizeVal(b);
+            if (qa == qb)
+                writeGridValue!blit(qa, IPoint(off.x, y), 2, 1);
+            else
+            {
+                writeGridValue!blit(qa, IPoint(off.x, y), 1, 1);
+                writeGridValue!blit(qb, IPoint(off.x + 1, y), 1, 1);
+            }
+        }
+        else
+            writeGridValue!blit(qa, IPoint(off.x, y), 1, 1);
+    }
+
+    // 2D Haar butterfly
+    auto s0 = val + coeff[1];
+    auto s1 = val - coeff[1];
+    auto d0 = coeff[0] + coeff[2];
+    auto d1 = coeff[0] - coeff[2];
+
+    row(s0 + d0, s0 - d0, off.y);
+    if (h == 2)
+        row(s1 + d1, s1 - d1, off.y + 1);
+}
+
+// Quadtree traversal. `edge` tracks which clip border the node square
+// touches. NW never touches east/south, and an interior node has a fully
+// interior subtree, so interior subtrees carry no bounds checks at all.
+void writeToGrid(alias blit)
+    (in size_t*[] coeffMarks, Coeffs[][] coeffs, uint cidx, float val,
+     IPoint offset, uint depth, Edge edge, in IRect clip)
 in
 {
     assert(depth >= 0);
     assert(coeffMarks.length > depth);
     assert(coeffs.length > depth);
     assert(coeffs.length == coeffMarks.length);
+    assert(!clip.empty);
+    // grid is anchored at the clip origin
+    assert(offset.x >= clip.left && offset.y >= clip.top);
 }
 body
 {
-    bool blitLowRes = timeout;
-
     auto coeff = coeffs[depth][cidx];
-    cidx *= 4; // linquad index for next level
+
+    if (depth == 0)
+    {
+        writeQuadDepth0!blit(val, coeff, offset, edge, clip);
+        return;
+    }
+
+    // 2D Haar butterfly: the four child values in 8 float ops
+    auto s0 = val + coeff[1];
+    auto s1 = val - coeff[1];
+    auto d0 = coeff[0] + coeff[2];
+    auto d1 = coeff[0] - coeff[2];
 
     uint locRes = 1U << depth;
+    cidx *= 4; // linquad index for next level
+
+    // All four child marks are contiguous in one word: cidx is quad-
+    // aligned and 4 divides the word bit count.
+    enum BITS_PER_WORD = 8 * size_t.sizeof;
+    auto mask = cast(uint)((coeffMarks[depth - 1][cidx / BITS_PER_WORD]
+                           >> (cidx % BITS_PER_WORD)) & 0b1111u);
+
+    // Border contact of the children. The east edges of the NE/SE
+    // children and the south edges of the SW/SE children coincide with
+    // the parent's square, so those flags inherit exactly. The east
+    // contact of NW/SW and the south contact of NW/NE depend on where
+    // the border falls inside the parent square, so those are
+    // re-checked only when the parent has the flag (border nodes are
+    // the rare case; interior subtrees pay nothing).
+    auto edgeE = cast(Edge)(edge & Edge.east);
+    auto edgeS = cast(Edge)(edge & Edge.south);
+    auto innerE = edgeE == Edge.east && offset.x + locRes > clip.right;
+    auto innerS = edgeS == Edge.south && offset.y + locRes > clip.bottom;
+
+    Edge edges(bool east, bool south)
+    {
+        Edge e = Edge.inside;
+        if (east)
+            e = cast(Edge)(e | Edge.east);
+        if (south)
+            e = cast(Edge)(e | Edge.south);
+        return e;
+    }
+
     // NW
-    auto cval = val + coeff[0] + coeff[1] + coeff[2];
-    if (!blitLowRes && depth && bt(coeffMarks[depth-1], cidx + 0b00))
-        writeToGrid!blit(coeffMarks, coeffs, cidx + 0b00, cval, offset, depth - 1);
+    Edge edgeNW = edges(innerE, innerS);
+    auto cval = s0 + d0;
+    if (mask & 0b0001u)
+        writeToGrid!blit(coeffMarks, coeffs, cidx, cval, offset, depth - 1,
+                         edgeNW, clip);
     else
-        writeGridValue!blit(cval, offset, locRes);
+        writeBlock!blit(cval, offset, locRes, edgeNW, clip);
 
-    // NE
-    cval = val - coeff[0] + coeff[1] - coeff[2];
-    offset.x += locRes;
-    if (!blitLowRes && depth && bt(coeffMarks[depth - 1], cidx + 0b01))
-        writeToGrid!blit(coeffMarks, coeffs, cidx + 0b01, cval, offset, depth - 1);
+    // NE: east inherited exactly, south re-checked
+    cval = s0 - d0;
+    auto offNE = IPoint(offset.x + locRes, offset.y);
+    auto edgeNE = edges(edgeE == Edge.east, innerS);
+    if (mask & 0b0010u)
+        writeToGrid!blit(coeffMarks, coeffs, cidx + 1, cval, offNE, depth - 1,
+                         edgeNE, clip);
     else
-        writeGridValue!blit(cval, offset, locRes);
+        writeBlock!blit(cval, offNE, locRes, edgeNE, clip);
 
-    // SW
-    cval = val + coeff[0] - coeff[1] - coeff[2];
-    offset.x -= locRes;
-    offset.y += locRes;
-    if (!blitLowRes && depth && bt(coeffMarks[depth - 1], cidx + 0b10))
-        writeToGrid!blit(coeffMarks, coeffs, cidx + 0b10, cval, offset, depth - 1);
+    // SW: east re-checked, south inherited exactly
+    cval = s1 + d1;
+    auto offSW = IPoint(offset.x, offset.y + locRes);
+    auto edgeSW = edges(innerE, edgeS == Edge.south);
+    if (mask & 0b0100u)
+        writeToGrid!blit(coeffMarks, coeffs, cidx + 2, cval, offSW, depth - 1,
+                         edgeSW, clip);
     else
-        writeGridValue!blit(cval, offset, locRes);
+        writeBlock!blit(cval, offSW, locRes, edgeSW, clip);
 
-    // SE
-    cval = val - coeff[0] - coeff[1] + coeff[2];
-    offset.x += locRes;
-    if (!blitLowRes && depth && bt(coeffMarks[depth - 1], cidx + 0b11))
-        writeToGrid!blit(coeffMarks, coeffs, cidx + 0b11, cval, offset, depth - 1);
+    // SE: both inherited exactly
+    cval = s1 - d1;
+    auto offSE = IPoint(offset.x + locRes, offset.y + locRes);
+    if (mask & 0b1000u)
+        writeToGrid!blit(coeffMarks, coeffs, cidx + 3, cval, offSE, depth - 1,
+                         edge, clip);
     else
-        writeGridValue!blit(cval, offset, locRes);
+        writeBlock!blit(cval, offSE, locRes, edge, clip);
 }
 
 unittest
