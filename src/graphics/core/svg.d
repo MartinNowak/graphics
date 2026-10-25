@@ -71,7 +71,11 @@ void transformSVG(ref Matrix mat, string s)
         s = s[1 .. $];
         skipCW(s);
 
-        mat = m * mat;
+        // Accumulate left-to-right so the list product stays outermost:
+        // a transform list "A B" applies as matrix A*B (B to the point first),
+        // and the incoming `mat` (parent CTM, e.g. the viewport zoom) must
+        // remain the outermost factor.
+        mat = mat * m;
     }
 }
 
