@@ -24,7 +24,7 @@ int polyRoots(double a, double b, ref double x)
 in { assert(!a.isNaN && !b.isNaN); }
 body
 {
-    if (a == 0 || b == 0)
+    if (a == 0)
         return 0;
     x = -b / a;
     return 1;
@@ -60,6 +60,18 @@ body
             swap(x[0], x[1]);
         return 2;
     }
+}
+
+unittest {
+    double x;
+    assert(polyRoots(2.0, 0.0, x) == 1 && x == 0.0);   // root at zero, previously dropped
+    assert(polyRoots(0.0, 2.0, x) == 0);
+    assert(polyRoots(0.0, 0.0, x) == 0);
+    assert(polyRoots(1.0, -2.0, x) == 1 && x == 2.0);
+
+    double[2] ts;
+    assert(polyRoots(0.0, 1.0, 0.0, ts) == 1 && ts[0] == 0.0);  // degenerate quadratic (a == 0)
+    assert(polyRoots(1.0, 1.0, 0.0, ts) == 2 && ts[0] == -1.0 && ts[1] == 0.0);
 }
 
 enum tolerance = 1e-4;

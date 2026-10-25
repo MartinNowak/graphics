@@ -139,7 +139,7 @@ body
                 return ts[0];
 
             default:
-                assert(0, std.string.format("Too many roots %s.", cnt));
+                assert(0, std.string.format("Unexpected root count %s for coeffs %s.", cnt, coeffs));
             }
         }
     }
