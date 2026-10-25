@@ -136,58 +136,16 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
 
     alias pos position;
 
-    static if (K == 2)
+    double findT()
     {
-        double findT()
-        {
-            double t = void;
-            auto rootcnt = polyRoots(_coeffs[0], _coeffs[1] - (_position + (_pastend > _position)), t);
-            assert(rootcnt);
-            return t;
-        }
+        immutable v = _position + (_pastend > _position);
+        // f(t) = poly(t) - v is monotone on [x0, 1] and v is strictly
+        // interior to the segment range => exactly one root in (x0, 1).
+        double x0 = isNaN(_prevT) ? 0.0 : _prevT;
+        double y0 = (isNaN(_prevT) ? _coeffs[$-1] : _prevVal) - v; // == -direction when warm
+        // 1e-6 in t-space, matching the walker's isClose(..., 1e-6, 1e-6) merge
+        return findRootNewton(_coeffs, v, x0, 1.0, y0, 1e-6);
     }
-    else static if (K == 3)
-    {
-        double findT()
-        {
-            double[2] ts = void;
-            auto rootcnt = polyRoots(_coeffs[0], _coeffs[1], _coeffs[2] - (_position + (_pastend > _position)), ts);
-            if (rootcnt == 1)
-            {
-                return ts[0];
-            }
-            else
-            {
-                assert(rootcnt == 2);
-                if (ts[0] < ts[1] && ts[0] >= 0)
-                {
-                    assert(!fitsIntoRange!("()")(ts[1], 0, 1));
-                    return ts[0];
-                }
-                else
-                {
-                    return ts[1];
-                }
-            }
-        }
-    }
-    else static if (K == 4)
-    {
-        double findT()
-        {
-            immutable v = _position + (_pastend > _position);
-
-            scope eval = (double t) @nogc nothrow pure { return poly!T(_coeffs, t) - v; };
-            // Use previous root as lower bracket `a` if available!
-            T a = isNaN(_prevT) ? 0.0 : _prevT;
-            T fa = (isNaN(_prevT) ? _coeffs[3] : _prevVal) - v; // Avoids calling eval(a)!
-            T b = 1.0;
-            T fb = _coeffs[0] + _coeffs[1] + _coeffs[2] + _coeffs[3] - v; // Avoids multiplications for t=1.0!
-            return findRootIllinois!eval(a, b, fa, fb);
-        }
-    }
-    else
-        static assert(0);
 
     static void convertToPoly(ref const T[K] cs, ref T[K] polycs)
     {
@@ -311,4 +269,71 @@ auto cartesianBezierWalker(T, size_t K)(
         BezIota!(T, K) _xwalk, _ywalk;
     }
     return Result(curve, roundHint);
+}
+
+unittest
+{
+    // walks a BezIota; asserts t is strictly increasing and in [0, 1]
+    void checkWalk(T, size_t K)(ref BezIota!(T, K) walk)
+    {
+        double prev = 0.0;
+        while (!walk.empty)
+        {
+            auto t = walk.front;
+            assert(fitsIntoRange!("[]")(t, 0, 1), text(t));
+            assert(t > prev, text(t, " ", prev));
+            prev = t;
+            walk.popFront();
+        }
+    }
+
+    // cold start (first grid line, _prevT is NaN), increasing direction;
+    // endpoint exactly on a grid line (3.0): that grid line is not walked
+    {
+        Point!double[2] pts = [Point!double(0, 0.1), Point!double(0, 3.0)];
+        auto walk = beziota!("y", double, 2)(pts);
+        checkWalk!double(walk);
+        auto fresh = beziota!("y", double, 2)(pts);
+        size_t n = 0;
+        while (!fresh.empty)
+        {
+            fresh.popFront();
+            ++n;
+        }
+        assert(n == 2, text(n));
+    }
+
+    // decreasing direction (_position > _pastend), start and end exactly on
+    // grid lines (3.0, 1.0): only the interior line v=2 is walked
+    {
+        Point!double[4] pts = [Point!double(0, 3.0), Point!double(0, 2.5),
+                              Point!double(0, 2.0), Point!double(0, 1.0)];
+        auto walk = beziota!("y", double, 4)(pts);
+        size_t n = 0;
+        while (!walk.empty)
+        {
+            walk.popFront();
+            ++n;
+        }
+        assert(n == 1, text(n));
+    }
+
+    // warm starts, decreasing direction (p(t) = -1.5t^2 - 1.5t + 3.5):
+    // crossings at v=3, v=2, v=1
+    {
+        Point!double[4] pts = [Point!double(0, 3.5), Point!double(0, 3.0),
+                              Point!double(0, 2.0), Point!double(0, 0.5)];
+        auto walk = beziota!("y", double, 4)(pts);
+        checkWalk!double(walk);
+    }
+
+    // warm start with p'(x0) == 0: cubic vertex at the previous root,
+    // very flat near it (slow Newton, bisection fallback):
+    // p(t) = 10(t-0.5)^3 + 4, crossings at v=3, v=4 (vertex), v=5
+    {
+        Point!double[4] pts = [Point!double(0, 2.75), Point!double(0, 5.25),
+                              Point!double(0, 2.75), Point!double(0, 5.25)];
+        auto walk = beziota!("y", double, 4)(pts);
+        checkWalk!double(walk);
+    }
 }
