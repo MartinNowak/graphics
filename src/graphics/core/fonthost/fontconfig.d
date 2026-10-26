@@ -67,10 +67,10 @@ struct TypeFace
 
 private:
     mixin(bitfields!(
-              Weight, "weight", 2,
+              Weight, "weight", 3,
               Slant, "slant", 2,
               bool, "_fixedWidth", 1,
-              uint, "", 3,
+              uint, "", 2,
           ));
     package string filename;
 
