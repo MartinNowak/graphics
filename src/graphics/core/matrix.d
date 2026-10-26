@@ -51,6 +51,10 @@ struct Matrix
         res[2][0] = scale * (_data[1][0] * _data[2][1]  - _data[1][1] * _data[2][0]);
         res[2][1] = scale * (_data[0][1] * _data[2][0]  - _data[0][0] * _data[2][1]);
 
+        res[0][2] = scale * (_data[0][1] * _data[1][2]  - _data[0][2] * _data[1][1]);
+        res[1][2] = scale * (_data[0][2] * _data[1][0]  - _data[0][0] * _data[1][2]);
+        res[2][2] = scale * (_data[0][0] * _data[1][1]  - _data[0][1] * _data[1][0]);
+
         return res;
     }
 
@@ -74,7 +78,7 @@ struct Matrix
 
     private template post(string setf)
     {
-        Matrix pre(Args...)(Args args) const
+        Matrix post(Args...)(Args args) const
         {
             Matrix m=void;
             mixin(`m.`~setf~`(args);`);
@@ -172,7 +176,7 @@ struct Matrix
             pt = this * pt;
     }
 
-    Matrix opBinary(string op)(ref const Matrix rhs) const if (op == "*")
+    Matrix opBinary(string op)(Matrix rhs) const if (op == "*")
     {
         Matrix res=void;
         // TODO: check if worth to unroll loop
