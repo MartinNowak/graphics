@@ -7,5 +7,6 @@
         "guip": "~master",
     },
     "versions-linux": ["FreeType"],
-    "libs-linux": ["freetype", "fontconfig"]
+    "libs-linux": ["freetype", "fontconfig"],
+    "subPackages": ["svg"]
 }

@@ -1,4 +1,4 @@
-module graphics.core.svg;
+module graphics.svg.core;
 
 import std.ascii, std.algorithm, std.conv, std.functional, std.range;
 

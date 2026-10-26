@@ -1,11 +1,13 @@
-import std.algorithm, std.ascii, std.conv, std.exception, std.file, std.getopt, std.math, std.path, std.range, std.stdio, std.string;
+module graphics.svg;
+
+import std.algorithm, std.ascii, std.conv, std.exception, std.math, std.range, std.string;
 import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser, std.experimental.xml.sax;
 import std.experimental.xml.interfaces : isCursor;
 import graphics;
 import graphics.core.fonthost;
 import graphics.core.glyph;
 import graphics.core.matrix;
-import graphics.core.svg;
+import graphics.svg.core;
 
 T convAttr(T)(in string[string] aa, string s, T def)
 {
@@ -77,12 +79,11 @@ void parseViewBox(ref float[4] vb, string s)
     enforce(s.empty, "invalid viewBox: "~s);
 }
 
-void renderSVG(string fn, float zoom)
+// Parses `source` and renders it into a fresh Bitmap.
+Bitmap renderSVG(string source, float zoom = 1.0f)
 {
-    string text = cast(string)std.file.read(fn);
-
     // Tolerate documents without an XML declaration (SVG does not require one).
-    auto c = text.lexer.parser.cursor((CursorError e) {});
+    auto c = source.lexer.parser.cursor((CursorError e) {});
     alias C = typeof(c);
 
     static struct Style
@@ -645,22 +646,9 @@ void renderSVG(string fn, float zoom)
 
     auto sax = c.saxParser!(Handler);
     sax.handler.zoom = zoom;
-    sax.setSource(text);
+    sax.setSource(source);
     sax.processDocument();
     enforce(sax.handler.inRoot, "no <svg> root element");
 
-    sax.handler.bmp.save(fn.setExtension("png"));
-}
-
-// Usage: svg [-z|--zoom <factor>] <file.svg> ...
-// -z/--zoom scales the canvas (and thus the rendering) uniformly.
-void main(string[] args)
-{
-    float zoom = 1.0f;
-    auto rslt = getopt(args, "zoom|z", "scale the canvas (default: 1)", &zoom);
-    if (rslt.helpWanted)
-        defaultGetoptPrinter("Render SVG files to PNG files.", rslt.options);
-    enforce(zoom > 0, "zoom factor must be positive");
-    foreach (file; args[1 .. $])
-        renderSVG(file, zoom);
+    return sax.handler.bmp;
 }

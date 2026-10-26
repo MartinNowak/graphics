@@ -1,0 +1,8 @@
+name "svg"
+description "SVG document engine and command-line renderer."
+
+sourcePaths "."
+importPaths "."
+
+dependency "graphics" path=".."
+dependency "std-experimental-xml" version="~>0.1.7"

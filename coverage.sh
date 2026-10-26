@@ -16,6 +16,11 @@
 # module's own objects and the linked libgraphics.gcda stays at 0%. The
 # qcheck suite is therefore a validation gate (differential matrix tests,
 # algebraic properties, library debug asserts), not a coverage source.
+#
+# The graphics:svg sub-package is covered by its own `dub test` run. dub
+# caches sub-package builds under the parent's cache directory
+# (~/.dub/cache/graphics/<version>+svg/), so the single find below picks up
+# both test binaries' counters.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
@@ -27,6 +32,7 @@ find "$HOME/.dub/cache/graphics" -name '*.gcda' -delete 2>/dev/null || true
 
 cd "$root"
 dub test --compiler=gdc --coverage
+dub test :svg --compiler=gdc --coverage
 
 scratch=$(mktemp --directory)
 trap 'rm --recursive --force "$scratch"' EXIT
@@ -81,7 +87,7 @@ awk -v RS='\\{"(file|line_number)": ' '
 
     f = curfile
     sub(/-mixin-[0-9]+$/, "", f)          # fold foo.d-mixin-42 into foo.d
-    if (f !~ /^src\/graphics\//) next     # skip phobos, druntime, guip, ...
+    if (f !~ /^(src|svg)\/graphics\//) next  # skip phobos, druntime, guip, ...
     if (f ~ /\/testing\.d$/) next         # unittest-only helper module
     if (!((f, lineno) in seen)) { seen[f, lineno] = 1; tot[f]++ }
     if (count > 0 && !covseen[f, lineno]++) cov[f]++
