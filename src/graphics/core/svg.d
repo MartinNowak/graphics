@@ -110,8 +110,12 @@ void addSVGPath(Path)(ref Path path, string s)
             goto Lmove;
         case 'm':
             c = 'l'; // implicit lineto
-            pts[0] = parse!FPoint(s) + path.points[$-1];
+        {
+            immutable p0 = parse!FPoint(s);
+            //! a relative moveto on an empty path is absolute (SVG 1.1, "rendering errors")
+            pts[0] = path.points.length ? p0 + path.points[$-1] : p0;
             goto Lmove;
+        }
 
         Lmove:
             path.moveTo(pts[0]);
@@ -281,12 +285,14 @@ static Point!T parse(T:Point!T)(ref string s)
 
 static bool parse(T:bool)(ref string s)
 {
+    skipCW(s);
     if (!s.empty)
     {   bool res = void;
         if (s[0] == '0') res = false;
         else if (s[0] == '1') res = true;
         else goto Lerror;
         s = s[1 .. $];
+        skipCW(s);
         return res;
     }
  Lerror: throw new ConvException("expected '0'|'1' not "~s);
