@@ -297,6 +297,68 @@ unittest
     }
 }
 
+unittest
+{
+    // bracket already inside the error bound: return the midpoint at once
+    {
+        double[2] c = [1.0, 0.5];
+        auto t = findRootNewton(c, 0.0, 0.0, 1e-9, 0.5, 1.0);
+        assert(t == 5e-10);
+    }
+
+    // a double root at the warm-start midpoint poisons Newton with 0/0 = NaN;
+    // after the safety loop the start is reset and the bracketed loop falls
+    // back to bisection. The monotone/sign-change precondition is violated,
+    // so only sanity (finite, inside the bracket) is asserted.
+    {
+        double[3] c = [1.0, -1.0, 0.25]; // (t - 0.5)^2
+        auto t = findRootNewton(c, 0.0, 0.0, 1.0, 0.25, 1e-6);
+        assert(isFinite(t) && t >= 0.0 && t <= 1.0);
+    }
+
+    // boundError: a converged Newton step is verified to straddle the root
+    // against a test point offset by xError before being accepted
+    {
+        double[4] c = [1.0, -1.0, 1.0, -0.1];
+        auto t = findRootNewton!(double, 4, true)(c, 0.0, 0.0, 1.0, -0.1, 1e-6);
+        assert(abs(poly(c, t)) < 1e-6);
+        auto t0 = findRootNewton!(double, 4, true)(c, 0.0, 0.0, 1.0, -0.1, 0.0);
+        assert(abs(poly(c, t0)) < 1e-9); // verified via nextafter test points
+    }
+
+    // boundError retry: Newton approaches the triple root of t^3 only
+    // linearly, so once the step size falls under xError = 0.1 the iterate
+    // can still be farther away; the xn + xError straddle test then fails
+    // and the search restarts from that verification point
+    {
+        double[4] c = [1.0, 0.0, 0.0, 0.0];
+        auto t = findRootNewton!(double, 4, true)(c, 0.0, -1.0, 1.0, -1.0, 0.1);
+        assert(isFinite(t) && abs(t) < 1.0 && abs(poly(c, t)) < 1e-3);
+    }
+
+    // the xError == 0 / xs == xn nextafter fallbacks stay uncovered: they
+    // need stepsize == 0 or xError below ULP(xn), but a valid Newton step is
+    // a distinct double strictly inside the bracket, which rules out both
+
+    // the float instantiation (used by bezier chopping)
+    {
+        float[2] c = [2.0f, 0.0f];
+        auto t = findRootNewton(c, 1.0, 0.0, 1.0, -1.0, 1e-6);
+        assert(abs(t - 0.5) <= 1e-6);
+    }
+
+    // low-degree Horner evaluations and derivatives
+    {
+        double[3] c3 = [1.0, 2.0, 3.0]; // t^2 + 2t + 3
+        assert(poly(c3, 2.0) == 11.0);
+        assert(polyDer(c3, 2.0) == 6.0);
+
+        double[2] c2 = [4.0, 5.0]; // 4t + 5
+        assert(poly(c2, 3.0) == 17.0);
+        assert(polyDer(c2, 3.0) == 4.0);
+    }
+}
+
 /*
  * Evaluates polynome p[0] * t ^ (N-1) ... + p[N-1].
  */

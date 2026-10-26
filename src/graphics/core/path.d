@@ -586,18 +586,147 @@ struct Path
 
     unittest
     {
-        Path rev;
-        rev.moveTo(FPoint(100, 100));
-        rev.quadTo(FPoint(40,60), FPoint(0, 0));
-        Path path;
-        path.moveTo(FPoint(0, 0));
-        path.reversePathTo(rev);
-        assert(path.verbs == [Path.Verb.Move, Path.Verb.Quad], to!string(path.verbs));
-        assert(path.points == [FPoint(0, 0), FPoint(40, 60), FPoint(100, 100)], to!string(path.points));
+        // primitives: the first one implies a moveTo; relative variants map
+        // through the last point; close() only emits when it makes sense
+        Path p;
+        assert(p.empty);
+        assert(p.bounds == FRect.emptyRect);
+        assert(!p.lastVerbWas(Path.Verb.Move));
+
+        p.lineTo(FPoint(5, 5));
+        assert(p.verbs == [Path.Verb.Move]);
+        assert(p.points == [FPoint(5, 5)]);
+        assert(p.lastVerbWas(Path.Verb.Move));
+
+        p.relLineTo(FVector(5, 0));
+        assert(p.points[$-1] == FPoint(10, 5));
+        p.relMoveTo(FVector(-10, -5));
+        assert(p.points[$-1] == FPoint(0, 0));
+        p.relQuadTo(FVector(5, 0), FVector(5, 5));
+        assert(p.points[$-3 .. $] == [FPoint(0, 0), FPoint(5, 0), FPoint(5, 5)]);
+        p.relCubicTo(FVector(-1, 0), FVector(-1, -1), FVector(-5, -5));
+        assert(p.points[$-1] == FPoint(0, 0));
+
+        p = Path.init;
+        p.moveTo(FPoint(0, 0));
+        p.close(); // Move -> no Close verb
+        assert(p.verbs == [Path.Verb.Move]);
+        p.lineTo(FPoint(1, 0));
+        p.close();
+        p.close(); // idempotent
+        assert(p.verbs == [Path.Verb.Move, Path.Verb.Line, Path.Verb.Close]);
     }
 
     unittest
     {
+        // shape adders: verbs, bounds, winding direction and the
+        // radius-capping branches of addRoundRect
+        Path p;
+        p.addRect(FRect(0, 0, 10, 20));
+        assert(p.verbs == [Path.Verb.Move, Path.Verb.Line, Path.Verb.Line,
+                           Path.Verb.Line, Path.Verb.Close]);
+        assert(p.bounds == FRect(0, 0, 10, 20));
+
+        Path q;
+        q.addRect(FRect(0, 0, 10, 20), Path.Direction.CCW);
+        assert(q.verbs == p.verbs);
+        assert(q.bounds == p.bounds);
+        assert(q.points != p.points);
+
+        // addOval: four cubic arcs (CUBIC_ARC) plus move/close, both windings
+        p = Path.init;
+        p.addOval(FRect(0, 0, 10, 20));
+        assert(p.verbs.length == 6);
+        assert(p.verbs[0] == Path.Verb.Move);
+        assert(p.verbs[$-1] == Path.Verb.Close);
+        assert(p.verbs[1 .. $-1].all!(v => v == Path.Verb.Cubic));
+        assert(p.points.length == 13);
+        assert(p.bounds == FRect(0, 0, 10, 20));
+
+        p = Path.init;
+        p.addOval(FRect(0, 0, 10, 10), Path.Direction.CCW);
+        assert(p.verbs.length == 6 && p.lastVerbWas(Path.Verb.Close));
+
+        // rounded rect: four corners, straight edges in between
+        p = Path.init;
+        p.addRoundRect(FRect(0, 0, 100, 60), 10, 10);
+        assert(p.verbs[0] == Path.Verb.Move && p.verbs[$-1] == Path.Verb.Close);
+        assert(count!(v => v == Path.Verb.Cubic)(p.verbs) == 4);
+        assert(count!(v => v == Path.Verb.Line)(p.verbs) == 4);
+        assert(p.bounds == FRect(0, 0, 100, 60));
+
+        p = Path.init;
+        p.addRoundRect(FRect(0, 0, 100, 60), 10, 10, Path.Direction.CCW);
+        assert(count!(v => v == Path.Verb.Cubic)(p.verbs) == 4);
+        assert(count!(v => v == Path.Verb.Line)(p.verbs) == 4);
+
+        // one radius wider than half its extent: it caps at half, the other
+        // keeps its straight edges
+        p = Path.init;
+        p.addRoundRect(FRect(0, 0, 20, 60), 12, 5); // rx capped
+        assert(!p.empty && p.bounds == FRect(0, 0, 20, 60));
+        p = Path.init;
+        p.addRoundRect(FRect(0, 0, 100, 20), 5, 12); // ry capped
+        assert(!p.empty && p.bounds == FRect(0, 0, 100, 20));
+
+        // a fully round rect degrades into an oval
+        p = Path.init;
+        p.addRoundRect(FRect(0, 0, 100, 60), 50, 30);
+        assert(!p.verbs.canFind(Path.Verb.Quad) && p.verbs.length == 6);
+
+        // empty rect adds nothing
+        p = Path.init;
+        p.addRoundRect(FRect.emptyRect(), 5, 5);
+        assert(p.empty);
+    }
+
+    unittest
+    {
+        // arcTo on an empty path emits a lone moveTo
+        Path p;
+        p.arcTo(FPoint(0, 0), FPoint(10, 0));
+        assert(p.verbs == [Path.Verb.Move]);
+
+        // small sweep stays one quad
+        p = Path.init;
+        p.moveTo(FPoint(10, 0));
+        p.arcTo(FPoint(0, 0), FPoint(9.24f, 3.83f)); // ~22.5 deg
+        assert(p.verbs == [Path.Verb.Move, Path.Verb.Quad]);
+
+        // 90 degree sweep is subdivided into several quads
+        p = Path.init;
+        p.moveTo(FPoint(10, 0));
+        p.arcTo(FPoint(0, 0), FPoint(0, 10));
+        assert(p.verbs.length >= 3);
+        assert(p.verbs[1 .. $].all!(v => v == Path.Verb.Quad));
+
+        // addArc: pie slice, CW and CCW
+        p = Path.init;
+        p.addArc(FPoint(0, 0), FPoint(10, 0), FPoint(0, 10));
+        assert(p.verbs[0] == Path.Verb.Move && p.verbs[1] == Path.Verb.Line);
+        assert(p.verbs[$-1] == Path.Verb.Line);
+        assert(p.bounds.contains(FPoint(0, 0)));
+
+        Path ccw;
+        ccw.addArc(FPoint(0, 0), FPoint(10, 0), FPoint(0, 10), Path.Direction.CCW);
+        assert(ccw.verbs[0] == Path.Verb.Move && ccw.verbs[1] == Path.Verb.Line);
+        assert(ccw.verbs[$-1] == Path.Verb.Line);
+
+        // addPath concatenates
+        Path a, b;
+        a.moveTo(FPoint(0, 0));
+        a.lineTo(FPoint(1, 1));
+        b.moveTo(FPoint(2, 2));
+        b.lineTo(FPoint(3, 3));
+        a.addPath(b);
+        assert(a.verbs.length == 4);
+        assert(a.points[$-1] == FPoint(3, 3));
+    }
+
+    unittest
+    {
+        // apply(): every verb is emitted with its start point prepended, and
+        // Close synthesizes a closing line
         Path p;
         p._verbs.put(Path.Verb.Move);
         p._points.put(FPoint(1, 1));
@@ -629,5 +758,90 @@ struct Path
 
         assert(p.isClosedContour() == true);
         assert(p.empty() == false);
+
+        // a nonzero callback return aborts the walk at each emit site:
+        // Move, primitive, synthesized closing line, Close
+        Path tri;
+        tri.moveTo(FPoint(0, 0));
+        tri.lineTo(FPoint(1, 0));
+        tri.close();
+        foreach (abortAt; 1 .. 5)
+        {
+            int seen;
+            auto res = tri.apply((ref Path.Verb verb, ref FPoint[] pts) {
+                ++seen;
+                return seen == abortAt ? 7 : 0;
+            });
+            assert(res == 7 && seen == abortAt);
+        }
+
+        // two subpaths without a Close: not a closed contour
+        Path twoSubpaths;
+        twoSubpaths.moveTo(FPoint(0, 0));
+        twoSubpaths.lineTo(FPoint(1, 0));
+        twoSubpaths.moveTo(FPoint(2, 0));
+        twoSubpaths.lineTo(FPoint(3, 0));
+        assert(!twoSubpaths.isClosedContour);
+    }
+
+    unittest
+    {
+        // reversePathTo skips the source's initial moveTo and flips Quad,
+        // Line and Cubic segments; an empty source is a no-op
+        Path quad;
+        quad.moveTo(FPoint(100, 100));
+        quad.quadTo(FPoint(40, 60), FPoint(0, 0));
+        Path path;
+        path.moveTo(FPoint(0, 0));
+        path.reversePathTo(quad);
+        assert(path.verbs == [Path.Verb.Move, Path.Verb.Quad], to!string(path.verbs));
+        assert(path.points == [FPoint(0, 0), FPoint(40, 60), FPoint(100, 100)], to!string(path.points));
+
+        Path mixed;
+        mixed.moveTo(FPoint(0, 0));
+        mixed.lineTo(FPoint(4, 0));
+        mixed.cubicTo(FPoint(5, 1), FPoint(6, 2), FPoint(7, 0));
+        path = Path.init;
+        path.reversePathTo(Path.init);
+        assert(path.empty);
+        path.moveTo(FPoint(9, 9));
+        path.reversePathTo(mixed);
+        assert(path.verbs == [Path.Verb.Move, Path.Verb.Cubic, Path.Verb.Line]);
+        assert(path.lastPoint == FPoint(0, 0));
+    }
+
+    unittest
+    {
+        // MutablePathData instantiation: its mutable reset() plus a walk
+        // through the verb helpers
+        MutablePathData md;
+        assert(md.empty);
+        md.lineTo(FPoint(1, 1)); // a primitive with no preceding point emits a Move
+        assert(md.verbs == [Path.Verb.Move] && md.lastPoint == FPoint(1, 1));
+        md.lineTo(FPoint(3, 3));
+        assert(md.lastVerbWas(Path.Verb.Line) && md.lastPoint == FPoint(3, 3));
+        md.relMoveTo(FVector(1, 0));
+        md.relLineTo(FVector(1, 1));
+        md.relQuadTo(FVector(0, 1), FVector(1, 1));
+        md.relCubicTo(FVector(1, 0), FVector(1, 1), FVector(1, 2));
+        assert(md.lastVerbWas(Path.Verb.Cubic) && md.lastPoint == FPoint(7, 7));
+        md.close();
+        assert(md.lastVerbWas(Path.Verb.Close));
+        md.reset();
+        assert(md.empty && md.points.length == 0 && md.verbs.length == 0);
+    }
+
+    unittest
+    {
+        // Path helpers: ibounds, toString, resetting the immutable data
+        Path p;
+        p.moveTo(FPoint(0.5, 0));
+        p.lineTo(FPoint(4, 2));
+        p.close();
+        assert(p.ibounds == IRect(0, 0, 4, 2));
+        auto s = p.toString;
+        assert(s.canFind("Path, bounds:") && s.canFind("Close"));
+        p._data.reset();
+        assert(p.empty && p.bounds == FRect.emptyRect);
     }
 }

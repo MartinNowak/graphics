@@ -126,3 +126,107 @@ private bool tooCurvy(FVector v1, FVector v2)
     enum tol = cos(45 * 2 * PI / 360);
     return dotProduct(v1, v2) < tol * v1.length * v2.length;
 }
+
+unittest
+{
+    // collect the verb stream a flattener emits for a path
+    struct Collector
+    {
+        Path.Verb[] verbs;
+        int abortAfter = 0; // 0 = no abort
+
+        int opCall(ref Path.Verb verb, ref FPoint[] pts)
+        {
+            verbs ~= verb;
+            if (abortAfter && verbs.length >= abortAfter)
+                return 1;
+            return 0;
+        }
+    }
+
+    Collector c;
+    Path p;
+
+    // a straight, non-degenerate line passes through
+    p = Path.init; c = Collector.init;
+    p.moveTo(FPoint(0, 0));
+    p.lineTo(FPoint(10, 0));
+    p.apply!QuadCubicFlattener(&c.opCall);
+    assert(c.verbs == [Path.Verb.Move, Path.Verb.Line]);
+
+    // a degenerate line is dropped
+    p = Path.init; c = Collector.init;
+    p.moveTo(FPoint(0, 0));
+    p.lineTo(FPoint(0 + 1e-4f, 0));
+    p.apply!QuadCubicFlattener(&c.opCall);
+    assert(c.verbs == [Path.Verb.Move]);
+
+    // a flat quad passes through untouched
+    p = Path.init; c = Collector.init;
+    p.moveTo(FPoint(0, 0));
+    p.quadTo(FPoint(5, 0), FPoint(10, 0));
+    p.apply!QuadCubicFlattener(&c.opCall);
+    assert(c.verbs == [Path.Verb.Move, Path.Verb.Quad]);
+
+    // a 90-degree corner quad is split into several flatter quads
+    p = Path.init; c = Collector.init;
+    p.moveTo(FPoint(0, 0));
+    p.quadTo(FPoint(10, 0), FPoint(10, 10));
+    p.apply!QuadCubicFlattener(&c.opCall);
+    assert(c.verbs.length >= 3 && c.verbs[0] == Path.Verb.Move);
+    foreach (v; c.verbs[1 .. $])
+        assert(v == Path.Verb.Quad);
+
+    // a quad with a degenerate handle degrades to a line
+    p = Path.init; c = Collector.init;
+    p.moveTo(FPoint(0, 0));
+    p.quadTo(FPoint(0, 0), FPoint(10, 10));
+    p.apply!QuadCubicFlattener(&c.opCall);
+    assert(c.verbs == [Path.Verb.Move, Path.Verb.Line]);
+
+    // and the other way round
+    p = Path.init; c = Collector.init;
+    p.moveTo(FPoint(0, 0));
+    p.quadTo(FPoint(10, 10), FPoint(10, 10));
+    p.apply!QuadCubicFlattener(&c.opCall);
+    assert(c.verbs == [Path.Verb.Move, Path.Verb.Line]);
+
+    // a flat cubic passes through
+    p = Path.init; c = Collector.init;
+    p.moveTo(FPoint(0, 0));
+    p.cubicTo(FPoint(3, 0), FPoint(7, 0), FPoint(10, 0));
+    p.apply!QuadCubicFlattener(&c.opCall);
+    assert(c.verbs == [Path.Verb.Move, Path.Verb.Cubic]);
+
+    // a curvy cubic is subdivided
+    p = Path.init; c = Collector.init;
+    p.moveTo(FPoint(0, 0));
+    p.cubicTo(FPoint(10, 0), FPoint(10, 1), FPoint(10, 10));
+    p.apply!QuadCubicFlattener(&c.opCall);
+    assert(c.verbs == [Path.Verb.Move, Path.Verb.Cubic, Path.Verb.Cubic]);
+
+    // a cubic with a degenerate start handle degrades to a quad,
+    // which itself degrades to a line
+    p = Path.init; c = Collector.init;
+    p.moveTo(FPoint(0, 0));
+    p.cubicTo(FPoint(0, 0), FPoint(10, 10), FPoint(10, 10));
+    p.apply!QuadCubicFlattener(&c.opCall);
+    assert(c.verbs == [Path.Verb.Move, Path.Verb.Line]);
+
+    // Move/Close pass through
+    p = Path.init; c = Collector.init;
+    p.moveTo(FPoint(0, 0));
+    p.lineTo(FPoint(10, 0));
+    p.close();
+    p.apply!QuadCubicFlattener(&c.opCall);
+    assert(c.verbs == [Path.Verb.Move, Path.Verb.Line, Path.Verb.Line, Path.Verb.Close]);
+
+    // a non-zero return from the dg aborts iteration
+    p = Path.init; c = Collector.init;
+    c.abortAfter = 1;
+    p.moveTo(FPoint(0, 0));
+    p.lineTo(FPoint(10, 0));
+    p.lineTo(FPoint(10, 10));
+    int res = p.apply!QuadCubicFlattener(&c.opCall);
+    assert(res != 0 && c.verbs.length == 1);
+}

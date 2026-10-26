@@ -205,3 +205,83 @@ unittest {
   static assert(binShift!16 == 4);
   static assert(binShift!15 == 3);
 }
+
+unittest
+{
+    import graphics.core.testing : pixel, solidPaint;
+
+    auto device = Bitmap(Bitmap.Config.ARGB_8888, 4, 4);
+    device.eraseColor(Color.White);
+
+    // solid-color blitter
+    auto paint = solidPaint(Color.Red);
+    auto b = Blitter.Choose(device, Matrix(), paint);
+    assert(cast(ARGB32Blitter) b !is null);
+    b.blitH(0, 0, 2);
+    assert(pixel(device, 0, 0) == Color.Red && pixel(device, 1, 0) == Color.Red);
+    assert(pixel(device, 2, 0) == PMColor(Color.White));
+
+    // blitRect(x, y, w, h) fills a rect
+    b.blitRect(1, 1, 2, 2);
+    assert(pixel(device, 1, 1) == Color.Red);
+    assert(pixel(device, 2, 2) == Color.Red);
+    assert(pixel(device, 3, 2) == PMColor(Color.White));
+
+    // blitAlphaH with a translucent global alpha
+    device.eraseColor(Color.White);
+    b.blitAlphaH(0, 0, 1, 128);
+    auto px = pixel(device, 0, 0);
+    // red premul * 129 >> 8 = 128; white * 128 >> 8 = 127
+    assert(px.r == 128 + 127 && px.g == 127 && px.a == 128 + 127);
+
+    // NoConfig devices get a NullBlitter
+    auto empty = Bitmap(Bitmap.Config.NoConfig, 0, 0);
+    assert(cast(NullBlitter) Blitter.Choose(empty, Matrix(), paint) !is null);
+
+    // blitMask with an A8 mask: run of 255 then run of 0
+    device.eraseColor(Color.White);
+    Bitmap mask = Bitmap(Bitmap.Config.A8, 2, 1);
+    mask.getRange!ubyte(0, 2, 0)[] = [255, 0];
+    b.blitMask(0, 0, mask);
+    assert(pixel(device, 0, 0) == Color.Red);
+    assert(pixel(device, 1, 0) == PMColor(Color.White));
+}
+
+unittest
+{
+    // shader-driven blits
+    auto device = Bitmap(Bitmap.Config.ARGB_8888, 3, 1);
+    device.eraseColor(Color.Black);
+
+    Paint paint;
+    paint.shader = new ColorShader(Color.Green);
+    auto b = Blitter.Choose(device, Matrix(), paint);
+    auto sb = cast(ShaderARGB32Blitter) b;
+    assert(sb !is null);
+    b.blitH(0, 0, 3);
+    foreach (px; device.getLine!PMColor(0))
+        assert(px == Color.Green);
+
+    // a mapping shader is fed the inverted device matrix
+    Bitmap src = Bitmap(Bitmap.Config.ARGB_8888, 1, 1);
+    src.getRange!PMColor(0, 1, 0)[] = [PMColor(Color.Blue)];
+    src.opaque = true;
+    paint.shader = new BitmapShader(src);
+    assert(paint.shader.needsMatrix);
+    Matrix m;
+    m.setTranslate(1, 0); // device space shifted right; shader space = device - 1
+    b = Blitter.Choose(device, m, paint);
+    sb = cast(ShaderARGB32Blitter) b;
+    assert(sb !is null);
+    // mapPt(1, 0): inverted of translate(1,0) is translate(-1,0) -> (0,0) -> the single src pixel
+    b.blitH(0, 1, 2);
+    assert(device.getLine!PMColor(0)[1] == Color.Blue);
+
+    // mask blit through a shader
+    device.eraseColor(Color.Black);
+    Bitmap mask = Bitmap(Bitmap.Config.A8, 2, 1);
+    mask.getRange!ubyte(0, 2, 0)[] = [0, 255];
+    b.blitMask(0, 0, mask);
+    assert(device.getLine!PMColor(0)[0] == PMColor(Color.Black));
+    assert(device.getLine!PMColor(0)[1] == Color.Blue);
+}

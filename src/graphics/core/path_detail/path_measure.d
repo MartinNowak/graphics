@@ -317,3 +317,142 @@ size_t intervalOffset(dchar c)
     default: assert(0);
     }
 }
+
+unittest
+{
+    import graphics.core.testing : near, nearP, polyline;
+    import std.math : sqrt;
+
+    enum tol = 1e-3f;
+
+    // empty path
+    auto m0 = PathMeasure(Path.init);
+    assert(m0.empty && m0.length == 0.0f);
+
+    // polyline (0,0)->(3,4)->(6,4)->(6,8): length 5 + 3 + 4
+    auto m = PathMeasure(polyline(FPoint(0, 0), FPoint(3, 4), FPoint(6, 4), FPoint(6, 8)));
+    assert(near(m.length, 12.0f, tol));
+
+    // positions clamp to the ends and interpolate within a segment
+    assert(nearP(m.getPosAtDistance(0.0f), FPoint(0, 0), tol));
+    assert(nearP(m.getPosAtDistance(5.0f), FPoint(3, 4), tol));
+    assert(nearP(m.getPosAtDistance(6.5f), FPoint(4.5f, 4), tol));
+    assert(nearP(m.getPosAtDistance(100.0f), FPoint(6, 8), tol)); // clamps
+    assert(nearP(m.getPosAtDistance(-5.0f), FPoint(0, 0), tol));  // clamps
+
+    FVector normal;
+    auto pos = m.getPosAndNormalAtDistance(6.5f, normal);
+    assert(nearP(pos, FPoint(4.5f, 4), tol));
+    assert(near(normal.x, 0.0f, tol) && near(normal.y, -1.0f, tol)); // tangent +x, rotated CCW
+
+    // subranges: inside one segment, across several segments, and ending
+    // exactly on a segment boundary (stopT == 0: the closing verb is dropped
+    // instead of chopping a zero-length sliver)
+    Path sub;
+    m.appendRangeToPath(2.0f, 7.0f, sub);
+    assert(near(PathMeasure(sub).length, 5.0f, tol));
+
+    Path longRange;
+    m.appendRangeToPath(1.0f, 11.0f, longRange);
+    assert(near(PathMeasure(longRange).length, 10.0f, tol));
+
+    Path toBoundary;
+    m.appendRangeToPath(1.0f, 5.0f, toBoundary);
+    assert(near(PathMeasure(toBoundary).length, 4.0f, tol));
+
+    Path sub2;
+    m.appendRangeToPath(7.0f, 7.0f, sub2);
+    assert(sub2.empty);
+
+    // a closed triangle: the synthesized closing edge is measured, too
+    // (Path.apply emits a closing Line before Close)
+    Path tri;
+    tri.moveTo(FPoint(0, 0));
+    tri.lineTo(FPoint(10, 0));
+    tri.lineTo(FPoint(10, 10));
+    tri.close();
+    auto mt = PathMeasure(tri);
+    assert(mt.isClosed);
+    assert(near(mt.length, 10.0f + 10.0f + 10.0f * sqrt(2.0f), tol));
+}
+
+unittest
+{
+    import graphics.core.testing : near, nearP;
+    import std.math : sqrt;
+
+    enum tol = 1e-3f;
+    FVector normal;
+
+    // a quad's measured length lies between chord and control polygon;
+    // position and normal extraction take the quad branch of calcPos/calcNormal
+    Path q;
+    q.moveTo(FPoint(0, 0));
+    q.quadTo(FPoint(10, 0), FPoint(10, 10));
+    auto mq = PathMeasure(q);
+    float chord = 10.0f * sqrt(2.0f);
+    assert(mq.length >= chord - 1e-3f && mq.length <= 20.0f + 1e-3f);
+    auto qmid = mq.getPosAndNormalAtDistance(mq.length * 0.5f, normal);
+    assert(qmid.x > 0.0f && qmid.y > 0.0f && qmid.x < 10.0f && qmid.y < 10.0f);
+    assert(near(normal.length, 1.0f, tol)); // normals are unit length
+
+    // likewise for a cubic: its arch peak sits near (5, 7.5)
+    Path c;
+    c.moveTo(FPoint(0, 0));
+    c.cubicTo(FPoint(0, 10), FPoint(10, 10), FPoint(10, 0));
+    auto mc = PathMeasure(c);
+    assert(mc.length > 0.0f);
+    assert(nearP(mc.getPosAtDistance(0.0f), FPoint(0, 0), tol));
+    assert(nearP(mc.getPosAtDistance(mc.length), FPoint(10, 0), tol));
+    auto mid = mc.getPosAtDistance(mc.length * 0.5f);
+    assert(nearP(mid, FPoint(5, 7.5), 0.5f)); // the arch's peak
+    auto at = mc.getPosAndNormalAtDistance(mc.length * 0.25f, normal);
+    assert(at.y > 0.0f && near(normal.length, 1.0f, tol));
+}
+
+unittest
+{
+    import graphics.core.testing : near, nearP;
+    import std.array : appender;
+
+    enum tol = 1e-3;
+
+    // interval trimming
+    assert(intervalOffset('[') == 0 && intervalOffset(']') == 0);
+    assert(intervalOffset('(') == 1 && intervalOffset(')') == 1);
+
+    auto app = appender!(immutable(FPoint)[]);
+    FPoint[2] seg = [FPoint(0, 0), FPoint(1, 1)];
+    trimApp!"[]"(app, seg);
+    assert(app.data.length == 2);
+    trimApp!"()" (app, seg);
+    assert(app.data.length == 2); // open on both ends: a 2-point segment has nothing left
+
+    // chopping the middle half of a straight segment
+    app = appender!(immutable(FPoint)[]);
+    appendChopped(app, seg[], 0.25, 0.75);
+    assert(app.data.length == 2);
+    assert(nearP(app.data[0], FPoint(0.25, 0.25), tol));
+    assert(nearP(app.data[1], FPoint(0.75, 0.75), tol));
+
+    // chopping a quad at t=0..0.5 keeps all three control points
+    app = appender!(immutable(FPoint)[]);
+    FPoint[3] quad = [FPoint(0, 0), FPoint(2, 0), FPoint(2, 2)];
+    appendChopped(app, quad[], 0.0, 0.5);
+    assert(app.data.length == 3);
+    assert(nearP(app.data[$-1], FPoint(1.5, 0.5), tol)); // point on curve at t=0.5
+
+    // chopping a cubic at 0.25..0.75: exact de Casteljau section points
+    app = appender!(immutable(FPoint)[]);
+    FPoint[4] cubic = [FPoint(0, 0), FPoint(0, 10), FPoint(10, 10), FPoint(10, 0)];
+    appendChopped(app, cubic[], 0.25, 0.75);
+    assert(app.data.length == 4);
+    assert(nearP(app.data[0], FPoint(1.5625, 5.625), tol)); // cubic(t=0.25)
+    assert(nearP(app.data[3], FPoint(8.4375, 5.625), tol)); // cubic(t=0.75)
+
+    // segment comparators
+    auto s = getSegment(1.5f, 3);
+    assert(s.distance == 1.5f && s.pointIndex == 3);
+    assert(distComparable(2.0f).distance == 2.0f);
+    assert(s.toString.length > 0);
+}

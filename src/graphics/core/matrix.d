@@ -219,3 +219,94 @@ private:
         _data[1][2] = -sinV * px - cosV * py + py;
     }
 }
+
+unittest
+{
+    import std.math : abs;
+
+    bool nearF(float a, float b) { return abs(a - b) < 1e-4f; }
+    bool nearM(in Matrix a, in Matrix b)
+    {
+        foreach (r; 0 .. 3)
+            foreach (c; 0 .. 3)
+                if (!nearF(a[r][c], b[r][c]))
+                    return false;
+        return true;
+    }
+    bool nearP(FPoint a, FPoint b) { return abs(a.x - b.x) < 1e-4f && abs(a.y - b.y) < 1e-4f; }
+
+    Matrix m;
+    assert(nearF(m[0][0], 1.0f) && nearF(m[1][1], 1.0f) && nearF(m[2][2], 1.0f));
+    assert(m.toString.length > 0);
+
+    // reset
+    m.setTranslate(5, 6);
+    m.reset();
+    assert(nearM(m, Matrix(Matrix.identity)));
+
+    // translate
+    m.setTranslate(3, 4);
+    assert(!m.perspective);
+    assert(nearP(m * FPoint(1, 2), FPoint(4, 6)));
+    assert(m.translativeOnly);
+
+    // rotate 90 degrees about origin
+    m.setRotate(90);
+    assert(nearP(m * FPoint(1, 0), FPoint(0, 1)));
+    assert(!m.translativeOnly);
+    assert(!m.perspective);
+
+    // rotate about a pivot leaves the pivot in place
+    m.setRotate(45, 10, 20);
+    assert(nearP(m * FPoint(10, 20), FPoint(10, 20)));
+
+    // scale
+    m.setScale(2, 3);
+    assert(nearP(m * FPoint(1, 1), FPoint(2, 3)));
+    assert(!m.translativeOnly && !m.perspective);
+
+    // skew is perspective
+    m.setSkewX(0.5f);
+    assert(m.perspective);
+    m.setSkewY(0.25f);
+    assert(m.perspective);
+
+    // pre/post variants and multiplication
+    m.reset();
+    auto t = m.preTranslate(10, 0);
+    assert(nearP(t * FPoint(0, 0), FPoint(10, 0)));
+    auto s = t.preScale(2, 2);
+    assert(nearP(s * FPoint(0, 0), FPoint(10, 0)));
+    auto p = t.postScale(2, 2);
+    assert(nearP(p * FPoint(0, 0), FPoint(20, 0)));
+
+    // identity * identity == identity
+    Matrix i;
+    assert(nearM(i * i, i));
+
+    // mapPoints / mapRect
+    m.setTranslate(1, 1);
+    FPoint[3] pts = [FPoint(0, 0), FPoint(1, 0), FPoint(0, 1)];
+    m.mapPoints(pts[]);
+    assert(nearP(pts[0], FPoint(1, 1)) && nearP(pts[1], FPoint(2, 1)));
+    auto r = m.mapRect(FRect(FPoint(0, 0), FPoint(2, 3)));
+    assert(nearF(r.left, 1) && nearF(r.top, 1) && nearF(r.right, 3) && nearF(r.bottom, 4));
+
+    // inverse: M * M.inverted == identity for a full affine
+    m.setRotate(30, 7, 9);
+    m = m.preTranslate(11, -3);
+    m = m.preScale(2, 0.5f);
+    auto inv = m.inverted;
+    assert(nearM(m * inv, i));
+    assert(nearM(inv * m, i));
+
+    // inverse of a pure translation
+    m.setTranslate(3, 4);
+    assert(nearP(m.inverted * FPoint(3, 4), FPoint(0, 0)));
+
+    // singular matrix throws
+    import std.exception : assertThrown;
+    Matrix singular;
+    singular.setScale(0, 1);
+    assertThrown(singular.inverted);
+}

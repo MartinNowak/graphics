@@ -6,6 +6,20 @@
 # emacs tmpfiles
 *~
 
+# gcov annotations produced by coverage.sh
+*.gcov
+
+# perf profiler data
+perf.data
+perf.data.old
+
+# test application build products
+a.out
+*.o
+*.a
+*-test-application
+*-test-library
+
 # build dirs
 bin*/
 lib*/

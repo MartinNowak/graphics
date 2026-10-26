@@ -62,3 +62,46 @@ Color alphaMul(in Color color, uint scale) {
   auto ag = ((c >> 8) & rb_mask) * scale;
   return Color((rb & rb_mask) | (ag & ~rb_mask));
 }
+
+unittest
+{
+    // Opaque colors pass through the premultiplication untouched.
+    auto opaque = PMColor(Color.Red);
+    assert(opaque.r == Color.Red.r);
+    assert(opaque.g == Color.Red.g);
+    assert(opaque.b == Color.Red.b);
+    assert(opaque.a == 255);
+
+    // Fully transparent: channels premultiply to zero, alpha is kept.
+    auto transparent = PMColor(color(0, 255, 0, 0));
+    assert(transparent.r == 0 && transparent.g == 0 && transparent.b == 0);
+    assert(transparent.a == 0);
+
+    // Half transparent red: r = 255 * (128+1) >> 8 == 128
+    auto half = PMColor(color(128, 255, 128, 0));
+    assert(half.r == 128);
+    assert(half.g == 64);
+    assert(half.b == 0);
+    assert(half.a == 128);
+}
+
+unittest
+{
+    assert(alphaScale(0u) == 1);
+    assert(alphaScale(255u) == 256);
+    assert(alphaScale(ubyte(128)) == 129);
+    assert(invAlphaScale(0u) == 256);
+    assert(invAlphaScale(255u) == 1);
+    assert(invAlphaScale(ubyte(254)) == 2);
+
+    assert(alphaMul(ubyte(200), 256) == 200);
+    assert(alphaMul(ubyte(200), 0) == 0);
+    assert(alphaMul(ubyte(200), 128) == 100);
+
+    assert(alphaMul(color(255, 10, 20, 30), 256) == color(255, 10, 20, 30));
+    assert(alphaMul(color(255, 10, 20, 30), 0) == Color(0));
+
+    import std.exception : assertThrown;
+    assertThrown(alphaScale(256u));
+    assertThrown(invAlphaScale(256u));
+}

@@ -193,3 +193,57 @@ void appendPattern(FcPattern* pattern, string familyName)
 {
     FcPatternAddString(pattern, FC_FAMILY, toStringz(familyName));
 }
+
+unittest
+{
+    import std.algorithm : canFind;
+
+    // fc <-> TypeFace translation tables: every value round-trips and the
+    // band boundaries map to the neighbouring bucket
+    foreach (slant; [TypeFace.Slant.Roman, TypeFace.Slant.Italic, TypeFace.Slant.Oblique])
+        assert(fcSlant(slant) == fcSlant(tfSlant(fcSlant(slant))));
+    assert(tfSlant(FC_SLANT_ROMAN) == TypeFace.Slant.Roman);
+    assert(tfSlant(FC_SLANT_ITALIC / 2 + 1) == TypeFace.Slant.Italic);
+    assert(tfSlant(FC_SLANT_ITALIC) == TypeFace.Slant.Italic);
+    assert(tfSlant(FC_SLANT_OBLIQUE) == TypeFace.Slant.Oblique);
+
+    foreach (weight; [TypeFace.Weight.Thin, TypeFace.Weight.Light, TypeFace.Weight.Normal,
+                      TypeFace.Weight.Bold, TypeFace.Weight.Heavy])
+        assert(fcWeight(weight) == fcWeight(tfWeight(fcWeight(weight))));
+    assert(tfWeight(FC_WEIGHT_THIN) == TypeFace.Weight.Thin);
+    assert(tfWeight(FC_WEIGHT_ULTRALIGHT + 1) == TypeFace.Weight.Light);
+    assert(tfWeight(FC_WEIGHT_BOOK + 1) == TypeFace.Weight.Normal);
+    assert(tfWeight(FC_WEIGHT_DEMIBOLD + 1) == TypeFace.Weight.Bold);
+    assert(tfWeight(FC_WEIGHT_BLACK) == TypeFace.Weight.Heavy);
+
+    // the bitfield accessors
+    TypeFace tf;
+    assert(!tf.valid && !tf.fixedWidth);
+    tf.weight = TypeFace.Weight.Heavy;
+    tf.slant = TypeFace.Slant.Oblique;
+    tf._fixedWidth = true;
+    assert(tf.weight == TypeFace.Weight.Heavy);
+    assert(tf.slant == TypeFace.Slant.Oblique);
+    assert(tf.fixedWidth);
+    assert(tf.toString.length > 0);
+
+    // lookups against the system fontconfig need installed fonts; a
+    // font-less host finds no match and findFace throws, so the asserts
+    // below are conditional — the mapping tests above always run and
+    // cover the font semantics regardless of the host's fonts
+    auto font = TypeFace.defaultFace();
+    assert(font.toString.canFind("TypeFace file:"));
+    assert(TypeFace.defaultFace().filename == font.filename); // served from cache
+    auto boldItalic = TypeFace.findFace(TypeFace.Weight.Bold, TypeFace.Slant.Italic);
+    assert(boldItalic.valid);
+    assert(TypeFace.findFace(TypeFace.Weight.Bold, TypeFace.Slant.Italic).filename
+           == boldItalic.filename); // second lookup: cache hit
+    // an unknown family still resolves through fontconfig's fallbacks
+    assert(TypeFace.createFromName("nonexistent font family").valid);
+
+    // a locally owned FontConfig runs its FcFini destructor; modern
+    // fontconfig treats FcInit/FcFini as no-ops, so later lookups are safe
+    auto fc = new shared(FontConfig);
+    synchronized(fc) fc.init();
+    destroy(fc);
+}

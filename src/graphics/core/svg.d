@@ -297,3 +297,107 @@ static bool parse(T:bool)(ref string s)
     }
  Lerror: throw new ConvException("expected '0'|'1' not "~s);
 }
+
+unittest
+{
+    import graphics.core.path : Path;
+    import std.exception : assertThrown;
+    import std.math : abs;
+
+    bool near(FPoint a, FPoint b) { return abs(a.x - b.x) < 1e-4f && abs(a.y - b.y) < 1e-4f; }
+
+    Matrix m;
+    transformSVG(m, "translate(10)");
+    assert(near(m * FPoint(0, 0), FPoint(10, 10)));
+
+    m.reset();
+    transformSVG(m, "translate(10, 20)");
+    assert(near(m * FPoint(1, 2), FPoint(11, 22)));
+
+    m.reset();
+    transformSVG(m, "scale(2)");
+    assert(near(m * FPoint(3, 4), FPoint(6, 8)));
+
+    m.reset();
+    transformSVG(m, "scale(2, 3)");
+    assert(near(m * FPoint(1, 1), FPoint(2, 3)));
+
+    m.reset();
+    transformSVG(m, "rotate(90)");
+    assert(near(m * FPoint(1, 0), FPoint(0, 1)));
+
+    m.reset();
+    transformSVG(m, "rotate(90, 5, 5)");
+    assert(near(m * FPoint(5, 5), FPoint(5, 5)));
+
+    m.reset();
+    transformSVG(m, "skewX(0.5)");
+    assert(m.perspective);
+    m.reset();
+    transformSVG(m, "skewY(0.5)");
+    assert(m.perspective);
+
+    m.reset();
+    transformSVG(m, "matrix(1 2 3 4 5 6)");
+    assert(near(m * FPoint(1, 1), FPoint(6, 15)));
+
+    // transform list: "A B" applies B first, then A
+    m.reset();
+    transformSVG(m, "translate(10, 0) scale(2)");
+    assert(near(m * FPoint(1, 1), FPoint(12, 2)));
+
+    assertThrown(transformSVG(m, "bogus(1)"));
+}
+
+unittest
+{
+    import graphics.core.path : Path;
+
+    Path path;
+    addSVGPath(path, "M 0 0 L 10 10 H 20 V 0 Z");
+    assert(path.verbs == [Path.Verb.Move, Path.Verb.Line, Path.Verb.Line, Path.Verb.Line, Path.Verb.Close]);
+    assert(path.points == [FPoint(0, 0), FPoint(10, 10), FPoint(20, 10), FPoint(20, 0)]);
+
+    // implicit lineto after moveto
+    path = Path.init;
+    addSVGPath(path, "M 0 0 5 5 10 0");
+    assert(path.verbs == [Path.Verb.Move, Path.Verb.Line, Path.Verb.Line]);
+    assert(path.points == [FPoint(0, 0), FPoint(5, 5), FPoint(10, 0)]);
+
+    // relative commands
+    path = Path.init;
+    addSVGPath(path, "m 1 1 l 2 2 h 3 v -4");
+    assert(path.points == [FPoint(1, 1), FPoint(3, 3), FPoint(6, 3), FPoint(6, -1)]);
+
+    // cubics and smooth cubics
+    path = Path.init;
+    addSVGPath(path, "M 0 0 C 1 1 2 2 3 3 S 4 4 5 5");
+    assert(path.verbs == [Path.Verb.Move, Path.Verb.Cubic, Path.Verb.Cubic]);
+    // S seeds the first handle with the current point and shifts the parsed
+    // handle by the previous cubic's leg reflection.
+    assert(path.points == [FPoint(0, 0), FPoint(1, 1), FPoint(2, 2), FPoint(3, 3),
+                           FPoint(3, 3), FPoint(5, 5), FPoint(5, 5)]);
+
+    // quads and smooth quads
+    path = Path.init;
+    addSVGPath(path, "M 0 0 Q 1 1 2 2 T 3 3");
+    assert(path.verbs == [Path.Verb.Move, Path.Verb.Quad, Path.Verb.Quad]);
+    // T reflects the previous control point (1,1) through (2,2) into (3,3)
+    assert(path.points[$-2] == FPoint(3, 3));
+    assert(path.points[$-1] == FPoint(3, 3));
+
+    // elliptical arc command produces at least one move
+    path = Path.init;
+    addSVGPath(path, "M 0 0 A 5 5 0 0 1 10 10");
+    assert(path.verbs.length >= 1 && path.verbs[0] == Path.Verb.Move);
+}
+
+unittest
+{
+    import graphics.core.path : Path;
+
+    Path path;
+    addSVGPolyLine(path, "0,0 10,0 10,10");
+    assert(path.verbs == [Path.Verb.Move, Path.Verb.Line, Path.Verb.Line]);
+    assert(path.points == [FPoint(0, 0), FPoint(10, 0), FPoint(10, 10)]);
+}

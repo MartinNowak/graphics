@@ -143,3 +143,74 @@ version (D_InlineAsm_X86_64) {
     return 1. / distance(pta, ptb);
   }
 }
+
+unittest
+{
+    import std.math : abs, sqrt;
+
+    // ColorShader fills the span with its color
+    auto cs = new ColorShader(Color.Red);
+    assert(cs.opaque);
+    assert(!cs.needsMatrix);
+    PMColor[3] data;
+    cs.getRange(0, 0, data[]);
+    foreach (d; data)
+        assert(d == Color.Red);
+
+    // translucent color shaders are not opaque
+    assert(!(new ColorShader(color(128, 0, 0, 0))).opaque);
+
+    // mapPt uses the shader matrix
+    Matrix m;
+    m.setTranslate(5, 10);
+    cs.matrix = m;
+    auto p = cs.mapPt(FPoint(1, 1));
+    assert(abs(p.x - 6) < 1e-4 && abs(p.y - 11) < 1e-4);
+
+    // rdistance returns the reciprocal distance: rsqrtss on x86_64,
+    // 1/distance elsewhere — a 3-4-5 triangle gives 1/5 either way.
+    // One shared tolerance covers both: rsqrtss is only an estimate
+    // (max rel. err. ~3.7e-4), 1/distance is exact.
+    import std.conv : to;
+    auto rd = rdistance(FPoint(0, 0), FPoint(3, 4));
+    assert(abs(rd - 0.2f) < 1e-3f, "rdistance = " ~ rd.to!string);
+}
+
+unittest
+{
+    import std.math : abs;
+
+    // gradient between two point sources
+    auto gs = new GradientShader([Color.Red, Color.Blue],
+                                 [FPoint(0, 0), FPoint(10, 0)]);
+    assert(gs.opaque);
+    assert(gs.needsMatrix);
+
+    // right at a stop: pure stop color
+    auto at = GradientShader.colorAt(gs, FPoint(0, 0));
+    assert(at == PMColor(Color.Red));
+    at = GradientShader.colorAt(gs, FPoint(10, 0));
+    assert(at == PMColor(Color.Blue));
+
+    // far from every stop: still a blend, weighted toward the nearest stop
+    at = GradientShader.colorAt(gs, FPoint(100, 0));
+    assert(at.r > 0 && at.b > 0);
+    assert(at.b >= at.r); // nearer to the blue stop
+
+    // in between: weighted blend of both stops
+    at = GradientShader.colorAt(gs, FPoint(5, 0));
+    assert(at.r > 0 && at.b > 0);
+    assert(at.r > at.b - 8 && at.b > at.r - 8); // roughly balanced
+
+    // getRange interpolates along the span (identity matrix, fast path)
+    PMColor[3] data;
+    gs.getRange(5, 0, data[]);
+    assert(data.length == 3);
+    foreach (d; data)
+        assert(d.r > 0 && d.b > 0);
+
+    // single-pixel spans take the documented buggy path
+    PMColor[1] one;
+    gs.getRange(0, 0, one[]);
+    assert(one[0] == PMColor(Color.Red));
+}

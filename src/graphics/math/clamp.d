@@ -39,3 +39,24 @@ debug {
     return cast(T)(val);
   }
 }
+
+unittest
+{
+    assert(clampToRange(5, 1, 10) == 5);
+    assert(clampToRange(0, 1, 10) == 1);
+    assert(clampToRange(11, 1, 10) == 10);
+    assert(clampToRange(1.5f, 2, 3) == 2);
+
+    assert(clampTo!ubyte(300) == 255);
+    assert(clampTo!ubyte(-1) == 0);
+    assert(clampTo!byte(300.5) == 127);
+    assert(clampTo!byte(-300) == -128);
+
+    // default interval is left closed, right open
+    assert(fitsIntoRange(1, 1, 2));
+    assert(!fitsIntoRange(2, 1, 2));
+    assert(fitsIntoRange!("[]")(2, 1, 2));
+    assert(!fitsIntoRange!("()")(1, 1, 2));
+    assert(fitsIntoRange!("(]")(2, 1, 2));
+    assert(!fitsIntoRange!("(]")(1, 1, 2));
+}

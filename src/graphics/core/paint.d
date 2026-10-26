@@ -79,3 +79,47 @@ struct TextPaint
         return cache.fontMetrics();
     }
 }
+
+unittest
+{
+    Paint p;
+    p.shader = null;
+    assert(p.color == Color.Black);
+    assert(p.toString.length > 0);
+
+    p.color = Color.Red;
+    auto s = p.toString;
+    import std.algorithm : canFind;
+    assert(s.canFind("Paint color"));
+
+    // TextPaint wraps Paint and carries its own flags
+    TextPaint tp;
+    tp.shader = null;
+    tp.color = Color.Green;
+    tp.textSize = 42.0f;
+    tp.textAlign = TextPaint.TextAlign.Center;
+    tp.underlineText = true;
+    tp.strikeThruText = true;
+    tp.fakeBoldText = true;
+    tp.embeddedBitmapText = false;
+    tp.autoHinting = true;
+
+    Paint up = tp; // implicit conversion through alias this
+    assert(up.color == Color.Green);
+    assert(tp.textSize == 42.0f);
+    assert(tp.textAlign == TextPaint.TextAlign.Center);
+    assert(tp.underlineText && tp.strikeThruText && tp.fakeBoldText);
+    assert(tp.autoHinting && !tp.embeddedBitmapText);
+
+    // font metrics against the system's default face, if any is available
+    auto face = TypeFace.defaultFace();
+    if (face.valid)
+    {
+        import std.math : isFinite;
+        auto tp2 = TextPaint(Color.Black, face);
+        auto fm = tp2.fontMetrics;
+        assert(isFinite(fm.ascent) && isFinite(fm.descent), fm.toString);
+        assert(isFinite(fm.leading) && isFinite(fm.xmin) && isFinite(fm.xmax), fm.toString);
+        assert(fm.toString.length > 0);
+    }
+}

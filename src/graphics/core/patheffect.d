@@ -60,3 +60,60 @@ Path dotPath(in Path path, float dotsize, float dotdist)
     }
     return result;
 }
+
+unittest
+{
+    import std.math : abs;
+    import std.conv : text;
+
+    Path line;
+    line.moveTo(FPoint(10, 10));
+    line.lineTo(FPoint(90, 10));
+
+    // stroking a horizontal line widens the bounds by half the width
+    auto s = strokePath(line, 4);
+    assert(!s.empty);
+    assert(abs(s.bounds.left  - 10) < 1e-2);
+    assert(abs(s.bounds.right - 90) < 1e-2);
+    assert(abs(s.bounds.top   -  8) < 1e-2);
+    assert(abs(s.bounds.bottom- 12) < 1e-2);
+
+    // round caps extend further along the line direction
+    auto sr = strokePath(line, 4, CapStyle.Round);
+    assert(sr.bounds.left < s.bounds.left);
+    assert(sr.bounds.right > s.bounds.right);
+
+    // square caps extend by the stroke radius past the endpoints
+    auto sq = strokePath(line, 4, CapStyle.Square);
+    assert(abs(sq.bounds.left - 8) < 1e-2 && abs(sq.bounds.right - 92) < 1e-2);
+
+    // an L-shaped polyline strokes fine with each join style
+    Path l;
+    l.moveTo(FPoint(10, 10));
+    l.lineTo(FPoint(50, 10));
+    l.lineTo(FPoint(50, 50));
+    foreach (j; [JoinStyle.Miter, JoinStyle.Round, JoinStyle.Bevel])
+    {
+        auto ls = strokePath(l, 6, CapStyle.Butt, j);
+        assert(!ls.empty);
+        assert(ls.bounds.width >= 43 && ls.bounds.height >= 43);
+    }
+
+    // dashes: [2,2] along an 80-long line gives 20 on-intervals
+    auto d = dashPath(line, [2.0f, 2.0f]);
+    size_t moves;
+    foreach (v; d.verbs)
+        if (v == Path.Verb.Move)
+            ++moves;
+    assert(moves == 20, text(moves));
+
+    // dots every 20 units along the 80-unit line: 0, 20, 40, 60
+    auto dots = dotPath(line, 2, 20);
+    moves = 0;
+    foreach (v; dots.verbs)
+        if (v == Path.Verb.Move)
+            ++moves;
+    assert(moves == 4, text(moves));
+    dots = dotPath(line, 2);   // dotdist = 2*dotsize -> 20 dots
+    assert(!dots.empty);
+}

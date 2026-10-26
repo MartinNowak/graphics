@@ -31,3 +31,23 @@ struct Glyph {
   enum LoadFlag { NoFlag=0, Metrics=(1<<0), Path=(1<<1) }
   LoadFlag loaded;
 }
+
+unittest
+{
+    auto face = TypeFace.defaultFace();
+    if (face.valid)
+    {
+        auto cache = getGlyphCache(face, 24.0f);
+        auto width = measureText("Hello", cache);
+        assert(width > 0);
+
+        bool sawGlyph = false;
+        foreach (gl; cache.glyphStream("Hi", Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+        {
+            sawGlyph = true;
+            assert(gl.toString.length > 0);
+            assert((gl.loaded & Glyph.LoadFlag.Metrics) != Glyph.LoadFlag.NoFlag);
+        }
+        assert(sawGlyph);
+    }
+}

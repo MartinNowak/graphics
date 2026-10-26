@@ -296,6 +296,101 @@ void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter bli
 
 unittest
 {
+    import graphics.core.testing : blackBitmap, inked, pixel, polyline, solidPaint;
+
+    // drawColor ignores the clip and repaints the whole bitmap
+    auto bm = blackBitmap(4, 4);
+    Draw(bm).drawColor(Color.Green);
+    assert(pixel(bm, 0, 0) == Color.Green && pixel(bm, 3, 3) == Color.Green);
+
+    auto paint = solidPaint(Color.Red);
+
+    // drawPaint fills the intersection of the device and the clip
+    auto d = Draw(bm, Matrix(), IRect(0, 0, 2, 2));
+    d.drawPaint(paint);
+    assert(pixel(bm, 1, 1) == Color.Red);
+    assert(pixel(bm, 2, 2) == PMColor(Color.Green)); // outside the clip
+
+    // drawRect rasterizes through the wavelet path pipeline
+    bm.eraseColor(Color.Black);
+    auto d1 = Draw(bm, Matrix(), bm.bounds);
+    d1.drawRect(FRect(1, 1, 3, 3), paint);
+    assert(pixel(bm, 1, 1) == Color.Red);
+    assert(pixel(bm, 2, 2) == Color.Red);
+    assert(pixel(bm, 3, 3) == PMColor(Color.Black));
+
+    // drawPath: a right triangle covering the upper-left half
+    bm.eraseColor(Color.Black);
+    Path tri;
+    tri.moveTo(FPoint(0, 0));
+    tri.lineTo(FPoint(4, 0));
+    tri.lineTo(FPoint(0, 4));
+    tri.close();
+    d1.drawPath(tri, paint);
+    assert(pixel(bm, 1, 1) == Color.Red);            // (1.5,1.5): x+y < 4
+    assert(pixel(bm, 3, 3) == PMColor(Color.Black)); // (3.5,3.5)
+
+    // the draw matrix moves the geometry
+    bm.eraseColor(Color.Black);
+    Matrix m;
+    m.setTranslate(2, 0);
+    Draw(bm, m, bm.bounds).drawPath(tri, paint);
+    assert(pixel(bm, 3, 1) == Color.Red);            // (3.5,1.5) in [2,6]x[0,4]
+    assert(pixel(bm, 1, 1) == PMColor(Color.Black)); // left of x=2
+
+    // an empty clip or empty path draws nothing at all
+    bm.eraseColor(Color.Black);
+    Draw(bm, Matrix(), IRect()).drawPath(tri, paint);
+    Draw(bm, Matrix(), bm.bounds).drawPath(Path(), paint);
+    assert(pixel(bm, 2, 2) == PMColor(Color.Black));
+
+    // drawBitmap with a translative-only matrix blits the source as a sprite
+    bm.eraseColor(Color.Black);
+    Bitmap src = Bitmap(Bitmap.Config.ARGB_8888, 2, 2);
+    src.eraseColor(Color.Blue);
+    Matrix mt;
+    mt.setTranslate(1, 1);
+    auto white = solidPaint(Color.White);
+    Draw(bm, mt, bm.bounds).drawBitmap(src, white);
+    assert(pixel(bm, 1, 1) == Color.Blue);
+    assert(pixel(bm, 2, 2) == Color.Blue);
+    assert(pixel(bm, 0, 0) == PMColor(Color.Black));
+
+    // a zero-alpha paint skips the sprite blit entirely
+    bm.eraseColor(Color.Black);
+    Draw(bm, Matrix(), bm.bounds).drawBitmap(src, solidPaint(color(0, 255, 0, 0)));
+    assert(pixel(bm, 0, 0) == PMColor(Color.Black));
+
+    // drawBitmap through a scaled matrix goes the BitmapShader route; the
+    // shader samples at pixel corners rounded to nearest, so the far edge
+    // samples outside the source and stays transparent (pixel 3,3 not asserted)
+    bm.eraseColor(Color.Black);
+    Matrix ms;
+    ms = ms.preScale(2, 2); // not translativeOnly
+    Draw(bm, ms, bm.bounds).drawBitmap(src, white);
+    assert(pixel(bm, 0, 0) == Color.Blue, text(pixel(bm, 0, 0)));
+    assert(pixel(bm, 2, 2) == Color.Blue, text(pixel(bm, 2, 2)));
+
+    // text drawing, if the system's default face is usable
+    TypeFace face;
+    try face = TypeFace.defaultFace();
+    catch (Exception e) {} // host without usable fonts: nothing to check
+    if (face.valid)
+    {
+        bm.eraseColor(Color.Black);
+        auto tp = TextPaint(Color.White, face);
+        Draw(bm, Matrix(), bm.bounds).drawText("I", FPoint(1, 3), tp);
+        assert(bm.inked);
+
+        bm.eraseColor(Color.Black);
+        auto follow = polyline(FPoint(0, 2), FPoint(4, 2));
+        Draw(bm, Matrix(), bm.bounds).drawTextOnPath("i", follow, tp);
+        assert(bm.inked);
+    }
+}
+
+unittest
+{
     // Regression test: the matrix returned by preTranslate used to be
     // discarded, so drawText always landed at the origin no matter what
     // pt said. Draw a glyph well right of the origin and check the ink

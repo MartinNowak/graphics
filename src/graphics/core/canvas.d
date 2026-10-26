@@ -286,3 +286,95 @@ public:
         return _mcRecs[$ - 1];
     }
 }
+
+unittest
+{
+    import std.conv : text;
+    import graphics.core.fonthost : TypeFace;
+    import graphics.core.testing : pixel, solidPaint;
+
+    Bitmap bm = Bitmap(Bitmap.Config.ARGB_8888, 4, 4);
+    auto c = new Canvas(bm);
+    assert(c.bitmap is bm);
+    assert(c.saveCount == 1);
+
+    // save/restore stack
+    size_t idx = c.save();
+    assert(idx == 1 && c.saveCount == 2);
+    c.translate(2, 2);
+    assert(c.matrix[0][2] == 2 && c.matrix[1][2] == 2);
+    c.translate(IPoint(1, 1));
+    c.translate(FPoint(1, 1));
+    assert(c.matrix[0][2] == 4 && c.matrix[1][2] == 4);
+    c.restore();
+    assert(c.saveCount == 1);
+    assert(c.matrix[0][2] == 0);
+
+    // all the transform helpers run
+    c.save();
+    c.scale(FVector(2, 1));
+    c.scale(1, 3);
+    c.rotate(90);
+    c.rotate(45, FPoint(2, 2));
+    c.rotate(10, 1, 1);
+    c.skewX(0.5f);
+    c.skewY(0.25f);
+    c.restoreCount(1);
+    assert(c.saveCount == 1);
+    assert(c.matrix[0][0] == 1 && c.matrix[0][2] == 0); // base record untouched
+    c.resetMatrix();
+
+    // clipRect intersects and can empty the clip
+    assert(c.clipRect(IRect(0, 0, 2, 2)));
+    assert(!c.clipRect(IRect(3, 3, 4, 4)));
+    Bitmap smaller = Bitmap(Bitmap.Config.ARGB_8888, 2, 2);
+    c.bitmap = smaller;
+    assert(c.bitmap is smaller);
+
+    // drawing reaches the underlying bitmap
+    Bitmap bm2 = Bitmap(Bitmap.Config.ARGB_8888, 4, 4);
+    auto c2 = new Canvas(bm2);
+    c2.drawColor(Color.Red);
+    assert(pixel(bm2, 0, 0) == Color.Red);
+    c2.drawARGB(255, 0, 255, 0);
+    assert(pixel(bm2, 3, 3) == Color.Green);
+
+    auto paint = solidPaint(Color.Blue);
+    c2.drawRect(IRect(0, 0, 1, 1), paint);
+    assert(pixel(bm2, 0, 0) == Color.Blue);
+
+    c2.drawPaint(Paint(Color.Black));
+    assert(pixel(bm2, 2, 2) == PMColor(Color.Black));
+
+    // shape helpers all funnel into drawPath
+    c2.drawRoundRect(IRect(0, 0, 4, 4), 1, 1, paint);
+    auto center = pixel(bm2, 2, 2);
+    assert(center.b >= 250 && center.r == 0 && center.a >= 250, text(center));
+    c2.drawRoundRect(FRect(0, 0, 4, 4), 0, 0, paint); // rx == 0 -> plain rect
+    assert(pixel(bm2, 0, 0) == Color.Blue);
+    c2.drawOval(IRect(0, 0, 4, 4), paint);
+    c2.drawOval(FRect(1, 1, 3, 3), paint);
+    c2.drawCircle(IPoint(2, 2), 1, paint);
+    c2.drawCircle(FPoint(2, 2), 1.5f, paint);
+    Path p;
+    p.addRect(FRect(1, 1, 2, 2));
+    c2.drawPath(p, paint);
+
+    Bitmap src = Bitmap(Bitmap.Config.ARGB_8888, 1, 1);
+    src.eraseColor(Color.White);
+    c2.drawBitmap(src, paint);
+
+    auto face = TypeFace.defaultFace();
+    if (face.valid)
+    {
+        import graphics.core.fonthost : TypeFace;
+        auto tp = TextPaint(Color.White, face);
+        c2.drawText("a", 1, 3, tp);
+        c2.drawText("a", FPoint(1, 3), tp);
+        c2.drawText("a", IPoint(1, 3), tp);
+        Path follow;
+        follow.moveTo(FPoint(0, 2));
+        follow.lineTo(FPoint(4, 2));
+        c2.drawTextOnPath("a", follow, tp);
+    }
+}
