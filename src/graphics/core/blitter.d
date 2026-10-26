@@ -98,24 +98,21 @@ class RasterBlitter : Blitter {
 
 class ARGB32Blitter : RasterBlitter {
   Color color;
-  PMColor[256] pmColors;
-
+  PMColor pmColor;
   this(Bitmap bitmap, Paint paint) {
     super(bitmap);
     this.color = paint.color;
-    foreach (ubyte a; 0 .. 256) {
-        auto c = this.color;
-        c.a = alphaMul(c.a, alphaScale(a));
-        this.pmColors[a] = PMColor(c);
-    }
+    this.pmColor = PMColor(this.color);
   }
 
   override void blitH(int y, int xstart, int xend) {
-    Color32(this.bitmap.getRange!PMColor(xstart, xend, y), pmColors[$-1]);
+    Color32(this.bitmap.getRange!PMColor(xstart, xend, y), pmColor);
   }
 
   override void blitAlphaH(int y, int xstart, int xend, ubyte alpha) {
-    Color32(this.bitmap.getRange!PMColor(xstart, xend, y), pmColors[alpha]);
+    auto color = this.color;
+    color.a = alphaMul(color.a, alphaScale(alpha));
+    Color32(this.bitmap.getRange!PMColor(xstart, xend, y), PMColor(color));
   }
 
   override void blitMask(int x, int y, in Bitmap mask) {
@@ -123,14 +120,18 @@ class ARGB32Blitter : RasterBlitter {
 
     auto src = (cast(Bitmap)mask);
     auto w = src.width;
+    auto colA = this.color.a;
 
     // Decode each mask row into runs of equal alpha; each run is one
     // constant-alpha Color32 fill.
     for (auto h = 0; h < mask.height; ++h) {
       auto dst = this.bitmap.getRange!PMColor(x, x + w, y + h);
       foreach (a, n; src.getRange!ubyte(0, w, h).group()) {
-        if (a)
-          Color32(dst[0..n], this.pmColors[a]);
+        if (a) {
+          auto c = this.color;
+          c.a = alphaMul(colA, alphaScale(a));
+          Color32(dst[0..n], PMColor(c));
+        }
         dst.popFrontExactly(n);
       }
     }
