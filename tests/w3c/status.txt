@@ -1,526 +1,526 @@
-animate-dom-01-f.svg DIFF 6168 0
-animate-dom-02-f.svg DIFF 3429 0
-animate-elem-02-t.svg ERROR - -
-animate-elem-03-t.svg DIFF 8792 0
-animate-elem-04-t.svg DIFF 9215 0
-animate-elem-05-t.svg DIFF 12220 0
-animate-elem-06-t.svg DIFF 9190 0
-animate-elem-07-t.svg DIFF 9201 0
-animate-elem-08-t.svg DIFF 5887 0
-animate-elem-09-t.svg DIFF 5481 0
-animate-elem-10-t.svg DIFF 5545 0
-animate-elem-11-t.svg DIFF 5540 0
-animate-elem-12-t.svg DIFF 5545 0
-animate-elem-13-t.svg DIFF 48290 0
-animate-elem-14-t.svg DIFF 6791 0
-animate-elem-15-t.svg DIFF 6816 0
-animate-elem-17-t.svg DIFF 6778 0
-animate-elem-19-t.svg DIFF 6756 0
-animate-elem-20-t.svg ERROR - -
-animate-elem-21-t.svg ERROR - -
-animate-elem-22-b.svg DIFF 37936 0
-animate-elem-23-t.svg DIFF 26911 0
-animate-elem-24-t.svg DIFF 7778 0
-animate-elem-25-t.svg DIFF 10339 0
-animate-elem-26-t.svg DIFF 36125 0
-animate-elem-27-t.svg DIFF 8257 0
-animate-elem-28-t.svg DIFF 52304 0
-animate-elem-29-b.svg ERROR - -
-animate-elem-30-t.svg DIFF 11431 0
-animate-elem-31-t.svg ERROR - -
-animate-elem-32-t.svg DIFF 2998 0
-animate-elem-33-t.svg DIFF 9263 0
-animate-elem-34-t.svg DIFF 20509 0
-animate-elem-35-t.svg DIFF 16519 0
-animate-elem-36-t.svg DIFF 27304 0
-animate-elem-37-t.svg DIFF 15242 0
-animate-elem-38-t.svg DIFF 17473 0
-animate-elem-39-t.svg DIFF 11296 0
-animate-elem-40-t.svg ERROR - -
-animate-elem-41-t.svg ERROR - -
-animate-elem-44-t.svg DIFF 21180 0
-animate-elem-46-t.svg DIFF 8516 0
-animate-elem-52-t.svg ERROR - -
-animate-elem-53-t.svg DIFF 7959 0
-animate-elem-60-t.svg DIFF 29505 0
-animate-elem-61-t.svg DIFF 3894 0
-animate-elem-62-t.svg DIFF 29497 0
-animate-elem-63-t.svg DIFF 3884 0
-animate-elem-64-t.svg DIFF 3177 0
-animate-elem-65-t.svg DIFF 4437 0
-animate-elem-66-t.svg DIFF 4553 0
-animate-elem-67-t.svg DIFF 4001 0
-animate-elem-68-t.svg DIFF 3734 0
-animate-elem-69-t.svg DIFF 3995 0
-animate-elem-70-t.svg DIFF 3584 0
-animate-elem-77-t.svg DIFF 167072 0
-animate-elem-78-t.svg ERROR - -
-animate-elem-80-t.svg DIFF 14637 0
-animate-elem-81-t.svg DIFF 25426 0
-animate-elem-82-t.svg DIFF 11523 0
-animate-elem-83-t.svg ERROR - -
-animate-elem-84-t.svg DIFF 23936 0
-animate-elem-85-t.svg DIFF 41928 0
-animate-elem-86-t.svg DIFF 6206 0
-animate-elem-87-t.svg DIFF 30356 0
-animate-elem-88-t.svg DIFF 3037 0
-animate-elem-89-t.svg DIFF 8897 0
-animate-elem-90-b.svg DIFF 22114 0
-animate-elem-91-t.svg ERROR - -
-animate-elem-92-t.svg DIFF 3254 0
-animate-interact-events-01-t.svg DIFF 8438 0
-animate-interact-pevents-01-t.svg DIFF 10399 0
-animate-interact-pevents-02-t.svg DIFF 37837 0
-animate-interact-pevents-03-t.svg DIFF 5929 0
-animate-interact-pevents-04-t.svg DIFF 5482 0
-animate-pservers-grad-01-b.svg ERROR - -
-animate-script-elem-01-b.svg DIFF 3496 0
-animate-struct-dom-01-b.svg DIFF 4466 0
-color-prof-01-f.svg DIFF 56086 0
-color-prop-01-b.svg ERROR - -
-color-prop-02-f.svg ERROR - -
-color-prop-03-t.svg ERROR - -
-color-prop-04-t.svg ERROR - -
-color-prop-05-t.svg ERROR - -
-conform-viewers-01-t.svg DIFF 15304 1200
-conform-viewers-02-f.svg ERROR - -
-conform-viewers-03-f.svg DIFF 5495 1200
-coords-coord-01-t.svg DIFF 2819 1200
-coords-coord-02-t.svg ERROR - -
-coords-dom-01-f.svg DIFF 5119 0
-coords-dom-02-f.svg DIFF 8082 0
-coords-dom-03-f.svg DIFF 6428 0
-coords-dom-04-f.svg DIFF 5549 0
-coords-trans-01-b.svg DIFF 21546 1200
-coords-trans-02-t.svg DIFF 3724 1200
-coords-trans-03-t.svg DIFF 3582 1200
-coords-trans-04-t.svg DIFF 3054 1200
-coords-trans-05-t.svg DIFF 3452 1200
-coords-trans-06-t.svg DIFF 3494 1200
-coords-trans-07-t.svg DIFF 3538 1200
-coords-trans-08-t.svg ERROR - -
-coords-trans-09-t.svg DIFF 13095 1200
-coords-trans-10-f.svg DIFF 5265 1200
-coords-trans-11-f.svg DIFF 8723 1200
-coords-trans-12-f.svg DIFF 4757 1200
-coords-trans-13-f.svg DIFF 4296 1200
-coords-trans-14-f.svg DIFF 3753 1200
-coords-transformattr-01-f.svg ERROR - -
-coords-transformattr-02-f.svg DIFF 11921 1200
-coords-transformattr-03-f.svg DIFF 12493 1200
-coords-transformattr-04-f.svg DIFF 12333 1200
-coords-transformattr-05-f.svg DIFF 16909 1200
-coords-units-01-b.svg ERROR - -
-coords-units-02-b.svg ERROR - -
-coords-units-03-b.svg ERROR - -
-coords-viewattr-01-b.svg DIFF 10267 1200
-coords-viewattr-02-b.svg DIFF 13438 1200
-coords-viewattr-03-b.svg ERROR - -
-coords-viewattr-04-f.svg DIFF 14678 1200
-extend-namespace-01-f.svg DIFF 25101 1200
-filters-background-01-f.svg ERROR - -
-filters-blend-01-b.svg DIFF 58047 1200
-filters-color-01-b.svg ERROR - -
-filters-color-02-b.svg ERROR - -
-filters-composite-02-b.svg DIFF 20286 1200
-filters-composite-03-f.svg ERROR - -
-filters-composite-04-f.svg DIFF 15629 1200
-filters-composite-05-f.svg DIFF 10105 1200
-filters-comptran-01-b.svg ERROR - -
-filters-conv-01-f.svg DIFF 12722 1200
-filters-conv-02-f.svg ERROR - -
-filters-conv-03-f.svg ERROR - -
-filters-conv-04-f.svg ERROR - -
-filters-conv-05-f.svg ERROR - -
-filters-diffuse-01-f.svg DIFF 12286 1200
-filters-displace-01-f.svg DIFF 61010 1200
-filters-displace-02-f.svg ERROR - -
-filters-example-01-b.svg DIFF 32144 1200
-filters-felem-01-b.svg ERROR - -
-filters-felem-02-f.svg DIFF 11987 1200
-filters-gauss-01-b.svg DIFF 28495 1200
-filters-gauss-02-f.svg DIFF 21277 1200
-filters-gauss-03-f.svg DIFF 6577 1200
-filters-image-01-b.svg DIFF 23450 1200
-filters-image-02-b.svg ERROR - -
-filters-image-03-f.svg DIFF 12845 1200
-filters-image-04-f.svg DIFF 12922 1200
-filters-image-05-f.svg DIFF 13916 1200
-filters-light-01-f.svg DIFF 15986 1200
-filters-light-02-f.svg ERROR - -
-filters-light-03-f.svg DIFF 8071 1200
-filters-light-04-f.svg DIFF 8972 1200
-filters-light-05-f.svg DIFF 17507 1200
-filters-morph-01-f.svg DIFF 30774 1200
-filters-offset-01-b.svg DIFF 5826 1200
-filters-offset-02-b.svg ERROR - -
-filters-overview-01-b.svg DIFF 47255 1200
-filters-overview-02-b.svg ERROR - -
-filters-overview-03-b.svg ERROR - -
-filters-specular-01-f.svg DIFF 16164 1200
-filters-tile-01-b.svg DIFF 23373 1200
-filters-turb-01-f.svg DIFF 14223 1200
-filters-turb-02-f.svg ERROR - -
-fonts-desc-01-t.svg PASS 6004 43200
-fonts-desc-02-t.svg PASS 3011 43200
-fonts-desc-03-t.svg PASS 3162 43200
-fonts-desc-04-t.svg PASS 3751 43200
-fonts-desc-05-t.svg PASS 3301 43200
-fonts-elem-01-t.svg PASS 5552 43200
-fonts-elem-02-t.svg PASS 12636 43200
-fonts-elem-03-b.svg PASS 5577 43200
-fonts-elem-04-b.svg PASS 5530 43200
-fonts-elem-05-t.svg PASS 4893 43200
-fonts-elem-06-t.svg PASS 3226 43200
-fonts-elem-07-b.svg PASS 5557 43200
-fonts-glyph-02-t.svg PASS 3699 43200
-fonts-glyph-03-t.svg PASS 3816 43200
-fonts-glyph-04-t.svg PASS 2722 43200
-fonts-kern-01-t.svg DIFF 59567 43200
-fonts-overview-201-t.svg PASS 8798 43200
-imp-path-01-f.svg DIFF 8233 1200
-interact-cursor-01-f.svg ERROR - -
-interact-dom-01-b.svg DIFF 54623 0
-interact-events-01-b.svg DIFF 17958 0
-interact-events-02-b.svg DIFF 4351 0
-interact-events-202-f.svg ERROR - -
-interact-events-203-t.svg DIFF 8462 0
-interact-order-01-b.svg DIFF 92700 0
-interact-order-02-b.svg DIFF 93646 0
-interact-order-03-b.svg DIFF 94279 0
-interact-pevents-01-b.svg DIFF 10972 0
-interact-pevents-03-b.svg DIFF 3608 0
-interact-pevents-04-t.svg DIFF 3359 0
-interact-pevents-05-b.svg ERROR - -
-interact-pevents-07-t.svg DIFF 37837 0
-interact-pevents-08-f.svg DIFF 5963 0
-interact-pevents-09-f.svg DIFF 5514 0
-interact-pevents-10-f.svg DIFF 6460 0
-interact-pointer-01-t.svg DIFF 3722 0
-interact-pointer-02-t.svg DIFF 3689 0
-interact-pointer-03-t.svg ERROR - -
-interact-pointer-04-f.svg DIFF 13405 0
-interact-zoom-01-t.svg DIFF 8113 0
-interact-zoom-02-t.svg DIFF 8139 0
-interact-zoom-03-t.svg DIFF 15945 0
-linking-a-01-b.svg ERROR - -
-linking-a-03-b.svg ERROR - -
-linking-a-04-t.svg ERROR - -
-linking-a-05-t.svg ERROR - -
-linking-a-07-t.svg ERROR - -
-linking-a-08-t.svg DIFF 2602 0
-linking-a-09-b.svg DIFF 2863 0
-linking-a-10-f.svg ERROR - -
-linking-frag-01-f.svg ERROR - -
-linking-uri-01-b.svg ERROR - -
-linking-uri-02-b.svg ERROR - -
-linking-uri-03-t.svg ERROR - -
-masking-filter-01-f.svg DIFF 6558 1728
-masking-intro-01-f.svg ERROR - -
-masking-mask-01-b.svg ERROR - -
-masking-mask-02-f.svg DIFF 17218 1728
-masking-opacity-01-b.svg ERROR - -
-masking-path-01-b.svg ERROR - -
-masking-path-02-b.svg DIFF 12166 1728
-masking-path-03-b.svg DIFF 38671 1728
-masking-path-04-b.svg DIFF 39612 1728
-masking-path-05-f.svg DIFF 7547 1728
-masking-path-06-b.svg DIFF 28078 1728
-masking-path-07-b.svg ERROR - -
-masking-path-08-b.svg ERROR - -
-masking-path-09-b.svg DIFF 3416 1728
-masking-path-10-b.svg ERROR - -
-masking-path-11-b.svg ERROR - -
-masking-path-12-f.svg DIFF 3333 1728
-masking-path-13-f.svg DIFF 10262 1728
-masking-path-14-f.svg DIFF 3371 1728
-metadata-example-01-t.svg DIFF 27729 1200
-painting-control-01-f.svg ERROR - -
-painting-control-02-f.svg DIFF 3917 1200
-painting-control-03-f.svg DIFF 5644 1200
-painting-control-04-f.svg DIFF 9834 1200
-painting-control-05-f.svg ERROR - -
-painting-control-06-f.svg ERROR - -
-painting-fill-01-t.svg DIFF 9664 1200
-painting-fill-02-t.svg ERROR - -
-painting-fill-03-t.svg ERROR - -
-painting-fill-04-t.svg ERROR - -
-painting-fill-05-b.svg DIFF 11957 1200
-painting-marker-01-f.svg ERROR - -
-painting-marker-02-f.svg ERROR - -
-painting-marker-03-f.svg ERROR - -
-painting-marker-04-f.svg ERROR - -
-painting-marker-05-f.svg ERROR - -
-painting-marker-06-f.svg ERROR - -
-painting-marker-07-f.svg DIFF 6067 1200
-painting-marker-properties-01-f.svg DIFF 26031 1200
-painting-render-01-b.svg ERROR - -
-painting-render-02-b.svg DIFF 63807 1200
-painting-stroke-01-t.svg DIFF 20689 1200
-painting-stroke-02-t.svg DIFF 18148 1200
-painting-stroke-03-t.svg DIFF 14662 1200
-painting-stroke-04-t.svg DIFF 7746 1200
-painting-stroke-05-t.svg ERROR - -
-painting-stroke-06-t.svg DIFF 8870 1200
-painting-stroke-07-t.svg DIFF 9169 1200
-painting-stroke-08-t.svg DIFF 16798 1200
-painting-stroke-09-t.svg DIFF 4260 1200
-painting-stroke-10-t.svg DIFF 7068 1200
-paths-data-01-t.svg DIFF 15275 1200
-paths-data-02-t.svg ERROR - -
-paths-data-03-f.svg DIFF 15281 1200
-paths-data-04-t.svg DIFF 8895 1200
-paths-data-05-t.svg DIFF 5606 1200
-paths-data-06-t.svg DIFF 12371 1200
-paths-data-07-t.svg DIFF 16519 1200
-paths-data-08-t.svg DIFF 7307 1200
-paths-data-09-t.svg DIFF 5710 1200
-paths-data-10-t.svg DIFF 24908 1200
-paths-data-12-t.svg DIFF 2786 1200
-paths-data-13-t.svg DIFF 2916 1200
-paths-data-14-t.svg DIFF 6402 1200
-paths-data-15-t.svg ERROR - -
-paths-data-16-t.svg ERROR - -
-paths-data-17-f.svg DIFF 3245 1200
-paths-data-18-f.svg ERROR - -
-paths-data-19-f.svg ERROR - -
-paths-data-20-f.svg ERROR - -
-paths-dom-01-f.svg DIFF 10489 0
-paths-dom-02-f.svg DIFF 10772 0
-pservers-grad-01-b.svg ERROR - -
-pservers-grad-02-b.svg ERROR - -
-pservers-grad-03-b.svg ERROR - -
-pservers-grad-04-b.svg ERROR - -
-pservers-grad-05-b.svg ERROR - -
-pservers-grad-06-b.svg ERROR - -
-pservers-grad-07-b.svg ERROR - -
-pservers-grad-08-b.svg ERROR - -
-pservers-grad-09-b.svg ERROR - -
-pservers-grad-10-b.svg ERROR - -
-pservers-grad-11-b.svg ERROR - -
-pservers-grad-12-b.svg ERROR - -
-pservers-grad-13-b.svg ERROR - -
-pservers-grad-14-b.svg ERROR - -
-pservers-grad-15-b.svg ERROR - -
-pservers-grad-16-b.svg ERROR - -
-pservers-grad-17-b.svg ERROR - -
-pservers-grad-18-b.svg ERROR - -
-pservers-grad-20-b.svg ERROR - -
-pservers-grad-21-b.svg ERROR - -
-pservers-grad-22-b.svg ERROR - -
-pservers-grad-23-f.svg ERROR - -
-pservers-grad-24-f.svg DIFF 5959 1728
-pservers-grad-stops-01-f.svg ERROR - -
-pservers-pattern-01-b.svg ERROR - -
-pservers-pattern-02-f.svg ERROR - -
-pservers-pattern-03-f.svg ERROR - -
-pservers-pattern-04-f.svg ERROR - -
-pservers-pattern-05-f.svg ERROR - -
-pservers-pattern-06-f.svg DIFF 5852 1728
-pservers-pattern-07-f.svg ERROR - -
-pservers-pattern-08-f.svg ERROR - -
-pservers-pattern-09-f.svg ERROR - -
-render-elems-01-t.svg DIFF 18874 1200
-render-elems-02-t.svg DIFF 4363 1200
-render-elems-03-t.svg DIFF 33861 1200
-render-elems-06-t.svg ERROR - -
-render-elems-07-t.svg ERROR - -
-render-elems-08-t.svg ERROR - -
-render-groups-01-b.svg DIFF 98258 1200
-render-groups-03-t.svg DIFF 86574 1200
-script-handle-01-b.svg DIFF 3214 0
-script-handle-02-b.svg DIFF 7479 0
-script-handle-03-b.svg DIFF 6808 0
-script-handle-04-b.svg DIFF 6965 0
-script-specify-01-f.svg DIFF 6379 0
-script-specify-02-f.svg DIFF 2976 0
-shapes-circle-01-t.svg ERROR - -
-shapes-circle-02-t.svg DIFF 8296 1200
-shapes-ellipse-01-t.svg DIFF 14595 1200
-shapes-ellipse-02-t.svg DIFF 12253 1200
-shapes-ellipse-03-f.svg DIFF 2706 1200
-shapes-grammar-01-f.svg DIFF 12781 1200
-shapes-intro-01-t.svg DIFF 2965 1200
-shapes-intro-02-f.svg DIFF 19901 1200
-shapes-line-01-t.svg ERROR - -
-shapes-line-02-f.svg DIFF 3335 1200
-shapes-polygon-01-t.svg DIFF 15567 1200
-shapes-polygon-02-t.svg DIFF 18816 1200
-shapes-polygon-03-t.svg ERROR - -
-shapes-polyline-01-t.svg DIFF 16794 1200
-shapes-polyline-02-t.svg DIFF 18138 1200
-shapes-rect-01-t.svg ERROR - -
-shapes-rect-02-t.svg DIFF 7742 1200
-shapes-rect-03-t.svg ERROR - -
-shapes-rect-04-f.svg DIFF 14288 1200
-shapes-rect-05-f.svg DIFF 4896 1200
-shapes-rect-06-f.svg DIFF 17563 1200
-shapes-rect-07-f.svg DIFF 10184 1200
-struct-cond-01-t.svg DIFF 16736 1728
-struct-cond-02-t.svg DIFF 3353 1728
-struct-cond-03-t.svg DIFF 59310 1728
-struct-cond-overview-02-f.svg DIFF 31552 1728
-struct-cond-overview-03-f.svg DIFF 18960 1728
-struct-cond-overview-04-f.svg DIFF 8694 1728
-struct-cond-overview-05-f.svg DIFF 19690 1728
-struct-defs-01-t.svg DIFF 29402 1728
-struct-dom-01-b.svg DIFF 3820 0
-struct-dom-02-b.svg DIFF 3364 0
-struct-dom-03-b.svg DIFF 3821 0
-struct-dom-04-b.svg DIFF 4101 0
-struct-dom-05-b.svg DIFF 4472 0
-struct-dom-06-b.svg DIFF 18047 0
-struct-dom-07-f.svg DIFF 24538 0
-struct-dom-08-f.svg DIFF 3412 0
-struct-dom-11-f.svg DIFF 5244 0
-struct-dom-12-b.svg DIFF 32495 0
-struct-dom-13-f.svg ERROR - -
-struct-dom-14-f.svg ERROR - -
-struct-dom-15-f.svg DIFF 5296 0
-struct-dom-16-f.svg DIFF 6437 0
-struct-dom-17-f.svg DIFF 6499 0
-struct-dom-18-f.svg DIFF 9325 0
-struct-dom-19-f.svg DIFF 7123 0
-struct-dom-20-f.svg DIFF 7835 0
-struct-frag-01-t.svg PASS 0 1728
-struct-frag-02-t.svg DIFF 51931 1728
-struct-frag-03-t.svg DIFF 50837 1728
-struct-frag-04-t.svg DIFF 6188 1728
-struct-frag-05-t.svg DIFF 48349 1728
-struct-frag-06-t.svg DIFF 4519 1728
-struct-group-01-t.svg DIFF 48746 1728
-struct-group-02-b.svg ERROR - -
-struct-group-03-t.svg ERROR - -
-struct-image-01-t.svg DIFF 35606 1728
-struct-image-02-b.svg ERROR - -
-struct-image-03-t.svg DIFF 54457 1728
-struct-image-04-t.svg DIFF 35633 1728
-struct-image-05-b.svg DIFF 8783 1728
-struct-image-06-t.svg DIFF 6048 1728
-struct-image-07-t.svg DIFF 21059 1728
-struct-image-08-t.svg DIFF 39133 1728
-struct-image-09-t.svg DIFF 40858 1728
-struct-image-10-t.svg DIFF 36012 1728
-struct-image-11-b.svg DIFF 26973 1728
-struct-image-12-b.svg DIFF 20599 1728
-struct-image-13-f.svg DIFF 161138 1728
-struct-image-14-f.svg DIFF 161645 1728
-struct-image-15-f.svg DIFF 158822 1728
-struct-image-16-f.svg ERROR - -
-struct-image-17-b.svg DIFF 9524 1728
-struct-image-18-f.svg DIFF 9101 1728
-struct-image-19-f.svg DIFF 19262 1728
-struct-svg-01-f.svg DIFF 3479 1728
-struct-svg-02-f.svg ERROR - -
-struct-svg-03-f.svg ERROR - -
-struct-symbol-01-b.svg DIFF 99073 1728
-struct-use-01-t.svg DIFF 4436 1728
-struct-use-03-t.svg DIFF 20762 1728
-struct-use-04-b.svg DIFF 27476 1728
-struct-use-05-b.svg DIFF 61789 1728
-struct-use-06-b.svg DIFF 27574 1728
-struct-use-07-b.svg DIFF 46239 1728
-struct-use-08-b.svg DIFF 8164 1728
-struct-use-09-b.svg ERROR - -
-struct-use-10-f.svg ERROR - -
-struct-use-11-f.svg DIFF 43646 1728
-struct-use-12-f.svg DIFF 5549 1728
-struct-use-13-f.svg DIFF 6669 1728
-struct-use-14-f.svg DIFF 9558 1728
-struct-use-15-f.svg DIFF 10426 1728
-styling-class-01-f.svg ERROR - -
-styling-css-01-b.svg DIFF 8340 1728
-styling-css-02-b.svg DIFF 8351 1728
-styling-css-03-b.svg DIFF 8318 1728
-styling-css-04-f.svg ERROR - -
-styling-css-05-b.svg DIFF 3377 1728
-styling-css-06-b.svg DIFF 10822 1728
-styling-css-07-f.svg DIFF 8976 1728
-styling-css-08-f.svg ERROR - -
-styling-css-09-f.svg DIFF 6652 1728
-styling-css-10-f.svg DIFF 17783 1728
-styling-elem-01-b.svg DIFF 4651 1728
-styling-inherit-01-b.svg ERROR - -
-styling-pres-01-t.svg ERROR - -
-styling-pres-02-f.svg DIFF 5691 1200
-styling-pres-03-f.svg DIFF 6038 1200
-styling-pres-04-f.svg DIFF 6618 1200
-styling-pres-05-f.svg DIFF 6618 1200
-svgdom-over-01-f.svg DIFF 8167 0
-text-align-01-b.svg ERROR - -
-text-align-02-b.svg ERROR - -
-text-align-03-b.svg ERROR - -
-text-align-04-b.svg ERROR - -
-text-align-05-b.svg ERROR - -
-text-align-06-b.svg ERROR - -
-text-align-07-t.svg ERROR - -
-text-align-08-b.svg ERROR - -
-text-altglyph-01-b.svg ERROR - -
-text-altglyph-02-b.svg PASS 4031 43200
-text-altglyph-03-b.svg PASS 4966 43200
-text-bidi-01-t.svg PASS 9552 43200
-text-deco-01-b.svg PASS 5509 43200
-text-dom-01-f.svg DIFF 6263 0
-text-dom-02-f.svg DIFF 3517 0
-text-dom-03-f.svg DIFF 4803 0
-text-dom-04-f.svg ERROR - -
-text-dom-05-f.svg DIFF 5813 0
-text-fonts-01-t.svg ERROR - -
-text-fonts-02-t.svg ERROR - -
-text-fonts-03-t.svg PASS 3567 43200
-text-fonts-04-t.svg PASS 3567 43200
-text-fonts-05-f.svg PASS 6656 43200
-text-fonts-202-t.svg ERROR - -
-text-fonts-203-t.svg ERROR - -
-text-fonts-204-t.svg ERROR - -
-text-intro-01-t.svg PASS 4779 43200
-text-intro-02-b.svg PASS 4593 43200
-text-intro-03-b.svg DIFF 164467 43200
-text-intro-04-t.svg PASS 4415 43200
-text-intro-05-t.svg PASS 4170 43200
-text-intro-06-t.svg DIFF 160869 43200
-text-intro-07-t.svg DIFF 161480 43200
-text-intro-09-b.svg PASS 4591 43200
-text-intro-10-f.svg PASS 4886 43200
-text-intro-11-t.svg PASS 7885 43200
-text-intro-12-t.svg PASS 8208 43200
-text-path-01-b.svg ERROR - -
-text-path-02-b.svg PASS 4726 43200
-text-spacing-01-b.svg PASS 9763 43200
-text-text-01-b.svg ERROR - -
-text-text-03-b.svg ERROR - -
-text-text-04-t.svg ERROR - -
-text-text-05-t.svg ERROR - -
-text-text-06-t.svg ERROR - -
-text-text-07-t.svg ERROR - -
-text-text-08-b.svg ERROR - -
-text-text-09-t.svg ERROR - -
-text-text-10-t.svg PASS 5550 43200
-text-text-11-t.svg PASS 5556 43200
-text-text-12-t.svg ERROR - -
-text-tref-01-b.svg PASS 3108 43200
-text-tref-02-b.svg PASS 3136 43200
-text-tref-03-b.svg ERROR - -
-text-tselect-01-b.svg PASS 4430 43200
-text-tselect-02-f.svg PASS 10749 43200
-text-tselect-03-f.svg PASS 10624 43200
-text-tspan-01-b.svg ERROR - -
-text-tspan-02-b.svg PASS 5426 43200
-text-ws-01-t.svg PASS 10692 43200
-text-ws-02-t.svg PASS 10849 43200
-text-ws-03-t.svg PASS 4565 43200
-types-basic-01-f.svg DIFF 12936 1200
-types-basic-02-f.svg ERROR - -
-types-dom-01-b.svg DIFF 7152 0
-types-dom-02-f.svg DIFF 3942 0
-types-dom-03-b.svg DIFF 3433 0
-types-dom-04-b.svg ERROR - -
-types-dom-05-b.svg ERROR - -
-types-dom-06-f.svg ERROR - -
-types-dom-07-f.svg DIFF 3950 0
-types-dom-08-f.svg DIFF 33212 0
-types-dom-svgfittoviewbox-01-f.svg DIFF 7077 0
-types-dom-svglengthlist-01-f.svg DIFF 7752 0
-types-dom-svgnumberlist-01-f.svg DIFF 7756 0
-types-dom-svgstringlist-01-f.svg DIFF 7752 0
-types-dom-svgtransformable-01-f.svg DIFF 7116 0
+animate-dom-01-f.svg OK 6168
+animate-dom-02-f.svg OK 3429
+animate-elem-02-t.svg ERROR -
+animate-elem-03-t.svg OK 8792
+animate-elem-04-t.svg OK 9215
+animate-elem-05-t.svg OK 12220
+animate-elem-06-t.svg OK 9190
+animate-elem-07-t.svg OK 9201
+animate-elem-08-t.svg OK 5887
+animate-elem-09-t.svg OK 5481
+animate-elem-10-t.svg OK 5545
+animate-elem-11-t.svg OK 5540
+animate-elem-12-t.svg OK 5545
+animate-elem-13-t.svg OK 48290
+animate-elem-14-t.svg OK 6791
+animate-elem-15-t.svg OK 6816
+animate-elem-17-t.svg OK 6778
+animate-elem-19-t.svg OK 6756
+animate-elem-20-t.svg ERROR -
+animate-elem-21-t.svg ERROR -
+animate-elem-22-b.svg OK 37936
+animate-elem-23-t.svg OK 26911
+animate-elem-24-t.svg OK 7778
+animate-elem-25-t.svg OK 10339
+animate-elem-26-t.svg OK 36125
+animate-elem-27-t.svg OK 8257
+animate-elem-28-t.svg OK 52304
+animate-elem-29-b.svg ERROR -
+animate-elem-30-t.svg OK 11431
+animate-elem-31-t.svg ERROR -
+animate-elem-32-t.svg OK 2998
+animate-elem-33-t.svg OK 9263
+animate-elem-34-t.svg OK 20509
+animate-elem-35-t.svg OK 16519
+animate-elem-36-t.svg OK 27304
+animate-elem-37-t.svg OK 15242
+animate-elem-38-t.svg OK 17473
+animate-elem-39-t.svg OK 11296
+animate-elem-40-t.svg ERROR -
+animate-elem-41-t.svg ERROR -
+animate-elem-44-t.svg OK 21180
+animate-elem-46-t.svg OK 8516
+animate-elem-52-t.svg ERROR -
+animate-elem-53-t.svg OK 7959
+animate-elem-60-t.svg OK 29505
+animate-elem-61-t.svg OK 3894
+animate-elem-62-t.svg OK 29497
+animate-elem-63-t.svg OK 3884
+animate-elem-64-t.svg OK 3177
+animate-elem-65-t.svg OK 4437
+animate-elem-66-t.svg OK 4553
+animate-elem-67-t.svg OK 4001
+animate-elem-68-t.svg OK 3734
+animate-elem-69-t.svg OK 3995
+animate-elem-70-t.svg OK 3584
+animate-elem-77-t.svg OK 167072
+animate-elem-78-t.svg ERROR -
+animate-elem-80-t.svg OK 14637
+animate-elem-81-t.svg OK 25426
+animate-elem-82-t.svg OK 11523
+animate-elem-83-t.svg ERROR -
+animate-elem-84-t.svg OK 23936
+animate-elem-85-t.svg OK 41928
+animate-elem-86-t.svg OK 6206
+animate-elem-87-t.svg OK 30356
+animate-elem-88-t.svg OK 3037
+animate-elem-89-t.svg OK 8897
+animate-elem-90-b.svg OK 22114
+animate-elem-91-t.svg ERROR -
+animate-elem-92-t.svg OK 3254
+animate-interact-events-01-t.svg OK 8438
+animate-interact-pevents-01-t.svg OK 10399
+animate-interact-pevents-02-t.svg OK 37837
+animate-interact-pevents-03-t.svg OK 5929
+animate-interact-pevents-04-t.svg OK 5482
+animate-pservers-grad-01-b.svg ERROR -
+animate-script-elem-01-b.svg OK 3496
+animate-struct-dom-01-b.svg OK 4466
+color-prof-01-f.svg OK 56086
+color-prop-01-b.svg ERROR -
+color-prop-02-f.svg ERROR -
+color-prop-03-t.svg ERROR -
+color-prop-04-t.svg ERROR -
+color-prop-05-t.svg ERROR -
+conform-viewers-01-t.svg OK 15304
+conform-viewers-02-f.svg ERROR -
+conform-viewers-03-f.svg OK 5495
+coords-coord-01-t.svg OK 2819
+coords-coord-02-t.svg ERROR -
+coords-dom-01-f.svg OK 5119
+coords-dom-02-f.svg OK 8082
+coords-dom-03-f.svg OK 6428
+coords-dom-04-f.svg OK 5549
+coords-trans-01-b.svg OK 21546
+coords-trans-02-t.svg OK 3724
+coords-trans-03-t.svg OK 3582
+coords-trans-04-t.svg OK 3054
+coords-trans-05-t.svg OK 3452
+coords-trans-06-t.svg OK 3494
+coords-trans-07-t.svg OK 3538
+coords-trans-08-t.svg ERROR -
+coords-trans-09-t.svg OK 13095
+coords-trans-10-f.svg OK 5265
+coords-trans-11-f.svg OK 8723
+coords-trans-12-f.svg OK 4757
+coords-trans-13-f.svg OK 4296
+coords-trans-14-f.svg OK 3753
+coords-transformattr-01-f.svg ERROR -
+coords-transformattr-02-f.svg OK 11921
+coords-transformattr-03-f.svg OK 12493
+coords-transformattr-04-f.svg OK 12333
+coords-transformattr-05-f.svg OK 16909
+coords-units-01-b.svg ERROR -
+coords-units-02-b.svg ERROR -
+coords-units-03-b.svg ERROR -
+coords-viewattr-01-b.svg OK 10267
+coords-viewattr-02-b.svg OK 13438
+coords-viewattr-03-b.svg ERROR -
+coords-viewattr-04-f.svg OK 14678
+extend-namespace-01-f.svg OK 25101
+filters-background-01-f.svg ERROR -
+filters-blend-01-b.svg OK 58047
+filters-color-01-b.svg ERROR -
+filters-color-02-b.svg ERROR -
+filters-composite-02-b.svg OK 20286
+filters-composite-03-f.svg ERROR -
+filters-composite-04-f.svg OK 15629
+filters-composite-05-f.svg OK 10105
+filters-comptran-01-b.svg ERROR -
+filters-conv-01-f.svg OK 12722
+filters-conv-02-f.svg ERROR -
+filters-conv-03-f.svg ERROR -
+filters-conv-04-f.svg ERROR -
+filters-conv-05-f.svg ERROR -
+filters-diffuse-01-f.svg OK 12286
+filters-displace-01-f.svg OK 61010
+filters-displace-02-f.svg ERROR -
+filters-example-01-b.svg OK 32144
+filters-felem-01-b.svg ERROR -
+filters-felem-02-f.svg OK 11987
+filters-gauss-01-b.svg OK 28495
+filters-gauss-02-f.svg OK 21277
+filters-gauss-03-f.svg OK 6577
+filters-image-01-b.svg OK 23450
+filters-image-02-b.svg ERROR -
+filters-image-03-f.svg OK 12845
+filters-image-04-f.svg OK 12922
+filters-image-05-f.svg OK 13916
+filters-light-01-f.svg OK 15986
+filters-light-02-f.svg ERROR -
+filters-light-03-f.svg OK 8071
+filters-light-04-f.svg OK 8972
+filters-light-05-f.svg OK 17507
+filters-morph-01-f.svg OK 30774
+filters-offset-01-b.svg OK 5826
+filters-offset-02-b.svg ERROR -
+filters-overview-01-b.svg OK 47255
+filters-overview-02-b.svg ERROR -
+filters-overview-03-b.svg ERROR -
+filters-specular-01-f.svg OK 16164
+filters-tile-01-b.svg OK 23373
+filters-turb-01-f.svg OK 14223
+filters-turb-02-f.svg ERROR -
+fonts-desc-01-t.svg OK 6004
+fonts-desc-02-t.svg OK 3011
+fonts-desc-03-t.svg OK 3162
+fonts-desc-04-t.svg OK 3751
+fonts-desc-05-t.svg OK 3301
+fonts-elem-01-t.svg OK 5552
+fonts-elem-02-t.svg OK 12636
+fonts-elem-03-b.svg OK 5577
+fonts-elem-04-b.svg OK 5530
+fonts-elem-05-t.svg OK 4893
+fonts-elem-06-t.svg OK 3226
+fonts-elem-07-b.svg OK 5557
+fonts-glyph-02-t.svg OK 3699
+fonts-glyph-03-t.svg OK 3816
+fonts-glyph-04-t.svg OK 2722
+fonts-kern-01-t.svg OK 59567
+fonts-overview-201-t.svg OK 8798
+imp-path-01-f.svg OK 8233
+interact-cursor-01-f.svg ERROR -
+interact-dom-01-b.svg OK 54623
+interact-events-01-b.svg OK 17958
+interact-events-02-b.svg OK 4351
+interact-events-202-f.svg ERROR -
+interact-events-203-t.svg OK 8462
+interact-order-01-b.svg OK 92700
+interact-order-02-b.svg OK 93646
+interact-order-03-b.svg OK 94279
+interact-pevents-01-b.svg OK 10972
+interact-pevents-03-b.svg OK 3608
+interact-pevents-04-t.svg OK 3359
+interact-pevents-05-b.svg ERROR -
+interact-pevents-07-t.svg OK 37837
+interact-pevents-08-f.svg OK 5963
+interact-pevents-09-f.svg OK 5514
+interact-pevents-10-f.svg OK 6460
+interact-pointer-01-t.svg OK 3722
+interact-pointer-02-t.svg OK 3689
+interact-pointer-03-t.svg ERROR -
+interact-pointer-04-f.svg OK 13405
+interact-zoom-01-t.svg OK 8113
+interact-zoom-02-t.svg OK 8139
+interact-zoom-03-t.svg OK 15945
+linking-a-01-b.svg ERROR -
+linking-a-03-b.svg ERROR -
+linking-a-04-t.svg ERROR -
+linking-a-05-t.svg ERROR -
+linking-a-07-t.svg ERROR -
+linking-a-08-t.svg OK 2602
+linking-a-09-b.svg OK 2863
+linking-a-10-f.svg ERROR -
+linking-frag-01-f.svg ERROR -
+linking-uri-01-b.svg ERROR -
+linking-uri-02-b.svg ERROR -
+linking-uri-03-t.svg ERROR -
+masking-filter-01-f.svg OK 6558
+masking-intro-01-f.svg ERROR -
+masking-mask-01-b.svg ERROR -
+masking-mask-02-f.svg OK 17218
+masking-opacity-01-b.svg ERROR -
+masking-path-01-b.svg ERROR -
+masking-path-02-b.svg OK 12166
+masking-path-03-b.svg OK 38671
+masking-path-04-b.svg OK 39612
+masking-path-05-f.svg OK 7547
+masking-path-06-b.svg OK 28078
+masking-path-07-b.svg ERROR -
+masking-path-08-b.svg ERROR -
+masking-path-09-b.svg OK 3416
+masking-path-10-b.svg ERROR -
+masking-path-11-b.svg ERROR -
+masking-path-12-f.svg OK 3333
+masking-path-13-f.svg OK 10262
+masking-path-14-f.svg OK 3371
+metadata-example-01-t.svg OK 27729
+painting-control-01-f.svg ERROR -
+painting-control-02-f.svg OK 3917
+painting-control-03-f.svg OK 5644
+painting-control-04-f.svg OK 9834
+painting-control-05-f.svg ERROR -
+painting-control-06-f.svg ERROR -
+painting-fill-01-t.svg OK 9664
+painting-fill-02-t.svg ERROR -
+painting-fill-03-t.svg ERROR -
+painting-fill-04-t.svg ERROR -
+painting-fill-05-b.svg OK 11957
+painting-marker-01-f.svg ERROR -
+painting-marker-02-f.svg ERROR -
+painting-marker-03-f.svg ERROR -
+painting-marker-04-f.svg ERROR -
+painting-marker-05-f.svg ERROR -
+painting-marker-06-f.svg ERROR -
+painting-marker-07-f.svg OK 6067
+painting-marker-properties-01-f.svg OK 26031
+painting-render-01-b.svg ERROR -
+painting-render-02-b.svg OK 63807
+painting-stroke-01-t.svg OK 20689
+painting-stroke-02-t.svg OK 18148
+painting-stroke-03-t.svg OK 14662
+painting-stroke-04-t.svg OK 7746
+painting-stroke-05-t.svg ERROR -
+painting-stroke-06-t.svg OK 8870
+painting-stroke-07-t.svg OK 9169
+painting-stroke-08-t.svg OK 16798
+painting-stroke-09-t.svg OK 4260
+painting-stroke-10-t.svg OK 7068
+paths-data-01-t.svg OK 15275
+paths-data-02-t.svg ERROR -
+paths-data-03-f.svg OK 15281
+paths-data-04-t.svg OK 8895
+paths-data-05-t.svg OK 5606
+paths-data-06-t.svg OK 12371
+paths-data-07-t.svg OK 16519
+paths-data-08-t.svg OK 7307
+paths-data-09-t.svg OK 5710
+paths-data-10-t.svg OK 24908
+paths-data-12-t.svg OK 2786
+paths-data-13-t.svg OK 2916
+paths-data-14-t.svg OK 6402
+paths-data-15-t.svg ERROR -
+paths-data-16-t.svg ERROR -
+paths-data-17-f.svg OK 3245
+paths-data-18-f.svg ERROR -
+paths-data-19-f.svg ERROR -
+paths-data-20-f.svg ERROR -
+paths-dom-01-f.svg OK 10489
+paths-dom-02-f.svg OK 10772
+pservers-grad-01-b.svg ERROR -
+pservers-grad-02-b.svg ERROR -
+pservers-grad-03-b.svg ERROR -
+pservers-grad-04-b.svg ERROR -
+pservers-grad-05-b.svg ERROR -
+pservers-grad-06-b.svg ERROR -
+pservers-grad-07-b.svg ERROR -
+pservers-grad-08-b.svg ERROR -
+pservers-grad-09-b.svg ERROR -
+pservers-grad-10-b.svg ERROR -
+pservers-grad-11-b.svg ERROR -
+pservers-grad-12-b.svg ERROR -
+pservers-grad-13-b.svg ERROR -
+pservers-grad-14-b.svg ERROR -
+pservers-grad-15-b.svg ERROR -
+pservers-grad-16-b.svg ERROR -
+pservers-grad-17-b.svg ERROR -
+pservers-grad-18-b.svg ERROR -
+pservers-grad-20-b.svg ERROR -
+pservers-grad-21-b.svg ERROR -
+pservers-grad-22-b.svg ERROR -
+pservers-grad-23-f.svg ERROR -
+pservers-grad-24-f.svg OK 5959
+pservers-grad-stops-01-f.svg ERROR -
+pservers-pattern-01-b.svg ERROR -
+pservers-pattern-02-f.svg ERROR -
+pservers-pattern-03-f.svg ERROR -
+pservers-pattern-04-f.svg ERROR -
+pservers-pattern-05-f.svg ERROR -
+pservers-pattern-06-f.svg OK 5852
+pservers-pattern-07-f.svg ERROR -
+pservers-pattern-08-f.svg ERROR -
+pservers-pattern-09-f.svg ERROR -
+render-elems-01-t.svg OK 18874
+render-elems-02-t.svg OK 4363
+render-elems-03-t.svg OK 33861
+render-elems-06-t.svg ERROR -
+render-elems-07-t.svg ERROR -
+render-elems-08-t.svg ERROR -
+render-groups-01-b.svg OK 98258
+render-groups-03-t.svg OK 86574
+script-handle-01-b.svg OK 3214
+script-handle-02-b.svg OK 7479
+script-handle-03-b.svg OK 6808
+script-handle-04-b.svg OK 6965
+script-specify-01-f.svg OK 6379
+script-specify-02-f.svg OK 2976
+shapes-circle-01-t.svg ERROR -
+shapes-circle-02-t.svg OK 8296
+shapes-ellipse-01-t.svg OK 14595
+shapes-ellipse-02-t.svg OK 12253
+shapes-ellipse-03-f.svg OK 2706
+shapes-grammar-01-f.svg OK 12781
+shapes-intro-01-t.svg OK 2965
+shapes-intro-02-f.svg OK 19901
+shapes-line-01-t.svg ERROR -
+shapes-line-02-f.svg OK 3335
+shapes-polygon-01-t.svg OK 15567
+shapes-polygon-02-t.svg OK 18816
+shapes-polygon-03-t.svg ERROR -
+shapes-polyline-01-t.svg OK 16794
+shapes-polyline-02-t.svg OK 18138
+shapes-rect-01-t.svg ERROR -
+shapes-rect-02-t.svg OK 7742
+shapes-rect-03-t.svg ERROR -
+shapes-rect-04-f.svg OK 14288
+shapes-rect-05-f.svg OK 4896
+shapes-rect-06-f.svg OK 17563
+shapes-rect-07-f.svg OK 10184
+struct-cond-01-t.svg OK 16736
+struct-cond-02-t.svg OK 3353
+struct-cond-03-t.svg OK 59310
+struct-cond-overview-02-f.svg OK 31552
+struct-cond-overview-03-f.svg OK 18960
+struct-cond-overview-04-f.svg OK 8694
+struct-cond-overview-05-f.svg OK 19690
+struct-defs-01-t.svg OK 29402
+struct-dom-01-b.svg OK 3820
+struct-dom-02-b.svg OK 3364
+struct-dom-03-b.svg OK 3821
+struct-dom-04-b.svg OK 4101
+struct-dom-05-b.svg OK 4472
+struct-dom-06-b.svg OK 18047
+struct-dom-07-f.svg OK 24538
+struct-dom-08-f.svg OK 3412
+struct-dom-11-f.svg OK 5244
+struct-dom-12-b.svg OK 32495
+struct-dom-13-f.svg ERROR -
+struct-dom-14-f.svg ERROR -
+struct-dom-15-f.svg OK 5296
+struct-dom-16-f.svg OK 6437
+struct-dom-17-f.svg OK 6499
+struct-dom-18-f.svg OK 9325
+struct-dom-19-f.svg OK 7123
+struct-dom-20-f.svg OK 7835
+struct-frag-01-t.svg OK 0
+struct-frag-02-t.svg OK 51931
+struct-frag-03-t.svg OK 50837
+struct-frag-04-t.svg OK 6188
+struct-frag-05-t.svg OK 48349
+struct-frag-06-t.svg OK 4519
+struct-group-01-t.svg OK 48746
+struct-group-02-b.svg ERROR -
+struct-group-03-t.svg ERROR -
+struct-image-01-t.svg OK 35606
+struct-image-02-b.svg ERROR -
+struct-image-03-t.svg OK 54457
+struct-image-04-t.svg OK 35633
+struct-image-05-b.svg OK 8783
+struct-image-06-t.svg OK 6048
+struct-image-07-t.svg OK 21059
+struct-image-08-t.svg OK 39133
+struct-image-09-t.svg OK 40858
+struct-image-10-t.svg OK 36012
+struct-image-11-b.svg OK 26973
+struct-image-12-b.svg OK 20599
+struct-image-13-f.svg OK 161138
+struct-image-14-f.svg OK 161645
+struct-image-15-f.svg OK 158822
+struct-image-16-f.svg ERROR -
+struct-image-17-b.svg OK 9524
+struct-image-18-f.svg OK 9101
+struct-image-19-f.svg OK 19262
+struct-svg-01-f.svg OK 3479
+struct-svg-02-f.svg ERROR -
+struct-svg-03-f.svg ERROR -
+struct-symbol-01-b.svg OK 99073
+struct-use-01-t.svg OK 4436
+struct-use-03-t.svg OK 20762
+struct-use-04-b.svg OK 27476
+struct-use-05-b.svg OK 61789
+struct-use-06-b.svg OK 27574
+struct-use-07-b.svg OK 46239
+struct-use-08-b.svg OK 8164
+struct-use-09-b.svg ERROR -
+struct-use-10-f.svg ERROR -
+struct-use-11-f.svg OK 43646
+struct-use-12-f.svg OK 5549
+struct-use-13-f.svg OK 6669
+struct-use-14-f.svg OK 9558
+struct-use-15-f.svg OK 10426
+styling-class-01-f.svg ERROR -
+styling-css-01-b.svg OK 8340
+styling-css-02-b.svg OK 8351
+styling-css-03-b.svg OK 8318
+styling-css-04-f.svg ERROR -
+styling-css-05-b.svg OK 3377
+styling-css-06-b.svg OK 10822
+styling-css-07-f.svg OK 8976
+styling-css-08-f.svg ERROR -
+styling-css-09-f.svg OK 6652
+styling-css-10-f.svg OK 17783
+styling-elem-01-b.svg OK 4651
+styling-inherit-01-b.svg ERROR -
+styling-pres-01-t.svg ERROR -
+styling-pres-02-f.svg OK 5691
+styling-pres-03-f.svg OK 6038
+styling-pres-04-f.svg OK 6618
+styling-pres-05-f.svg OK 6618
+svgdom-over-01-f.svg OK 8167
+text-align-01-b.svg ERROR -
+text-align-02-b.svg ERROR -
+text-align-03-b.svg ERROR -
+text-align-04-b.svg ERROR -
+text-align-05-b.svg ERROR -
+text-align-06-b.svg ERROR -
+text-align-07-t.svg ERROR -
+text-align-08-b.svg ERROR -
+text-altglyph-01-b.svg ERROR -
+text-altglyph-02-b.svg OK 4031
+text-altglyph-03-b.svg OK 4966
+text-bidi-01-t.svg OK 9552
+text-deco-01-b.svg OK 5509
+text-dom-01-f.svg OK 6263
+text-dom-02-f.svg OK 3517
+text-dom-03-f.svg OK 4803
+text-dom-04-f.svg ERROR -
+text-dom-05-f.svg OK 5813
+text-fonts-01-t.svg ERROR -
+text-fonts-02-t.svg ERROR -
+text-fonts-03-t.svg OK 3567
+text-fonts-04-t.svg OK 3567
+text-fonts-05-f.svg OK 6656
+text-fonts-202-t.svg ERROR -
+text-fonts-203-t.svg ERROR -
+text-fonts-204-t.svg ERROR -
+text-intro-01-t.svg OK 4779
+text-intro-02-b.svg OK 4593
+text-intro-03-b.svg OK 164467
+text-intro-04-t.svg OK 4415
+text-intro-05-t.svg OK 4170
+text-intro-06-t.svg OK 160869
+text-intro-07-t.svg OK 161480
+text-intro-09-b.svg OK 4591
+text-intro-10-f.svg OK 4886
+text-intro-11-t.svg OK 7885
+text-intro-12-t.svg OK 8208
+text-path-01-b.svg ERROR -
+text-path-02-b.svg OK 4726
+text-spacing-01-b.svg OK 9763
+text-text-01-b.svg ERROR -
+text-text-03-b.svg ERROR -
+text-text-04-t.svg ERROR -
+text-text-05-t.svg ERROR -
+text-text-06-t.svg ERROR -
+text-text-07-t.svg ERROR -
+text-text-08-b.svg ERROR -
+text-text-09-t.svg ERROR -
+text-text-10-t.svg OK 5550
+text-text-11-t.svg OK 5556
+text-text-12-t.svg ERROR -
+text-tref-01-b.svg OK 3108
+text-tref-02-b.svg OK 3136
+text-tref-03-b.svg ERROR -
+text-tselect-01-b.svg OK 4430
+text-tselect-02-f.svg OK 10749
+text-tselect-03-f.svg OK 10624
+text-tspan-01-b.svg ERROR -
+text-tspan-02-b.svg OK 5426
+text-ws-01-t.svg OK 10692
+text-ws-02-t.svg OK 10849
+text-ws-03-t.svg OK 4565
+types-basic-01-f.svg OK 12936
+types-basic-02-f.svg ERROR -
+types-dom-01-b.svg OK 7152
+types-dom-02-f.svg OK 3942
+types-dom-03-b.svg OK 3433
+types-dom-04-b.svg ERROR -
+types-dom-05-b.svg ERROR -
+types-dom-06-f.svg ERROR -
+types-dom-07-f.svg OK 3950
+types-dom-08-f.svg OK 33212
+types-dom-svgfittoviewbox-01-f.svg OK 7077
+types-dom-svglengthlist-01-f.svg OK 7752
+types-dom-svgnumberlist-01-f.svg OK 7756
+types-dom-svgstringlist-01-f.svg OK 7752
+types-dom-svgtransformable-01-f.svg OK 7116

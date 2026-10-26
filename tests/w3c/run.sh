@@ -5,51 +5,45 @@
 # graphics:svg CLI at zoom 1 and compares each rendering against the
 # reference image suite/png/NAME.png (480x360 for all SVG 1.1 SE tests).
 #
+# Nothing is excluded and nothing is curated: all 526 tests are rendered,
+# including animate-*, interact-* and *-dom-* - the renderer ignores SMIL
+# and scripting, so every test has a deterministic static-frame rendering,
+# and its AE number is simply tracked against the committed baseline in
+# status.txt. (The reference PNGs of animation tests show timeline states,
+# so their absolute verdict hardly matters; their AE trend over time does.)
+#
 # usage:
-#   run.sh                  render all tests, validate against status.txt
-#   run.sh --update         rebase status.txt (baseline mode)
-#   run.sh [NAME ...]       restrict to tests whose name matches the given
-#                           glob patterns (no .svg suffix, prefix match);
-#                           combinable with --update to refresh single
-#                           baseline lines
+#   run.sh                render all tests, gate against status.txt
+#   run.sh --update       rebase status.txt (after engine changes land)
+#   run.sh [NAME ...]     restrict to tests whose name matches the given
+#                         glob patterns (no .svg suffix, prefix match);
+#                         combinable with --update to refresh single lines
 #
 # Per test the verdict is:
-#   ERROR  the renderer crashed / produced no image / compare failed
-#   PASS   AE (fuzz 10%) within the tier tolerance (see TOL_* below)
-#   DIFF   rendered, but off by more than the tolerance
-# out/NAME.diff.png is the side-by-side + highlighted-diff triage artifact
-# (the W3C "overlay" workflow, used to judge the text/font categories).
+#   ERROR  the renderer crashed / timed out / produced no image, or the
+#          compare failed; AE is recorded as "-"
+#   OK     the test rendered and compared; AE (fuzz 10 %, channel-weighted,
+#          rounded) is the tracked number
+# out/NAME.diff.png is the side-by-side + highlighted-diff triage artifact;
+# out/NAME.err holds the engine's stderr.
 #
-# The committed status.txt is the baseline. Validation fails on: a verdict
-# worse than the baseline, a tier pass-count regression, or tests appearing
-# in / disappearing from the suite without a baseline rebase. Plain
-# `run.sh` is thus a CI gate that only trips on regressions.
+# The committed status.txt (`NAME.svg OK|ERROR <AE>`) is the baseline.
+# Plain run.sh is a CI gate that fails only on regressions:
+#   - a test that was OK in the baseline now errors,
+#   - an OK test whose AE grew beyond the baseline value,
+#   - tests appearing in / vanishing from the suite without a rebase.
+# Improvements (ERROR -> OK, shrinking AE) never fail the gate; rebase to
+# lock them in and to ratchet the numbers down.
 set -u
+export LC_ALL=C
 cd "$(dirname "$0")/../.."
 
 SUITE=tests/w3c/suite
 OUT=tests/w3c/out
-TIERS=tests/w3c/tiers
 STATUS=tests/w3c/status.txt
 BIN=svg/graphics_svg
 FUZZ=10%
 TIMEOUT=10
-
-# Initial per-tier tolerances in differing pixels (AE at fuzz 10 % on the
-# 480x360 = 172800 px canvas):
-#   geometry  0.5 % of the canvas
-#   servers   1 %
-#   text      25 % - effectively review-only: font hinting and AA never
-#             match across rasterizers, so verdicts here are advisory and
-#             the diff images are what gets reviewed
-#   skip      0 (expected to stay DIFF forever)
-#   other     0.5 % (uncategorized: filters-*, painting-marker-*, ...)
-# Ratchet these down as features land, then re-record with run.sh --update.
-TOL_geometry=1200
-TOL_servers=1728
-TOL_text=43200
-TOL_skip=0
-TOL_other=1200
 
 update=
 declare -a patterns=()
@@ -65,34 +59,21 @@ done
 [ -x "$BIN" ] || { echo "binary missing - run: dub build :svg" >&2; exit 1; }
 mkdir -p "$OUT"
 
-# Tier of a test name (with .svg suffix); "other" if no tier manifest lists it.
-tier_of() {
-    local name=$1 t
-    for t in geometry servers text skip; do
-        grep -qxF "$name" "$TIERS/$t.txt" 2>/dev/null && { echo $t; return; }
-    done
-    echo other
-}
-
-# The workhorse, one test file: prints "NAME.svg TIER VERDICT AE TOLERANCE".
+# The workhorse, one test file: prints "NAME.svg OK <AE>" or "NAME.svg ERROR -".
 run_one() {
-    local f=$1 stem=$2 tier tol verdict ae ref
+    local f=$1 stem=$2 ae
     cp -f "$f" "$OUT/$stem.svg"
     if ! timeout "$TIMEOUT" "$BIN" -z 1 "$OUT/$stem.svg" >"$OUT/$stem.err" 2>&1 || [ ! -s "$OUT/$stem.png" ]; then
-        printf '%s.svg other ERROR - -\n' "$stem"
+        printf '%s.svg ERROR -\n' "$stem"
         return
     fi
     ae=$(magick compare -metric AE -fuzz "$FUZZ" "$SUITE/png/$stem.png" "$OUT/$stem.png" "$OUT/$stem.diff.png" 2>&1)
     case $? in
         0|1) ae=${ae%% *} ;;                       # "AE (fraction)" printed on stderr
-        *) printf '%s.svg other ERROR - -\n' "$stem"; return ;;
+        *) printf '%s.svg ERROR -\n' "$stem"; return ;;
     esac
-    case $ae in *[!0-9.e+]*|"") printf '%s.svg other ERROR - -\n' "$stem"; return ;; esac
-    ae=$(printf '%.0f' "$ae")                     # IM can print a weighted/decimal AE
-    tier=$(tier_of "$stem.svg")
-    ref=TOL_$tier; tol=${!ref}
-    if [ "$ae" -le "$tol" ]; then verdict=PASS; else verdict=DIFF; fi
-    printf '%s.svg %s %s %s %s\n' "$stem" "$tier" "$verdict" "$ae" "$tol"
+    case $ae in ""|*[!0-9.e+]*) printf '%s.svg ERROR -\n' "$stem"; return ;; esac
+    printf '%s.svg OK %.0f\n' "$stem" "$ae"
 }
 
 # Test list: full suite, or the NAME glob subset. Each entry is "STEM PATH".
@@ -109,63 +90,56 @@ for f in "$SUITE"/svg/*.svg; do
 done
 [ ${#tests[@]} -gt 0 ] || { echo "no tests match: ${patterns[*]}" >&2; exit 1; }
 
-export BIN SUITE OUT TIERS FUZZ TIMEOUT
-export TOL_geometry TOL_servers TOL_text TOL_skip TOL_other
-export -f tier_of run_one
-printf '%s\n' "${tests[@]}" | LC_ALL=C sort |
-    xargs -P "$(nproc)" -n 2 bash -c 'run_one "$2" "$1"' _ >"$OUT/results.txt"
+export BIN SUITE OUT FUZZ TIMEOUT
+export -f run_one
+printf '%s\n' "${tests[@]}" | sort | xargs -P "$(nproc)" -n 2 bash -c 'run_one "$2" "$1"' _ >"$OUT/results.txt"
 
 # Merge fresh results into the baseline (lines of untouched tests are kept).
 declare -A baseline=()
-[ -f "$STATUS" ] && while read -r name verdict rest; do baseline[$name]="$verdict $rest"; done <"$STATUS"
+[ -f "$STATUS" ] && while read -r name verdict ae; do baseline[$name]="$verdict $ae"; done <"$STATUS"
 declare -A cur=()
-while read -r name tier verdict ae tol; do cur[$name]="$verdict $ae $tol"; done <"$OUT/results.txt"
+while read -r name verdict ae; do cur[$name]="$verdict $ae"; done <"$OUT/results.txt"
 
+# Per-category summary: category = first two hyphen-separated name segments
+# (masking-path-01-b.svg -> masking-path); display only, no gating input.
 print_table() {
-    local name tier verdict t
-    local -A ntot npass ndiff nerr
-    for name in "${!cur[@]}"; do
-        tier=$(tier_of "$name"); verdict=${cur[$name]%% *}
-        ntot[$tier]=$(( ${ntot[$tier]:-0} + 1 ))
-        case $verdict in
-            PASS)  npass[$tier]=$(( ${npass[$tier]:-0} + 1 )) ;;
-            DIFF)  ndiff[$tier]=$(( ${ndiff[$tier]:-0} + 1 )) ;;
-            ERROR) nerr[$tier]=$(( ${nerr[$tier]:-0} + 1 )) ;;
-        esac
-    done
-    printf '%-9s %6s %6s %6s %6s\n' tier tests PASS DIFF ERROR
-    for t in geometry servers text skip other; do
-        [ ${ntot[$t]:-0} -gt 0 ] || continue
-        printf '%-9s %6s %6s %6s %6s\n' "$t" "${ntot[$t]}" "${npass[$t]:-0}" "${ndiff[$t]:-0}" "${nerr[$t]:-0}"
-    done
+    printf '%-24s %6s %6s %6s %10s\n' category tests OK ERROR "AE sum"
+    awk '
+    {
+        stem = $1; sub(/\.svg$/, "", stem);
+        split(stem, p, "-");
+        cat = length(p) > 1 ? p[1] "-" p[2] : p[1];
+        n[cat]++;
+        if ($2 == "OK") { ok[cat]++; ae[cat] += $3 } else err[cat]++;
+    }
+    END { for (c in n) printf "%-24s %6d %6d %6d %10d\n", c, n[c], ok[c], err[c], ae[c] }
+    ' "$OUT/results.txt" | sort
 }
 
 if [ -n "$update" ]; then
     for name in "${!cur[@]}"; do baseline[$name]=${cur[$name]}; done
     { for name in "${!baseline[@]}"; do printf '%s %s\n' "$name" "${baseline[$name]}"; done; } |
-        LC_ALL=C sort >"$STATUS"
+        sort >"$STATUS"
     echo "rebased: $(wc -l <"$STATUS") lines in $STATUS"
     print_table
     exit 0
 fi
 
-# CI gate: fail on verdict regressions against the baseline and on tier
-# pass-count drops. Improvements (ERROR -> DIFF -> PASS) never fail.
-declare -A rank=([PASS]=0 [DIFF]=1 [ERROR]=2)
-declare -A npass=() ppass=()
+# CI gate against the baseline.
 fails=0
 for name in "${!cur[@]}"; do
-    tier=$(tier_of "$name"); verdict=${cur[$name]%% *}
-    [ $verdict = PASS ] && npass[$tier]=$(( ${npass[$tier]:-0} + 1 ))
     if [ -z "${baseline[$name]:-}" ]; then
         echo "regression: $name is not in $STATUS (stale baseline - run --update)"
         fails=$((fails + 1))
         continue
     fi
-    base=${baseline[$name]%% *}
-    [ $base = PASS ] && ppass[$tier]=$(( ${ppass[$tier]:-0} + 1 ))
-    if [ ${rank[$verdict]} -gt ${rank[$base]} ]; then
-        echo "regression: $name $base -> $verdict"
+    read -r bv ba <<<"${baseline[$name]}"
+    read -r cv ca <<<"${cur[$name]}"
+    if [ $cv = ERROR ] && [ $bv = OK ]; then
+        echo "regression: $name OK -> ERROR"
+        fails=$((fails + 1))
+    elif [ $cv = OK ] && [ $ba != - ] && [ $ca -gt $ba ]; then
+        echo "regression: $name AE $ba -> $ca (+$((ca - ba)))"
         fails=$((fails + 1))
     fi
 done
@@ -174,12 +148,6 @@ if [ ${#patterns[@]} -eq 0 ]; then  # only a full run sees every baseline line
         [ -n "${cur[$name]:-}" ] || { echo "regression: $name vanished from suite/ (stale baseline - run --update)"; fails=$((fails + 1)); }
     done
 fi
-for t in geometry servers text skip other; do
-    if [ ${npass[$t]:-0} -lt ${ppass[$t]:-0} ]; then
-        echo "regression: tier $t lost $(( ${ppass[$t]} - ${npass[$t]} )) passing tests"
-        fails=$((fails + 1))
-    fi
-done
 
 print_table
 if [ "$fails" -gt 0 ]; then echo "FAIL: $fails regression(s)"; exit 1; fi
