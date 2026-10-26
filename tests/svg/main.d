@@ -2,6 +2,8 @@ import std.algorithm, std.ascii, std.conv, std.exception, std.file, std.getopt, 
 import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser, std.experimental.xml.sax;
 import std.experimental.xml.interfaces : isCursor;
 import graphics;
+import graphics.core.fonthost;
+import graphics.core.glyph;
 import graphics.core.matrix;
 import graphics.core.svg;
 
@@ -40,6 +42,27 @@ uint parseLength(string s)
     return to!uint(res);
 }
 
+// Collapse whitespace runs to a single space and trim both ends
+// (SVG xml:space="default").
+string normalizeText(string s)
+{
+    string res;
+    bool space = false;
+    foreach (c; s)
+    {
+        if (isWhite(c))
+            space = true;
+        else
+        {
+            if (space)
+                res ~= ' ';
+            space = false;
+            res ~= c;
+        }
+    }
+    return res;
+}
+
 // Parse a viewBox value: "min-x min-y width height", whitespace/comma separated.
 void parseViewBox(ref float[4] vb, string s)
 {
@@ -67,6 +90,13 @@ void renderSVG(string fn, float zoom)
         bool transform;
         Color cstroke, cfill=Color.Black;
         float strokeWidth=1, opacity=1, fillOpacity=1, strokeOpacity=1;
+
+        // Text attributes, inherited like the paint attributes.
+        string family;
+        float fontSize=16f;
+        TypeFace.Weight weight=TypeFace.Weight.Normal;
+        TypeFace.Slant slant=TypeFace.Slant.Roman;
+        TextPaint.TextAlign anchor=TextPaint.TextAlign.Left;
     }
 
     // Push-style traversal of the SVG document: the SAX parser walks the whole
@@ -81,16 +111,31 @@ void renderSVG(string fn, float zoom)
         float zoom;
         bool inRoot;
 
+        // The text run being accumulated inside a <text>/<tspan>.
+        bool inText;
+        FPoint textPos;
+        string textBuf;
+        float lastAdvance;
+
         // Set up the canvas and the viewport zoom (viewBox -> canvas).
         void setupRoot(in string[string] a)
         {
-            // viewBox="min-x min-y width height"; fall back to a fixed viewBox
-            // when it is missing.
+            // viewBox="min-x min-y width height"; when missing, user space
+            // maps 1:1 to the canvas (user units are px), so the viewBox
+            // defaults to the canvas dims.
             float[4] vb = [0.0f, 0.0f, 1000.0f, 1000.0f];
             if (auto p = "viewBox" in a)
             {
                 parseViewBox(vb, *p);
                 enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
+            }
+            else
+            {
+                // FIXME: <length>
+                immutable wpx = float(("width" in a) ? parseLength(*("width" in a)) : 0f);
+                immutable hpx = float(("height" in a) ? parseLength(*("height" in a)) : 0f);
+                if (wpx > 0) vb[2] = wpx;
+                if (hpx > 0) vb[3] = hpx;
             }
 
             // canvas size: width/height attributes, else the viewBox dims,
@@ -117,7 +162,9 @@ void renderSVG(string fn, float zoom)
 
         Style pushStyle(in string[string] attr)
         {
-            Style style = styles.length ? styles.data.back : Style.init;
+            // Default-construct the base style so every field gets its member
+            // initializer (font defaults included).
+            Style style = styles.length ? styles.data.back : Style();
             style.transform = false;
 
             void apply(string k, string v)
@@ -146,6 +193,71 @@ void renderSVG(string fn, float zoom)
 
                 case "stroke-opacity":
                     style.strokeOpacity = to!float(v);
+                    break;
+
+                case "font-family":
+                {
+                    // First of the comma-separated list; surrounding
+                    // whitespace and quotes stripped.
+                    auto fam = strip(splitter(v, ',').front);
+                    fam = strip(fam, "\"'");
+                    if (fam.length)
+                        style.family = fam;
+                    break;
+                }
+
+                case "font-size":
+                    style.fontSize = float(parseLength(v));
+                    break;
+
+                case "font-weight":
+                {
+                    if (v == "bold")
+                        style.weight = TypeFace.Weight.Bold;
+                    else if (v == "normal" || v == "regular")
+                        style.weight = TypeFace.Weight.Normal;
+                    else
+                    {
+                        // numeric 100..900
+                        immutable w = to!int(strip(v));
+                        style.weight =
+                            w <= 200 ? TypeFace.Weight.Thin :
+                            w <= 300 ? TypeFace.Weight.Light :
+                            w <= 500 ? TypeFace.Weight.Normal :
+                            w <= 700 ? TypeFace.Weight.Bold :
+                                     TypeFace.Weight.Heavy;
+                    }
+                    break;
+                }
+
+                case "font-style":
+                    switch (v)
+                    {
+                    case "italic":
+                        style.slant = TypeFace.Slant.Italic;
+                        break;
+                    case "oblique":
+                        style.slant = TypeFace.Slant.Oblique;
+                        break;
+                    default:
+                        style.slant = TypeFace.Slant.Roman;
+                        break;
+                    }
+                    break;
+
+                case "text-anchor":
+                    switch (v)
+                    {
+                    case "middle":
+                        style.anchor = TextPaint.TextAlign.Center;
+                        break;
+                    case "end":
+                        style.anchor = TextPaint.TextAlign.Right;
+                        break;
+                    default:
+                        style.anchor = TextPaint.TextAlign.Left;
+                        break;
+                    }
                     break;
 
                 case "transform":
@@ -210,6 +322,105 @@ void renderSVG(string fn, float zoom)
                 canvas.drawPath(path, Paint(c));
             }
             path.reset();
+        }
+
+        // Render the accumulated text run with the style currently on top
+        // of the style stack: the glyph outlines are built into `path` and
+        // reuse the stroke/fill pipeline of `flushPath`, so
+        // fill="none" stroke="..." text works.
+        void flushText()
+        {
+            if (styles.empty)
+                return;
+            immutable s = styles.data.back;
+
+            lastAdvance = 0.0f;
+            if (textBuf.empty)
+            {
+                path.reset();
+                return;
+            }
+
+            // Resolve the face from the (inherited) family/weight/slant.
+            // (findFace's variadic template can't deduce qualified
+            // `immutable` enums, so copy them to plain locals first.)
+            TypeFace.Weight w = s.weight;
+            TypeFace.Slant sl = s.slant;
+            string fam = s.family;
+            TypeFace face = fam.length
+                ? TypeFace.findFace(w, sl, fam)
+                : TypeFace.findFace(w, sl);
+            auto cache = getGlyphCache(face, s.fontSize);
+
+            // text-anchor: offset the baseline origin by the run width.
+            FPoint at = textPos;
+            lastAdvance = measureText(textBuf, cache);
+            switch (s.anchor)
+            {
+            case TextPaint.TextAlign.Center:
+                at.x -= 0.5 * lastAdvance;
+                break;
+            case TextPaint.TextAlign.Right:
+                at.x -= lastAdvance;
+                break;
+            default:
+                break;
+            }
+
+            // Build the glyph outlines at their running baseline positions.
+            path.reset();
+            FPoint pos = at;
+            foreach (gl; cache.glyphStream(textBuf,
+                    Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+            {
+                Matrix m;
+                m.setTranslate(pos.x, pos.y);
+                gl.path.apply((ref Path.Verb v, ref FPoint[] pts)
+                {
+                    m.mapPoints(pts);
+                    final switch (v)
+                    {
+                    case Path.Verb.Move:
+                        path.moveTo(pts[0]);
+                        break;
+                    case Path.Verb.Line:
+                        path.lineTo(pts[1]);
+                        break;
+                    case Path.Verb.Quad:
+                        path.quadTo(pts[1], pts[2]);
+                        break;
+                    case Path.Verb.Cubic:
+                        path.cubicTo(pts[1], pts[2], pts[3]);
+                        break;
+                    case Path.Verb.Close:
+                        path.close();
+                        break;
+                    }
+                    return 0;
+                });
+                pos += gl.advance;
+            }
+
+            // Same effective-opacity compositing as flushPath.
+            immutable op = clamp(s.opacity, 0f, 1f);
+
+            if (s.cstroke.a != 0)
+            {
+                import graphics.core.patheffect;
+                auto stroked = strokePath(path, s.strokeWidth);
+                Color c = s.cstroke;
+                c.a = to!ubyte(round(c.a * op * clamp(s.strokeOpacity, 0f, 1f)));
+                canvas.drawPath(stroked, Paint(c));
+            }
+            if (s.cfill.a != 0)
+            {
+                path.close();
+                Color c = s.cfill;
+                c.a = to!ubyte(round(c.a * op * clamp(s.fillOpacity, 0f, 1f)));
+                canvas.drawPath(path, Paint(c));
+            }
+            path.reset();
+            textBuf = "";
         }
 
         // Build the path for a shape and flush it with its style.
@@ -308,16 +519,48 @@ void renderSVG(string fn, float zoom)
             }
         }
 
-        // Returns true if the element opens a style (<g>).
+        // Returns true if the element opens a style (<g>, <text>, <tspan>).
         bool element(string tag, in string[string] a)
         {
-            if (tag == "g")
+            switch (tag)
             {
+            case "g":
                 pushStyle(a);
                 return true;
+
+            case "text":
+                inText = true;
+                textBuf = "";
+                // x/y (default 0/0), optionally shifted by dx/dy.
+                textPos = FPoint(a.convAttr("x", 0.0f) + a.convAttr("dx", 0.0f),
+                                a.convAttr("y", 0.0f) + a.convAttr("dy", 0.0f));
+                pushStyle(a);
+                return true;
+
+            case "tspan":
+                if (inText && !textBuf.empty)
+                {
+                    // Flush the run accumulated in the enclosing element
+                    // (the style on top of the stack is that element's) and
+                    // advance the text position past it.
+                    flushText();
+                    textPos.x += lastAdvance;
+                }
+                // x/y (when present) reset the position absolutely; dx/dy
+                // always offset it relative to the current position.
+                if ("x" in a)
+                    textPos.x = a.convAttr("x", 0.0f);
+                if ("y" in a)
+                    textPos.y = a.convAttr("y", 0.0f);
+                textPos.x += a.convAttr("dx", 0.0f);
+                textPos.y += a.convAttr("dy", 0.0f);
+                pushStyle(a);
+                return true;
+
+            default:
+                shape(tag, a);
+                return false;
             }
-            shape(tag, a);
-            return false;
         }
 
         void onElementStart(ref C node)
@@ -346,13 +589,57 @@ void renderSVG(string fn, float zoom)
                 return;
             }
             if (element(node.name, attrs(node)))
+            {
+                if (node.name == "text")
+                    inText = false;  // <text/>: no run to flush
                 popStyle();  // <g/>: close the style immediately
+            }
+        }
+
+        void onText(ref C node)
+        {
+            if (inText)
+                textBuf ~= normalizeText(node.content);
+        }
+
+        void onCDataSection(ref C node)
+        {
+            if (inText)
+                textBuf ~= normalizeText(node.content);
         }
 
         void onElementEnd(ref C node)
         {
-            if (inRoot && node.name == "g")
+            if (!inRoot)
+                return;
+            switch (node.name)
+            {
+            case "g":
                 popStyle();
+                break;
+
+            case "text", "tspan":
+                if (inText)
+                {
+                    flushText();
+                    popStyle();  // close the style opened at element start
+                    if (node.name == "text")
+                    {
+                        inText = false;
+                        textBuf = "";
+                    }
+                    else
+                        // the text position advances past a rendered run
+                        // (spec: a following run continues after it)
+                        textPos.x += lastAdvance;
+                }
+                else
+                    popStyle();  // stray tspan: keep the stack balanced
+                break;
+
+            default:
+                break;
+            }
         }
     }
 
