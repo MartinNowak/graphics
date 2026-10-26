@@ -129,7 +129,7 @@ public:
             hOffset = length;
         }
 
-        _matrix.preTranslate(pt.x, pt.y);
+        _matrix = _matrix.preTranslate(pt.x, pt.y);
         Matrix scaledMatrix = _matrix;
         // TODO: scale matrix according to freetype outline relation
         // auto scale = PathGlyphStream.getScale();
@@ -292,4 +292,29 @@ void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter bli
     // linear scanline pass, per-pixel alpha, the framebuffer streamed
     // exactly once.
     blitter.blitMask(ir.left, ir.top, wr.scratch);
+}
+
+unittest
+{
+    // Regression test: the matrix returned by preTranslate used to be
+    // discarded, so drawText always landed at the origin no matter what
+    // pt said. Draw a glyph well right of the origin and check the ink
+    // follows pt.x.
+    TypeFace face;
+    try face = TypeFace.defaultFace();
+    catch (Exception e) {} // host without usable fonts: nothing to verify here
+    if (!face.valid)
+        return;
+
+    auto bm = Bitmap(Bitmap.Config.ARGB_8888, 16, 16);
+    bm.eraseColor(Color.Black);
+    Draw(bm, Matrix(), bm.bounds).drawText("H", FPoint(8, 12), TextPaint(Color.White, face));
+
+    bool ink;
+    int minX = int.max;
+    foreach (y; 0 .. bm.height)
+        foreach (x, px; bm.getLine!PMColor(y))
+            if (px.r || px.g || px.b) { ink = true; if (x < minX) minX = to!int(x); }
+    assert(ink, "drawText drew nothing");
+    assert(minX >= 6, text(minX)); // pt.x was 8; the buggy version starts near 0
 }
