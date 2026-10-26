@@ -19,11 +19,15 @@
 #
 # The graphics:svg sub-package is covered by its own `dub test` run. dub
 # caches sub-package builds under the parent's cache directory
-# (~/.dub/cache/graphics/<version>+svg/), so the single find below picks up
-# both test binaries' counters.
+# (~/.dub/cache/graphics/<version>/+svg/), so the single find below picks
+# up both test binaries' counters.
+#
+# The test suite itself (main package + :svg sub-package + qcheck gate) is
+# defined once in test-suite.sh and shared with pgo.sh.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
+source "$root/test-suite.sh"
 
 # Drop stale coverage counters so gcov only sees this run's data; afterwards
 # every .gcda under dub's cache belongs to this run. (The cache path embeds
@@ -31,8 +35,7 @@ root=$(cd "$(dirname "$0")" && pwd)
 find "$HOME/.dub/cache/graphics" -name '*.gcda' -delete 2>/dev/null || true
 
 cd "$root"
-dub test --compiler=gdc --coverage
-dub test :svg --compiler=gdc --coverage
+run_dub_tests --coverage
 
 scratch=$(mktemp --directory)
 trap 'rm --recursive --force "$scratch"' EXIT
@@ -100,4 +103,4 @@ sort --key=1,1nr --key=4,4r |
 awk '{ printf "%6.1f%%  %s\n", $1, $4; c += $2; t += $3; n++ }
      END { printf "\n%d/%d lines over %d src files: %.1f%%\n", c, t, n, (t ? 100.0 * c / t : 0) }'
 
-(cd "$root/tests/qcheck" && dub test --compiler=gdc)
+run_qcheck_tests

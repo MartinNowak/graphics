@@ -9,6 +9,9 @@
 # gcov annotations produced by coverage.sh
 *.gcov
 
+# profile data collected by pgo.sh
+pgo-profile/
+
 # perf profiler data
 perf.data
 perf.data.old
