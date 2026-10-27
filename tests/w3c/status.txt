@@ -32,7 +32,7 @@ animate-elem-32-t.svg OK 1570
 animate-elem-33-t.svg OK 4360
 animate-elem-34-t.svg OK 7508
 animate-elem-35-t.svg OK 11583
-animate-elem-36-t.svg OK 38726
+animate-elem-36-t.svg OK 7071
 animate-elem-37-t.svg OK 2699
 animate-elem-38-t.svg OK 21256
 animate-elem-39-t.svg OK 5102
@@ -356,13 +356,13 @@ shapes-rect-04-f.svg OK 961
 shapes-rect-05-f.svg OK 2634
 shapes-rect-06-f.svg OK 796
 shapes-rect-07-f.svg OK 791
-struct-cond-01-t.svg OK 33333
-struct-cond-02-t.svg OK 4388
-struct-cond-03-t.svg OK 57985
-struct-cond-overview-02-f.svg OK 14434
-struct-cond-overview-03-f.svg OK 7660
-struct-cond-overview-04-f.svg OK 4010
-struct-cond-overview-05-f.svg OK 14438
+struct-cond-01-t.svg OK 773
+struct-cond-02-t.svg OK 1066
+struct-cond-03-t.svg OK 41311
+struct-cond-overview-02-f.svg OK 1128
+struct-cond-overview-03-f.svg OK 3046
+struct-cond-overview-04-f.svg OK 1102
+struct-cond-overview-05-f.svg OK 7916
 struct-defs-01-t.svg OK 792
 struct-dom-01-b.svg OK 2267
 struct-dom-02-b.svg OK 1929
@@ -392,7 +392,7 @@ struct-group-01-t.svg OK 710
 struct-group-02-b.svg OK 800
 struct-group-03-t.svg OK 4810
 struct-image-01-t.svg OK 35843
-struct-image-02-b.svg OK 41561
+struct-image-02-b.svg OK 28154
 struct-image-03-t.svg OK 32232
 struct-image-04-t.svg OK 35860
 struct-image-05-b.svg OK 7781
@@ -516,7 +516,7 @@ types-dom-02-f.svg OK 2868
 types-dom-03-b.svg OK 1530
 types-dom-04-b.svg OK 4386
 types-dom-05-b.svg OK 2440
-types-dom-06-f.svg OK 10504
+types-dom-06-f.svg OK 6004
 types-dom-07-f.svg OK 2920
 types-dom-08-f.svg OK 4995
 types-dom-svgfittoviewbox-01-f.svg OK 2492

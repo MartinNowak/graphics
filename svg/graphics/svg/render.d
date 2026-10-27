@@ -1171,7 +1171,12 @@ private struct Renderer
             canvas.matrix = canvas.matrix.preTranslate(x, y);
 
         immutable orig = doc.nodes[target];
-        if (orig.attrs.get("display", "") == "none")
+        // The original's own attributes travel with the clone: a failing
+        // conditional processing test suppresses the instance too
+        // (struct-cond-overview-02-f), while one on the original's
+        // ancestors does not (struct-cond-overview-05-f - the registry
+        // already jumped past the parent).
+        if (orig.attrs.get("display", "") == "none" || !conditionsPass(orig.attrs))
             return;
 
         if (orig.name == "use")
@@ -1229,6 +1234,129 @@ private struct Renderer
         closeElement(orig.name);
     }
 
+    // Conditional processing (SVG 1.1 §6): requiredFeatures,
+    // requiredExtensions and systemLanguage guard an element - an element
+    // whose test fails is treated as if absent from the document (inside
+    // <switch> the same tests pick the one child that renders).
+
+    // The user language this renderer presents: headless, no locale, so
+    // the suite's own language is the honest choice.
+    enum string userLanguage = "en";
+
+    // The feature strings implemented (SVG 1.1 Annex I names). The list is
+    // deliberately honest: only what genuinely paints is claimed, so
+    // gradients/patterns/clipping/masking/markers/images/filters/animation
+    // and every DOM/SVGDOM string evaluate to false until they land.
+    static bool featureOK(string f)
+    {
+        static immutable string[] ok =
+        [
+            "http://www.w3.org/TR/SVG11/feature#BasicStructure",
+            "http://www.w3.org/TR/SVG11/feature#Structure",
+            "http://www.w3.org/TR/SVG11/feature#BasicPaint",
+            "http://www.w3.org/TR/SVG11/feature#Paint",
+            "http://www.w3.org/TR/SVG11/feature#BasicText",
+            "http://www.w3.org/TR/SVG11/feature#BasicTransform",
+            "http://www.w3.org/TR/SVG11/feature#BasicViewPort",
+            "http://www.w3.org/TR/SVG11/feature#Viewport",
+            "http://www.w3.org/TR/SVG11/feature#BasicShape",
+            "http://www.w3.org/TR/SVG11/feature#Shape",
+            "http://www.w3.org/TR/SVG11/feature#Path",
+            "http://www.w3.org/TR/SVG11/feature#ConditionalProcessing",
+        ];
+        return ok.canFind(f);
+    }
+
+    // RFC 3066 language-range match against the user language: the range
+    // matches if it equals the tag or is a leading '-'-delimited prefix of it.
+    static bool langOK(string range)
+    {
+        immutable r = toLower(strip(range));
+        if (r == "*")
+            return true;
+        return r == userLanguage
+            || (r.length < userLanguage.length
+                && userLanguage[0 .. r.length] == r
+                && userLanguage[r.length] == '-');
+    }
+
+    // All three attributes present must pass. Lists separate entries with
+    // whitespace and/or semicolons (SE; the DOM API splits both ways across
+    // the era). An empty requiredFeatures list passes vacuously; empty
+    // requiredExtensions/systemLanguage lists evaluate to false.
+    static bool conditionsPass(in string[string] a)
+    {
+        if (auto p = "requiredFeatures" in a)
+            foreach (f; splitter(replace(replace(strip(*p), ';', ' '), '\t', ' '), " "))
+                if (!f.empty && !featureOK(f))
+                    return false; // bogus token: this element is not supported
+
+        // requiredExtensions: no extension is claimed, and the spec makes an
+        // empty list false too - the attribute always fails if present.
+        if ("requiredExtensions" in a)
+            return false;
+
+        if (auto p = "systemLanguage" in a)
+        {
+            bool match;
+            foreach (lang; splitter(replace(strip(*p), ';', ' '), " "))
+                if (!lang.empty && langOK(lang))
+                {
+                    match = true;
+                    break;
+                }
+            if (!match) // no listed language matches; empty list never does
+                return false;
+        }
+        return true;
+    }
+
+    // Paint one walked-in element: conditional processing, the skip rules
+    // for reference material / display="none", the use and switch
+    // dispatchers, or the ordinary element+subtree traversal.
+    void renderChild(size_t ch)
+    {
+        auto n = doc.nodes[ch];
+        if (!conditionsPass(n.attrs))
+            return; // failing test: the element is absent from the document
+
+        // The whole subtree of reference material or display="none"
+        // is skipped for painting.
+        if (isNonRendering(n.name) || n.attrs.get("display", "") == "none")
+        {
+            walkSkip(ch);
+            return;
+        }
+
+        if (n.name == "use")
+        {
+            useElement(ch);
+            return;
+        }
+        if (n.name == "switch")
+        {
+            switchElement(ch);
+            return;
+        }
+
+        element(n.name, n.attrs);
+        walk(ch);
+        closeElement(n.name);
+    }
+
+    // <switch>: the first child element whose conditional processing tests
+    // pass renders; every other child - passing or not - does not render.
+    void switchElement(size_t idx)
+    {
+        foreach (ch; doc.nodes[idx].children)
+        {
+            if (doc.nodes[ch].name.empty || !conditionsPass(doc.nodes[ch].attrs))
+                continue; // tested out: the search moves to the next child
+            renderChild(ch);
+            return;
+        }
+    }
+
     // Visit the children of arena node `idx` in document order.
     void walk(size_t idx)
     {
@@ -1255,23 +1383,7 @@ private struct Renderer
                 continue;
             }
 
-            // The whole subtree of reference material or display="none"
-            // is skipped for painting.
-            if (isNonRendering(n.name) || n.attrs.get("display", "") == "none")
-            {
-                walkSkip(ch);
-                continue;
-            }
-
-            if (n.name == "use")
-            {
-                useElement(ch);
-                continue;
-            }
-
-            element(n.name, n.attrs);
-            walk(ch);
-            closeElement(n.name);
+            renderChild(ch);
         }
     }
 
@@ -1551,6 +1663,79 @@ unittest
     assert(bmp.getLine!PMColor(15)[15].g == 255, "scaled clone fills the use box");
     assert(bmp.getLine!PMColor(29)[29].g == 255 && bmp.getLine!PMColor(11)[11].g == 255);
     assert(bmp.getLine!PMColor(5)[5].g == 0, "the original (in defs) stays unpainted");
+}
+
+unittest
+{
+    // Conditional processing guards any element: requiredExtensions is
+    // never satisfied, requiredFeatures splits on whitespace and ';'
+    // (a bogus token sinks the element, types-dom-06-f style), and
+    // systemLanguage range-matches the user language ("en": "en-GB" as a
+    // range does NOT match, "de;en" does; an empty list never matches).
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        width="10" height="10" viewBox="0 0 10 10">
+        <rect width="10" height="10" fill="red" requiredExtensions="http://example.org/bogus"/>
+        <rect width="10" height="10" fill="lime" systemLanguage="en-GB"/>
+        <rect width="10" height="10" fill="blue" systemLanguage=""/>
+        <rect width="10" height="10" fill="gold"
+            requiredFeatures="http://www.w3.org/TR/SVG11/feature#Shape bogus.feature.string"/>
+        <rect width="10" height="10" fill="#0000ff"
+            requiredFeatures="http://www.w3.org/TR/SVG11/feature#Shape;http://www.w3.org/TR/SVG11/feature#Path"/>
+        </svg>`);
+    auto px = bmp.getLine!PMColor(5)[5];
+    assert(px.b == 255 && px.r == 0 && px.g == 0, to!string([px.r, px.g, px.b])); // only the last rect survives
+
+    // empty requiredFeatures passes vacuously (and a subtree fails whole):
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        width="10" height="10" viewBox="0 0 10 10">
+        <g requiredFeatures="http://www.w3.org/TR/SVG11/feature#SVGDOM">
+            <rect width="10" height="10" fill="red"/>
+        </g>
+        <g requiredFeatures="">
+            <g requiredFeatures="INVALID">
+                <rect width="10" height="10" fill="lime"/>
+            </g>
+        </g>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "failing tests drop the whole subtree");
+
+    // <switch>: first child whose tests pass renders, the rest never;
+    // an untested last child is the fallback (struct-cond-01-t/02-t/03-t).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        width="10" height="10" viewBox="0 0 10 10">
+        <switch>
+            <rect width="10" height="10" fill="red" requiredExtensions="http://example.org/bogus"/>
+            <rect width="10" height="10" fill="lime"
+                requiredFeatures="http://www.w3.org/TR/SVG11/feature#BasicText"/>
+            <rect width="10" height="10" fill="blue"/>
+        </switch>
+        <switch transform="translate(0, 5)">
+            <rect width="10" height="5" fill="red" systemLanguage="de"/>
+            <rect y="5" width="10" height="5" fill="gold"/>
+        </switch>
+        </svg>`);
+    px = bmp.getLine!PMColor(2)[5];
+    assert(px.g == 255 && px.r == 0, "switch picks BasicText branch, never the fallback");
+    px = bmp.getLine!PMColor(7)[5];
+    assert(px.r == 255 && px.g >= 200 && px.b == 0, "fallback child renders when tests all fail");
+}
+
+unittest
+{
+    // A failing conditional test on a use TARGET suppresses the instance
+    // (struct-cond-overview-02-f), but one on the target's original
+    // ancestors only hides the original (struct-cond-overview-05-f).
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="20" height="10" viewBox="0 0 20 10">
+        <rect id="off" width="10" height="10" fill="red" requiredExtensions="http://example.org/x"/>
+        <g requiredFeatures="INVALID">
+            <rect id="parented" x="10" width="10" height="10" fill="#00ff00"/>
+        </g>
+        <use xlink:href="#off"/>
+        <use xlink:href="#parented"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "instance of a failing target stays hidden");
+    assert(bmp.getLine!PMColor(5)[15].g == 255, "instance under a failing parent renders");
 }
 
 unittest
