@@ -380,6 +380,11 @@ private struct Renderer
     FSize[] savedViewports;
     uint viewportDepth;
 
+    // The `use` targets currently being expanded - the recursion path.
+    // A reference already on the path is a cycle (struct-use-12-f);
+    // the instance renders nothing (an error in the spec).
+    size_t[] useStack;
+
     static struct Style
     {
         bool transform;
@@ -969,7 +974,7 @@ private struct Renderer
             break;
 
         default:
-            // <a>, <switch> and any other container markup
+            // <switch> and any other container markup
             break;
         }
     }
@@ -1035,7 +1040,7 @@ private struct Renderer
     {
         switch (tag)
         {
-        case "g":
+        case "g", "a": // <a> is a plain styled container for rendering
             pushStyle(a);
             return true;
 
@@ -1100,7 +1105,7 @@ private struct Renderer
                 closeViewport();
             break;
 
-        case "g":
+        case "g", "a":
             popStyle();
             break;
 
@@ -1126,6 +1131,102 @@ private struct Renderer
         default:
             break;
         }
+    }
+
+    // `<use>`: paint the referenced element as a deep clone at this spot.
+    // The instance inherits from the `<use>` element, not from the source
+    // context of the reference - walking the arena at the use site (with a
+    // fresh style chain) is exactly that. References resolve through the id
+    // registry, so backward and forward hrefs, and uses nested inside other
+    // instances, all just work; the one thing a clone must not do is recurse
+    // forever, so `useStack` tracks the expansion path and drops cycles.
+    void useElement(size_t idx)
+    {
+        immutable inst = doc.nodes[idx];
+        string href = inst.attrs.get("href", inst.attrs.get("xlink:href", ""));
+        if (href.length < 2 || href[0] != '#')
+            return; // external references (other documents) are not supported
+        immutable target = doc.byId(href[1 .. $]);
+        if (target == Document.unknown)
+            return;
+        foreach (t; useStack)
+            if (t == target)
+                return; // reference cycle: render nothing
+
+        useStack ~= target;
+        scope (exit) useStack = useStack[0 .. $ - 1];
+
+        // The use's own attributes (transform included) wrap the instance.
+        pushStyle(inst.attrs);
+        scope (exit) popStyle();
+
+        // x/y is a translate appended innermost to the transform list,
+        // i.e. applied to the instance's content first.
+        auto lc = lengthCtx();
+        immutable x = inst.attrs.convLen("x", 0.0f, lc, RefAxis.width);
+        immutable y = inst.attrs.convLen("y", 0.0f, lc, RefAxis.height);
+        canvas.save();
+        scope (exit) canvas.restore();
+        if (x || y)
+            canvas.matrix = canvas.matrix.preTranslate(x, y);
+
+        immutable orig = doc.nodes[target];
+        if (orig.attrs.get("display", "") == "none")
+            return;
+
+        if (orig.name == "use")
+        {
+            useElement(target); // an instance of an instance: same machinery
+            return;
+        }
+
+        if (orig.name == "symbol" || orig.name == "svg")
+        {
+            // The instance of a <symbol> - or of a referenced <svg>, which
+            // behaves as one - is a nested viewport: the use's x/y placed it
+            // above (the svg target's own x/y are overridden), its
+            // width/height size the box - falling back to the target's
+            // width/height attrs, then to 100% of the current viewport -
+            // and the target's viewBox + preserveAspectRatio map user
+            // space into it.
+            float w = inst.attrs.convLen("width", 0.0f, lc, RefAxis.width);
+            float h = inst.attrs.convLen("height", 0.0f, lc, RefAxis.height);
+            if (w <= 0) w = orig.attrs.convLen("width", vpW, lc, RefAxis.width);
+            if (h <= 0) h = orig.attrs.convLen("height", vpH, lc, RefAxis.height);
+            if (w <= 0 || h <= 0)
+                return;
+
+            float[4] vb = [0.0f, 0.0f, w, h];
+            if (auto p = "viewBox" in orig.attrs)
+                try
+                {
+                    parseViewBox(vb, *p);
+                    enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
+                }
+                catch (Exception)
+                    vb = [0.0f, 0.0f, w, h];
+
+            pushStyle(orig.attrs); // the symbol's presentation attrs (transform included)
+            canvas.save();
+            canvas.matrix = canvas.matrix * viewFit(vb, w, h,
+                parsePAR(orig.attrs.get("preserveAspectRatio", "xMidYMid meet")));
+            savedViewports ~= FSize(vpW, vpH);
+            vpW = vb[2];
+            vpH = vb[3];
+            walk(target); // the symbol's children, as if written at the use site
+            vpW = savedViewports[$ - 1].width;
+            vpH = savedViewports[$ - 1].height;
+            savedViewports = savedViewports[0 .. $ - 1];
+            canvas.restore();
+            popStyle();
+            return;
+        }
+
+        // Any other target (shape, g, text...): exactly as if it were
+        // written here.
+        element(orig.name, orig.attrs);
+        walk(target);
+        closeElement(orig.name);
     }
 
     // Visit the children of arena node `idx` in document order.
@@ -1159,6 +1260,12 @@ private struct Renderer
             if (isNonRendering(n.name) || n.attrs.get("display", "") == "none")
             {
                 walkSkip(ch);
+                continue;
+            }
+
+            if (n.name == "use")
+            {
+                useElement(ch);
                 continue;
             }
 
@@ -1370,6 +1477,122 @@ unittest
             assert(px.r == 0 && px.g == 0 && px.b == 0, to!string([x, y, px.r, px.g, px.b]));
         }
     assert(bmp.getLine!PMColor(9)[9].r == 255); // gold survived
+}
+
+unittest
+{
+    // <use> deep-clones the referenced content at the use site. The
+    // instance inherits from the <use> element - NOT from the source
+    // context (the defs' red/yellow group must not bleed through) -
+    // and x/y offsets the clone.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="20" height="10" viewBox="0 0 20 10">
+        <defs><g fill="red" stroke="yellow" stroke-width="3"><rect id="r" width="10" height="10"/></g></defs>
+        <use xlink:href="#r" x="10" fill="#00ff00" stroke="none"/>
+        </svg>`);
+    foreach (x, px; bmp.getLine!PMColor(5))
+        assert(px.r == 0 && px.b == 0, to!string([x, px.r, px.g, px.b])); // nothing from the defs group
+    assert(bmp.getLine!PMColor(5)[15].g == 255);   // the clone, shifted to x=10
+    assert(bmp.getLine!PMColor(5)[5].g == 0);      // ...and nothing at the origin
+}
+
+unittest
+{
+    // use x/y is applied *before* the transform attribute (innermost):
+    // rect 10x10 moved to x=20, then rotate(180 15 15) maps [20,30]x[0,10]
+    // to [0,10]x[20,30]. The wrong order would land off-canvas entirely.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="30" height="30" viewBox="0 0 30 30">
+        <defs><rect id="r" width="10" height="10" fill="#00ff00"/></defs>
+        <use xlink:href="#r" x="20" transform="rotate(180 15 15)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(25)[5].g == 255, "x/y then rotate lands bottom-left");
+    assert(bmp.getLine!PMColor(5)[5].g == 0);   // the source (in defs) stays unpainted
+}
+
+unittest
+{
+    // <symbol> + <use>: the use sizes the instance viewport (20x10), the
+    // symbol's viewBox stretches into it (a 500/1000 quarter -> 10x5), and
+    // without a viewBox the symbol's user space stays 1:1.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="30" height="10" viewBox="0 0 30 10">
+        <symbol id="s" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+            <rect width="500" height="500" fill="#00ff00"/>
+        </symbol>
+        <use xlink:href="#s" width="20" height="10"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(2)[2].g == 255, "scaled quarter fills 10x5 of the box");
+    assert(bmp.getLine!PMColor(8)[15].g == 0 && bmp.getLine!PMColor(8)[25].g == 0);
+
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="20" height="20" viewBox="0 0 20 20">
+        <symbol id="s"><rect width="5" height="5" fill="#00ff00"/></symbol>
+        <use xlink:href="#s" x="10" y="10" width="8" height="8"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(12)[12].g == 255 && bmp.getLine!PMColor(12)[16].g == 0,
+        "viewBox-less symbol stays 1:1 (rect 5x5 inside the 8x8 box)");
+}
+
+unittest
+{
+    // A referenced <svg> behaves like a symbol: the use's width/height
+    // size the cloned viewport (struct-use-07-b), overriding the target's
+    // own width/height attrs; its viewBox maps into that box.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="30" height="30" viewBox="0 0 30 30">
+        <defs>
+            <svg id="sub" viewBox="0 0 100 100" width="100" height="100">
+                <rect width="100" height="100" fill="#00ff00"/>
+            </svg>
+        </defs>
+        <use xlink:href="#sub" x="10" y="10" width="20" height="20"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(15)[15].g == 255, "scaled clone fills the use box");
+    assert(bmp.getLine!PMColor(29)[29].g == 255 && bmp.getLine!PMColor(11)[11].g == 255);
+    assert(bmp.getLine!PMColor(5)[5].g == 0, "the original (in defs) stays unpainted");
+}
+
+unittest
+{
+    // Reference cycles must terminate: a self-cycle pair and a 10-long
+    // chain both render nothing (struct-use-12-f); a forward href (the
+    // target defined *after* the use) resolves through the registry.
+    renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="10" height="10" viewBox="0 0 10 10">
+        <use id="a" xlink:href="#b" x="10" y="10"/><use id="b" xlink:href="#a" x="10" y="10"/>
+        <use id="c1" xlink:href="#c2"/><use id="c2" xlink:href="#c3"/><use id="c3" xlink:href="#c1"/>
+        </svg>`); // returns; no hang
+
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="20" height="10" viewBox="0 0 20 10">
+        <use xlink:href="#later"/>
+        <rect id="later" x="10" width="10" height="10" fill="#00ff00"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[15].g == 255, "forward href");
+    assert(bmp.getLine!PMColor(5)[5].g == 0, "the clone paints at the href's own coords");
+}
+
+unittest
+{
+    // Nested use: an instance containing a use that references a g of
+    // shapes (struct-use-11-f style); and <a> acts as a styled container
+    // whose fill inherits into the linked content.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="30" height="10" viewBox="0 0 30 10">
+        <defs>
+            <g id="unit"><rect width="10" height="10"/></g>
+            <g id="pair"><use xlink:href="#unit"/><use xlink:href="#unit" x="10"/></g>
+        </defs>
+        <use xlink:href="#pair" x="10" fill="#00ff00"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[12].g == 255 && bmp.getLine!PMColor(5)[22].g == 255);
+
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        width="10" height="10" viewBox="0 0 10 10">
+        <a fill="#00ff00"><rect width="10" height="10"/></a>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].g == 255, "<a> fill inherits to its child");
 }
 
 unittest
