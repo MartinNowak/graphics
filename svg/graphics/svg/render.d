@@ -1,7 +1,6 @@
 module graphics.svg.render;
 
 import std.algorithm, std.ascii, std.conv, std.exception, std.math, std.range, std.string;
-import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser, std.experimental.xml.sax;
 import graphics;
 import graphics.core.fonthost;
 import graphics.core.glyph;
@@ -352,12 +351,34 @@ Path svgDash(in Path path, in float[] intervals, float offset)
     return res;
 }
 
-// Parses `source` and renders it into a fresh Bitmap.
-Bitmap renderSVG(string source, float zoom = 1.0f)
+// Paints a parsed `Document` (see graphics.svg.parser).
+//
+// The walk visits the arena in document order — exactly what the old
+// streaming SAX traversal did, node for node — but over arena indices, so
+// the whole tree (including everything inside <defs>) is known before the
+// first pixel lands and forward references can resolve through
+// `Document.byId`.
+private struct Renderer
 {
-    // Tolerate documents without an XML declaration (SVG does not require one).
-    auto c = source.lexer.parser.cursor((CursorError e) {});
-    alias C = typeof(c);
+    Document doc;
+    Bitmap bmp;
+    Canvas canvas;
+    Appender!(Style[]) styles;
+    Path path;
+    float zoom;
+    bool inRoot; // latches at the first <svg> element; nodes before it are inert
+
+    // The text run being accumulated inside a <text>/<tspan>.
+    bool inText;
+    FPoint textPos;
+    string textBuf;
+    float lastAdvance;
+
+    // Current viewport in user units (reference for percentages) and the
+    // saved stack for nested <svg> viewports.
+    float vpW=1000, vpH=1000;
+    FSize[] savedViewports;
+    uint viewportDepth;
 
     static struct Style
     {
@@ -390,825 +411,791 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
         TextPaint.TextAlign anchor=TextPaint.TextAlign.Left;
     }
 
-    // Push-style traversal of the SVG document: the SAX parser walks the whole
-    // document (prolog, DTD, elements) and calls the matching `on*` handler
-    // for each node in document order, so there is no manual cursor driving.
-    struct Handler
+    LengthCtx lengthCtx()
     {
-        Bitmap bmp;
-        Canvas canvas;
-        Appender!(Style[]) styles;
-        Path path;
-        float zoom;
-        bool inRoot;
+        LengthCtx lc;
+        lc.vpW = vpW;
+        lc.vpH = vpH;
+        lc.fontSize = styles.length ? styles.data.back.fontSize : 16.0f;
+        return lc;
+    }
 
-        // The text run being accumulated inside a <text>/<tspan>.
-        bool inText;
-        FPoint textPos;
-        string textBuf;
-        float lastAdvance;
-
-        // Current viewport in user units (reference for percentages) and the
-        // saved stack for nested <svg> viewports.
-        float vpW=1000, vpH=1000;
-        FSize[] savedViewports;
-        uint viewportDepth;
-
-        // > 0 while inside a subtree that must not paint: <defs>, <clipPath>,
-        // ..., or a display="none" element. Counts start tags so the matching
-        // end tags can skip symmetrically.
-        int skipDepth;
-
-        LengthCtx lengthCtx()
+    // Set up the canvas and the viewport zoom (viewBox -> canvas).
+    void setupRoot(in string[string] a)
+    {
+        // viewBox="min-x min-y width height"; when missing, user space
+        // maps 1:1 to the canvas (user units are px), so the viewBox
+        // defaults to the canvas dims.
+        float[4] vb = [0.0f, 0.0f, 1000.0f, 1000.0f];
+        const hasVB = "viewBox" in a;
+        if (hasVB)
         {
-            LengthCtx lc;
-            lc.vpW = vpW;
-            lc.vpH = vpH;
-            lc.fontSize = styles.length ? styles.data.back.fontSize : 16.0f;
-            return lc;
+            parseViewBox(vb, *("viewBox" in a));
+            enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
         }
 
-        // Set up the canvas and the viewport zoom (viewBox -> canvas).
-        void setupRoot(in string[string] a)
+        // width/height are <length>s; at the root a percentage resolves
+        // against the viewBox ("the user space") - "100%" is the whole
+        // document, which is what every W3C test asks for.
+        LengthCtx lc;
+        lc.vpW = vb[2];
+        lc.vpH = vb[3];
+        immutable wpx = convLen(a, "width", vb[2], lc, RefAxis.width);
+        immutable hpx = convLen(a, "height", vb[3], lc, RefAxis.height);
+        enforce(wpx > 0 && hpx > 0, "root <svg> needs a positive width and height");
+        if (!hasVB)
         {
-            // viewBox="min-x min-y width height"; when missing, user space
-            // maps 1:1 to the canvas (user units are px), so the viewBox
-            // defaults to the canvas dims.
-            float[4] vb = [0.0f, 0.0f, 1000.0f, 1000.0f];
-            const hasVB = "viewBox" in a;
-            if (hasVB)
-            {
-                parseViewBox(vb, *("viewBox" in a));
-                enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
-            }
-
-            // width/height are <length>s; at the root a percentage resolves
-            // against the viewBox ("the user space") - "100%" is the whole
-            // document, which is what every W3C test asks for.
-            LengthCtx lc;
-            lc.vpW = vb[2];
-            lc.vpH = vb[3];
-            immutable wpx = convLen(a, "width", vb[2], lc, RefAxis.width);
-            immutable hpx = convLen(a, "height", vb[3], lc, RefAxis.height);
-            enforce(wpx > 0 && hpx > 0, "root <svg> needs a positive width and height");
-            if (!hasVB)
-            {
-                vb[2] = wpx;
-                vb[3] = hpx;
-            }
-
-            immutable width = wpx * zoom;
-            immutable height = hpx * zoom;
-
-            bmp = Bitmap(Bitmap.Config.ARGB_8888, to!uint(round(width)), to!uint(round(height)));
-            canvas = new Canvas(bmp);
-
-            canvas.matrix = viewFit(vb, width, height,
-                parsePAR(a.get("preserveAspectRatio", "xMidYMid meet")));
-
-            vpW = vb[2];
-            vpH = vb[3];
+            vb[2] = wpx;
+            vb[3] = hpx;
         }
 
-        Style pushStyle(in string[string] attr)
+        immutable width = wpx * zoom;
+        immutable height = hpx * zoom;
+
+        bmp = Bitmap(Bitmap.Config.ARGB_8888, to!uint(round(width)), to!uint(round(height)));
+        canvas = new Canvas(bmp);
+
+        canvas.matrix = viewFit(vb, width, height,
+            parsePAR(a.get("preserveAspectRatio", "xMidYMid meet")));
+
+        vpW = vb[2];
+        vpH = vb[3];
+    }
+
+    Style pushStyle(in string[string] attr)
+    {
+        // Default-construct the base style so every field gets its member
+        // initializer (font defaults included).
+        Style style = styles.length ? styles.data.back : Style();
+        style.transform = false;
+
+        auto lc = lengthCtx(); // percentages/em against the *parent* context
+
+        void apply(string k, string v)
         {
-            // Default-construct the base style so every field gets its member
-            // initializer (font defaults included).
-            Style style = styles.length ? styles.data.back : Style();
-            style.transform = false;
-
-            auto lc = lengthCtx(); // percentages/em against the *parent* context
-
-            void apply(string k, string v)
+            switch (k)
             {
-                switch (k)
+            case "stroke-width":
+                lc.pctRef = arcDiagonal(lc);
+                try
+                    style.strokeWidth = parseLength(v, lc);
+                catch (Exception) {} // inherit/garbage: keep the inherited value
+                break;
+
+            case "fill":
+                if (equalCase(v, "currentColor"))
+                    style.fillIsCurrent = true;
+                else
                 {
-                case "stroke-width":
-                    lc.pctRef = arcDiagonal(lc);
-                    try
-                        style.strokeWidth = parseLength(v, lc);
-                    catch (Exception) {} // inherit/garbage: keep the inherited value
-                    break;
-
-                case "fill":
-                    if (equalCase(v, "currentColor"))
-                        style.fillIsCurrent = true;
-                    else
-                    {
-                        Color c;
-                        if (parsePaint(v, c))
-                            style.cfill = c;
-                    }
-                    break;
-
-                case "stroke":
-                    if (equalCase(v, "currentColor"))
-                        style.strokeIsCurrent = true;
-                    else
-                    {
-                        Color c;
-                        if (parsePaint(v, c))
-                            style.cstroke = c;
-                    }
-                    break;
-
-                case "color":
-                {
-                    // The currentColor base; `inherit` = do nothing (the
-                    // parent style is already inherited).
                     Color c;
                     if (parsePaint(v, c))
-                        style.curColor = c;
-                    break;
+                        style.cfill = c;
                 }
+                break;
 
-                case "fill-rule":
-                    switch (toLower(v))
-                    {
-                    case "evenodd":
-                        style.fillRule = Path.FillRule.EvenOdd;
-                        break;
-                    case "nonzero":
-                        style.fillRule = Path.FillRule.NonZero;
-                        break;
-                    default: // "inherit" and friends: keep the parent value
-                        break;
-                    }
-                    break;
-
-                case "clip-rule": // clip paths arrive with the document model
-                    break;
-
-                case "visibility":
-                    switch (toLower(v))
-                    {
-                    case "hidden", "collapse":
-                        style.visible = false;
-                        break;
-                    case "visible":
-                        style.visible = true;
-                        break;
-                    default: // "inherit" and friends: keep the parent value
-                        break;
-                    }
-                    break;
-
-                case "display":
-                    // Handled by the element handlers as a whole-subtree skip;
-                    // here it only has to not poison the style.
-                    break;
-
-                case "stroke-linecap":
-                    switch (toLower(v))
-                    {
-                    case "round": style.caps = CapStyle.Round; break;
-                    case "square": style.caps = CapStyle.Square; break;
-                    default: style.caps = CapStyle.Butt; break;
-                    }
-                    break;
-
-                case "stroke-linejoin":
-                    switch (toLower(v))
-                    {
-                    case "round": style.joins = JoinStyle.Round; break;
-                    case "bevel": style.joins = JoinStyle.Bevel; break;
-                    default: style.joins = JoinStyle.Miter; break;
-                    }
-                    break;
-
-                case "stroke-miterlimit":
-                    try
-                        style.miterLimit = to!float(v);
-                    catch (ConvException) {}
-                    break;
-
-                case "stroke-dasharray":
-                    style.dash = parseDash(v);
-                    break;
-
-                case "stroke-dashoffset":
-                    lc.pctRef = arcDiagonal(lc);
-                    try
-                        style.dashOffset = parseLength(v, lc);
-                    catch (Exception) {}
-                    break;
-
-                case "opacity":
-                    style.opacity = to!float(v);
-                    break;
-
-                case "fill-opacity":
-                    style.fillOpacity = to!float(v);
-                    break;
-
-                case "stroke-opacity":
-                    style.strokeOpacity = to!float(v);
-                    break;
-
-                case "font-family":
+            case "stroke":
+                if (equalCase(v, "currentColor"))
+                    style.strokeIsCurrent = true;
+                else
                 {
-                    // First of the comma-separated list; surrounding
-                    // whitespace and quotes stripped.
-                    auto fam = strip(splitter(v, ',').front);
-                    fam = strip(fam, "\"'");
-                    if (fam.length)
-                        style.family = fam;
-                    break;
+                    Color c;
+                    if (parsePaint(v, c))
+                        style.cstroke = c;
                 }
+                break;
 
-                case "font-size":
-                    // A percentage is relative to the parent font-size; em
-                    // likewise (lc.fontSize is still the parent's).
-                    lc.pctRef = style.fontSize;
-                    try
-                        style.fontSize = parseLength(v, lc);
-                    catch (Exception) {} // inherit/garbage: keep the inherited size
-                    break;
+            case "color":
+            {
+                // The currentColor base; `inherit` = do nothing (the
+                // parent style is already inherited).
+                Color c;
+                if (parsePaint(v, c))
+                    style.curColor = c;
+                break;
+            }
 
-                case "font-weight":
+            case "fill-rule":
+                switch (toLower(v))
                 {
-                    if (v == "bold")
-                        style.weight = TypeFace.Weight.Bold;
-                    else if (v == "normal" || v == "regular")
-                        style.weight = TypeFace.Weight.Normal;
-                    else
-                    {
-                        // numeric 100..900
-                        int w;
-                        try
-                            w = to!int(strip(v));
-                        catch (Exception)
-                            break; // inherit/garbage: keep the inherited weight
-                        style.weight =
-                            w <= 200 ? TypeFace.Weight.Thin :
-                            w <= 300 ? TypeFace.Weight.Light :
-                            w <= 500 ? TypeFace.Weight.Normal :
-                            w <= 700 ? TypeFace.Weight.Bold :
-                                     TypeFace.Weight.Heavy;
-                    }
+                case "evenodd":
+                    style.fillRule = Path.FillRule.EvenOdd;
+                    break;
+                case "nonzero":
+                    style.fillRule = Path.FillRule.NonZero;
+                    break;
+                default: // "inherit" and friends: keep the parent value
                     break;
                 }
+                break;
 
-                case "font-style":
-                    switch (v)
-                    {
-                    case "italic":
-                        style.slant = TypeFace.Slant.Italic;
-                        break;
-                    case "oblique":
-                        style.slant = TypeFace.Slant.Oblique;
-                        break;
-                    default:
-                        style.slant = TypeFace.Slant.Roman;
-                        break;
-                    }
+            case "clip-rule": // clip paths arrive with the document model
+                break;
+
+            case "visibility":
+                switch (toLower(v))
+                {
+                case "hidden", "collapse":
+                    style.visible = false;
                     break;
-
-                case "text-anchor":
-                    switch (v)
-                    {
-                    case "middle":
-                        style.anchor = TextPaint.TextAlign.Center;
-                        break;
-                    case "end":
-                        style.anchor = TextPaint.TextAlign.Right;
-                        break;
-                    default:
-                        style.anchor = TextPaint.TextAlign.Left;
-                        break;
-                    }
+                case "visible":
+                    style.visible = true;
                     break;
-
-                case "transform":
-                    style.transform = true;
-                    canvas.save();
-                    if (!transformSVG(canvas.matrix, v))
-                        style.visible = false; // all-zero matrix: not rendered
+                default: // "inherit" and friends: keep the parent value
                     break;
+                }
+                break;
 
+            case "display":
+                // Handled by the element walk as a whole-subtree skip;
+                // here it only has to not poison the style.
+                break;
+
+            case "stroke-linecap":
+                switch (toLower(v))
+                {
+                case "round": style.caps = CapStyle.Round; break;
+                case "square": style.caps = CapStyle.Square; break;
+                default: style.caps = CapStyle.Butt; break;
+                }
+                break;
+
+            case "stroke-linejoin":
+                switch (toLower(v))
+                {
+                case "round": style.joins = JoinStyle.Round; break;
+                case "bevel": style.joins = JoinStyle.Bevel; break;
+                default: style.joins = JoinStyle.Miter; break;
+                }
+                break;
+
+            case "stroke-miterlimit":
+                try
+                    style.miterLimit = to!float(v);
+                catch (ConvException) {}
+                break;
+
+            case "stroke-dasharray":
+                style.dash = parseDash(v);
+                break;
+
+            case "stroke-dashoffset":
+                lc.pctRef = arcDiagonal(lc);
+                try
+                    style.dashOffset = parseLength(v, lc);
+                catch (Exception) {}
+                break;
+
+            case "opacity":
+                style.opacity = to!float(v);
+                break;
+
+            case "fill-opacity":
+                style.fillOpacity = to!float(v);
+                break;
+
+            case "stroke-opacity":
+                style.strokeOpacity = to!float(v);
+                break;
+
+            case "font-family":
+            {
+                // First of the comma-separated list; surrounding
+                // whitespace and quotes stripped.
+                auto fam = strip(splitter(v, ',').front);
+                fam = strip(fam, "\"'");
+                if (fam.length)
+                    style.family = fam;
+                break;
+            }
+
+            case "font-size":
+                // A percentage is relative to the parent font-size; em
+                // likewise (lc.fontSize is still the parent's).
+                lc.pctRef = style.fontSize;
+                try
+                    style.fontSize = parseLength(v, lc);
+                catch (Exception) {} // inherit/garbage: keep the inherited size
+                break;
+
+            case "font-weight":
+            {
+                if (v == "bold")
+                    style.weight = TypeFace.Weight.Bold;
+                else if (v == "normal" || v == "regular")
+                    style.weight = TypeFace.Weight.Normal;
+                else
+                {
+                    // numeric 100..900
+                    int w;
+                    try
+                        w = to!int(strip(v));
+                    catch (Exception)
+                        break; // inherit/garbage: keep the inherited weight
+                    style.weight =
+                        w <= 200 ? TypeFace.Weight.Thin :
+                        w <= 300 ? TypeFace.Weight.Light :
+                        w <= 500 ? TypeFace.Weight.Normal :
+                        w <= 700 ? TypeFace.Weight.Bold :
+                                   TypeFace.Weight.Heavy;
+                }
+                break;
+            }
+
+            case "font-style":
+                switch (v)
+                {
+                case "italic":
+                    style.slant = TypeFace.Slant.Italic;
+                    break;
+                case "oblique":
+                    style.slant = TypeFace.Slant.Oblique;
+                    break;
                 default:
+                    style.slant = TypeFace.Slant.Roman;
                     break;
                 }
-            }
-
-            foreach(k, v; attr)
-            {
-                if (k != "style")
-                    apply(k, v);
-                else
-                {
-                    foreach(elem; splitter(v, ';'))
-                    {
-                        auto p = findSplit(elem, ":");
-                        apply(strip(p[0]), strip(p[2]));
-                    }
-                }
-            }
-
-            styles ~= style;
-            return style;
-        }
-
-        void popStyle()
-        {
-            if (styles.data.back.transform)
-                canvas.restore();
-            styles.shrinkTo(styles.length - 1);
-        }
-
-        // Paint the current `path` with the style resolved from `attr`: fill
-        // first, then the stroke over it (SVG paint order).
-        void flushPath(in string[string] attr)
-        {
-            const s = pushStyle(attr);
-            scope (exit) popStyle();
-
-            // Effective paint alpha: the group `opacity` multiplies the
-            // per-paint opacity (fill-opacity/stroke-opacity) and the
-            // color's own alpha.
-            immutable op = clamp(s.opacity, 0f, 1f);
-            Color fillC = s.fillIsCurrent ? s.curColor : s.cfill;
-            Color strokeC = s.strokeIsCurrent ? s.curColor : s.cstroke;
-            fillC.a = to!ubyte(round(fillC.a * op * clamp(s.fillOpacity, 0f, 1f)));
-            strokeC.a = to!ubyte(round(strokeC.a * op * clamp(s.strokeOpacity, 0f, 1f)));
-
-            immutable doFill = s.visible && fillC.a != 0;
-            immutable doStroke = s.visible && strokeC.a != 0 && s.strokeWidth > 0;
-
-            Path stroked;
-            if (doStroke)
-            {
-                if (s.dash.length)
-                {
-                    auto dashed = svgDash(path, s.dash, s.dashOffset);
-                    stroked = strokePath(dashed, s.strokeWidth, s.caps, s.joins, s.miterLimit);
-                }
-                else
-                    stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
-            }
-
-            if (doFill)
-            {
-                // Subpaths are implicitly closed at raster time
-                // (Path.applyFilled); no path.close() needed here.
-                // path.reset() does not clear fillRule, so assign per flush.
-                path.fillRule = s.fillRule;
-                canvas.drawPath(path, Paint(fillC));
-            }
-            if (doStroke)
-                canvas.drawPath(stroked, Paint(strokeC));
-            path.reset();
-        }
-
-        // Render the accumulated text run with the style currently on top
-        // of the style stack: the glyph outlines are built into `path` and
-        // reuse the stroke/fill pipeline of `flushPath`, so
-        // fill="none" stroke="..." text works.
-        void flushText()
-        {
-            if (styles.empty)
-                return;
-            const s = styles.data.back;
-
-            lastAdvance = 0.0f;
-            if (textBuf.empty)
-            {
-                path.reset();
-                return;
-            }
-
-            // Resolve the face from the (inherited) family/weight/slant.
-            // (findFace's variadic template can't deduce qualified
-            // `immutable` enums, so copy them to plain locals first.)
-            TypeFace.Weight w = s.weight;
-            TypeFace.Slant sl = s.slant;
-            string fam = s.family;
-            TypeFace face = fam.length
-                ? TypeFace.findFace(w, sl, fam)
-                : TypeFace.findFace(w, sl);
-            auto cache = getGlyphCache(face, s.fontSize);
-
-            // text-anchor: offset the baseline origin by the run width.
-            FPoint at = textPos;
-            lastAdvance = measureText(textBuf, cache);
-            switch (s.anchor)
-            {
-            case TextPaint.TextAlign.Center:
-                at.x -= 0.5 * lastAdvance;
                 break;
-            case TextPaint.TextAlign.Right:
-                at.x -= lastAdvance;
+
+            case "text-anchor":
+                switch (v)
+                {
+                case "middle":
+                    style.anchor = TextPaint.TextAlign.Center;
+                    break;
+                case "end":
+                    style.anchor = TextPaint.TextAlign.Right;
+                    break;
+                default:
+                    style.anchor = TextPaint.TextAlign.Left;
+                    break;
+                }
                 break;
+
+            case "transform":
+                style.transform = true;
+                canvas.save();
+                if (!transformSVG(canvas.matrix, v))
+                    style.visible = false; // all-zero matrix: not rendered
+                break;
+
             default:
                 break;
             }
-
-            // Build the glyph outlines at their running baseline positions.
-            path.reset();
-            FPoint pos = at;
-            foreach (gl; cache.glyphStream(textBuf,
-                    Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
-            {
-                Matrix m;
-                m.setTranslate(pos.x, pos.y);
-                gl.path.apply((ref Path.Verb v, ref FPoint[] pts)
-                {
-                    m.mapPoints(pts);
-                    final switch (v)
-                    {
-                    case Path.Verb.Move:
-                        path.moveTo(pts[0]);
-                        break;
-                    case Path.Verb.Line:
-                        path.lineTo(pts[1]);
-                        break;
-                    case Path.Verb.Quad:
-                        path.quadTo(pts[1], pts[2]);
-                        break;
-                    case Path.Verb.Cubic:
-                        path.cubicTo(pts[1], pts[2], pts[3]);
-                        break;
-                    case Path.Verb.Close:
-                        path.close();
-                        break;
-                    }
-                    return 0;
-                });
-                pos += gl.advance;
-            }
-
-            // Same effective-opacity compositing as flushPath; glyph outlines
-            // keep the non-zero winding rule.
-            immutable op = clamp(s.opacity, 0f, 1f);
-            Color fillC = s.fillIsCurrent ? s.curColor : s.cfill;
-            Color strokeC = s.strokeIsCurrent ? s.curColor : s.cstroke;
-            fillC.a = to!ubyte(round(fillC.a * op * clamp(s.fillOpacity, 0f, 1f)));
-            strokeC.a = to!ubyte(round(strokeC.a * op * clamp(s.strokeOpacity, 0f, 1f)));
-
-            immutable doFill = s.visible && fillC.a != 0;
-            immutable doStroke = s.visible && strokeC.a != 0 && s.strokeWidth > 0;
-
-            Path stroked;
-            if (doStroke)
-            {
-                if (s.dash.length)
-                {
-                    auto dashed = svgDash(path, s.dash, s.dashOffset);
-                    stroked = strokePath(dashed, s.strokeWidth, s.caps, s.joins, s.miterLimit);
-                }
-                else
-                    stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
-            }
-
-            if (doFill)
-            {
-                // Glyph outlines carry explicit Close verbs; the fill
-                // closure (applyFilled) covers any straggler subpath.
-                // Pin the rule to non-zero on purpose (the comment above
-                // this block is right): convention-directed TrueType/CFF
-                // outlines fill the same under both rules, and `path` is
-                // shared with flushPath whose fillRule assignment above
-                // would otherwise leak into text.
-                path.fillRule = Path.FillRule.NonZero;
-                canvas.drawPath(path, Paint(fillC));
-            }
-            if (doStroke)
-                canvas.drawPath(stroked, Paint(strokeC));
-            path.reset();
-            textBuf = "";
         }
 
-        // Build the path for a shape and flush it with its style.
-        void shape(string tag, in string[string] a)
+        foreach(k, v; attr)
         {
-            auto lc = lengthCtx();
-            switch (tag)
+            if (k != "style")
+                apply(k, v);
+            else
             {
-            case "rect":
+                foreach(elem; splitter(v, ';'))
                 {
-                    auto pt = FPoint(a.convLen("x", 0.0f, lc, RefAxis.width),
-                                     a.convLen("y", 0.0f, lc, RefAxis.height));
-                    auto sz = FSize(a.convLen("width", 0.0f, lc, RefAxis.width),
-                                    a.convLen("height", 0.0f, lc, RefAxis.height));
-                    enforce(sz.width >= 0 && sz.height >= 0);
-                    auto rx = a.convLen("rx", 0.0f, lc, RefAxis.width);
-                    auto ry = a.convLen("ry", 0.0f, lc, RefAxis.height);
-                    enforce(rx >= 0 && ry >= 0);
-                    if (rx == 0) rx = ry;
-                    else if (ry == 0) ry = rx;
-                    rx = min(rx, 0.5 * sz.width);
-                    ry = min(ry, 0.5 * sz.height);
-                    if (!sz.empty)
-                    {
-                        path.addRoundRect(FRect(pt, sz), rx, ry);
-                        flushPath(a);
-                    }
+                    auto p = findSplit(elem, ":");
+                    apply(strip(p[0]), strip(p[2]));
                 }
-                break;
-
-            case "circle":
-                {
-                    immutable pt = FPoint(a.convLen("cx", 0.0f, lc, RefAxis.width),
-                                          a.convLen("cy", 0.0f, lc, RefAxis.height));
-                    immutable r = a.convLen("r", 0.0f, lc, RefAxis.diagonal);
-                    enforce(r >= 0);
-                    if (r > 0)
-                    {
-                        path.addOval(FRect(pt - r, pt + r));
-                        flushPath(a);
-                    }
-                }
-                break;
-
-            case "ellipse":
-                {
-                    immutable pt = FPoint(a.convLen("cx", 0.0f, lc, RefAxis.width),
-                                          a.convLen("cy", 0.0f, lc, RefAxis.height));
-                    immutable rad = FSize(a.convLen("rx", 0.0f, lc, RefAxis.width),
-                                          a.convLen("ry", 0.0f, lc, RefAxis.height));
-                    enforce(rad.width >= 0 && rad.height >= 0);
-                    if (!rad.empty)
-                    {
-                        path.addOval(FRect(pt - rad, pt + rad));
-                        flushPath(a);
-                    }
-                }
-                break;
-
-            case "line":
-                {
-                    immutable p0 = FPoint(a.convLen("x0", 0.0f, lc, RefAxis.width),
-                                          a.convLen("y0", 0.0f, lc, RefAxis.height));
-                    immutable p1 = FPoint(a.convLen("x1", 0.0f, lc, RefAxis.width),
-                                          a.convLen("y1", 0.0f, lc, RefAxis.height));
-
-                    path.moveTo(p0);
-                    path.lineTo(p1);
-                    flushPath(a);
-                }
-                break;
-
-            case "polyline":
-                {
-                    string s = a.get("points", "");
-                    try path.addSVGPolyLine(s);
-                    catch (Exception e2) {}
-                    flushPath(a);
-                }
-                break;
-
-            case "polygon":
-                {
-                    string s = a.get("points", "");
-                    try path.addSVGPolyLine(s);
-                    catch (Exception e2) {}
-                    path.close();
-                    flushPath(a);
-                }
-                break;
-
-            case "path":
-                {
-                    string s = a.get("d", "");
-                    try path.addSVGPath(s);
-                    catch (Exception e2) {}
-                    flushPath(a);
-                }
-                break;
-
-            default:
-                // <a>, <switch> and any other container markup
-                break;
             }
         }
 
-        // Push a nested <svg> viewport: x/y/width/height place the viewport,
-        // viewBox + preserveAspectRatio map user space into it.
-        void openViewport(in string[string] a)
-        {
-            pushStyle(a); // presentation attrs (incl. transform) wrap the viewport
+        styles ~= style;
+        return style;
+    }
 
-            auto lc = lengthCtx(); // against the *parent* viewport
-            immutable x = a.convLen("x", 0.0f, lc, RefAxis.width);
-            immutable y = a.convLen("y", 0.0f, lc, RefAxis.height);
-            immutable w = a.convLen("width", vpW, lc, RefAxis.width);
-            immutable h = a.convLen("height", vpH, lc, RefAxis.height);
-            enforce(w > 0 && h > 0, "nested <svg> needs a positive width and height");
-
-            float[4] vb = [0.0f, 0.0f, w, h];
-            if (auto p = "viewBox" in a)
-            {
-                parseViewBox(vb, *p);
-                enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
-            }
-
-            canvas.save();
-            canvas.matrix = canvas.matrix.preTranslate(x, y);
-            canvas.matrix = canvas.matrix * viewFit(vb, w, h,
-                parsePAR(a.get("preserveAspectRatio", "xMidYMid meet")));
-
-            savedViewports ~= FSize(vpW, vpH);
-            vpW = vb[2];
-            vpH = vb[3];
-            ++viewportDepth;
-        }
-
-        void closeViewport()
-        {
+    void popStyle()
+    {
+        if (styles.data.back.transform)
             canvas.restore();
-            popStyle();
-            vpW = savedViewports[$-1].width;
-            vpH = savedViewports[$-1].height;
-            savedViewports = savedViewports[0 .. $-1];
-            --viewportDepth;
-        }
+        styles.shrinkTo(styles.length - 1);
+    }
 
-        // Elements whose entire content is reference material: never painted
-        // directly (clip paths, gradients, markers ...), plus non-graphical
-        // and deferred-profile markup.
-        static bool isNonRendering(string tag)
-        {
-            return tag == "defs" || tag == "clipPath" || tag == "mask" ||
-                   tag == "pattern" || tag == "marker" || tag == "filter" ||
-                   tag == "symbol" || tag == "font" || tag == "font-face" ||
-                   tag == "glyph" || tag == "missing-glyph" ||
-                   tag == "altGlyphDef" || tag == "color-profile" ||
-                   tag == "cursor" || tag == "view" || tag == "script" ||
-                   tag == "style" || tag == "foreignObject";
-        }
+    // Paint the current `path` with the style resolved from `attr`: fill
+    // first, then the stroke over it (SVG paint order).
+    void flushPath(in string[string] attr)
+    {
+        const s = pushStyle(attr);
+        scope (exit) popStyle();
 
-        // Returns true if the element opens a style (<g>, <text>, <tspan>, <svg>).
-        bool element(string tag, in string[string] a)
+        // Effective paint alpha: the group `opacity` multiplies the
+        // per-paint opacity (fill-opacity/stroke-opacity) and the
+        // color's own alpha.
+        immutable op = clamp(s.opacity, 0f, 1f);
+        Color fillC = s.fillIsCurrent ? s.curColor : s.cfill;
+        Color strokeC = s.strokeIsCurrent ? s.curColor : s.cstroke;
+        fillC.a = to!ubyte(round(fillC.a * op * clamp(s.fillOpacity, 0f, 1f)));
+        strokeC.a = to!ubyte(round(strokeC.a * op * clamp(s.strokeOpacity, 0f, 1f)));
+
+        immutable doFill = s.visible && fillC.a != 0;
+        immutable doStroke = s.visible && strokeC.a != 0 && s.strokeWidth > 0;
+
+        Path stroked;
+        if (doStroke)
         {
-            switch (tag)
+            if (s.dash.length)
             {
-            case "g":
-                pushStyle(a);
-                return true;
+                auto dashed = svgDash(path, s.dash, s.dashOffset);
+                stroked = strokePath(dashed, s.strokeWidth, s.caps, s.joins, s.miterLimit);
+            }
+            else
+                stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
+        }
 
-            case "svg":
-                openViewport(a);
-                return true;
+        if (doFill)
+        {
+            // Subpaths are implicitly closed at raster time
+            // (Path.applyFilled); no path.close() needed here.
+            // path.reset() does not clear fillRule, so assign per flush.
+            path.fillRule = s.fillRule;
+            canvas.drawPath(path, Paint(fillC));
+        }
+        if (doStroke)
+            canvas.drawPath(stroked, Paint(strokeC));
+        path.reset();
+    }
 
-            case "text":
-                inText = true;
-                textBuf = "";
+    // Render the accumulated text run with the style currently on top
+    // of the style stack: the glyph outlines are built into `path` and
+    // reuse the stroke/fill pipeline of `flushPath`, so
+    // fill="none" stroke="..." text works.
+    void flushText()
+    {
+        if (styles.empty)
+            return;
+        const s = styles.data.back;
+
+        lastAdvance = 0.0f;
+        if (textBuf.empty)
+        {
+            path.reset();
+            return;
+        }
+
+        // Resolve the face from the (inherited) family/weight/slant.
+        // (findFace's variadic template can't deduce qualified
+        // `immutable` enums, so copy them to plain locals first.)
+        TypeFace.Weight w = s.weight;
+        TypeFace.Slant sl = s.slant;
+        string fam = s.family;
+        TypeFace face = fam.length
+            ? TypeFace.findFace(w, sl, fam)
+            : TypeFace.findFace(w, sl);
+        auto cache = getGlyphCache(face, s.fontSize);
+
+        // text-anchor: offset the baseline origin by the run width.
+        FPoint at = textPos;
+        lastAdvance = measureText(textBuf, cache);
+        switch (s.anchor)
+        {
+        case TextPaint.TextAlign.Center:
+            at.x -= 0.5 * lastAdvance;
+            break;
+        case TextPaint.TextAlign.Right:
+            at.x -= lastAdvance;
+            break;
+        default:
+            break;
+        }
+
+        // Build the glyph outlines at their running baseline positions.
+        path.reset();
+        FPoint pos = at;
+        foreach (gl; cache.glyphStream(textBuf,
+                Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+        {
+            Matrix m;
+            m.setTranslate(pos.x, pos.y);
+            gl.path.apply((ref Path.Verb v, ref FPoint[] pts)
+            {
+                m.mapPoints(pts);
+                final switch (v)
                 {
-                    // x/y (default 0/0), optionally shifted by dx/dy.
-                    auto lc = lengthCtx();
-                    textPos = FPoint(a.convLen("x", 0.0f, lc, RefAxis.width) +
-                                     a.convLen("dx", 0.0f, lc, RefAxis.width),
-                                     a.convLen("y", 0.0f, lc, RefAxis.height) +
-                                     a.convLen("dy", 0.0f, lc, RefAxis.height));
+                case Path.Verb.Move:
+                    path.moveTo(pts[0]);
+                    break;
+                case Path.Verb.Line:
+                    path.lineTo(pts[1]);
+                    break;
+                case Path.Verb.Quad:
+                    path.quadTo(pts[1], pts[2]);
+                    break;
+                case Path.Verb.Cubic:
+                    path.cubicTo(pts[1], pts[2], pts[3]);
+                    break;
+                case Path.Verb.Close:
+                    path.close();
+                    break;
                 }
-                pushStyle(a);
-                return true;
-
-            case "tspan":
-                if (inText && !textBuf.empty)
-                {
-                    // Flush the run accumulated in the enclosing element
-                    // (the style on top of the stack is that element's) and
-                    // advance the text position past it.
-                    flushText();
-                    textPos.x += lastAdvance;
-                }
-                // x/y (when present) reset the position absolutely; dx/dy
-                // always offset it relative to the current position.
-                {
-                    auto lc = lengthCtx();
-                    if ("x" in a)
-                        textPos.x = a.convLen("x", 0.0f, lc, RefAxis.width);
-                    if ("y" in a)
-                        textPos.y = a.convLen("y", 0.0f, lc, RefAxis.height);
-                    textPos.x += a.convLen("dx", 0.0f, lc, RefAxis.width);
-                    textPos.y += a.convLen("dy", 0.0f, lc, RefAxis.height);
-                }
-                pushStyle(a);
-                return true;
-
-            default:
-                shape(tag, a);
-                return false;
-            }
+                return 0;
+            });
+            pos += gl.advance;
         }
 
-        void onElementStart(ref C node)
+        // Same effective-opacity compositing as flushPath; glyph outlines
+        // keep the non-zero winding rule.
+        immutable op = clamp(s.opacity, 0f, 1f);
+        Color fillC = s.fillIsCurrent ? s.curColor : s.cfill;
+        Color strokeC = s.strokeIsCurrent ? s.curColor : s.cstroke;
+        fillC.a = to!ubyte(round(fillC.a * op * clamp(s.fillOpacity, 0f, 1f)));
+        strokeC.a = to!ubyte(round(strokeC.a * op * clamp(s.strokeOpacity, 0f, 1f)));
+
+        immutable doFill = s.visible && fillC.a != 0;
+        immutable doStroke = s.visible && strokeC.a != 0 && s.strokeWidth > 0;
+
+        Path stroked;
+        if (doStroke)
         {
-            if (skipDepth)
+            if (s.dash.length)
             {
-                ++skipDepth;
-                return;
+                auto dashed = svgDash(path, s.dash, s.dashOffset);
+                stroked = strokePath(dashed, s.strokeWidth, s.caps, s.joins, s.miterLimit);
             }
-            if (!inRoot)
+            else
+                stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
+        }
+
+        if (doFill)
+        {
+            // Glyph outlines carry explicit Close verbs; the fill
+            // closure (applyFilled) covers any straggler subpath.
+            // Pin the rule to non-zero on purpose (the comment above
+            // this block is right): convention-directed TrueType/CFF
+            // outlines fill the same under both rules, and `path` is
+            // shared with flushPath whose fillRule assignment above
+            // would otherwise leak into text.
+            path.fillRule = Path.FillRule.NonZero;
+            canvas.drawPath(path, Paint(fillC));
+        }
+        if (doStroke)
+            canvas.drawPath(stroked, Paint(strokeC));
+        path.reset();
+        textBuf = "";
+    }
+
+    // Build the path for a shape and flush it with its style.
+    void shape(string tag, in string[string] a)
+    {
+        auto lc = lengthCtx();
+        switch (tag)
+        {
+        case "rect":
             {
-                if (node.name == "svg")
+                auto pt = FPoint(a.convLen("x", 0.0f, lc, RefAxis.width),
+                                 a.convLen("y", 0.0f, lc, RefAxis.height));
+                auto sz = FSize(a.convLen("width", 0.0f, lc, RefAxis.width),
+                                a.convLen("height", 0.0f, lc, RefAxis.height));
+                enforce(sz.width >= 0 && sz.height >= 0);
+                auto rx = a.convLen("rx", 0.0f, lc, RefAxis.width);
+                auto ry = a.convLen("ry", 0.0f, lc, RefAxis.height);
+                enforce(rx >= 0 && ry >= 0);
+                if (rx == 0) rx = ry;
+                else if (ry == 0) ry = rx;
+                rx = min(rx, 0.5 * sz.width);
+                ry = min(ry, 0.5 * sz.height);
+                if (!sz.empty)
                 {
-                    inRoot = true;
-                    setupRoot(attrs(node));
+                    path.addRoundRect(FRect(pt, sz), rx, ry);
+                    flushPath(a);
                 }
-                return;
             }
-            auto a = attrs(node);
-            if (isNonRendering(node.name) || a.get("display", "") == "none")
-            {
-                ++skipDepth;
-                return;
-            }
-            element(node.name, a);
-        }
+            break;
 
-        void onElementEmpty(ref C node)
-        {
-            if (skipDepth)
-                return;
-            if (!inRoot)
+        case "circle":
             {
-                if (node.name == "svg")
+                immutable pt = FPoint(a.convLen("cx", 0.0f, lc, RefAxis.width),
+                                      a.convLen("cy", 0.0f, lc, RefAxis.height));
+                immutable r = a.convLen("r", 0.0f, lc, RefAxis.diagonal);
+                enforce(r >= 0);
+                if (r > 0)
                 {
-                    inRoot = true;
-                    setupRoot(attrs(node));
+                    path.addOval(FRect(pt - r, pt + r));
+                    flushPath(a);
                 }
-                return;
             }
-            auto a = attrs(node);
-            if (isNonRendering(node.name) || a.get("display", "") == "none")
-                return;
-            if (element(node.name, a))
+            break;
+
+        case "ellipse":
             {
-                if (node.name == "text")
-                    inText = false;  // <text/>: no run to flush
-                if (node.name == "svg")
-                    closeViewport(); // closes the style too
-                else
-                    popStyle();  // <g/>: close the style immediately
-            }
-        }
-
-        void onText(ref C node)
-        {
-            if (inText)
-                textBuf ~= normalizeText(node.content);
-        }
-
-        void onCDataSection(ref C node)
-        {
-            if (inText)
-                textBuf ~= normalizeText(node.content);
-        }
-
-        void onElementEnd(ref C node)
-        {
-            if (skipDepth)
-            {
-                --skipDepth;
-                return;
-            }
-            if (!inRoot)
-                return;
-            switch (node.name)
-            {
-            case "svg":
-                if (viewportDepth) // the root <svg> did not push a viewport
-                    closeViewport();
-                break;
-
-            case "g":
-                popStyle();
-                break;
-
-            case "text", "tspan":
-                if (inText)
+                immutable pt = FPoint(a.convLen("cx", 0.0f, lc, RefAxis.width),
+                                      a.convLen("cy", 0.0f, lc, RefAxis.height));
+                immutable rad = FSize(a.convLen("rx", 0.0f, lc, RefAxis.width),
+                                      a.convLen("ry", 0.0f, lc, RefAxis.height));
+                enforce(rad.width >= 0 && rad.height >= 0);
+                if (!rad.empty)
                 {
-                    flushText();
-                    popStyle();  // close the style opened at element start
-                    if (node.name == "text")
-                    {
-                        inText = false;
-                        textBuf = "";
-                    }
-                    else
-                        // the text position advances past a rendered run
-                        // (spec: a following run continues after it)
-                        textPos.x += lastAdvance;
+                    path.addOval(FRect(pt - rad, pt + rad));
+                    flushPath(a);
                 }
-                else
-                    popStyle();  // stray tspan: keep the stack balanced
-                break;
-
-            default:
-                break;
             }
+            break;
+
+        case "line":
+            {
+                immutable p0 = FPoint(a.convLen("x0", 0.0f, lc, RefAxis.width),
+                                      a.convLen("y0", 0.0f, lc, RefAxis.height));
+                immutable p1 = FPoint(a.convLen("x1", 0.0f, lc, RefAxis.width),
+                                      a.convLen("y1", 0.0f, lc, RefAxis.height));
+
+                path.moveTo(p0);
+                path.lineTo(p1);
+                flushPath(a);
+            }
+            break;
+
+        case "polyline":
+            {
+                string s = a.get("points", "");
+                try path.addSVGPolyLine(s);
+                catch (Exception e2) {}
+                flushPath(a);
+            }
+            break;
+
+        case "polygon":
+            {
+                string s = a.get("points", "");
+                try path.addSVGPolyLine(s);
+                catch (Exception e2) {}
+                path.close();
+                flushPath(a);
+            }
+            break;
+
+        case "path":
+            {
+                string s = a.get("d", "");
+                try path.addSVGPath(s);
+                catch (Exception e2) {}
+                flushPath(a);
+            }
+            break;
+
+        default:
+            // <a>, <switch> and any other container markup
+            break;
         }
     }
 
-    auto sax = c.saxParser!(Handler);
-    sax.handler.zoom = zoom;
-    sax.setSource(source);
-    sax.processDocument();
-    enforce(sax.handler.inRoot, "no <svg> root element");
+    // Push a nested <svg> viewport: x/y/width/height place the viewport,
+    // viewBox + preserveAspectRatio map user space into it.
+    void openViewport(in string[string] a)
+    {
+        pushStyle(a); // presentation attrs (incl. transform) wrap the viewport
 
-    return sax.handler.bmp;
+        auto lc = lengthCtx(); // against the *parent* viewport
+        immutable x = a.convLen("x", 0.0f, lc, RefAxis.width);
+        immutable y = a.convLen("y", 0.0f, lc, RefAxis.height);
+        immutable w = a.convLen("width", vpW, lc, RefAxis.width);
+        immutable h = a.convLen("height", vpH, lc, RefAxis.height);
+        enforce(w > 0 && h > 0, "nested <svg> needs a positive width and height");
+
+        float[4] vb = [0.0f, 0.0f, w, h];
+        if (auto p = "viewBox" in a)
+        {
+            parseViewBox(vb, *p);
+            enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
+        }
+
+        canvas.save();
+        canvas.matrix = canvas.matrix.preTranslate(x, y);
+        canvas.matrix = canvas.matrix * viewFit(vb, w, h,
+            parsePAR(a.get("preserveAspectRatio", "xMidYMid meet")));
+
+        savedViewports ~= FSize(vpW, vpH);
+        vpW = vb[2];
+        vpH = vb[3];
+        ++viewportDepth;
+    }
+
+    void closeViewport()
+    {
+        canvas.restore();
+        popStyle();
+        vpW = savedViewports[$-1].width;
+        vpH = savedViewports[$-1].height;
+        savedViewports = savedViewports[0 .. $-1];
+        --viewportDepth;
+    }
+
+    // Elements whose entire content is reference material: registered in
+    // the arena and the id registry, but never painted directly (clip
+    // paths, gradients, markers ...), plus non-graphical and deferred-
+    // profile markup.
+    static bool isNonRendering(string tag)
+    {
+        return tag == "defs" || tag == "clipPath" || tag == "mask" ||
+               tag == "pattern" || tag == "marker" || tag == "filter" ||
+               tag == "symbol" || tag == "font" || tag == "font-face" ||
+               tag == "glyph" || tag == "missing-glyph" ||
+               tag == "altGlyphDef" || tag == "color-profile" ||
+               tag == "cursor" || tag == "view" || tag == "script" ||
+               tag == "style" || tag == "foreignObject";
+    }
+
+    // Returns true if the element opens a style (<g>, <text>, <tspan>, <svg>).
+    bool element(string tag, in string[string] a)
+    {
+        switch (tag)
+        {
+        case "g":
+            pushStyle(a);
+            return true;
+
+        case "svg":
+            openViewport(a);
+            return true;
+
+        case "text":
+            inText = true;
+            textBuf = "";
+            {
+                // x/y (default 0/0), optionally shifted by dx/dy.
+                auto lc = lengthCtx();
+                textPos = FPoint(a.convLen("x", 0.0f, lc, RefAxis.width) +
+                                 a.convLen("dx", 0.0f, lc, RefAxis.width),
+                                 a.convLen("y", 0.0f, lc, RefAxis.height) +
+                                 a.convLen("dy", 0.0f, lc, RefAxis.height));
+            }
+            pushStyle(a);
+            return true;
+
+        case "tspan":
+            if (inText && !textBuf.empty)
+            {
+                // Flush the run accumulated in the enclosing element
+                // (the style on top of the stack is that element's) and
+                // advance the text position past it.
+                flushText();
+                textPos.x += lastAdvance;
+            }
+            // x/y (when present) reset the position absolutely; dx/dy
+            // always offset it relative to the current position.
+            {
+                auto lc = lengthCtx();
+                if ("x" in a)
+                    textPos.x = a.convLen("x", 0.0f, lc, RefAxis.width);
+                if ("y" in a)
+                    textPos.y = a.convLen("y", 0.0f, lc, RefAxis.height);
+                textPos.x += a.convLen("dx", 0.0f, lc, RefAxis.width);
+                textPos.y += a.convLen("dy", 0.0f, lc, RefAxis.height);
+            }
+            pushStyle(a);
+            return true;
+
+        default:
+            shape(tag, a);
+            return false;
+        }
+    }
+
+    // The element closed after its subtree was visited (the old
+    // onElementEnd). An empty element takes the same path right after
+    // `element`: with no children there is nothing to flush, and
+    // flushText's empty-run short-circuit absorbs the <text></text> vs
+    // <text/> difference.
+    void closeElement(string tag)
+    {
+        switch (tag)
+        {
+        case "svg":
+            if (viewportDepth) // the root <svg> did not push a viewport
+                closeViewport();
+            break;
+
+        case "g":
+            popStyle();
+            break;
+
+        case "text", "tspan":
+            if (inText)
+            {
+                flushText();
+                popStyle();  // close the style opened at element start
+                if (tag == "text")
+                {
+                    inText = false;
+                    textBuf = "";
+                }
+                else
+                    // the text position advances past a rendered run
+                    // (spec: a following run continues after it)
+                    textPos.x += lastAdvance;
+            }
+            else
+                popStyle();  // stray tspan: keep the stack balanced
+            break;
+
+        default:
+            break;
+        }
+    }
+
+    // Visit the children of arena node `idx` in document order.
+    void walk(size_t idx)
+    {
+        foreach (ch; doc.nodes[idx].children)
+        {
+            auto n = doc.nodes[ch];
+            if (n.name.empty) // a text node
+            {
+                if (inText)
+                    textBuf ~= normalizeText(n.text);
+                continue;
+            }
+
+            if (!inRoot)
+            {
+                // Everything before the first <svg> is inert; descend to
+                // find it wherever it sits, then set the canvas up.
+                if (ch == doc.root)
+                {
+                    inRoot = true;
+                    setupRoot(n.attrs);
+                }
+                walk(ch);
+                continue;
+            }
+
+            // The whole subtree of reference material or display="none"
+            // is skipped for painting.
+            if (isNonRendering(n.name) || n.attrs.get("display", "") == "none")
+            {
+                walkSkip(ch);
+                continue;
+            }
+
+            element(n.name, n.attrs);
+            walk(ch);
+            closeElement(n.name);
+        }
+    }
+
+    // Descend through a subtree that paints nothing. Text nodes inside
+    // it still feed an open <text> run: text accumulation keys off
+    // `inText` alone (as it did off the SAX onText callback), so e.g.
+    // <text><g display="none">hi</g></text> keeps drawing "hi".
+    void walkSkip(size_t idx)
+    {
+        foreach (ch; doc.nodes[idx].children)
+        {
+            auto n = doc.nodes[ch];
+            if (n.name.empty)
+            {
+                if (inText)
+                    textBuf ~= normalizeText(n.text);
+            }
+            else
+                walkSkip(ch);
+        }
+    }
+}
+
+// Parses `source` and renders it into a fresh Bitmap.
+Bitmap renderSVG(string source, float zoom = 1.0f)
+{
+    Renderer r;
+    r.doc = parseSVG(source);
+    r.zoom = zoom;
+    r.walk(0); // the document pseudo-root; inRoot latches at the <svg>
+    return r.bmp;
 }
 
 unittest
