@@ -5,6 +5,7 @@ import graphics.core.pmcolor;
 import graphics.core.shader;
 import graphics.svg.color;
 import graphics.svg.parser;
+import graphics.svg.pserver;
 import guip.point, guip.rect;
 
 // SVG 1.1 §13.2 gradients: linear/radial paint servers built from the
@@ -222,7 +223,8 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
         return null;
 
     bool invalid;
-    auto chain = hrefChain(doc, idx, invalid);
+    static const string[] gradientKinds = ["linearGradient", "radialGradient"];
+    auto chain = hrefChain(doc, idx, invalid, gradientKinds);
     if (invalid || chain.empty)
         return null;
 
@@ -309,62 +311,6 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
 
 private:
 
-// The element plus the xlink:href chain it leads (§13.2: an href to a
-// non-gradient element, or a cycle, invalidates the whole server; hrefs
-// between the two gradient kinds are legal and inherit).
-const(Element)[] hrefChain(ref const(Document) doc, size_t start, ref bool invalid)
-{
-    const(Element)[] chain;
-    size_t[] seen;
-    auto idx = start;
-    while (idx != Document.unknown)
-    {
-        if (seen.canFind(idx))
-        {
-            invalid = true;
-            break;
-        }
-        seen ~= idx;
-        auto e = doc.nodes[idx];
-        chain ~= e;
-
-        auto href = e.attrs.get("href", e.attrs.get("xlink:href", ""));
-        if (href.length < 2 || href[0] != '#')
-            break; // external documents: unsupported reference
-        idx = doc.byId(href[1 .. $]);
-        if (idx != Document.unknown
-            && doc.nodes[idx].name != "linearGradient"
-            && doc.nodes[idx].name != "radialGradient")
-        {
-            invalid = true; // §13.2: the href must lead to a gradient element
-            break;
-        }
-    }
-    return chain;
-}
-
-// First value found walking own-then-inherited (the href chain).
-// Percentages scale by pctScale; the caller passes already-scaled defaults.
-float attr(const(Element)[] chain, string key, float def, float pctScale)
-{
-    foreach (ref e; chain)
-        if (auto p = key in e.attrs)
-        {
-            string v = strip(*p);
-            if (v.empty)
-                continue;
-            try
-            {
-                if (v.endsWith("%"))
-                    return to!float(v[0 .. $ - 1]) / 100 * pctScale;
-                return to!float(v);
-            }
-            catch (ConvException)
-                continue; // malformed value: attribute is ignored
-        }
-    return def;
-}
-
 // The stops of the first gradient in the chain that defines any (§13.2.3:
 // href-inherited stops come from the closest ancestor that has them).
 // Offsets are clamped to [0,1] and forced monotonic in document order;
@@ -410,12 +356,6 @@ GradientStop[] stopsOf(ref const(Document) doc, const(Element)[] chain,
             return res;
     }
     return null;
-}
-
-// strip + emptiness guard for the `if (auto v = ...)` idiom.
-auto lengthened(string s)
-{
-    return s.empty ? null : s;
 }
 
 unittest

@@ -7,12 +7,13 @@ import graphics.core.glyph;
 import graphics.core.matrix;
 import graphics.core.patheffect;
 import graphics.core.path_detail.path_measure;
-import graphics.core.pmcolor : PMColor;
-import graphics.core.shader : Shader;
+import graphics.core.pmcolor : PMColor, alphaMul, alphaScale;
+import graphics.core.shader : Shader, ColorShader;
 import graphics.svg.color;
 import graphics.svg.core;
 import graphics.svg.gradient;
 import graphics.svg.parser;
+import graphics.svg.pattern;
 
 // ASCII case-insensitive comparison for SVG keywords (exact length).
 private bool equalCase(string a, string b)
@@ -416,6 +417,11 @@ private struct Renderer
     // the instance renders nothing (an error in the spec).
     size_t[] useStack;
 
+    // Nesting depth of pattern tile rasterisation (a pattern whose
+    // content itself paint-fills a pattern). Deep chains - including
+    // cycles - stop rendering the inner server.
+    int patternDepth;
+
     static struct Style
     {
         bool transform;
@@ -793,7 +799,16 @@ private struct Renderer
         immutable url = isFill ? s.fillUrl : s.strokeUrl;
         if (url.length)
         {
-            if (auto sh = makeGradient(doc, url, bbox, vpW, vpH, s.curColor, alpha))
+            // Dispatch by the referenced element's kind: gradients and
+            // patterns are separate servers (§13.2/§14.2); anything else
+            // - or a broken reference - is a server error.
+            Shader sh;
+            immutable tgt = doc.byId(url);
+            if (tgt != Document.unknown && doc.nodes[tgt].name == "pattern")
+                sh = patternPaint(url, bbox, alpha);
+            else
+                sh = makeGradient(doc, url, bbox, vpW, vpH, s.curColor, alpha);
+            if (sh !is null)
             {
                 Paint p;
                 p.shader = sh;
@@ -809,6 +824,91 @@ private struct Renderer
             : (s.strokeIsCurrent ? s.curColor : s.cstroke);
         c.a = to!ubyte(round(c.a * clamp(alpha, 0f, 1f)));
         return Paint(c);
+    }
+
+    // §14.2: rasterise the pattern content once into a tile bitmap, then
+    // tile it in the shader. Resolution follows the paint's device scale:
+    // an unscaled paint rasterises 1:1 and tiles exactly; `patternTransform`
+    // (rotations included) is sampled through the shader. Paint opacity
+    // folds into the tile pixels, mirroring the gradient stops.
+    Shader patternPaint(in string id, in FRect bbox, float paintAlpha)
+    {
+        PatternServer ps;
+        if (!patternResolve(doc, id, bbox, vpW, vpH, ps))
+            return null;
+
+        if (ps.W <= 0.0f || ps.H <= 0.0f) // reachable only with a viewBox
+            return new ColorShader(Color(0)); // "invisible" tile: a valid
+                                              // server painting no area, so
+                                              // the fallback stays unused
+                                              // (pservers-pattern-09-f #3)
+
+        if (patternDepth >= 8)
+            return null; // deep/cyclic pattern nesting: paint nothing
+
+        // Device px per pattern coord unit: sqrt|det| of the linear part of
+        // CTM·patternTransform (the CTM already carries the root zoom).
+        Matrix full = canvas.matrix * ps.pt;
+        float s = sqrt(abs(full[0][0] * full[1][1] - full[0][1] * full[1][0]));
+        if (!(s > 0.0f))
+            return null; // degenerate CTM: nothing lands on the canvas
+        s = min(s, 4.0f);
+        if (ps.W * s > 1024.0f || ps.H * s > 1024.0f)
+            s = 1024.0f / max(ps.W, ps.H);
+
+        int tw = max(to!int(ceil(ps.W * s)), 1);
+        int th = max(to!int(ceil(ps.H * s)), 1);
+
+        // Content -> tile rect (0,0,W,H): a viewBox fits through
+        // preserveAspectRatio, objectBoundingBox content units scale by
+        // the referencing shape's bbox, else content runs in pattern units.
+        Matrix cm;
+        cm.reset();
+        if (auto vbRaw = ps.viewBoxRaw)
+        {
+            float[4] vb;
+            try
+                parseViewBox(vb, vbRaw);
+            catch (Exception)
+                return null; // malformed viewBox: server in error
+            if (vb[2] <= 0 || vb[3] <= 0)
+                return null;
+            cm = viewFit(vb, ps.W, ps.H,
+                parsePAR(ps.parRaw.length ? ps.parRaw : "xMidYMid meet"));
+        }
+        else if (ps.contentBBox)
+            cm.setScale(bbox.width, bbox.height);
+
+        Renderer t;
+        t.doc = doc;
+        t.patternDepth = patternDepth + 1;
+        t.bmp = Bitmap(Bitmap.Config.ARGB_8888, tw, th);
+        t.canvas = new Canvas(t.bmp);
+        t.inRoot = true; // skip setupRoot: the tile canvas is set up here
+        t.vpW = ps.W;
+        t.vpH = ps.H;
+        Matrix sc;
+        sc.setScale(s, s);
+        t.canvas.matrix = sc * cm;
+
+        // Presentation attributes on the chain act as the content's
+        // inheritance context (href ancestors first, self last).
+        foreach_reverse (ref e; ps.chain)
+            t.pushStyle(e.attrs);
+        foreach (ch; ps.content)
+            t.renderChild(ch);
+
+        immutable pa = to!ubyte(round(clamp(paintAlpha, 0f, 1f) * 255));
+        PMColor[][] rows;
+        rows.length = th;
+        foreach (y; 0 .. th)
+        {
+            rows[y] = t.bmp.getLine!PMColor(y)[0 .. tw].dup;
+            if (pa < 255)
+                foreach (ref px; rows[y])
+                    px = alphaMul(px, alphaScale(pa));
+        }
+        return new PatternShader(rows, ps.X, ps.Y, ps.W, ps.H, s, ps.pt.inverted);
     }
 
     // Paint the current `path` with the style resolved from `attr`: fill
@@ -2290,4 +2390,90 @@ unittest
             }
     assert(painted > 10, "the M glyph painted");
     assert(reddish, "glyph picked up the red end of the ramp");
+}
+
+unittest
+{
+    // <pattern> tiling (§14.2), pservers-pattern-01-b's lesson: a 20x20
+    // lattice offset to (10,10); yellow tile-local 5..15, green over it
+    // at 10..20 in both axes. Sampling is nearest, tiles exact at 1:1.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        xmlns:xlink="http://www.w3.org/1999/xlink" width="60" height="40" viewBox="0 0 60 40">
+        <pattern id="p" patternUnits="userSpaceOnUse" x="10" y="10" width="20" height="20">
+            <rect x="5" y="5" width="10" height="10" fill="yellow"/>
+            <rect x="10" y="10" width="10" height="10" fill="green"/>
+        </pattern>
+        <rect x="10" y="10" width="40" height="20" fill="url(#p)"/>
+        </svg>`);
+    auto px = bmp.getLine!PMColor(17)[17];
+    assert(px.r == 255 && px.g == 255 && px.b == 0, "tile-local (7,7) is yellow");
+    px = bmp.getLine!PMColor(22)[22];
+    assert(px.g == 128 && px.r == 0, "tile-local (12,12) is green (CSS green = 0x008000)");
+    assert(bmp.getLine!PMColor(10)[10].a == 0, "tile-local (0,0) paints nothing");
+    // Lattice period: (37,17) is one period right of (17,17).
+    px = bmp.getLine!PMColor(17)[37];
+    assert(px.r == 255 && px.g == 255 && px.b == 0, "lattice repeats every 20");
+
+    // viewBox="0 0 10 10" on the tile fits content into (0,0,W,H): the
+    // 10x5 half-height rect becomes the top half of a 100px tile.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+        <pattern id="v" patternUnits="userSpaceOnUse" width="100" height="100" viewBox="0 0 10 10">
+            <rect width="10" height="5" fill="blue"/>
+        </pattern>
+        <rect width="100" height="100" fill="url(#v)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[10].b == 255, "viewBox content fills the tile top");
+    assert(bmp.getLine!PMColor(60)[10].a == 0, "and not below the half");
+
+    // patternContentUnits="objectBoundingBox": content coordinates are
+    // fractions of the referencing shape's bbox.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+        <pattern id="bc" patternUnits="userSpaceOnUse" width="40" height="40"
+            patternContentUnits="objectBoundingBox">
+            <rect width="0.25" height="0.25" fill="red"/>
+        </pattern>
+        <rect width="100" height="100" fill="url(#bc)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].r == 255, "bbox content unit: quarter of the bbox");
+    assert(bmp.getLine!PMColor(30)[5].a == 0, "outside the 25px content corner");
+    assert(bmp.getLine!PMColor(5)[45].r == 255, "next lattice period shows it again");
+
+    // Zero tile size carrying a viewBox: an "invisible" server painting no
+    // area - invisible even with a fallback given (pservers-pattern-09-f).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <pattern id="z" width="0" height="0" viewBox="0 0 10 10"><rect width="10" height="10" fill="red"/></pattern>
+        <rect width="20" height="20" fill="url(#z) lime"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "invisible pattern paints nothing, not the fallback");
+
+    // Zero tile size without a viewBox is a server error: fallback paints
+    // (pservers-pattern-03-f's eight green squares).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <pattern id="z2" width="0" height="10"><rect width="10" height="10" fill="red"/></pattern>
+        <rect width="20" height="20" fill="url(#z2) lime"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].g == 255 && bmp.getLine!PMColor(5)[5].r == 0,
+        "empty pattern without viewBox takes the fallback");
+
+    // A dangling href has no effect when the pattern defines itself
+    // (pservers-pattern-07-f): the tiles paint.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        xmlns:xlink="http://www.w3.org/1999/xlink" width="20" height="20" viewBox="0 0 20 20">
+        <pattern id="bad" patternUnits="userSpaceOnUse" width="10" height="10" xlink:href="#missing">
+            <rect width="10" height="10" fill="red"/>
+        </pattern>
+        <rect width="20" height="20" fill="url(#bad) lime"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].r == 255 && bmp.getLine!PMColor(5)[15].r == 255,
+        "dangling href: the pattern paints its own tiles");
+
+    // A pattern whose content references itself: depth-capped, paints
+    // nothing through to the shape (and must terminate).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <pattern id="self" width="10" height="10">
+            <rect width="10" height="10" fill="url(#self)"/>
+        </pattern>
+        <rect width="20" height="20" fill="url(#self)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "cyclic pattern paints nothing");
 }
