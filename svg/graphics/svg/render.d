@@ -8,8 +8,10 @@ import graphics.core.matrix;
 import graphics.core.patheffect;
 import graphics.core.path_detail.path_measure;
 import graphics.core.pmcolor : PMColor;
+import graphics.core.shader : Shader;
 import graphics.svg.color;
 import graphics.svg.core;
+import graphics.svg.gradient;
 import graphics.svg.parser;
 
 // ASCII case-insensitive comparison for SVG keywords (exact length).
@@ -20,6 +22,35 @@ private bool equalCase(string a, string b)
     foreach (i, ch; a)
         if (std.ascii.toLower(ch) != std.ascii.toLower(b[i]))
             return false;
+    return true;
+}
+
+// The `url(#frag) [fallback]` paint value (SVG 1.1 §13.2). Only local
+// #frag references are supported. Returns false for anything that is not
+// a url reference at all - the caller then parses an ordinary paint.
+private bool urlPaint(string v, out string id, out Color fallback, out bool hasFallback)
+{
+    v = strip(v);
+    if (v.length < 7 || !equalCase(v[0 .. 4], "url("))
+        return false;
+    auto close = indexOf(v, ')');
+    if (close < 0)
+        return false;
+    auto frag = strip(v[4 .. close]);
+    if (frag.length < 2 || frag[0] != '#')
+        return false; // external documents / empty fragments: unsupported
+    id = frag[1 .. $];
+    fallback = Color(0);
+    hasFallback = false;
+    auto rest = strip(v[close + 1 .. $]);
+    if (!rest.empty)
+    {
+        Color c;
+        if (!parsePaint(rest, c))
+            return false; // malformed fallback: the attribute is ignored
+        fallback = c;
+        hasFallback = true;
+    }
     return true;
 }
 
@@ -397,6 +428,14 @@ private struct Renderer
         bool fillIsCurrent, strokeIsCurrent;
         bool visible=true; // visibility
 
+        // Paint servers: fill/stroke="url(#id)" with the optional
+        // `) fallback` paint (SVG 1.1 §13.2). A non-empty id replaces the
+        // plain color; an unresolvable server paints the fallback or
+        // nothing at all.
+        string fillUrl, strokeUrl;
+        Color fillFallback, strokeFallback;
+        bool hasFillFallback, hasStrokeFallback;
+
         // Inherited fill rule (SVG 1.1 11.2.4); clip-rule waits on clip
         // paths themselves.
         Path.FillRule fillRule = Path.FillRule.NonZero;
@@ -488,26 +527,56 @@ private struct Renderer
                 break;
 
             case "fill":
+            {
+                string id;
+                Color fb;
+                bool hasFb;
+                if (urlPaint(v, id, fb, hasFb))
+                {
+                    style.fillUrl = id;
+                    style.fillFallback = fb;
+                    style.hasFillFallback = hasFb;
+                    break;
+                }
                 if (equalCase(v, "currentColor"))
                     style.fillIsCurrent = true;
                 else
                 {
                     Color c;
                     if (parsePaint(v, c))
+                    {
                         style.cfill = c;
+                        style.fillUrl = null; // a plain paint replaces the server
+                    }
                 }
                 break;
+            }
 
             case "stroke":
+            {
+                string id;
+                Color fb;
+                bool hasFb;
+                if (urlPaint(v, id, fb, hasFb))
+                {
+                    style.strokeUrl = id;
+                    style.strokeFallback = fb;
+                    style.hasStrokeFallback = hasFb;
+                    break;
+                }
                 if (equalCase(v, "currentColor"))
                     style.strokeIsCurrent = true;
                 else
                 {
                     Color c;
                     if (parsePaint(v, c))
+                    {
                         style.cstroke = c;
+                        style.strokeUrl = null;
+                    }
                 }
                 break;
+            }
 
             case "color":
             {
@@ -713,6 +782,35 @@ private struct Renderer
         styles.shrinkTo(styles.length - 1);
     }
 
+    // One side's Paint (fill or stroke) from the style. A paint server
+    // (fill/stroke url) replaces the plain color; a server that cannot be
+    // built - unknown id, gradient error - falls back to the documented
+    // `url(...) paint` fallback or paints nothing. The effective alpha
+    // (opacity x fill/stroke-opacity) folds into plain colors and into
+    // the gradient stops at build time.
+    Paint resolvePaint(bool isFill, in Style s, float alpha, in FRect bbox)
+    {
+        immutable url = isFill ? s.fillUrl : s.strokeUrl;
+        if (url.length)
+        {
+            if (auto sh = makeGradient(doc, url, bbox, vpW, vpH, s.curColor, alpha))
+            {
+                Paint p;
+                p.shader = sh;
+                return p;
+            }
+            Color fb = Color(0);
+            if (isFill ? s.hasFillFallback : s.hasStrokeFallback)
+                fb = isFill ? s.fillFallback : s.strokeFallback;
+            fb.a = to!ubyte(round(fb.a * clamp(alpha, 0f, 1f)));
+            return Paint(fb);
+        }
+        Color c = isFill ? (s.fillIsCurrent ? s.curColor : s.cfill)
+            : (s.strokeIsCurrent ? s.curColor : s.cstroke);
+        c.a = to!ubyte(round(c.a * clamp(alpha, 0f, 1f)));
+        return Paint(c);
+    }
+
     // Paint the current `path` with the style resolved from `attr`: fill
     // first, then the stroke over it (SVG paint order).
     void flushPath(in string[string] attr)
@@ -724,13 +822,13 @@ private struct Renderer
         // per-paint opacity (fill-opacity/stroke-opacity) and the
         // color's own alpha.
         immutable op = clamp(s.opacity, 0f, 1f);
-        Color fillC = s.fillIsCurrent ? s.curColor : s.cfill;
-        Color strokeC = s.strokeIsCurrent ? s.curColor : s.cstroke;
-        fillC.a = to!ubyte(round(fillC.a * op * clamp(s.fillOpacity, 0f, 1f)));
-        strokeC.a = to!ubyte(round(strokeC.a * op * clamp(s.strokeOpacity, 0f, 1f)));
+        immutable bbox = path.bounds; // objectBoundingBox paint-server basis
+        Paint fillP = resolvePaint(true, s, op * clamp(s.fillOpacity, 0f, 1f), bbox);
+        Paint strokeP = resolvePaint(false, s, op * clamp(s.strokeOpacity, 0f, 1f), bbox);
 
-        immutable doFill = s.visible && fillC.a != 0;
-        immutable doStroke = s.visible && strokeC.a != 0 && s.strokeWidth > 0;
+        immutable doFill = s.visible && (fillP.shader !is null || fillP.color.a != 0);
+        immutable doStroke = s.visible
+            && (strokeP.shader !is null || strokeP.color.a != 0) && s.strokeWidth > 0;
 
         Path stroked;
         if (doStroke)
@@ -750,10 +848,10 @@ private struct Renderer
             // (Path.applyFilled); no path.close() needed here.
             // path.reset() does not clear fillRule, so assign per flush.
             path.fillRule = s.fillRule;
-            canvas.drawPath(path, Paint(fillC));
+            canvas.drawPath(path, fillP);
         }
         if (doStroke)
-            canvas.drawPath(stroked, Paint(strokeC));
+            canvas.drawPath(stroked, strokeP);
         path.reset();
     }
 
@@ -837,13 +935,13 @@ private struct Renderer
         // Same effective-opacity compositing as flushPath; glyph outlines
         // keep the non-zero winding rule.
         immutable op = clamp(s.opacity, 0f, 1f);
-        Color fillC = s.fillIsCurrent ? s.curColor : s.cfill;
-        Color strokeC = s.strokeIsCurrent ? s.curColor : s.cstroke;
-        fillC.a = to!ubyte(round(fillC.a * op * clamp(s.fillOpacity, 0f, 1f)));
-        strokeC.a = to!ubyte(round(strokeC.a * op * clamp(s.strokeOpacity, 0f, 1f)));
+        immutable bbox = path.bounds; // objectBoundingBox paint-server basis
+        Paint fillP = resolvePaint(true, s, op * clamp(s.fillOpacity, 0f, 1f), bbox);
+        Paint strokeP = resolvePaint(false, s, op * clamp(s.strokeOpacity, 0f, 1f), bbox);
 
-        immutable doFill = s.visible && fillC.a != 0;
-        immutable doStroke = s.visible && strokeC.a != 0 && s.strokeWidth > 0;
+        immutable doFill = s.visible && (fillP.shader !is null || fillP.color.a != 0);
+        immutable doStroke = s.visible
+            && (strokeP.shader !is null || strokeP.color.a != 0) && s.strokeWidth > 0;
 
         Path stroked;
         if (doStroke)
@@ -867,10 +965,10 @@ private struct Renderer
             // shared with flushPath whose fillRule assignment above
             // would otherwise leak into text.
             path.fillRule = Path.FillRule.NonZero;
-            canvas.drawPath(path, Paint(fillC));
+            canvas.drawPath(path, fillP);
         }
         if (doStroke)
-            canvas.drawPath(stroked, Paint(strokeC));
+            canvas.drawPath(stroked, strokeP);
         path.reset();
         textBuf = "";
     }
@@ -2018,4 +2116,178 @@ unittest
         </svg>`);
     assert(bmp.getLine!PMColor(25)[55].r == 255, "skewed segment follows the shear");
     assert(bmp.getLine!PMColor(25)[30].a == 0, "nothing stays at the unskewed x");
+}
+
+unittest
+{
+    // fill="url(#id)" rasterizes a gradient paint server: the exact stop
+    // colours land at the ramp's endpoints, with a premultiplied blend in
+    // between (device==user space for the default identity CTM).
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <defs>
+            <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0">
+                <stop offset="0" stop-color="#ff0000"/>
+                <stop offset="1" stop-color="#0000ff"/>
+            </linearGradient>
+        </defs>
+        <rect width="10" height="10" fill="url(#g)"/>
+        </svg>`);
+    auto row = bmp.getLine!PMColor(5);
+    assert(row[0].r == 255 && row[0].b == 0 && row[0].a == 255, to!string([row[0].a, row[0].r, row[0].b]));
+    assert(row[9].b >= 200 && row[9].r <= 55, to!string([row[9].r, row[9].b])); // x=9: t=0.9
+    assert(row[4].b > row[3].b && row[5].b > row[4].b, "monotonic ramp across the span");
+    assert(row[5].r >= 100 && row[5].r <= 156, "premultiplied blend at x=5");
+
+    // objectBoundingBox (the default): fractions of the shape's own bbox.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">
+        <defs><linearGradient id="g">
+            <stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/>
+        </linearGradient></defs>
+        <rect x="10" width="10" height="10" fill="url(#g)"/>
+        </svg>`);
+    row = bmp.getLine!PMColor(5);
+    assert(row[5].a == 0, "nothing left of the shape");
+    assert(row[10].r == 255 && row[10].b == 0, "shape left edge is the ramp start");
+    assert(row[19].b >= 200 && row[19].r <= 55, "shape right edge is the ramp end");
+
+    // A paint server error paints nothing (as if the paint were none)...
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <rect width="10" height="10" fill="url(#nope)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "unknown paint server paints nothing");
+
+    // ...while the documented `url(#id) paint` fallback rescues it.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <rect x="5" width="5" height="10" fill="url(#nope) lime"/>
+        </svg>`);
+    row = bmp.getLine!PMColor(5);
+    assert(row[2].a == 0 && row[7].g == 255 && row[7].r == 0, to!string([row[2].a, row[7].g, row[7].r]));
+
+    // A flat bbox makes the objectBoundingBox mapping degenerate (§7.11):
+    // the server errors, so `url(#g) lime` falls back to the paint and
+    // without a fallback nothing strokes - even though the gradient
+    // itself parsed fine. pservers-grad-17-b's exact lesson.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">
+        <defs><linearGradient id="g">
+            <stop offset="0" stop-color="black"/><stop offset="1" stop-color="white"/>
+        </linearGradient></defs>
+        <line x1="2" y1="3" x2="18" y2="3" stroke="url(#g) lime" stroke-width="2"/>
+        <line x1="2" y1="6" x2="18" y2="6" stroke="red" stroke-width="2"/>
+        <line x1="2" y1="8" x2="18" y2="8" stroke="url(#g)" stroke-width="2"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(6)[10].r == 255, "control: plain stroke paints");
+    auto pr = bmp.getLine!PMColor(3)[10];
+    assert(pr.g == 255, "flat bbox: fallback paint strokes the line");
+    assert(bmp.getLine!PMColor(8)[10].a == 0, "flat bbox without fallback paints nothing");
+
+    // A gradient href'ing itself is an error state: paints nothing.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="10" height="10" viewBox="0 0 10 10">
+        <defs><linearGradient id="sc" xlink:href="#sc" gradientUnits="userSpaceOnUse" x1="0" x2="10" y1="0" y2="0">
+            <stop offset="1" stop-color="red"/>
+        </linearGradient></defs>
+        <rect width="10" height="10" fill="url(#sc)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "self-referencing gradient paints nothing");
+
+    // Paint alphas fold into the stop alphas at build time (the blitter
+    // only applies AA coverage): stop-opacity 0.5 x fill-opacity 0.5 of
+    // opaque white lands at alpha ~ 255*0.25 = 64, premultiplied ~64.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" x2="10" y1="0" y2="0">
+            <stop offset="0" stop-color="white" stop-opacity="0.5"/>
+            <stop offset="1" stop-color="white" stop-opacity="0.5"/>
+        </linearGradient></defs>
+        <rect width="10" height="10" fill="url(#g)" fill-opacity="0.5"/>
+        </svg>`);
+    auto px = bmp.getLine!PMColor(5)[5];
+    assert(px.a >= 60 && px.a <= 68 && px.r >= 60 && px.r <= 68, to!string([px.a, px.r]));
+}
+
+unittest
+{
+    // userSpaceOnUse gradient coordinates live in the user space in effect
+    // at the reference: the element's own transform moves shape and ramp
+    // together, and <use> inherits the referencing paint unchanged.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">
+        <defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0">
+            <stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/>
+        </linearGradient></defs>
+        <g transform="translate(10 0)"><rect width="10" height="10" fill="url(#g)"/></g>
+        </svg>`);
+    auto row = bmp.getLine!PMColor(5);
+    assert(row[5].a == 0, "left half stays empty");
+    assert(row[10].r == 255, "ramp start moved with the element transform");
+    assert(row[19].b >= 200);
+
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">
+        <defs>
+            <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0">
+                <stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/>
+            </linearGradient>
+            <rect id="r" width="10" height="10"/>
+        </defs>
+        <g fill="url(#g)" transform="translate(10 0)"><use href="#r"/></g>
+        </svg>`);
+    row = bmp.getLine!PMColor(5);
+    assert(row[5].a == 0);
+    assert(row[10].r == 255, "use instances paint the inherited gradient");
+    assert(row[19].b >= 200);
+}
+
+unittest
+{
+    // stroke="url(#g)": bbox units see the geometry box BEFORE the stroke
+    // expansion - at x=15 (geometry right edge) the pad-clamped stroke is
+    // pure end-stop blue, where a stroke-bbox ramp would still be mixed.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">
+        <defs><linearGradient id="g">
+            <stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/>
+        </linearGradient></defs>
+        <rect x="5" y="3" width="10" height="4" fill="none" stroke="url(#g)" stroke-width="2"/>
+        </svg>`);
+    auto row = bmp.getLine!PMColor(5);
+    assert(row[4].r == 255 && row[4].b == 0, "left band: ramp start pads");
+    assert(row[15].b == 255 && row[15].r == 0, to!string([row[15].r, row[15].b]));
+    assert(row[10].a == 0, "fill=none keeps the interior empty");
+}
+
+unittest
+{
+    // radial on a rect: the centre is stop[0] white, the rim pads stop[1].
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <defs><radialGradient id="r" gradientUnits="userSpaceOnUse" cx="5" cy="5" r="5">
+            <stop offset="0" stop-color="white"/><stop offset="1" stop-color="black"/>
+        </radialGradient></defs>
+        <rect width="10" height="10" fill="url(#r)"/>
+        </svg>`);
+    auto row = bmp.getLine!PMColor(5);
+    assert(row[5].r >= 250, "centre paints stop[0]");
+    assert(row[0].r <= 8, "opposite rim pads stop[1]");
+    assert(row[9].r < 60 && row[9].r > row[0].r, "approaching the rim darkens");
+}
+
+unittest
+{
+    // fill="url(#g)" on <text>: the glyph outline path carries the shader
+    // (flushText resolves paint from the glyph geometry bbox). Host font
+    // metrics vary, so only "painted at all, and ramp-coloured" is checked.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
+        <defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" x2="40" y1="0" y2="0">
+            <stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#00ff00"/>
+        </linearGradient></defs>
+        <text x="2" y="15" font-size="16" fill="url(#g)">M</text>
+        </svg>`);
+    size_t painted;
+    bool reddish;
+    foreach (y; 0 .. 20)
+        foreach (x, p; bmp.getLine!PMColor(y))
+            if (p.a)
+            {
+                ++painted;
+                if (x < 12 && p.r > 150 && p.r > 2 * p.g)
+                    reddish = true;
+            }
+    assert(painted > 10, "the M glyph painted");
+    assert(reddish, "glyph picked up the red end of the ramp");
 }
