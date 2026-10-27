@@ -7,14 +7,21 @@ import graphics;
 import graphics.core.fonthost;
 import graphics.core.glyph;
 import graphics.core.matrix;
+import graphics.core.patheffect;
+import graphics.core.path_detail.path_measure;
+import graphics.core.pmcolor : PMColor;
+import graphics.svg.color;
 import graphics.svg.core;
 
-T convAttr(T)(in string[string] aa, string s, T def)
+// ASCII case-insensitive comparison for SVG keywords (exact length).
+private bool equalCase(string a, string b)
 {
-    if (auto p = s in aa)
-        return to!T(*p);
-    else
-        return def;
+    if (a.length != b.length)
+        return false;
+    foreach (i, ch; a)
+        if (std.ascii.toLower(ch) != std.ascii.toLower(b[i]))
+            return false;
+    return true;
 }
 
 // Flatten the attributes of the cursor's current element into a map.
@@ -26,9 +33,81 @@ string[string] attrs(CursorType)(ref CursorType cursor) if (isCursor!CursorType)
     return res;
 }
 
-uint parseLength(string s)
-{   import std.string;
-    auto res = std.conv.parse!float(s);
+// Context for resolving `<length>` values: percentages are relative to the
+// current viewport (which axis depends on the property), em/ex to the
+// current font-size.
+struct LengthCtx
+{
+    float vpW = 100.0f, vpH = 100.0f;
+    float fontSize = 16.0f;
+    float pctRef = 100.0f; // set by the caller per property axis
+}
+
+// Which viewport dimension a percentage resolves against (SVG 1.1,
+// "Units"): x-ish lengths the width, y-ish the height, r/stroke-width the
+// normalized diagonal.
+enum RefAxis
+{
+    width,
+    height,
+    diagonal,
+}
+
+float arcDiagonal(in LengthCtx lc)
+{
+    return sqrt((lc.vpW ^^ 2 + lc.vpH ^^ 2) / 2.0f);
+}
+
+// Strict SVG <number> scan (optionally scientific). Deliberately does not
+// consume a bare trailing 'e' so unit suffixes like "2em"/"1ex" survive.
+private float parseNum(ref string s)
+{
+    import std.exception : enforce;
+    size_t i;
+    if (i < s.length && (s[i] == '+' || s[i] == '-'))
+        ++i;
+    bool seen;
+    while (i < s.length && s[i] >= '0' && s[i] <= '9')
+        ++i, seen = true;
+    if (i < s.length && s[i] == '.')
+    {
+        ++i;
+        while (i < s.length && s[i] >= '0' && s[i] <= '9')
+            ++i, seen = true;
+    }
+    enforce(seen, "expected an SVG <number>");
+    if (i < s.length && (s[i] | 0x20) == 'e')
+    {
+        size_t j = i + 1;
+        if (j < s.length && (s[j] == '+' || s[j] == '-'))
+            ++j;
+        immutable digits = j;
+        while (j < s.length && s[j] >= '0' && s[j] <= '9')
+            ++j;
+        if (j > digits)
+            i = j; // a real exponent, not an "em"/"ex" unit
+    }
+    immutable res = to!float(s[0 .. i]);
+    s = s[i .. $];
+    return res;
+}
+
+unittest
+{
+    import std.exception : assertThrown;
+    string s = "2.5e2px";
+    assert(parseNum(s) == 250 && s == "px");
+    s = "2em";
+    assert(parseNum(s) == 2 && s == "em");
+    s = "-1.5e-3";
+    assert(isClose(parseNum(s), -1.5e-3f, 1e-9f) && s.empty);
+    assertThrown(parseNum(s = "em"));
+}
+
+float parseLength(string s, const(LengthCtx) lc = LengthCtx.init)
+{
+    auto res = parseNum(s);
+    s = strip(s);
     enum dpi = 72;
     switch (toLower(s))
     {
@@ -38,10 +117,30 @@ uint parseLength(string s)
     case "mm": res *= dpi * (1.0 / 25.4); break;
     case "pt": res *= dpi * (1.0 / 72.0); break;
     case "pc": res *= dpi * (12.0 / 72.0); break;
+    case "em": res *= lc.fontSize; break;
+    case "ex": res *= 0.5f * lc.fontSize; break; // x-height is roughly half an em
+    case "%": res = res * lc.pctRef / 100; break;
     // unitless value: user space, i.e. px
     default: break;
     }
-    return to!uint(res);
+    return res;
+}
+
+// `<length>` lookup from an attribute map: absent -> def.
+float convLen(in string[string] a, string key, float def, LengthCtx lc, RefAxis axis)
+{
+    if (auto p = key in a)
+    {
+        auto c = lc;
+        c.pctRef = axis == RefAxis.width ? c.vpW
+                 : axis == RefAxis.height ? c.vpH
+                 : arcDiagonal(c);
+        try
+            return parseLength(*p, c);
+        catch (Exception)
+            return def; // invalid <length>: ignore the attribute
+    }
+    return def;
 }
 
 // Collapse whitespace runs to a single space and trim both ends
@@ -79,6 +178,189 @@ void parseViewBox(ref float[4] vb, string s)
     enforce(s.empty, "invalid viewBox: "~s);
 }
 
+// preserveAspectRatio: alignment + meet/slice/none.
+struct PAR
+{
+    int alignX = 1, alignY = 1; // 0 = Min, 1 = Mid, 2 = Max
+    bool stretch;               // "none": fill the viewport, aspect be damned
+    bool meet = true;           // meet (smallest covers) vs slice (largest does)
+}
+
+PAR parsePAR(string s)
+{
+    PAR p;
+    foreach (tok; splitter(replace(strip(s), ',', ' ')))
+    {
+        if (tok == "none")
+            p.stretch = true;
+        else if (tok == "meet")
+            p.meet = true;
+        else if (tok == "slice")
+            p.meet = false;
+        else if (tok.length == 8 && tok[0] == 'x' && tok[4] == 'Y') // xMinYMid...
+        {
+            switch (tok[1 .. 4])
+            {
+            case "Min": p.alignX = 0; break;
+            case "Mid": p.alignX = 1; break;
+            case "Max": p.alignX = 2; break;
+            default: break;
+            }
+            switch (tok[5 .. 8])
+            {
+            case "Min": p.alignY = 0; break;
+            case "Mid": p.alignY = 1; break;
+            case "Max": p.alignY = 2; break;
+            default: break;
+            }
+        }
+        // "defer" (SVG2) and junk: keep the defaults
+    }
+    return p;
+}
+
+// Matrix mapping the viewBox rect into a viewport of size w x h at the origin.
+Matrix viewFit(const(float)[4] vb, float w, float h, PAR par)
+{
+    Matrix m;
+    if (par.stretch)
+    {
+        m[0][0] = w / vb[2];
+        m[1][1] = h / vb[3];
+        m[0][2] = -vb[0] * m[0][0];
+        m[1][2] = -vb[1] * m[1][1];
+        return m;
+    }
+
+    immutable s = par.meet ? min(w / vb[2], h / vb[3]) : max(w / vb[2], h / vb[3]);
+    immutable ox = par.alignX == 0 ? 0.0f
+                 : par.alignX == 2 ? w - vb[2] * s
+                 : (w - vb[2] * s) * 0.5f;
+    immutable oy = par.alignY == 0 ? 0.0f
+                 : par.alignY == 2 ? h - vb[3] * s
+                 : (h - vb[3] * s) * 0.5f;
+    m[0][0] = s;
+    m[1][1] = s;
+    m[0][2] = ox - vb[0] * s;
+    m[1][2] = oy - vb[1] * s;
+    return m;
+}
+
+// Parse `stroke-dasharray`: null means "none" or invalid (the attribute is
+// then ignored). SVG: an odd count of entries is repeated to an even one;
+// a list that sums to zero renders like none; negative values are an error.
+float[] parseDash(string v)
+{
+    v = strip(v);
+    if (v.empty || equalCase(v, "none"))
+        return null;
+
+    float[] res;
+    foreach (tok; splitter(replace(v, ',', ' ')))
+    {
+        float x;
+        try
+            x = to!float(tok);
+        catch (ConvException)
+            return null;
+        if (x < 0)
+            return null;
+        res ~= x;
+    }
+    if (res.empty || res.reduce!((a, b) => a + b) <= 0)
+        return null;
+    if (res.length & 1)
+        res ~= res.dup;
+    return res;
+}
+
+// The path-measuring machinery only walks explicit segments; the implicit
+// closing line of a closed subpath has no segment, so expand closes into
+// explicit lines before dashing a path.
+Path expandedCloses(in Path path)
+{
+    Path res;
+    FPoint start=void, cur=void;
+    foreach (verb, pts; path)
+    {
+        final switch (verb)
+        {
+        case Path.Verb.Move:
+            start = cur = pts[0];
+            res.moveTo(cur);
+            break;
+        case Path.Verb.Line:
+            cur = pts[1];
+            res.lineTo(cur);
+            break;
+        case Path.Verb.Quad:
+            res.quadTo(pts[1], pts[2]);
+            cur = pts[2];
+            break;
+        case Path.Verb.Cubic:
+            res.cubicTo(pts[1], pts[2], pts[3]);
+            cur = pts[3];
+            break;
+        case Path.Verb.Close:
+            if (cur != start)
+                res.lineTo(start);
+            cur = start;
+            break;
+        }
+    }
+    return res;
+}
+
+// Exact-length stroke-dasharray/stroke-dashoffset along `path`: unlike the
+// library's dashPath (which rescales the pattern to fit the path an exact
+// number of times), the SVG pattern repeats at its given length and the
+// offset picks up mid-pattern at the path start.
+Path svgDash(in Path path, in float[] intervals, float offset)
+{
+    immutable L = reduce!"a+b"(0.0f, intervals);
+    assert(L > 0 && intervals.length && !(intervals.length & 1));
+
+    auto meas = PathMeasure(expandedCloses(path));
+    immutable total = meas.length;
+    if (total <= 0)
+        return Path.init;
+
+    immutable n = intervals.length;
+
+    // Locate the pattern interval covering the pattern position of the path
+    // start (stroke-dashoffset), skipping forward to the next dash interval.
+    float p = offset % L;
+    if (p < 0)
+        p += L;
+    size_t idx;
+    float len = intervals[0];
+    while (p >= len)
+    {
+        p -= len;
+        idx = (idx + 1) % n;
+        len = intervals[idx];
+    }
+    float pos = 0;
+    if (idx & 1) // we start inside a gap
+    {
+        pos += len - p;
+        idx = (idx + 1) % n;
+    }
+
+    Path res;
+    bool first = true;
+    while (pos < total)
+    {
+        immutable seg = first ? intervals[idx] - p : intervals[idx];
+        first = false;
+        if ((idx & 1) == 0 && seg > 0)
+            meas.appendRangeToPath(pos, min(pos + seg, total), res);
+        pos += seg;
+        idx = (idx + 1) % n;
+    }
+    return res;
+}
+
 // Parses `source` and renders it into a fresh Bitmap.
 Bitmap renderSVG(string source, float zoom = 1.0f)
 {
@@ -91,6 +373,19 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
         bool transform;
         Color cstroke, cfill=Color.Black;
         float strokeWidth=1, opacity=1, fillOpacity=1, strokeOpacity=1;
+
+        // Paint model: `none` becomes a zero-alpha color (never painted);
+        // currentColor is resolved at paint time from the `color` property.
+        Color curColor=Color.Black;
+        bool fillIsCurrent, strokeIsCurrent;
+        bool visible=true; // visibility
+
+        // Stroke geometry.
+        CapStyle caps;
+        JoinStyle joins;
+        float miterLimit=4;
+        float[] dash;      // null/empty: solid stroke
+        float dashOffset;
 
         // Text attributes, inherited like the paint attributes.
         string family;
@@ -118,6 +413,26 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
         string textBuf;
         float lastAdvance;
 
+        // Current viewport in user units (reference for percentages) and the
+        // saved stack for nested <svg> viewports.
+        float vpW=1000, vpH=1000;
+        FSize[] savedViewports;
+        uint viewportDepth;
+
+        // > 0 while inside a subtree that must not paint: <defs>, <clipPath>,
+        // ..., or a display="none" element. Counts start tags so the matching
+        // end tags can skip symmetrically.
+        int skipDepth;
+
+        LengthCtx lengthCtx()
+        {
+            LengthCtx lc;
+            lc.vpW = vpW;
+            lc.vpH = vpH;
+            lc.fontSize = styles.length ? styles.data.back.fontSize : 16.0f;
+            return lc;
+        }
+
         // Set up the canvas and the viewport zoom (viewBox -> canvas).
         void setupRoot(in string[string] a)
         {
@@ -125,40 +440,39 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
             // maps 1:1 to the canvas (user units are px), so the viewBox
             // defaults to the canvas dims.
             float[4] vb = [0.0f, 0.0f, 1000.0f, 1000.0f];
-            if (auto p = "viewBox" in a)
+            const hasVB = "viewBox" in a;
+            if (hasVB)
             {
-                parseViewBox(vb, *p);
+                parseViewBox(vb, *("viewBox" in a));
                 enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
             }
-            else
+
+            // width/height are <length>s; at the root a percentage resolves
+            // against the viewBox ("the user space") - "100%" is the whole
+            // document, which is what every W3C test asks for.
+            LengthCtx lc;
+            lc.vpW = vb[2];
+            lc.vpH = vb[3];
+            immutable wpx = convLen(a, "width", vb[2], lc, RefAxis.width);
+            immutable hpx = convLen(a, "height", vb[3], lc, RefAxis.height);
+            enforce(wpx > 0 && hpx > 0, "root <svg> needs a positive width and height");
+            if (!hasVB)
             {
-                // FIXME: <length>
-                immutable wpx = float(("width" in a) ? parseLength(*("width" in a)) : 0f);
-                immutable hpx = float(("height" in a) ? parseLength(*("height" in a)) : 0f);
-                if (wpx > 0) vb[2] = wpx;
-                if (hpx > 0) vb[3] = hpx;
+                vb[2] = wpx;
+                vb[3] = hpx;
             }
 
-            // canvas size: width/height attributes, else the viewBox dims,
-            // scaled by the CLI zoom factor
-            // FIXME: <length>
-            immutable width = float(("width" in a) ? parseLength(*("width" in a)) : vb[2]) * zoom;
-            immutable height = float(("height" in a) ? parseLength(*("height" in a)) : vb[3]) * zoom;
+            immutable width = wpx * zoom;
+            immutable height = hpx * zoom;
 
             bmp = Bitmap(Bitmap.Config.ARGB_8888, to!uint(round(width)), to!uint(round(height)));
             canvas = new Canvas(bmp);
 
-            // Zoom: uniformly scale the viewBox into the canvas, preserving
-            // aspect ratio and centering it ("xMidYMid meet").
-            immutable s = min(width / vb[2], height / vb[3]);
-            immutable tx = (width - vb[2] * s) * 0.5f - vb[0] * s;
-            immutable ty = (height - vb[3] * s) * 0.5f - vb[1] * s;
-            Matrix zoom;
-            zoom[0][0] = s;
-            zoom[1][1] = s;
-            zoom[0][2] = tx;
-            zoom[1][2] = ty;
-            canvas.matrix = zoom;
+            canvas.matrix = viewFit(vb, width, height,
+                parsePAR(a.get("preserveAspectRatio", "xMidYMid meet")));
+
+            vpW = vb[2];
+            vpH = vb[3];
         }
 
         Style pushStyle(in string[string] attr)
@@ -168,20 +482,109 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
             Style style = styles.length ? styles.data.back : Style();
             style.transform = false;
 
+            auto lc = lengthCtx(); // percentages/em against the *parent* context
+
             void apply(string k, string v)
             {
                 switch (k)
                 {
                 case "stroke-width":
-                    style.strokeWidth = to!float(v);
+                    lc.pctRef = arcDiagonal(lc);
+                    try
+                        style.strokeWidth = parseLength(v, lc);
+                    catch (Exception) {} // inherit/garbage: keep the inherited value
                     break;
 
                 case "fill":
-                    style.cfill = color(v);
+                    if (equalCase(v, "currentColor"))
+                        style.fillIsCurrent = true;
+                    else
+                    {
+                        Color c;
+                        if (parsePaint(v, c))
+                            style.cfill = c;
+                    }
                     break;
 
                 case "stroke":
-                    style.cstroke = color(v);
+                    if (equalCase(v, "currentColor"))
+                        style.strokeIsCurrent = true;
+                    else
+                    {
+                        Color c;
+                        if (parsePaint(v, c))
+                            style.cstroke = c;
+                    }
+                    break;
+
+                case "color":
+                {
+                    // The currentColor base; `inherit` = do nothing (the
+                    // parent style is already inherited).
+                    Color c;
+                    if (parsePaint(v, c))
+                        style.curColor = c;
+                    break;
+                }
+
+                case "fill-rule": // not yet honoured: even-odd fills fall back to non-zero
+                    break;
+
+                case "clip-rule": // clip paths arrive with the document model
+                    break;
+
+                case "visibility":
+                    switch (toLower(v))
+                    {
+                    case "hidden", "collapse":
+                        style.visible = false;
+                        break;
+                    case "visible":
+                        style.visible = true;
+                        break;
+                    default: // "inherit" and friends: keep the parent value
+                        break;
+                    }
+                    break;
+
+                case "display":
+                    // Handled by the element handlers as a whole-subtree skip;
+                    // here it only has to not poison the style.
+                    break;
+
+                case "stroke-linecap":
+                    switch (toLower(v))
+                    {
+                    case "round": style.caps = CapStyle.Round; break;
+                    case "square": style.caps = CapStyle.Square; break;
+                    default: style.caps = CapStyle.Butt; break;
+                    }
+                    break;
+
+                case "stroke-linejoin":
+                    switch (toLower(v))
+                    {
+                    case "round": style.joins = JoinStyle.Round; break;
+                    case "bevel": style.joins = JoinStyle.Bevel; break;
+                    default: style.joins = JoinStyle.Miter; break;
+                    }
+                    break;
+
+                case "stroke-miterlimit":
+                    try
+                        style.miterLimit = to!float(v);
+                    catch (ConvException) {}
+                    break;
+
+                case "stroke-dasharray":
+                    style.dash = parseDash(v);
+                    break;
+
+                case "stroke-dashoffset":
+                    lc.pctRef = arcDiagonal(lc);
+                    try
+                        style.dashOffset = parseLength(v, lc);
+                    catch (Exception) {}
                     break;
 
                 case "opacity":
@@ -208,7 +611,12 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
                 }
 
                 case "font-size":
-                    style.fontSize = float(parseLength(v));
+                    // A percentage is relative to the parent font-size; em
+                    // likewise (lc.fontSize is still the parent's).
+                    lc.pctRef = style.fontSize;
+                    try
+                        style.fontSize = parseLength(v, lc);
+                    catch (Exception) {} // inherit/garbage: keep the inherited size
                     break;
 
                 case "font-weight":
@@ -220,7 +628,11 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
                     else
                     {
                         // numeric 100..900
-                        immutable w = to!int(strip(v));
+                        int w;
+                        try
+                            w = to!int(strip(v));
+                        catch (Exception)
+                            break; // inherit/garbage: keep the inherited weight
                         style.weight =
                             w <= 200 ? TypeFace.Weight.Thin :
                             w <= 300 ? TypeFace.Weight.Light :
@@ -264,7 +676,8 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
                 case "transform":
                     style.transform = true;
                     canvas.save();
-                    transformSVG(canvas.matrix, v);
+                    if (!transformSVG(canvas.matrix, v))
+                        style.visible = false; // all-zero matrix: not rendered
                     break;
 
                 default:
@@ -297,31 +710,44 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
             styles.shrinkTo(styles.length - 1);
         }
 
+        // Paint the current `path` with the style resolved from `attr`: fill
+        // first, then the stroke over it (SVG paint order).
         void flushPath(in string[string] attr)
         {
-            immutable s = pushStyle(attr);
+            const s = pushStyle(attr);
             scope (exit) popStyle();
 
             // Effective paint alpha: the group `opacity` multiplies the
             // per-paint opacity (fill-opacity/stroke-opacity) and the
             // color's own alpha.
             immutable op = clamp(s.opacity, 0f, 1f);
+            Color fillC = s.fillIsCurrent ? s.curColor : s.cfill;
+            Color strokeC = s.strokeIsCurrent ? s.curColor : s.cstroke;
+            fillC.a = to!ubyte(round(fillC.a * op * clamp(s.fillOpacity, 0f, 1f)));
+            strokeC.a = to!ubyte(round(strokeC.a * op * clamp(s.strokeOpacity, 0f, 1f)));
 
-            if (s.cstroke.a != 0)
+            immutable doFill = s.visible && fillC.a != 0;
+            immutable doStroke = s.visible && strokeC.a != 0 && s.strokeWidth > 0;
+
+            Path stroked;
+            if (doStroke)
             {
-                import graphics.core.patheffect;
-                auto stroked = strokePath(path, s.strokeWidth);
-                Color c = s.cstroke;
-                c.a = to!ubyte(round(c.a * op * clamp(s.strokeOpacity, 0f, 1f)));
-                canvas.drawPath(stroked, Paint(c));
+                if (s.dash.length)
+                {
+                    auto dashed = svgDash(path, s.dash, s.dashOffset);
+                    stroked = strokePath(dashed, s.strokeWidth, s.caps, s.joins, s.miterLimit);
+                }
+                else
+                    stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
             }
-            if (s.cfill.a != 0)
+
+            if (doFill)
             {
                 path.close();
-                Color c = s.cfill;
-                c.a = to!ubyte(round(c.a * op * clamp(s.fillOpacity, 0f, 1f)));
-                canvas.drawPath(path, Paint(c));
+                canvas.drawPath(path, Paint(fillC));
             }
+            if (doStroke)
+                canvas.drawPath(stroked, Paint(strokeC));
             path.reset();
         }
 
@@ -333,7 +759,7 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
         {
             if (styles.empty)
                 return;
-            immutable s = styles.data.back;
+            const s = styles.data.back;
 
             lastAdvance = 0.0f;
             if (textBuf.empty)
@@ -402,24 +828,36 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
                 pos += gl.advance;
             }
 
-            // Same effective-opacity compositing as flushPath.
+            // Same effective-opacity compositing as flushPath; glyph outlines
+            // keep the non-zero winding rule.
             immutable op = clamp(s.opacity, 0f, 1f);
+            Color fillC = s.fillIsCurrent ? s.curColor : s.cfill;
+            Color strokeC = s.strokeIsCurrent ? s.curColor : s.cstroke;
+            fillC.a = to!ubyte(round(fillC.a * op * clamp(s.fillOpacity, 0f, 1f)));
+            strokeC.a = to!ubyte(round(strokeC.a * op * clamp(s.strokeOpacity, 0f, 1f)));
 
-            if (s.cstroke.a != 0)
+            immutable doFill = s.visible && fillC.a != 0;
+            immutable doStroke = s.visible && strokeC.a != 0 && s.strokeWidth > 0;
+
+            Path stroked;
+            if (doStroke)
             {
-                import graphics.core.patheffect;
-                auto stroked = strokePath(path, s.strokeWidth);
-                Color c = s.cstroke;
-                c.a = to!ubyte(round(c.a * op * clamp(s.strokeOpacity, 0f, 1f)));
-                canvas.drawPath(stroked, Paint(c));
+                if (s.dash.length)
+                {
+                    auto dashed = svgDash(path, s.dash, s.dashOffset);
+                    stroked = strokePath(dashed, s.strokeWidth, s.caps, s.joins, s.miterLimit);
+                }
+                else
+                    stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
             }
-            if (s.cfill.a != 0)
+
+            if (doFill)
             {
                 path.close();
-                Color c = s.cfill;
-                c.a = to!ubyte(round(c.a * op * clamp(s.fillOpacity, 0f, 1f)));
-                canvas.drawPath(path, Paint(c));
+                canvas.drawPath(path, Paint(fillC));
             }
+            if (doStroke)
+                canvas.drawPath(stroked, Paint(strokeC));
             path.reset();
             textBuf = "";
         }
@@ -427,15 +865,18 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
         // Build the path for a shape and flush it with its style.
         void shape(string tag, in string[string] a)
         {
+            auto lc = lengthCtx();
             switch (tag)
             {
             case "rect":
                 {
-                    auto pt = FPoint(a.convAttr("x", 0.0f), a.convAttr("y", 0.0f));
-                    auto sz = FSize(a.convAttr("width", 0.0f), a.convAttr("height", 0.0f));
+                    auto pt = FPoint(a.convLen("x", 0.0f, lc, RefAxis.width),
+                                     a.convLen("y", 0.0f, lc, RefAxis.height));
+                    auto sz = FSize(a.convLen("width", 0.0f, lc, RefAxis.width),
+                                    a.convLen("height", 0.0f, lc, RefAxis.height));
                     enforce(sz.width >= 0 && sz.height >= 0);
-                    auto rx = a.convAttr("rx", 0.0f);
-                    auto ry = a.convAttr("ry", 0.0f);
+                    auto rx = a.convLen("rx", 0.0f, lc, RefAxis.width);
+                    auto ry = a.convLen("ry", 0.0f, lc, RefAxis.height);
                     enforce(rx >= 0 && ry >= 0);
                     if (rx == 0) rx = ry;
                     else if (ry == 0) ry = rx;
@@ -451,8 +892,9 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
 
             case "circle":
                 {
-                    immutable pt = FPoint(a.convAttr("cx", 0.0f), a.convAttr("cy", 0.0f));
-                    immutable r = a.convAttr("r", 0.0f);
+                    immutable pt = FPoint(a.convLen("cx", 0.0f, lc, RefAxis.width),
+                                          a.convLen("cy", 0.0f, lc, RefAxis.height));
+                    immutable r = a.convLen("r", 0.0f, lc, RefAxis.diagonal);
                     enforce(r >= 0);
                     if (r > 0)
                     {
@@ -464,8 +906,10 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
 
             case "ellipse":
                 {
-                    immutable pt = FPoint(a.convAttr("cx", 0.0f), a.convAttr("cy", 0.0f));
-                    immutable rad = FSize(a.convAttr("rx", 0.0f), a.convAttr("ry", 0.0f));
+                    immutable pt = FPoint(a.convLen("cx", 0.0f, lc, RefAxis.width),
+                                          a.convLen("cy", 0.0f, lc, RefAxis.height));
+                    immutable rad = FSize(a.convLen("rx", 0.0f, lc, RefAxis.width),
+                                          a.convLen("ry", 0.0f, lc, RefAxis.height));
                     enforce(rad.width >= 0 && rad.height >= 0);
                     if (!rad.empty)
                     {
@@ -477,8 +921,10 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
 
             case "line":
                 {
-                    immutable p0 = FPoint(a.convAttr("x0", 0.0f), a.convAttr("y0", 0.0f));
-                    immutable p1 = FPoint(a.convAttr("x1", 0.0f), a.convAttr("y1", 0.0f));
+                    immutable p0 = FPoint(a.convLen("x0", 0.0f, lc, RefAxis.width),
+                                          a.convLen("y0", 0.0f, lc, RefAxis.height));
+                    immutable p1 = FPoint(a.convLen("x1", 0.0f, lc, RefAxis.width),
+                                          a.convLen("y1", 0.0f, lc, RefAxis.height));
 
                     path.moveTo(p0);
                     path.lineTo(p1);
@@ -515,12 +961,67 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
                 break;
 
             default:
-                // nested <svg> roots and any other container markup
+                // <a>, <switch> and any other container markup
                 break;
             }
         }
 
-        // Returns true if the element opens a style (<g>, <text>, <tspan>).
+        // Push a nested <svg> viewport: x/y/width/height place the viewport,
+        // viewBox + preserveAspectRatio map user space into it.
+        void openViewport(in string[string] a)
+        {
+            pushStyle(a); // presentation attrs (incl. transform) wrap the viewport
+
+            auto lc = lengthCtx(); // against the *parent* viewport
+            immutable x = a.convLen("x", 0.0f, lc, RefAxis.width);
+            immutable y = a.convLen("y", 0.0f, lc, RefAxis.height);
+            immutable w = a.convLen("width", vpW, lc, RefAxis.width);
+            immutable h = a.convLen("height", vpH, lc, RefAxis.height);
+            enforce(w > 0 && h > 0, "nested <svg> needs a positive width and height");
+
+            float[4] vb = [0.0f, 0.0f, w, h];
+            if (auto p = "viewBox" in a)
+            {
+                parseViewBox(vb, *p);
+                enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
+            }
+
+            canvas.save();
+            canvas.matrix = canvas.matrix.preTranslate(x, y);
+            canvas.matrix = canvas.matrix * viewFit(vb, w, h,
+                parsePAR(a.get("preserveAspectRatio", "xMidYMid meet")));
+
+            savedViewports ~= FSize(vpW, vpH);
+            vpW = vb[2];
+            vpH = vb[3];
+            ++viewportDepth;
+        }
+
+        void closeViewport()
+        {
+            canvas.restore();
+            popStyle();
+            vpW = savedViewports[$-1].width;
+            vpH = savedViewports[$-1].height;
+            savedViewports = savedViewports[0 .. $-1];
+            --viewportDepth;
+        }
+
+        // Elements whose entire content is reference material: never painted
+        // directly (clip paths, gradients, markers ...), plus non-graphical
+        // and deferred-profile markup.
+        static bool isNonRendering(string tag)
+        {
+            return tag == "defs" || tag == "clipPath" || tag == "mask" ||
+                   tag == "pattern" || tag == "marker" || tag == "filter" ||
+                   tag == "symbol" || tag == "font" || tag == "font-face" ||
+                   tag == "glyph" || tag == "missing-glyph" ||
+                   tag == "altGlyphDef" || tag == "color-profile" ||
+                   tag == "cursor" || tag == "view" || tag == "script" ||
+                   tag == "style" || tag == "foreignObject";
+        }
+
+        // Returns true if the element opens a style (<g>, <text>, <tspan>, <svg>).
         bool element(string tag, in string[string] a)
         {
             switch (tag)
@@ -529,12 +1030,21 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
                 pushStyle(a);
                 return true;
 
+            case "svg":
+                openViewport(a);
+                return true;
+
             case "text":
                 inText = true;
                 textBuf = "";
-                // x/y (default 0/0), optionally shifted by dx/dy.
-                textPos = FPoint(a.convAttr("x", 0.0f) + a.convAttr("dx", 0.0f),
-                                a.convAttr("y", 0.0f) + a.convAttr("dy", 0.0f));
+                {
+                    // x/y (default 0/0), optionally shifted by dx/dy.
+                    auto lc = lengthCtx();
+                    textPos = FPoint(a.convLen("x", 0.0f, lc, RefAxis.width) +
+                                     a.convLen("dx", 0.0f, lc, RefAxis.width),
+                                     a.convLen("y", 0.0f, lc, RefAxis.height) +
+                                     a.convLen("dy", 0.0f, lc, RefAxis.height));
+                }
                 pushStyle(a);
                 return true;
 
@@ -549,12 +1059,15 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
                 }
                 // x/y (when present) reset the position absolutely; dx/dy
                 // always offset it relative to the current position.
-                if ("x" in a)
-                    textPos.x = a.convAttr("x", 0.0f);
-                if ("y" in a)
-                    textPos.y = a.convAttr("y", 0.0f);
-                textPos.x += a.convAttr("dx", 0.0f);
-                textPos.y += a.convAttr("dy", 0.0f);
+                {
+                    auto lc = lengthCtx();
+                    if ("x" in a)
+                        textPos.x = a.convLen("x", 0.0f, lc, RefAxis.width);
+                    if ("y" in a)
+                        textPos.y = a.convLen("y", 0.0f, lc, RefAxis.height);
+                    textPos.x += a.convLen("dx", 0.0f, lc, RefAxis.width);
+                    textPos.y += a.convLen("dy", 0.0f, lc, RefAxis.height);
+                }
                 pushStyle(a);
                 return true;
 
@@ -566,6 +1079,11 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
 
         void onElementStart(ref C node)
         {
+            if (skipDepth)
+            {
+                ++skipDepth;
+                return;
+            }
             if (!inRoot)
             {
                 if (node.name == "svg")
@@ -575,11 +1093,19 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
                 }
                 return;
             }
-            element(node.name, attrs(node));
+            auto a = attrs(node);
+            if (isNonRendering(node.name) || a.get("display", "") == "none")
+            {
+                ++skipDepth;
+                return;
+            }
+            element(node.name, a);
         }
 
         void onElementEmpty(ref C node)
         {
+            if (skipDepth)
+                return;
             if (!inRoot)
             {
                 if (node.name == "svg")
@@ -589,11 +1115,17 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
                 }
                 return;
             }
-            if (element(node.name, attrs(node)))
+            auto a = attrs(node);
+            if (isNonRendering(node.name) || a.get("display", "") == "none")
+                return;
+            if (element(node.name, a))
             {
                 if (node.name == "text")
                     inText = false;  // <text/>: no run to flush
-                popStyle();  // <g/>: close the style immediately
+                if (node.name == "svg")
+                    closeViewport(); // closes the style too
+                else
+                    popStyle();  // <g/>: close the style immediately
             }
         }
 
@@ -611,10 +1143,20 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
 
         void onElementEnd(ref C node)
         {
+            if (skipDepth)
+            {
+                --skipDepth;
+                return;
+            }
             if (!inRoot)
                 return;
             switch (node.name)
             {
+            case "svg":
+                if (viewportDepth) // the root <svg> did not push a viewport
+                    closeViewport();
+                break;
+
             case "g":
                 popStyle();
                 break;
@@ -651,4 +1193,238 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
     enforce(sax.handler.inRoot, "no <svg> root element");
 
     return sax.handler.bmp;
+}
+
+unittest
+{
+    // <length>: units, percentages and em/ex
+    LengthCtx lc;
+    lc.vpW = 480;
+    lc.vpH = 360;
+    lc.fontSize = 20;
+    assert(parseLength("42", lc) == 42);
+    assert(parseLength("42px", lc) == 42);
+    assert(parseLength("1in", lc) == 72);
+    assert(parseLength("72pt", lc) == 72);
+    assert(parseLength("6pc", lc) == 72);
+    assert(isClose(parseLength("2.54cm", lc), 72, 1e-3f));
+    assert(isClose(parseLength("25.4mm", lc), 72, 1e-3f));
+    assert(parseLength("2em", lc) == 40);
+    assert(parseLength("1ex", lc) == 10);
+    lc.pctRef = lc.vpW;
+    assert(parseLength("50%", lc) == 240);
+    assert(parseLength("100%", lc) == 480);
+
+    string[string] a = ["width": "10%", "missing": "7"];
+    assert(a.convLen("width", 0, lc, RefAxis.width) == 48);
+    assert(a.convLen("height", 13, lc, RefAxis.height) == 13);
+    // the normalized diagonal, per the <length> spec for r/stroke-width
+    assert(isClose(a.convLen("width", 0, lc, RefAxis.diagonal),
+                   0.1f * sqrt((480 ^^ 2 + 360 ^^ 2) / 2.0f), 1e-2f));
+}
+
+unittest
+{
+    // preserveAspectRatio
+    assert(parsePAR("").alignX == 1 && parsePAR("").meet); // xMidYMid meet
+    auto p = parsePAR("xMinYMax slice");
+    assert(p.alignX == 0 && p.alignY == 2 && !p.meet && !p.stretch);
+    assert(parsePAR("none").stretch);
+    assert(parsePAR("junk").alignX == 1); // error -> default
+
+    float[4] vb = [10.0f, 20.0f, 100.0f, 50.0f];
+
+    // meet: whole viewBox, centered
+    auto m = viewFit(vb, 200, 200, parsePAR(""));
+    assert(m * FPoint(10, 20) == FPoint(0, 50)); // s = 2, y centered
+    assert(m * FPoint(110, 70) == FPoint(200, 150));
+
+    // slice: cover the viewport, clip the long axis
+    m = viewFit(vb, 200, 200, parsePAR("xMinYMin slice"));
+    assert(m * FPoint(10, 20) == FPoint(0, 0)); // s = 4, origins pinned
+
+    // none: non-uniform
+    m = viewFit(vb, 200, 100, parsePAR("none"));
+    assert(m * FPoint(110, 70) == FPoint(200, 100));
+
+    // xMaxYMax meet
+    m = viewFit(vb, 300, 200, parsePAR("xMaxYMax meet"));
+    assert(m * FPoint(110, 70) == FPoint(300, 200)); // s = 3, flush right/bottom
+}
+
+unittest
+{
+    // stroke-dasharray parsing
+    assert(parseDash("none") is null);
+    assert(parseDash("") is null);
+    assert(parseDash("10") == [10.0f, 10.0f]); // odd count repeats
+    assert(parseDash("2, 5.5") == [2.0f, 5.5f]);
+    assert(parseDash("1 2 3") == [1.0f, 2.0f, 3.0f, 1.0f, 2.0f, 3.0f]);
+    assert(parseDash("0 0") is null); // sums to zero: like none
+    assert(parseDash("-1") is null); // negative: invalid
+    assert(parseDash("x") is null);
+
+    // dash lengths stay exact and the offset shifts the pattern start
+    Path line;
+    line.moveTo(FPoint(0, 0));
+    line.lineTo(FPoint(10, 0));
+    auto d = svgDash(line, [2.0f, 2.0f], 0);
+    size_t runs;
+    foreach (v; d.verbs)
+        if (v == Path.Verb.Move)
+            ++runs;
+    assert(runs == 3, to!string(runs)); // 0-2, 4-6, 8-10
+
+    d = svgDash(line, [2.0f, 2.0f], 1); // start mid-dash: 0-1, then gaps
+    runs = 0;
+    float firstLen;
+    Path.Verb[] vs;
+    foreach (v, pts; d)
+    {
+        vs ~= v;
+        if (v == Path.Verb.Move)
+            ++runs;
+    }
+    assert(runs == 3);
+    assert(vs.length && vs[0] == Path.Verb.Move);
+
+    // a closed rect dashes around the closing edge too
+    Path sq;
+    sq.addRect(FRect(0, 0, 10, 10));
+    d = svgDash(sq, [2.0f, 2.0f], 0);
+    runs = 0;
+    foreach (v; d.verbs)
+        if (v == Path.Verb.Move)
+            ++runs;
+    assert(runs == 10, to!string(runs)); // perimeter 40 / pattern 4
+}
+
+unittest
+{
+    // currentColor, none, and keyword colors flow through to the bitmap:
+    // a lime square painted via color="lime" + fill="currentColor".
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <g color="lime"><rect x="0" y="0" width="10" height="10" fill="currentColor" stroke="none"/></g>
+        </svg>`);
+    assert(bmp.width == 10 && bmp.height == 10);
+    auto px = bmp.getLine!PMColor(5)[5];
+    assert(px.r == 0 && px.g == 255 && px.b == 0, to!string(px));
+
+    // fill="none" + stroke paints only the outline
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <rect x="2" y="2" width="4" height="4" fill="none" stroke="red" stroke-width="2"/>
+        </svg>`);
+    px = bmp.getLine!PMColor(4)[4]; // inside the hole of the ring
+    assert(px.r == 0 && px.g == 0 && px.b == 0, to!string(px));
+    px = bmp.getLine!PMColor(4)[2]; // on the stroke
+    assert(px.r == 255, to!string(px));
+}
+
+unittest
+{
+    // viewBox + width/height="100%" (the W3C suite's standard prolog):
+    // canvas takes the viewBox size.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 480 360"/>`);
+    assert(bmp.width == 480 && bmp.height == 360, to!string(bmp.width));
+
+    // zoom scales the canvas
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 480 360"/>`, 0.5);
+    assert(bmp.width == 240 && bmp.height == 180);
+
+    // percent width/height against the viewBox
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="50%" height="25%" viewBox="0 0 400 400"/>`);
+    assert(bmp.width == 200 && bmp.height == 100);
+
+    // no viewBox: canvas from width/height, 1:1
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#00ff00"/></svg>`);
+    assert(bmp.width == 40 && bmp.height == 20);
+    assert(bmp.getLine!PMColor(10)[10].g == 255);
+
+    // a rect sized by percent of the viewport
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80" viewBox="0 0 100 80">
+        <rect x="10%" y="0" width="50%" height="100%" fill="#0000ff"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(40)[59].b == 255); // x from 10 to 60
+    assert(bmp.getLine!PMColor(40)[1].b == 0);
+}
+
+unittest
+{
+    // <defs> content must not paint; display="none" skips the subtree;
+    // visibility="hidden" hides but keeps layout-relevant geometry out of
+    // the raster.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <defs><rect x="0" y="0" width="10" height="10" fill="red"/></defs>
+        <clipPath id="cp"><circle cx="5" cy="5" r="4"/></clipPath>
+        <g display="none"><rect x="0" y="0" width="10" height="10" fill="green"/></g>
+        <rect x="0" y="0" width="10" height="10" visibility="hidden" fill="blue"/>
+        <rect x="8" y="8" width="2" height="2" fill="gold" visibility="inherit"/>
+        </svg>`);
+    foreach (y; 0 .. 10)
+        foreach (x, px; bmp.getLine!PMColor(y)) {
+            if (x >= 8 && y >= 8)
+                continue; // the gold 2x2 in the bottom-right corner
+            assert(px.r == 0 && px.g == 0 && px.b == 0, to!string([x, y, px.r, px.g, px.b]));
+        }
+    assert(bmp.getLine!PMColor(9)[9].r == 255); // gold survived
+}
+
+unittest
+{
+    // fill-rule="evenodd" is recognised but not honoured yet (non-zero fallback):
+    // the pentagram center fills either way.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <path d="M20,2 25.3,15.6 39,15.6 27.9,24.1 31.8,38 20,29.6 8.2,38 12.1,24.1 1,15.6 14.7,15.6 Z"
+              fill-rule="evenodd" fill="white"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(20)[20].r > 200, "evenodd currently falls back to non-zero");
+
+    auto bmp2 = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <path d="M20,2 25.3,15.6 39,15.6 27.9,24.1 31.8,38 20,29.6 8.2,38 12.1,24.1 1,15.6 14.7,15.6 Z"
+              fill="white"/>
+        </svg>`);
+    assert(bmp2.getLine!PMColor(20)[20].r > 200, "nonzero fills the pentagram center");
+}
+
+unittest
+{
+    // nested <svg> viewport: viewBox + x/y offset
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <svg x="10" y="10" width="20" height="20" viewBox="0 0 10 10">
+            <rect x="5" width="5" height="10" fill="red"/>
+        </svg>
+        </svg>`);
+    // user x 5..10 -> local 10..20 -> device x 20..30
+    assert(bmp.getLine!PMColor(20)[25].r == 255);
+    assert(bmp.getLine!PMColor(20)[19].r == 0);
+    assert(bmp.getLine!PMColor(20)[10].r == 0);
+    assert(bmp.getLine!PMColor(5)[5].r == 0); // outside the viewport
+
+    // preserveAspectRatio="none" stretches
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 10 10" preserveAspectRatio="none">
+        <rect x="5" y="5" width="5" height="5" fill="lime"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(15)[35].g == 255);
+}
+
+unittest
+{
+    // stroke-linecap/-linejoin/-dasharray reach the rasterizer: round caps
+    // bulge past the endpoints of a butt-stroked line.
+    auto bmpR = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
+        <path d="M10,10 h20" stroke="red" stroke-width="6" stroke-linecap="round"/>
+        </svg>`);
+    auto bmpB = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
+        <path d="M10,10 h20" stroke="red" stroke-width="6"/>
+        </svg>`);
+    assert(bmpR.getLine!PMColor(10)[8].r == 255); // under a round cap
+    assert(bmpB.getLine!PMColor(10)[8].r == 0);   // butt cap: not there
+
+    // dashed stroke: gaps stay empty
+    auto bmpD = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
+        <path d="M10,10 h20" stroke="red" stroke-width="6" stroke-dasharray="4 4" stroke-dashoffset="0"/>
+        </svg>`);
+    assert(bmpD.getLine!PMColor(10)[11].r == 255); // dash at 10..14
+    assert(bmpD.getLine!PMColor(10)[15].r == 0);   // gap at 14..18
+    assert(bmpD.getLine!PMColor(10)[19].r == 255); // dash at 18..22
 }

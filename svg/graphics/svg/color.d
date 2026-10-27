@@ -1,0 +1,307 @@
+module graphics.svg.color;
+
+import std.algorithm, std.ascii, std.conv, std.range, std.string;
+import std.math : round;
+import guip.color;
+import graphics.math.clamp;
+
+// ASCII case-insensitive comparison for SVG keywords (exact length).
+private bool equalCase(string a, string b)
+{
+    if (a.length != b.length)
+        return false;
+    foreach (i, ch; a)
+        if (std.ascii.toLower(ch) != std.ascii.toLower(b[i]))
+            return false;
+    return true;
+}
+
+unittest
+{
+    assert(equalCase("NONE", "none"));
+    assert(equalCase("Lime", "lime"));
+    assert(!equalCase("none", "nonex"));
+    assert(!equalCase("lime", "navy"));
+}
+
+/// Parse an SVG `<color>` or `<paint>` value: CSS/SVG color keywords,
+/// #rgb/#rgba/#rrggbb/#rrggbbaa, rgb() (0..255 or percentages), `none`
+/// (transparent) and `transparent`. `currentColor` and `inherit` are *not*
+/// resolved here: the caller deals with them (they need the style stack).
+///
+/// Returns false for unparseable input - per SVG error handling the
+/// attribute is then simply ignored.
+bool parsePaint(string s, out Color res)
+{
+    s = strip(s);
+    if (s.empty)
+        return false;
+
+    if (equalCase(s, "none"))
+    {
+        res = Color(0);
+        return true;
+    }
+    if (equalCase(s, "transparent"))
+    {
+        res = color(0, 0, 0, 0);
+        return true;
+    }
+    if (equalCase(s, "currentColor") || equalCase(s, "inherit"))
+        return false; // caller resolves these against the style stack
+
+    if (s[0] == '#')
+        return parseHexColor(s[1 .. $], res);
+
+    if (equalCase(s[0 .. min(4, $)], "rgb("))
+    {
+        if (s[$-1] != ')')
+            return false;
+        auto comps = replace(s[4 .. $-1], ",", " ").split; // any , or whitespace runs
+        int[3] v;
+        size_t i;
+        foreach (c; comps)
+        {
+            if (i == 3)
+                return false;
+            c = strip(c);
+            if (c.empty)
+                continue;
+            try
+            {
+                if (c.endsWith("%"))
+                    v[i++] = to!int(round(to!float(c[0 .. $-1]) * 255 / 100));
+                else
+                    v[i++] = to!int(c);
+            }
+            catch (ConvException)
+                return false;
+        }
+        if (i != 3)
+            return false;
+        res = color(0xFF, clampTo!ubyte(v[0]), clampTo!ubyte(v[1]), clampTo!ubyte(v[2]));
+        return true;
+    }
+
+    auto p = toLower(s) in colorKeywords;
+    if (p is null)
+        return false;
+    res = *p;
+    return true;
+}
+
+private:
+
+bool parseHexColor(string s, out Color res)
+{
+    if (s.length != 3 && s.length != 4 && s.length != 6 && s.length != 8)
+        return false;
+    foreach (ch; s)
+        if (!isHexDigit(ch))
+            return false;
+
+    ubyte[4] v = [0xFF, 0, 0, 0]; // a, r, g, b
+    auto nibs = map!(c => cast(int) fromHexDigit(c))(s).array;
+    static ubyte compose(int[] nibs)
+    {
+        immutable f = nibs.length == 1 ? 0x11 : 1;
+        return cast(ubyte)(reduce!"(a << 4) | b"(0, nibs) * f);
+    }
+    if (s.length % 3) // 4 or 8 digits: with alpha, which comes last (#rgba, #rrggbbaa)
+    {
+        immutable per = s.length / 4;
+        v = [compose(nibs[3*per .. $]), compose(nibs[0 .. per]),
+             compose(nibs[per .. 2*per]), compose(nibs[2*per .. 3*per])];
+    }
+    else
+    {
+        immutable per = s.length / 3;
+        v[1] = compose(nibs[0 .. per]);
+        v[2] = compose(nibs[per .. 2*per]);
+        v[3] = compose(nibs[2*per .. $]);
+    }
+    res = color(v[0], v[1], v[2], v[3]);
+    return true;
+}
+
+// SVG 1.1 (Appendix A) color keyword registry, CSS3-compatible.
+immutable Color[string] colorKeywords = [
+    "aliceblue": color(0xFF, 0xF0, 0xF8, 0xFF),
+    "antiquewhite": color(0xFF, 0xFA, 0xEB, 0xC7),
+    "aqua": color(0xFF, 0x00, 0xFF, 0xFF),
+    "aquamarine": color(0xFF, 0x7F, 0xFF, 0xD4),
+    "azure": color(0xFF, 0xF0, 0xFF, 0xFF),
+    "beige": color(0xFF, 0xF5, 0xF5, 0xDC),
+    "bisque": color(0xFF, 0xFE, 0xE4, 0xC4),
+    "black": color(0xFF, 0x00, 0x00, 0x00),
+    "blanchedalmond": color(0xFF, 0xFF, 0xEB, 0xCD),
+    "blue": color(0xFF, 0x00, 0x00, 0xFF),
+    "blueviolet": color(0xFF, 0x8A, 0x2B, 0xE2),
+    "brown": color(0xFF, 0xA5, 0x2A, 0x2A),
+    "burlywood": color(0xFF, 0xDE, 0xB8, 0x87),
+    "cadetblue": color(0xFF, 0x5F, 0x9E, 0xA0),
+    "chartreuse": color(0xFF, 0x7F, 0xFF, 0x00),
+    "chocolate": color(0xFF, 0xD2, 0x69, 0x1E),
+    "coral": color(0xFF, 0xFF, 0x7F, 0x50),
+    "cornflowerblue": color(0xFF, 0x64, 0x95, 0xED),
+    "cornsilk": color(0xFF, 0xFF, 0xF8, 0xDC),
+    "crimson": color(0xFF, 0xDC, 0x14, 0x3C),
+    "cyan": color(0xFF, 0x00, 0xFF, 0xFF),
+    "darkblue": color(0xFF, 0x00, 0x00, 0x8B),
+    "darkcyan": color(0xFF, 0x00, 0x8B, 0x8B),
+    "darkgoldenrod": color(0xFF, 0xB8, 0x86, 0x0B),
+    "darkgray": color(0xFF, 0xA9, 0xA9, 0xA9),
+    "darkgreen": color(0xFF, 0x00, 0x64, 0x00),
+    "darkgrey": color(0xFF, 0xA9, 0xA9, 0xA9),
+    "darkkhaki": color(0xFF, 0xBD, 0xB7, 0x6B),
+    "darkmagenta": color(0xFF, 0x8B, 0x00, 0x8B),
+    "darkolivegreen": color(0xFF, 0x55, 0x6B, 0x2F),
+    "darkorange": color(0xFF, 0xFF, 0x8C, 0x00),
+    "darkorchid": color(0xFF, 0x99, 0x32, 0xCC),
+    "darkred": color(0xFF, 0x8B, 0x00, 0x00),
+    "darksalmon": color(0xFF, 0xE9, 0x96, 0x7A),
+    "darkseagreen": color(0xFF, 0x8F, 0xBC, 0x8F),
+    "darkslateblue": color(0xFF, 0x48, 0x3D, 0x8B),
+    "darkslategray": color(0xFF, 0x2F, 0x4F, 0x4F),
+    "darkslategrey": color(0xFF, 0x2F, 0x4F, 0x4F),
+    "darkturquoise": color(0xFF, 0x00, 0xCE, 0xD1),
+    "darkviolet": color(0xFF, 0x94, 0x00, 0xD3),
+    "deeppink": color(0xFF, 0xFF, 0x14, 0x93),
+    "deepskyblue": color(0xFF, 0x00, 0xBF, 0xFF),
+    "dimgray": color(0xFF, 0x69, 0x69, 0x69),
+    "dimgrey": color(0xFF, 0x69, 0x69, 0x69),
+    "dodgerblue": color(0xFF, 0x1E, 0x90, 0xFF),
+    "firebrick": color(0xFF, 0xB2, 0x22, 0x22),
+    "floralwhite": color(0xFF, 0xFF, 0xFA, 0xF0),
+    "forestgreen": color(0xFF, 0x22, 0x8B, 0x22),
+    "fuchsia": color(0xFF, 0xFF, 0x00, 0xFF),
+    "gainsboro": color(0xFF, 0xDC, 0xDC, 0xDC),
+    "ghostwhite": color(0xFF, 0xF8, 0xF8, 0xFF),
+    "gold": color(0xFF, 0xFF, 0xD7, 0x00),
+    "goldenrod": color(0xFF, 0xDA, 0xA5, 0x20),
+    "gray": color(0xFF, 0x80, 0x80, 0x80),
+    "green": color(0xFF, 0x00, 0x80, 0x00),
+    "greenyellow": color(0xFF, 0xAD, 0xFF, 0x2F),
+    "grey": color(0xFF, 0x80, 0x80, 0x80),
+    "honeydew": color(0xFF, 0xF0, 0xFF, 0xF0),
+    "hotpink": color(0xFF, 0xFF, 0x69, 0xB4),
+    "indianred": color(0xFF, 0xCD, 0x5C, 0x5C),
+    "indigo": color(0xFF, 0x4B, 0x00, 0x82),
+    "ivory": color(0xFF, 0xFF, 0xFF, 0xF0),
+    "khaki": color(0xFF, 0xF0, 0xE6, 0x8C),
+    "lavender": color(0xFF, 0xE6, 0xE6, 0xFA),
+    "lavenderblush": color(0xFF, 0xFF, 0xF0, 0xF5),
+    "lawngreen": color(0xFF, 0x7C, 0xFC, 0x00),
+    "lemonchiffon": color(0xFF, 0xFF, 0xFA, 0xCD),
+    "lightblue": color(0xFF, 0xAD, 0xD8, 0xE6),
+    "lightcoral": color(0xFF, 0xF0, 0x80, 0x80),
+    "lightcyan": color(0xFF, 0xE0, 0xFF, 0xFF),
+    "lightgoldenrodyellow": color(0xFF, 0xFA, 0xFA, 0xD2),
+    "lightgray": color(0xFF, 0xD3, 0xD3, 0xD3),
+    "lightgreen": color(0xFF, 0x90, 0xEE, 0x90),
+    "lightgrey": color(0xFF, 0xD3, 0xD3, 0xD3),
+    "lightpink": color(0xFF, 0xFF, 0xB6, 0xC1),
+    "lightsalmon": color(0xFF, 0xFF, 0xA0, 0x7A),
+    "lightseagreen": color(0xFF, 0x20, 0xB2, 0xAA),
+    "lightskyblue": color(0xFF, 0x87, 0xCE, 0xFA),
+    "lightslategray": color(0xFF, 0x77, 0x88, 0x99),
+    "lightslategrey": color(0xFF, 0x77, 0x88, 0x99),
+    "lightsteelblue": color(0xFF, 0xB0, 0xC4, 0xDE),
+    "lightyellow": color(0xFF, 0xFF, 0xFF, 0xE0),
+    "lime": color(0xFF, 0x00, 0xFF, 0x00),
+    "limegreen": color(0xFF, 0x32, 0xCD, 0x32),
+    "linen": color(0xFF, 0xFA, 0xF0, 0xE6),
+    "magenta": color(0xFF, 0xFF, 0x00, 0xFF),
+    "maroon": color(0xFF, 0x80, 0x00, 0x00),
+    "mediumaquamarine": color(0xFF, 0x66, 0xCD, 0xAA),
+    "mediumblue": color(0xFF, 0x00, 0x00, 0xCD),
+    "mediumorchid": color(0xFF, 0xBA, 0x55, 0xD3),
+    "mediumpurple": color(0xFF, 0x93, 0x70, 0xDB),
+    "mediumseagreen": color(0xFF, 0x3C, 0xB3, 0x71),
+    "mediumslateblue": color(0xFF, 0x7B, 0x68, 0xEE),
+    "mediumspringgreen": color(0xFF, 0x00, 0xFA, 0x9A),
+    "mediumturquoise": color(0xFF, 0x48, 0xD1, 0xCC),
+    "mediumvioletred": color(0xFF, 0xC7, 0x15, 0x85),
+    "midnightblue": color(0xFF, 0x19, 0x19, 0x70),
+    "mintcream": color(0xFF, 0xF5, 0xFF, 0xFA),
+    "mistyrose": color(0xFF, 0xFF, 0xE4, 0xE1),
+    "moccasin": color(0xFF, 0xFF, 0xE4, 0xB5),
+    "navajowhite": color(0xFF, 0xFF, 0xDE, 0xAD),
+    "navy": color(0xFF, 0x00, 0x00, 0x80),
+    "oldlace": color(0xFF, 0xFD, 0xF5, 0xE6),
+    "olive": color(0xFF, 0x80, 0x80, 0x00),
+    "olivedrab": color(0xFF, 0x6B, 0x8E, 0x23),
+    "orange": color(0xFF, 0xFF, 0xA5, 0x00),
+    "orangered": color(0xFF, 0xFF, 0x45, 0x00),
+    "orchid": color(0xFF, 0xDA, 0x70, 0xD6),
+    "palegoldenrod": color(0xFF, 0xEE, 0xE8, 0xAA),
+    "palegreen": color(0xFF, 0x98, 0xFB, 0x98),
+    "paleturquoise": color(0xFF, 0xAF, 0xEE, 0xEE),
+    "palevioletred": color(0xFF, 0xDB, 0x70, 0x93),
+    "papayawhip": color(0xFF, 0xFF, 0xEF, 0xD5),
+    "peachpuff": color(0xFF, 0xFF, 0xDA, 0xB9),
+    "peru": color(0xFF, 0xCD, 0x85, 0x3F),
+    "pink": color(0xFF, 0xFF, 0xC0, 0xCB),
+    "plum": color(0xFF, 0xDD, 0xA0, 0xDD),
+    "powderblue": color(0xFF, 0xB0, 0xE0, 0xE6),
+    "purple": color(0xFF, 0x80, 0x00, 0x80),
+    "red": color(0xFF, 0xFF, 0x00, 0x00),
+    "rosybrown": color(0xFF, 0xBC, 0x8F, 0x8F),
+    "royalblue": color(0xFF, 0x41, 0x69, 0xE1),
+    "saddlebrown": color(0xFF, 0x8B, 0x45, 0x13),
+    "salmon": color(0xFF, 0xFA, 0x80, 0x72),
+    "sandybrown": color(0xFF, 0xF4, 0xA4, 0x60),
+    "seagreen": color(0xFF, 0x2E, 0x8B, 0x57),
+    "seashell": color(0xFF, 0xFF, 0xF5, 0xEE),
+    "sienna": color(0xFF, 0xA0, 0x52, 0x2D),
+    "silver": color(0xFF, 0xC0, 0xC0, 0xC0),
+    "skyblue": color(0xFF, 0x87, 0xCE, 0xEB),
+    "slateblue": color(0xFF, 0x6A, 0x5A, 0xCD),
+    "slategray": color(0xFF, 0x70, 0x80, 0x90),
+    "slategrey": color(0xFF, 0x70, 0x80, 0x90),
+    "snow": color(0xFF, 0xFF, 0xFA, 0xFA),
+    "springgreen": color(0xFF, 0x00, 0xFF, 0x7F),
+    "steelblue": color(0xFF, 0x46, 0x82, 0xB4),
+    "tan": color(0xFF, 0xD2, 0xB4, 0x8C),
+    "teal": color(0xFF, 0x00, 0x80, 0x80),
+    "thistle": color(0xFF, 0xD8, 0xBF, 0xD8),
+    "tomato": color(0xFF, 0xFF, 0x63, 0x47),
+    "turquoise": color(0xFF, 0x40, 0xE0, 0xD0),
+    "violet": color(0xFF, 0xEE, 0x82, 0xEE),
+    "wheat": color(0xFF, 0xF5, 0xDE, 0xB3),
+    "white": color(0xFF, 0xFF, 0xFF, 0xFF),
+    "whitesmoke": color(0xFF, 0xF5, 0xF5, 0xF5),
+    "yellow": color(0xFF, 0xFF, 0xFF, 0x00),
+    "yellowgreen": color(0xFF, 0x9A, 0xCD, 0x32),
+];
+
+unittest
+{
+    Color c;
+
+    assert(parsePaint("black", c) && c == Color.Black);
+    // the keywords the old guip parser choked on
+    assert(parsePaint("lime", c) && c.argb == 0xFF00FF00);
+    assert(parsePaint("FUCHSIA", c) && c.argb == 0xFFFF00FF);
+    assert(parsePaint(" darkblue ", c) && c.argb == 0xFF00008B);
+    assert(parsePaint("royalblue", c) && c.argb == 0xFF4169E1);
+
+    assert(parsePaint("#f00", c) && c == Color.Red);
+    assert(parsePaint("#0000ff", c) && c == Color.Blue);
+    assert(parsePaint("#80808080", c) && c.argb == 0x80808080); // #rrggbbaa
+    assert(parsePaint("#0f0f", c) && c.argb == 0xFF00FF00); // #rgba
+
+    assert(parsePaint("rgb(204,0,102)", c) && c.argb == 0xFFCC0066);
+    assert(parsePaint("rgb(50%, 0%, 100%)", c) && c.argb == 0xFF8000FF);
+
+    assert(parsePaint("none", c) && c.argb == 0);
+    assert(parsePaint("transparent", c) && c.a == 0);
+
+    // currentColor/inherit must be resolved by the caller, not guessed here
+    assert(!parsePaint("currentColor", c));
+    assert(!parsePaint("inherit", c));
+    // unknown keyword: the attribute is ignored, not fatal
+    assert(!parsePaint("notacolor", c));
+    assert(!parsePaint("#zz", c));
+    assert(!parsePaint("", c));
+}

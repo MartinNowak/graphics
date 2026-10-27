@@ -62,19 +62,20 @@ whose AE grew, or suite membership changing without a rebase. Improvements
 (`ERROR` → `OK`, shrinking AE) never fail the gate; run `--update` to lock
 them in and ratchet the baseline down.
 
-## Baseline at first landing (2026-10)
+## Current baseline (2026-10, after step 3 "geometry compliance")
 
-357 of 526 tests render and compare (`OK`), 169 are `ERROR`; total tracked
-AE ≈ 6.27 M differing pixels. Notable: 76 of the 78 `animate-*` tests
-`OK` (their static initial frames against timeline-state references), text
-categories mostly `OK` with small AEs. Dominant systematic causes behind
-the remaining numbers:
+524 of 526 tests render and compare (`OK`), 2 are `ERROR`; total tracked
+AE ≈ 7.06 M differing pixels. (At first landing it was 357 OK / 169 ERROR /
+6.27 M; the AE sum rose because formerly-crashing tests now contribute
+their real AE and several not-yet-implemented features shifted pixels.)
 
-- Every test carries `width="100%" height="100%"`; `parseLength` turns that
-  into a 100×100 canvas, so even correct geometry renders wrong (roadmap
-  step 3, item 1).
-- Most `ERROR`s are `guip.color()` asserting on CSS color keywords it does
-  not know (`lime` etc.) — the paint-attribute work in step 3 absorbs this.
+- The 2 `ERROR`s (`coords-transformattr-01-f`, `coords-units-02-b`) are
+  skew matrices whose projection crosses the vanishing line; control
+  points legitimately leave the raster bounds and the wavelet raster's
+  debug check aborts. Same verdict as the first baseline.
+- Largest remaining AE contributors are deferred feature areas: `<use>`,
+  `clip-path`/masking, `<view>` fragments, CSS `<style>` blocks, SMIL
+  animated frames and font/text metric differences (see caveat below).
 
 ## Text/font caveat
 
