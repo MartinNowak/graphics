@@ -1,8 +1,8 @@
 module graphics.svg.parser;
 
 import std.exception;
-import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser, std.experimental.xml.sax;
-import std.experimental.xml.interfaces : isCursor;
+import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser;
+import std.experimental.xml.interfaces : isCursor, XMLKind;
 
 // Flatten the attributes of the cursor's current element into a map.
 string[string] attrs(CursorType)(ref CursorType cursor) if (isCursor!CursorType)
@@ -57,75 +57,79 @@ struct Document
 /// Throws if the document contains no <svg> element.
 Document parseSVG(string source)
 {
+    // The cursor tree-walk, not std.experimental.xml's saxParser wrapper:
+    // 0.1.7's wrapper drives the document with enter/next/exit but relies
+    // on the handler popping its stack at every onElementEnd - while the
+    // cursor's enter() uses `advanceInput() && kind != elementEnd` to
+    // test for emptiness, *consuming* the close tag when an element's
+    // whole content is whitespace (the parser drops whitespace-only text
+    // by default). That END event never reaches the handler, the stack
+    // shifts, and the unclosed element swallows its following siblings
+    // (masking-path-08-b's `<clipPath id="emptyclip">` ate the rest of
+    // its <defs>, everything behind it with it). The cursor's own
+    // enter/next/exit semantics are correct, so the walk lives here.
     auto c = source.lexer.parser.cursor((CursorError e) {});
-    alias C = typeof(c);
+    c.setSource(source);
 
-    static struct Builder
+    Element[] nodes = [Element.init]; // nodes[0]: the document pseudo-root
+    size_t[string] ids;
+    size_t root = Document.unknown;
+
+    void addElement(size_t parent)
     {
-        Element[] nodes = [Element.init]; // nodes[0]: the document pseudo-root
-        size_t[] open = [0];              // stack of open element indices
-        size_t[string] ids;
-        size_t root = Document.unknown;
-
-        size_t addElement(ref C node)
-        {
-            immutable parent = open[$-1];
-            immutable idx = nodes.length;
-            auto a = attrs(node);
-            nodes ~= Element(node.name, a);
-            nodes[parent].children ~= idx;
-            auto idp = "id" in a;
-            if (idp && !(*idp in ids))
-                ids[*idp] = idx;
-            if (root is Document.unknown && node.name == "svg")
-                root = idx;
-            return idx;
-        }
-
-        void addText(ref C node)
-        {
-            immutable parent = open[$-1];
-            immutable idx = nodes.length;
-            nodes ~= Element("", null, node.content, null);
-            nodes[parent].children ~= idx;
-        }
-
-        void onElementStart(ref C node)
-        {
-            open ~= addElement(node);
-        }
-
-        void onElementEmpty(ref C node)
-        {
-            addElement(node);
-        }
-
-        void onElementEnd(ref C node)
-        {
-            if (open.length > 1) // mismatched end tags: keep the stack rooted
-                open = open[0 .. $-1];
-        }
-
-        void onText(ref C node)
-        {
-            addText(node);
-        }
-
-        void onCDataSection(ref C node)
-        {
-            addText(node);
-        }
+        immutable idx = nodes.length;
+        auto a = attrs(c);
+        nodes ~= Element(c.name, a);
+        nodes[parent].children ~= idx;
+        auto idp = "id" in a;
+        if (idp && !(*idp in ids))
+            ids[*idp] = idx;
+        if (root is Document.unknown && c.name == "svg")
+            root = idx;
     }
 
-    auto sax = c.saxParser!(Builder);
-    sax.setSource(source);
-    sax.processDocument();
-    enforce(sax.handler.root != Document.unknown, "no <svg> root element");
+    void addText(size_t parent)
+    {
+        immutable idx = nodes.length;
+        nodes ~= Element("", null, c.content, null);
+        nodes[parent].children ~= idx;
+    }
+
+    // Children of the arena node `parent`; the cursor sits on the first
+    // child. Iterating siblings with next() skips over the end tags of
+    // descended-into children (exit() parks the cursor on the parent's
+    // own end tag, which the caller's next() steps past). Comments,
+    // PIs and DTD noise are dropped; text and CDATA become text nodes.
+    void walkChildren(size_t parent)
+    {
+        do switch (c.kind)
+        {
+        case XMLKind.elementStart:
+            addElement(parent);
+            if (c.enter())
+                walkChildren(nodes.length - 1);
+            break;
+        case XMLKind.elementEmpty:
+            addElement(parent);
+            break;
+        case XMLKind.text, XMLKind.cdata:
+            addText(parent);
+            break;
+        default:
+            break;
+        }
+        while (c.next());
+        c.exit();
+    }
+
+    if (c.enter()) // the document's first child (after any <?xml?>)
+        walkChildren(0);
+    enforce(root != Document.unknown, "no <svg> root element");
 
     Document doc;
-    doc.nodes = cast(immutable) sax.handler.nodes; // seal the arena
-    doc.ids = sax.handler.ids;
-    doc.root = sax.handler.root;
+    doc.nodes = cast(immutable) nodes; // seal the arena
+    doc.ids = ids;
+    doc.root = root;
     return doc;
 }
 
@@ -204,4 +208,34 @@ unittest
     catch (Exception e)
         thrown = true;
     assert(thrown, "documents without <svg> must throw");
+}
+
+unittest
+{
+    import std.range;
+    // An element whose entire content is whitespace must still close:
+    // the XML library's sax wrapper loses that element's end event
+    // (cursor.enter() consumes the close tag while testing for
+    // emptiness), which used to nest every following sibling inside it
+    // - masking-path-08-b's whitespace-only <clipPath> swallowed the
+    // rest of its <defs>. The manual cursor walk keeps siblings siblings.
+    auto doc = parseSVG(`<svg><defs>
+        <clipPath id="e">
+        </clipPath><rect id="R" width="1" height="1"/></defs>
+        <rect id="S" width="2" height="2"/></svg>`);
+
+    auto cp = doc.byId("e");
+    assert(doc.nodes[cp].name == "clipPath");
+    assert(doc.nodes[cp].children.empty, "whitespace-only clipPath: no children");
+
+    size_t defs;
+    foreach (ch; doc.nodes[doc.root].children)
+        if (doc.nodes[ch].name == "defs")
+            defs = ch;
+    bool rUnderDefs;
+    foreach (ch; doc.nodes[defs].children)
+        if (ch == doc.byId("R"))
+            rUnderDefs = true;
+    assert(rUnderDefs, "the rect following an empty element is its sibling");
+    assert(doc.byId("S") != Document.unknown);
 }

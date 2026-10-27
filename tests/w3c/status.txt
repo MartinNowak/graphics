@@ -54,7 +54,7 @@ animate-elem-68-t.svg OK 1776
 animate-elem-69-t.svg OK 1861
 animate-elem-70-t.svg OK 1763
 animate-elem-77-t.svg OK 165847
-animate-elem-78-t.svg OK 4832
+animate-elem-78-t.svg OK 3165
 animate-elem-80-t.svg OK 8174
 animate-elem-81-t.svg OK 13201
 animate-elem-82-t.svg OK 11102
@@ -227,7 +227,7 @@ masking-path-04-b.svg OK 37158
 masking-path-05-f.svg OK 1089
 masking-path-06-b.svg OK 23919
 masking-path-07-b.svg OK 2162
-masking-path-08-b.svg OK 12311
+masking-path-08-b.svg OK 3683
 masking-path-09-b.svg OK 1947
 masking-path-10-b.svg OK 10877
 masking-path-11-b.svg OK 20898
@@ -364,7 +364,7 @@ struct-cond-overview-03-f.svg OK 3046
 struct-cond-overview-04-f.svg OK 1102
 struct-cond-overview-05-f.svg OK 7916
 struct-defs-01-t.svg OK 792
-struct-dom-01-b.svg OK 2267
+struct-dom-01-b.svg OK 1329
 struct-dom-02-b.svg OK 1929
 struct-dom-03-b.svg OK 2458
 struct-dom-04-b.svg OK 2996
@@ -423,7 +423,7 @@ struct-use-07-b.svg OK 36460
 struct-use-08-b.svg OK 3837
 struct-use-09-b.svg OK 8352
 struct-use-10-f.svg OK 6072
-struct-use-11-f.svg OK 44195
+struct-use-11-f.svg OK 22495
 struct-use-12-f.svg OK 766
 struct-use-13-f.svg OK 7541
 struct-use-14-f.svg OK 1130
