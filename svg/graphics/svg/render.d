@@ -7,7 +7,7 @@ import graphics.core.glyph;
 import graphics.core.matrix;
 import graphics.core.patheffect;
 import graphics.core.path_detail.path_measure;
-import graphics.core.pmcolor : PMColor, alphaMul, alphaScale;
+import graphics.core.pmcolor : PMColor, alphaMul, alphaScale, invAlphaScale;
 import graphics.core.shader : Shader, ColorShader;
 import graphics.svg.color;
 import graphics.svg.core;
@@ -468,6 +468,11 @@ private struct Renderer
         // exact.
         string[] clipUrls;
 
+        // mask="url(#id)" (§14.1): same accumulation chain as clipUrls -
+        // mask values are per-pixel scalars on premultiplied pixels, so
+        // stacking them multiplies exactly and order never matters.
+        string[] maskUrls;
+
         // Stroke geometry.
         CapStyle caps;
         JoinStyle joins;
@@ -656,6 +661,21 @@ private struct Renderer
                 bool hfb;
                 if (urlPaint(v, id, fb, hfb))
                     style.clipUrls = style.clipUrls ~ id;
+                break;
+
+            case "mask":
+                // url(#id) or none (§14.1): the url joins the ancestor
+                // mask chain (see Style.maskUrls); like clip-path there
+                // is no fallback paint, so urlPaint's trailing paint -
+                // if any - is ignored, and a malformed value drops the
+                // declaration.
+                {
+                    string mid;
+                    Color mfb;
+                    bool mhfb;
+                    if (urlPaint(v, mid, mfb, mhfb))
+                        style.maskUrls = style.maskUrls ~ mid;
+                }
                 break;
 
             case "visibility":
@@ -958,21 +978,22 @@ private struct Renderer
         return new PatternShader(rows, ps.X, ps.Y, ps.W, ps.H, s, ps.pt.inverted);
     }
 
-    // clip-path (SVG 1.1 §14.3): rasterise this paint into a full-canvas
-    // scratch, multiply every referenced <clipPath>'s mask coverage
-    // (Style.clipUrls) into it, then sprite-composite the result. The
-    // engine has no path boolean ops, so clipping is offscreen
-    // compositing at the SVG layer. A broken reference (unknown id,
-    // non-clipPath target, cycle) drops the paint entirely - §14.3.1
-    // renders the element not at all, no fallback (masking-path-08-b's
-    // `url(#unknown)`) - and so does an empty mask: empty clipPath, all
-    // children display:none, or objectBoundingBox units against a
-    // degenerate bbox.
-    void clipPaint(in Style s, Paint fillP, Paint strokeP,
+    // clip-path and mask (SVG 1.1 §14.3, §14.1): rasterise this paint
+    // into a full-canvas scratch, multiply every referenced <clipPath>'s
+    // coverage (Style.clipUrls) and every <mask>'s value (Style.maskUrls)
+    // into it, then sprite-composite the result. The engine has no path
+    // boolean ops, so clipping is offscreen compositing at the SVG
+    // layer. A broken reference (unknown id, wrong target kind, cycle)
+    // drops the paint entirely - §14.3.1 renders the element not at
+    // all, no fallback (masking-path-08-b's `url(#unknown)`; the same
+    // nonexistent-reference rule covers `mask`) - and so does an empty
+    // layer: empty clipPath, all children display:none, or
+    // objectBoundingBox units against a degenerate bbox.
+    void maskedPaint(in Style s, Paint fillP, Paint strokeP,
         bool doFill, bool doStroke, in Path stroked)
     {
         if (clipDepth >= 8)
-            return; // clip-path nested inside clipPath content
+            return; // clip/mask nested inside clipPath/mask content
 
         immutable bbox = path.bounds; // objectBoundingBox units basis
         auto scratch = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
@@ -990,6 +1011,9 @@ private struct Renderer
         foreach (clipId; s.clipUrls)
             if (!clipMultiply(clipId, scratch, bbox))
                 return; // broken reference or empty clip: not rendered
+        foreach (maskId; s.maskUrls)
+            if (!maskMultiply(maskId, scratch, bbox))
+                return; // broken reference or empty mask: not rendered
 
         bool any;
         foreach (y; 0 .. bmp.height)
@@ -998,11 +1022,24 @@ private struct Renderer
         if (!any)
             return;
 
-        // Sprite-composite the masked paint at the device origin.
-        immutable save = canvas.matrix;
-        canvas.matrix.reset();
-        canvas.drawBitmap(scratch, Paint(Color.White));
-        canvas.matrix = save;
+        // Composite scratch over the device with standard PM src-over.
+        // Not canvas.drawBitmap: the sprite blit premultiplies its
+        // source while blending (S32A_Opaque_BlitRow32), i.e. it wants
+        // a straight-ARGB buffer, and scratch is already premultiplied
+        // - its own alpha would scale twice. scratch is exactly as big
+        // as bmp, so the viewport clip is a no-op and a plain blend
+        // matches it.
+        foreach (y; 0 .. bmp.height)
+        {
+            auto d = bmp.getLine!PMColor(y);
+            foreach (x, ref px; scratch.getLine!PMColor(y))
+            {
+                if (px.a == 255)
+                    d[x]._color = px;
+                else if (px.a)
+                    d[x]._color = px + alphaMul(d[x], invAlphaScale(px.a));
+            }
+        }
     }
 
     // Rasterise the clipPath `id` as a mask (same user-space CTM as the
@@ -1074,7 +1111,152 @@ private struct Renderer
             auto k = maskBmp.getLine!PMColor(y);
             foreach (x, ref px; r)
             {
-                px = alphaMul(px, alphaScale(k[x].a));
+                // (assign _color, not px: the implicit PMColor(Color)
+                // constructor would premultiply the pixel twice)
+                px._color = alphaMul(px, alphaScale(k[x].a));
+                any |= px.a != 0;
+            }
+        }
+        return any;
+    }
+
+    // Rasterise the <mask> `id` (§14.1) with normal paint semantics -
+    // unlike a clipPath's opaque geometry, everything the children
+    // paint (colour, gradients, opacity) shapes the mask - and multiply
+    // its per-pixel value into `scratch`. The value is the Rec.709
+    // luminance, or plain alpha under maskType="alpha". PMColor stores
+    // premultiplied, so the weighted channel sum already equals
+    // luminance x alpha. The mask region (maskUnits frame, defaults
+    // -10%,-10%,120%,120%) bounds where anything can show: referrer
+    // pixels whose user-space centres fall outside it multiply by zero.
+    bool maskMultiply(in string id, ref Bitmap scratch, in FRect bbox)
+    {
+        immutable idx = doc.byId(id);
+        if (idx == Document.unknown)
+            return false;
+        bool invalid;
+        const string[] maskKinds = ["mask"];
+        auto chain = hrefChain(doc, idx, invalid, maskKinds);
+        if (invalid || chain.empty || chain[0].name != "mask")
+            return false;
+
+        immutable bboxUnits =
+            !equalCase(strAttr(chain, "maskUnits"), "userspaceonuse");
+        if (bboxUnits && (bbox.width <= 0 || bbox.height <= 0))
+            return false; // degenerate bbox: empty region, not rendered
+
+        // The region attributes as fractions (objectBoundingBox) or
+        // lengths (userSpaceOnUse); a trailing % scales by the unit
+        // either way, and defaults are -10%,-10%,120%,120%.
+        float region(string name, float deflt, float unit)
+        {
+            float v = deflt;
+            bool pct;
+            if (auto raw = strAttr(chain, name))
+            {
+                try
+                {
+                    auto t = strip(raw);
+                    if (t.length > 1 && t[$-1] == '%')
+                    {
+                        pct = true;
+                        v = to!float(t[0 .. $-1]);
+                    }
+                    else
+                        v = to!float(t);
+                }
+                catch (ConvException)
+                    v = deflt;
+            }
+            return pct ? v / 100.0f * unit : (bboxUnits ? v * unit : v);
+        }
+
+        immutable wx = bboxUnits ? bbox.width : vpW;
+        immutable wy = bboxUnits ? bbox.height : vpH;
+        immutable rx = region("x", -0.10f, wx) + (bboxUnits ? bbox.left : 0.0f);
+        immutable ry = region("y", -0.10f, wy) + (bboxUnits ? bbox.top : 0.0f);
+        immutable rw = region("width", 1.20f, wx);
+        immutable rh = region("height", 1.20f, wy);
+        if (!(rw > 0) || !(rh > 0))
+            return false; // negative or malformed extent: invalid
+        immutable FRect reg = FRect(rx, ry, rx + rw, ry + rh);
+
+        // Mask content renders under the plain pipeline (no clipMode):
+        // paint, opacity, gradients all matter.
+        auto maskBmp = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
+        maskBmp.eraseColor(Color(0));
+        Renderer m;
+        m.doc = doc;
+        m.bmp = maskBmp;
+        m.canvas = new Canvas(maskBmp);
+        m.inRoot = true;
+        m.clipDepth = clipDepth + 1;
+        m.vpW = vpW;
+        m.vpH = vpH;
+        m.canvas.matrix = canvas.matrix;
+
+        // maskContentUnits="objectBoundingBox": children live in
+        // fractions of the paint bbox - the same supplemental matrix
+        // as clipPathUnits (§14.2).
+        if (auto u = strAttr(chain, "maskContentUnits"))
+            if (toLower(u) == "objectboundingbox")
+            {
+                Matrix bb;
+                bb.reset();
+                bb[0][0] = bbox.width;
+                bb[1][1] = bbox.height;
+                bb[0][2] = bbox.left;
+                bb[1][2] = bbox.top;
+                m.canvas.matrix = canvas.matrix * bb;
+            }
+
+        // Inheritance follows masking-path-12-f just like clipPath: the
+        // chain's own attributes only, never the referrer's ancestors -
+        // which also keeps an inherited mask out of the mask itself.
+        // href ancestors first, self last; content from the first chain
+        // element that provides children.
+        foreach_reverse (ref e; chain)
+            m.pushStyle(e.attrs);
+        foreach (ref e; chain)
+            if (e.children.length)
+            {
+                foreach (ch; e.children)
+                    m.renderChild(ch);
+                break;
+            }
+
+        // Multiply in the mask value, testing region membership through
+        // the inverse CTM so a transformed mask region stays exact.
+        immutable alphaType = equalCase(strAttr(chain, "maskType"), "alpha");
+        immutable inv = canvas.matrix.inverted;
+        bool any;
+        foreach (y; 0 .. bmp.height)
+        {
+            auto r = scratch.getLine!PMColor(y);
+            auto k = maskBmp.getLine!PMColor(y);
+            foreach (x, ref px; r)
+            {
+                // Outside the mask region the value is zero; a bare
+                // `float v;` would seed it with float.init - NaN.
+                float v = 0f;
+                immutable dx = x + 0.5f, dy = y + 0.5f;
+                immutable ux = inv[0][0] * dx + inv[0][1] * dy + inv[0][2];
+                immutable uy = inv[1][0] * dx + inv[1][1] * dy + inv[1][2];
+                if (ux >= reg.left && ux < reg.right
+                    && uy >= reg.top && uy < reg.bottom)
+                {
+                    immutable kx = k[x];
+                    v = alphaType
+                        ? kx.a / 255.0f
+                        : (0.2126f*kx.r + 0.7152f*kx.g + 0.0722f*kx.b) / 255.0f;
+                }
+                // Mutate _color directly: `px = <Color expression>`
+                // would fire PMColor's implicit this(Color) constructor
+                // and premultiply the already-premultiplied pixel
+                // twice (alphaScale(255) == 256 hides this on opaque
+                // clip masks, but not on a soft mask's AA ramp).
+                px._color = alphaMul(px,
+                    alphaScale(to!ubyte(round(clamp(v, 0f, 1f) * 255))));
                 any |= px.a != 0;
             }
         }
@@ -1126,8 +1308,8 @@ private struct Renderer
 
         if (doFill || doStroke)
         {
-            if (s.clipUrls.length)
-                clipPaint(s, fillP, strokeP, doFill, doStroke, stroked);
+            if (s.clipUrls.length || s.maskUrls.length)
+                maskedPaint(s, fillP, strokeP, doFill, doStroke, stroked);
             else
             {
                 if (doFill)
@@ -1257,8 +1439,8 @@ private struct Renderer
 
         if (doFill || doStroke)
         {
-            if (s.clipUrls.length)
-                clipPaint(s, fillP, strokeP, doFill, doStroke, stroked);
+            if (s.clipUrls.length || s.maskUrls.length)
+                maskedPaint(s, fillP, strokeP, doFill, doStroke, stroked);
             else
             {
                 if (doFill)
@@ -2808,4 +2990,107 @@ unittest
         </svg>`);
     assert(bmp.getLine!PMColor(5)[5].a == 0, "clipPath href cycle: invalid, not rendered");
     assert(bmp.getLine!PMColor(15)[5].a == 0, "clip-path attr cycle: capped, paints nothing");
+}
+
+unittest
+{
+    // Luminance masks (masking-mask-01-b semantics): white passes,
+    // black blocks, pure red passes its Rec.709 luminance 0.2126, and
+    // maskType="alpha" ignores colour entirely.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="80" viewBox="0 0 20 80">
+        <mask id="half"><rect width="10" height="20" fill="white"/></mask>
+        <mask id="blk"><rect y="20" width="20" height="20" fill="black"/></mask>
+        <mask id="redl"><rect y="40" width="20" height="20" fill="red"/></mask>
+        <mask id="ahalf" maskType="alpha"><rect y="60" width="20" height="20" fill="black" opacity="0.5"/></mask>
+        <rect width="20" height="20" fill="lime" mask="url(#half)"/>
+        <rect y="20" width="20" height="20" fill="lime" mask="url(#blk)"/>
+        <rect y="40" width="20" height="20" fill="blue" mask="url(#redl)"/>
+        <rect y="60" width="20" height="20" fill="lime" mask="url(#ahalf)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[5].g == 255, "white mask passes");
+    assert(bmp.getLine!PMColor(10)[15].a == 0, "no mask coverage: nothing");
+    assert(bmp.getLine!PMColor(30)[10].a == 0, "black mask blocks the element");
+    immutable red = bmp.getLine!PMColor(50)[10];
+    assert(red.a > 52 && red.a < 56 && red.b == red.a,
+        "red luminance 0.2126 scales alpha (and premul b matches)");
+    immutable alf = bmp.getLine!PMColor(70)[10];
+    assert(alf.a > 126 && alf.a < 130 && alf.g == alf.a,
+        "maskType=alpha: half-transparent black passes 0.5");
+
+    // Broken mask references and empty masks: the element is not
+    // rendered (same §14.1/§14.6 nonexistent-reference rule as clip).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="40" viewBox="0 0 20 40">
+        <rect id="notmask" x="-6" y="10" width="5" height="5"/>
+        <mask id="mempty"/>
+        <mask id="mgone"><rect width="10" height="10" display="none"/></mask>
+        <rect width="10" height="10" fill="red" mask="url(#nope)"/>
+        <rect x="10" width="10" height="10" fill="red" mask="url(#notmask)"/>
+        <rect y="10" width="10" height="10" fill="red" mask="url(#mempty)"/>
+        <rect x="10" y="10" width="10" height="10" fill="red" mask="url(#mgone)"/>
+        <rect y="20" width="10" height="10" fill="red" mask="url(#mempty)"/>
+        <rect x="10" y="20" width="10" height="10" fill="red" mask="url(#mgone)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "unknown id: not rendered");
+    assert(bmp.getLine!PMColor(5)[15].a == 0, "non-mask target: not rendered");
+    assert(bmp.getLine!PMColor(15)[5].a == 0, "empty mask: not rendered");
+    assert(bmp.getLine!PMColor(25)[15].a == 0, "display:none content: empty mask too");
+
+    // The region clips the mask CONTENT: a userSpaceOnUse frame cuts
+    // the white sheet; the bbox-frame default (-10%,-10%,120%,120%)
+    // and custom fractions bound the referrer's pixels directly.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="40" viewBox="0 0 20 40">
+        <mask id="reg" maskUnits="userSpaceOnUse" x="0" y="0" width="10" height="20"><rect width="20" height="20" fill="white"/></mask>
+        <mask id="breg" x="0" width="0.5"><rect x="-50" y="-50" width="120" height="120" fill="white"/></mask>
+        <rect width="20" height="20" fill="lime" mask="url(#reg)"/>
+        <rect y="20" width="20" height="20" fill="lime" mask="url(#breg)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[5].g == 255 && bmp.getLine!PMColor(10)[15].a == 0,
+        "userSpaceOnUse region cuts the mask at x=10");
+    assert(bmp.getLine!PMColor(30)[5].g == 255 && bmp.getLine!PMColor(30)[15].a == 0,
+        "bbox region x=0 width=0.5 cuts at half the shape");
+
+    // maskContentUnits="objectBoundingBox": children are bbox fractions.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <mask id="cu" maskContentUnits="objectBoundingBox"><rect width="0.5" height="1" fill="white"/></mask>
+        <rect width="20" height="20" fill="lime" mask="url(#cu)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[5].g == 255, "content fractions: left half passes");
+    assert(bmp.getLine!PMColor(10)[15].a == 0, "right half blocked");
+
+    // A gradient mask gives soft alpha across the shape (the mask
+    // children paint through the whole normal pipeline, url paints too).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <linearGradient id="wg"><stop offset="0" stop-color="white"/><stop offset="1" stop-color="black"/></linearGradient>
+        <mask id="soft"><rect width="20" height="20" fill="url(#wg)"/></mask>
+        <rect width="20" height="20" fill="blue" mask="url(#soft)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[2].a > 200, "near the white end almost opaque");
+    assert(bmp.getLine!PMColor(10)[17].a < 60, "near the black end almost gone");
+
+    // mask multiplies with clip-path on the same paint...
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <clipPath id="cl"><rect width="10" height="20"/></clipPath>
+        <mask id="mr"><rect x="10" width="10" height="20" fill="white"/></mask>
+        <rect width="20" height="20" fill="red" clip-path="url(#cl)" mask="url(#mr)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[5].a == 0 && bmp.getLine!PMColor(10)[15].a == 0,
+        "clip left + mask right: the intersection is empty, nothing renders");
+
+    // ...and ancestor masks accumulate exactly like clips (values
+    // multiply: 1.0 * 0.5 = 0.5 alpha).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <mask id="g1m"><rect x="-10" y="-10" width="60" height="60" fill="white"/></mask>
+        <mask id="g2m"><rect x="-10" y="-10" width="60" height="60" fill="white" opacity="0.5"/></mask>
+        <g mask="url(#g1m)"><rect width="40" height="40" fill="lime" mask="url(#g2m)"/></g>
+        </svg>`);
+    immutable two = bmp.getLine!PMColor(20)[20];
+    assert(two.a > 126 && two.a < 130 && two.g == two.a, "stacked masks multiply");
+
+    // A mask that masks itself terminates at the nesting cap and,
+    // every layer being empty, renders nothing.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <mask id="cyc" mask="url(#cyc)"><rect width="20" height="20" fill="white"/></mask>
+        <rect width="20" height="20" fill="lime" mask="url(#cyc)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[10].a == 0, "self-referencing mask: capped, not rendered");
 }
