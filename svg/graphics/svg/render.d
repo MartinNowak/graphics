@@ -14,6 +14,7 @@ import graphics.svg.core;
 import graphics.svg.gradient;
 import graphics.svg.parser;
 import graphics.svg.pattern;
+import graphics.svg.pserver;
 
 // ASCII case-insensitive comparison for SVG keywords (exact length).
 private bool equalCase(string a, string b)
@@ -422,6 +423,13 @@ private struct Renderer
     // cycles - stop rendering the inner server.
     int patternDepth;
 
+    // clip-path state: clipMode means this renderer is painting a clip
+    // mask (clipPath children contribute opaque filled geometry only);
+    // clipDepth caps clip-path references nested inside clipPath
+    // content.
+    bool clipMode;
+    int clipDepth;
+
     static struct Style
     {
         bool transform;
@@ -442,9 +450,23 @@ private struct Renderer
         Color fillFallback, strokeFallback;
         bool hasFillFallback, hasStrokeFallback;
 
-        // Inherited fill rule (SVG 1.1 11.2.4); clip-rule waits on clip
-        // paths themselves.
+        // Inherited fill rule (SVG 1.1 11.2.4) and, for clip paths, its
+        // clip-path counterpart clip-rule (§14.4): the winding rule the
+        // referenced <clipPath>'s children fill under.
         Path.FillRule fillRule = Path.FillRule.NonZero;
+        Path.FillRule clipRule = Path.FillRule.NonZero;
+
+        // clip-path="url(#id)" (§14.3). A broken reference - unknown id,
+        // non-clipPath target, cycle - means the element is NOT rendered
+        // (unlike paint servers, which fall back). The list accumulates
+        // the chain of clip-paths declared on ancestors: the CSS
+        // property *replaces* on each element, but rendering-wise every
+        // ancestor group is clipped as a whole, and a paint buried in
+        // those groups carries all of their masks - none of which a
+        // deeper clip-path or even clip-path="none" can escape. Binary
+        // masks commute, so accumulating and intersecting them is
+        // exact.
+        string[] clipUrls;
 
         // Stroke geometry.
         CapStyle caps;
@@ -608,7 +630,32 @@ private struct Renderer
                 }
                 break;
 
-            case "clip-rule": // clip paths arrive with the document model
+            case "clip-rule":
+                switch (toLower(v))
+                {
+                case "evenodd":
+                    style.clipRule = Path.FillRule.EvenOdd;
+                    break;
+                case "nonzero":
+                    style.clipRule = Path.FillRule.NonZero;
+                    break;
+                default: // "inherit" and friends: keep the parent value
+                    break;
+                }
+                break;
+
+            case "clip-path":
+                // url(#id) or none (§14.3): a url joins the inherited
+                // ancestor masks (see Style.clipUrls); "none" merely
+                // omits this element's own mask, and a malformed value
+                // drops the declaration. No fallback paint is allowed
+                // on this property, so urlPaint's trailing paint - if
+                // any - is ignored.
+                string id;
+                Color fb;
+                bool hfb;
+                if (urlPaint(v, id, fb, hfb))
+                    style.clipUrls = style.clipUrls ~ id;
                 break;
 
             case "visibility":
@@ -911,6 +958,129 @@ private struct Renderer
         return new PatternShader(rows, ps.X, ps.Y, ps.W, ps.H, s, ps.pt.inverted);
     }
 
+    // clip-path (SVG 1.1 §14.3): rasterise this paint into a full-canvas
+    // scratch, multiply every referenced <clipPath>'s mask coverage
+    // (Style.clipUrls) into it, then sprite-composite the result. The
+    // engine has no path boolean ops, so clipping is offscreen
+    // compositing at the SVG layer. A broken reference (unknown id,
+    // non-clipPath target, cycle) drops the paint entirely - §14.3.1
+    // renders the element not at all, no fallback (masking-path-08-b's
+    // `url(#unknown)`) - and so does an empty mask: empty clipPath, all
+    // children display:none, or objectBoundingBox units against a
+    // degenerate bbox.
+    void clipPaint(in Style s, Paint fillP, Paint strokeP,
+        bool doFill, bool doStroke, in Path stroked)
+    {
+        if (clipDepth >= 8)
+            return; // clip-path nested inside clipPath content
+
+        immutable bbox = path.bounds; // objectBoundingBox units basis
+        auto scratch = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
+        scratch.eraseColor(Color(0));
+        Canvas oc = new Canvas(scratch);
+        oc.matrix = canvas.matrix;
+        if (doFill)
+        {
+            path.fillRule = clipMode ? s.clipRule : s.fillRule;
+            oc.drawPath(path, fillP);
+        }
+        if (doStroke)
+            oc.drawPath(stroked, strokeP);
+
+        foreach (clipId; s.clipUrls)
+            if (!clipMultiply(clipId, scratch, bbox))
+                return; // broken reference or empty clip: not rendered
+
+        bool any;
+        foreach (y; 0 .. bmp.height)
+            foreach (ref px; scratch.getLine!PMColor(y))
+                any |= px.a != 0;
+        if (!any)
+            return;
+
+        // Sprite-composite the masked paint at the device origin.
+        immutable save = canvas.matrix;
+        canvas.matrix.reset();
+        canvas.drawBitmap(scratch, Paint(Color.White));
+        canvas.matrix = save;
+    }
+
+    // Rasterise the clipPath `id` as a mask (same user-space CTM as the
+    // paint) and multiply its coverage into `scratch`. Returns false on
+    // a broken reference or an empty mask - either way the painted
+    // element is not rendered.
+    bool clipMultiply(in string id, ref Bitmap scratch, in FRect bbox)
+    {
+        immutable idx = doc.byId(id);
+        if (idx == Document.unknown)
+            return false;
+        bool invalid;
+        const string[] clipKinds = ["clipPath"];
+        auto chain = hrefChain(doc, idx, invalid, clipKinds);
+        if (invalid || chain.empty || chain[0].name != "clipPath")
+            return false;
+
+        // clipPathUnits="objectBoundingBox" (§14.3.1) puts the children
+        // in fractions of the painted geometry's bbox, mapped along the
+        // element's own user axes - the same §7.11 supplemental matrix
+        // paint servers get. A degenerate bbox makes the clip empty.
+        auto maskBmp = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
+        maskBmp.eraseColor(Color(0));
+        Renderer m;
+        m.doc = doc;
+        m.bmp = maskBmp;
+        m.canvas = new Canvas(maskBmp);
+        m.inRoot = true;
+        m.clipMode = true;
+        m.clipDepth = clipDepth + 1;
+        m.vpW = vpW;
+        m.vpH = vpH;
+        m.canvas.matrix = canvas.matrix;
+        if (auto u = strAttr(chain, "clipPathUnits"))
+            if (toLower(u) == "objectboundingbox")
+            {
+                if (bbox.width <= 0 || bbox.height <= 0)
+                    return false;
+                Matrix bb;
+                bb.reset();
+                bb[0][0] = bbox.width;
+                bb[1][1] = bbox.height;
+                bb[0][2] = bbox.left;
+                bb[1][2] = bbox.top;
+                m.canvas.matrix = canvas.matrix * bb;
+            }
+
+        // Inheritance: the clipPath subtree sees the chain's own
+        // presentation attributes and nothing from the referencing
+        // element's ancestors - starting the fresh style stack at the
+        // chain is exactly masking-path-12-f's non-inheritance rule
+        // (and keeps an inherited clip-path out of the mask itself).
+        // href ancestors first, self last; content rides along from the
+        // first chain element that provides children.
+        foreach_reverse (ref e; chain)
+            m.pushStyle(e.attrs);
+        foreach (ref e; chain)
+            if (e.children.length)
+            {
+                foreach (ch; e.children)
+                    m.renderChild(ch);
+                break;
+            }
+
+        bool any;
+        foreach (y; 0 .. bmp.height)
+        {
+            auto r = scratch.getLine!PMColor(y);
+            auto k = maskBmp.getLine!PMColor(y);
+            foreach (x, ref px; r)
+            {
+                px = alphaMul(px, alphaScale(k[x].a));
+                any |= px.a != 0;
+            }
+        }
+        return any;
+    }
+
     // Paint the current `path` with the style resolved from `attr`: fill
     // first, then the stroke over it (SVG paint order).
     void flushPath(in string[string] attr)
@@ -926,9 +1096,21 @@ private struct Renderer
         Paint fillP = resolvePaint(true, s, op * clamp(s.fillOpacity, 0f, 1f), bbox);
         Paint strokeP = resolvePaint(false, s, op * clamp(s.strokeOpacity, 0f, 1f), bbox);
 
-        immutable doFill = s.visible && (fillP.shader !is null || fillP.color.a != 0);
-        immutable doStroke = s.visible
+        auto doFill = s.visible && (fillP.shader !is null || fillP.color.a != 0);
+        auto doStroke = s.visible
             && (strokeP.shader !is null || strokeP.color.a != 0) && s.strokeWidth > 0;
+
+        if (clipMode)
+        {
+            // Painting a clip mask: a <clipPath> child contributes its
+            // filled outline fully opaque - fill/stroke paint and the
+            // opacity properties are all irrelevant, and so is
+            // visibility (masking-path-08-b). display:none children
+            // never get here; renderChild drops those.
+            doFill = true;
+            doStroke = false;
+            fillP = Paint(Color.Black);
+        }
 
         Path stroked;
         if (doStroke)
@@ -942,16 +1124,25 @@ private struct Renderer
                 stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
         }
 
-        if (doFill)
+        if (doFill || doStroke)
         {
-            // Subpaths are implicitly closed at raster time
-            // (Path.applyFilled); no path.close() needed here.
-            // path.reset() does not clear fillRule, so assign per flush.
-            path.fillRule = s.fillRule;
-            canvas.drawPath(path, fillP);
+            if (s.clipUrls.length)
+                clipPaint(s, fillP, strokeP, doFill, doStroke, stroked);
+            else
+            {
+                if (doFill)
+                {
+                    // Subpaths are implicitly closed at raster time
+                    // (Path.applyFilled); no path.close() needed here.
+                    // path.reset() does not clear fillRule, so assign
+                    // per flush; clip masks fill under clip-rule (§14.4).
+                    path.fillRule = clipMode ? s.clipRule : s.fillRule;
+                    canvas.drawPath(path, fillP);
+                }
+                if (doStroke)
+                    canvas.drawPath(stroked, strokeP);
+            }
         }
-        if (doStroke)
-            canvas.drawPath(stroked, strokeP);
         path.reset();
     }
 
@@ -1039,9 +1230,18 @@ private struct Renderer
         Paint fillP = resolvePaint(true, s, op * clamp(s.fillOpacity, 0f, 1f), bbox);
         Paint strokeP = resolvePaint(false, s, op * clamp(s.strokeOpacity, 0f, 1f), bbox);
 
-        immutable doFill = s.visible && (fillP.shader !is null || fillP.color.a != 0);
-        immutable doStroke = s.visible
+        auto doFill = s.visible && (fillP.shader !is null || fillP.color.a != 0);
+        auto doStroke = s.visible
             && (strokeP.shader !is null || strokeP.color.a != 0) && s.strokeWidth > 0;
+
+        if (clipMode)
+        {
+            // Clip mask: text contributes its glyph outlines, opaque
+            // (masking-path-04-b clips with <text> inside the clipPath).
+            doFill = true;
+            doStroke = false;
+            fillP = Paint(Color.Black);
+        }
 
         Path stroked;
         if (doStroke)
@@ -1055,20 +1255,29 @@ private struct Renderer
                 stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
         }
 
-        if (doFill)
+        if (doFill || doStroke)
         {
-            // Glyph outlines carry explicit Close verbs; the fill
-            // closure (applyFilled) covers any straggler subpath.
-            // Pin the rule to non-zero on purpose (the comment above
-            // this block is right): convention-directed TrueType/CFF
-            // outlines fill the same under both rules, and `path` is
-            // shared with flushPath whose fillRule assignment above
-            // would otherwise leak into text.
-            path.fillRule = Path.FillRule.NonZero;
-            canvas.drawPath(path, fillP);
+            if (s.clipUrls.length)
+                clipPaint(s, fillP, strokeP, doFill, doStroke, stroked);
+            else
+            {
+                if (doFill)
+                {
+                    // Glyph outlines carry explicit Close verbs; the fill
+                    // closure (applyFilled) covers any straggler subpath.
+                    // Pin the rule to non-zero on purpose (the comment
+                    // above this block is right): convention-directed
+                    // TrueType/CFF outlines fill the same under both
+                    // rules, and `path` is shared with flushPath whose
+                    // fillRule assignment above would otherwise leak
+                    // into text. Clip mask: clip-rule governs instead.
+                    path.fillRule = clipMode ? s.clipRule : Path.FillRule.NonZero;
+                    canvas.drawPath(path, fillP);
+                }
+                if (doStroke)
+                    canvas.drawPath(stroked, strokeP);
+            }
         }
-        if (doStroke)
-            canvas.drawPath(stroked, strokeP);
         path.reset();
         textBuf = "";
     }
@@ -2476,4 +2685,127 @@ unittest
         <rect width="20" height="20" fill="url(#self)"/>
         </svg>`);
     assert(bmp.getLine!PMColor(5)[5].a == 0, "cyclic pattern paints nothing");
+}
+
+unittest
+{
+    // clip-path basics (masking-path-01/02-b): a 10px-wide clipPath rect
+    // keeps the left half of a full red rect.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <clipPath id="c"><rect width="10" height="20"/></clipPath>
+        <rect width="20" height="20" fill="red" clip-path="url(#c)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[5].r == 255, "inside the clip paints");
+    assert(bmp.getLine!PMColor(10)[15].a == 0, "outside the clip paints nothing");
+
+    // Broken references and empty clips mean NOT rendered - no fallback
+    // paint server style (masking-path-08-b): unknown id, non-clipPath
+    // target, empty clipPath, only-display:none children.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="40" viewBox="0 0 20 40">
+        <rect id="notclip" width="5" height="5"/>
+        <clipPath id="empty"/>
+        <clipPath id="gonekid"><rect width="20" height="10" display="none"/></clipPath>
+        <rect width="20" height="10" fill="red" clip-path="url(#nope)"/>
+        <rect y="10" width="10" height="10" fill="red" clip-path="url(#notclip)"/>
+        <rect y="20" width="10" height="10" fill="red" clip-path="url(#empty)"/>
+        <rect y="30" width="10" height="10" fill="red" clip-path="url(#gonekid)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(3)[10].a == 0, "unknown id: not rendered");
+    assert(bmp.getLine!PMColor(15)[5].a == 0, "non-clipPath target: not rendered");
+    assert(bmp.getLine!PMColor(25)[5].a == 0, "empty clipPath: not rendered");
+    assert(bmp.getLine!PMColor(35)[5].a == 0, "display:none kids only: not rendered");
+
+    // Mask children: geometry only. visibility:hidden still clips;
+    // opacity / fill=none / a fat stroke are all irrelevant, and stroke
+    // never adds clip area (08-b's case grid).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+        <clipPath id="v"><rect width="10" height="100" visibility="hidden"/></clipPath>
+        <clipPath id="o"><rect width="20" height="100" opacity="0" fill="none" stroke="black" stroke-width="4"/></clipPath>
+        <clipPath id="sw"><rect x="40" y="40" width="20" height="20" stroke="black" stroke-width="80"/></clipPath>
+        <rect width="100" height="100" fill="red" clip-path="url(#v)"/>
+        <rect width="100" height="100" fill="lime" clip-path="url(#o)"/>
+        <rect width="100" height="100" fill="blue" clip-path="url(#sw)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(50)[5].g == 255 && bmp.getLine!PMColor(50)[5].b == 0,
+        "visibility/opacity/fill=none irrelevant: lime clips at x5");
+    assert(bmp.getLine!PMColor(50)[15].g == 255 && bmp.getLine!PMColor(50)[15].b == 0,
+        "stroke adds no clip area: lime survives, blue did not overwrite at x15");
+    assert(bmp.getLine!PMColor(45)[45].b == 255, "stroked child: its fill outline clips at (45,45)");
+    assert(bmp.getLine!PMColor(30)[45].a == 0, "and nothing outside the 20px outline (y30 clear)");
+
+    // clip-rule (masking-path-05-f): nested squares on the clipPath CHILD,
+    // evenodd punches a hole, nonzero fills solid.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="90" viewBox="0 0 40 90">
+        <clipPath id="even"><path clip-rule="evenodd" d="M0,0H40V40H0Z M10,10H30V30H10Z"/></clipPath>
+        <clipPath id="odd"><path clip-rule="nonzero" d="M0,50H40V90H0Z M10,60H30V80H10Z"/></clipPath>
+        <rect width="40" height="40" fill="red" clip-path="url(#even)"/>
+        <rect y="50" width="40" height="40" fill="red" clip-path="url(#odd)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(2)[2].r == 255, "evenodd ring paints");
+    assert(bmp.getLine!PMColor(20)[20].a == 0, "evenodd hole stays clear");
+    assert(bmp.getLine!PMColor(70)[20].r == 255, "nonzero fills the overlap solid");
+
+    // clipPathUnits="objectBoundingBox" (masking-path-02-b): children are
+    // fractions of the paint geometry's bbox; degenerate bbox -> not
+    // rendered (even though the element would stroke visibly).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
+        <clipPath id="bb" clipPathUnits="objectBoundingBox"><rect width="0.5" height="1"/></clipPath>
+        <rect x="10" y="10" width="20" height="10" fill="red" clip-path="url(#bb)"/>
+        <rect x="5" y="2" width="0" height="10" fill="none" stroke="blue" stroke-width="3" clip-path="url(#bb)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(15)[15].r == 255, "bbox fractions: left half of the shape paints");
+    assert(bmp.getLine!PMColor(15)[25].a == 0, "right half stays clear");
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "degenerate bbox: stroked rect not rendered");
+
+    // Group clips accumulate: g's clip reaches every descendant paint...
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <clipPath id="g2"><rect width="20" height="20"/></clipPath>
+        <rect width="40" height="40" fill="red"/>
+        <g clip-path="url(#g2)"><rect width="40" height="40" fill="lime"/></g>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[10].g == 255, "g clip paints inside");
+    assert(bmp.getLine!PMColor(30)[30].r == 255, "outside, the g paints nothing");
+
+    // ...and a descendant's own clip-path joins the group mask without
+    // escaping it (binary masks commute); the clipPath SUBTREE sees
+    // neither the group clip nor any referrer ancestor (masking-path-
+    // 12-f's non-inheritance).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <clipPath id="outer"><rect width="20" height="40"/></clipPath>
+        <rect width="40" height="40" fill="red"/>
+        <g clip-path="url(#outer)"><clipPath id="kid"><rect x="20" width="20" height="40"/></clipPath></g>
+        <rect width="40" height="40" fill="lime" clip-path="url(#kid)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(20)[30].g == 255, "kid clip paints on its own (no ancestor leak)");
+    assert(bmp.getLine!PMColor(20)[10].r == 255, "and nowhere else");
+
+    // Text in a clipPath clips with its glyph outlines (masking-path-
+    // 04-b shape; host metrics only guarantee "painted, and not wide").
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
+        <clipPath id="t"><text x="0" y="15" font-size="16">M</text></clipPath>
+        <rect width="40" height="20" fill="blue" clip-path="url(#t)"/>
+        </svg>`);
+    bool glyphInk;
+    foreach (y; 0 .. 20)
+        foreach (x, p; bmp.getLine!PMColor(y)[0 .. 20])
+            if (p.b == 255)
+                glyphInk = true;
+    assert(glyphInk, "the M outline clips paint inside it");
+    foreach (y; 0 .. 20)
+        assert(bmp.getLine!PMColor(y)[30].a == 0, "nothing beyond the glyph");
+
+    // clip-path cycles between clipPath elements terminate (href cycles
+    // invalidate; clip-path-attribute cycles hit the depth cap) and paint
+    // nothing.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        xmlns:xlink="http://www.w3.org/1999/xlink" width="20" height="20" viewBox="0 0 20 20">
+        <clipPath id="h1" xlink:href="#h2"><rect width="20" height="20"/></clipPath>
+        <clipPath id="h2" xlink:href="#h1"><rect width="20" height="20"/></clipPath>
+        <clipPath id="a" clip-path="url(#b)"><rect width="20" height="20"/></clipPath>
+        <clipPath id="b" clip-path="url(#a)"><rect width="20" height="20"/></clipPath>
+        <rect width="10" height="10" fill="red" clip-path="url(#h1)"/>
+        <rect y="10" width="10" height="10" fill="red" clip-path="url(#a)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "clipPath href cycle: invalid, not rendered");
+    assert(bmp.getLine!PMColor(15)[5].a == 0, "clip-path attr cycle: capped, paints nothing");
 }
