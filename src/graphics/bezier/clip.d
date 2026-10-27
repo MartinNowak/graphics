@@ -176,6 +176,11 @@ body
     // TODO: avoid extra clamping
     immutable s0 = clampToRange(min(t0, t1), 0, 1);
     immutable s1 = clampToRange(max(t0, t1), 0, 1);
+    // sliceBezier takes float: two roots that differ only below float
+    // precision collapse to the same value and would break t1 > t0.
+    immutable float f0 = cast(float)s0, f1 = cast(float)s1;
+    if (!(f1 > f0))
+        return false; // tangent graze / precision collapse: empty interval
     if (s0 == 0 && s1 == 1)
     {
         if (&curve != &clipped)
@@ -183,7 +188,7 @@ body
     }
     else
     {
-        sliceBezier(curve, s0, s1, clipped);
+        sliceBezier(curve, f0, f1, clipped);
     }
     return true;
 }

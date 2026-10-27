@@ -196,7 +196,11 @@ struct WaveletRaster
             immutable nup = 1 + bsr(g0.x ^ g1.x | g0.y ^ g1.y);
             assert(nup <= _depth);
 
-            updateNodes(curve, g0, t0, t1, nup);
+            // A vertex sitting exactly on a grid intersection makes
+            // cartesian() emit the crossing twice: same parameter, next
+            // cell. Skip the empty slice rather than slicing to t1 <= t0.
+            if (t1 > t0)
+                updateNodes(curve, g0, t0, t1, nup);
 
             // shift grid position
             t0 = t1;

@@ -7,7 +7,7 @@ import graphics.core.stroke_detail._;
 struct Stroke
 {
     float _radius;
-    //  float invMiterLimit;
+    float _miterLimit;
 
     FVector _prevNormal;
     MutablePathData _outer;
@@ -17,10 +17,11 @@ struct Stroke
     Capper _capper;
     Joiner _joiner;
 
-    this(float width, CapStyle caps, JoinStyle joins)
+    this(float width, CapStyle caps, JoinStyle joins, float miterLimit = 4)
     {
         assert(width > 0);
         _radius = width * 0.5;
+        _miterLimit = miterLimit;
         _capper = getCapper(caps);
         _joiner = getJoiner(joins);
     }
@@ -84,7 +85,7 @@ struct Stroke
     {
         if (!_outer.empty)
         {
-            _joiner(pt, _prevNormal, normalAfter, _inner, _outer);
+            _joiner(pt, _prevNormal, normalAfter, _inner, _outer, _miterLimit);
         }
         else
         {

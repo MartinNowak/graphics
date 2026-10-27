@@ -8,9 +8,10 @@ public import graphics.core.stroke_detail.capper : CapStyle;
 public import graphics.core.stroke_detail.joiner : JoinStyle;
 
 Path strokePath
-(in Path path, float width, CapStyle caps=CapStyle.Butt, JoinStyle joins=JoinStyle.Miter)
+(in Path path, float width, CapStyle caps=CapStyle.Butt, JoinStyle joins=JoinStyle.Miter,
+ float miterLimit=4)
 {
-    auto stroker = Stroke(width, caps, joins);
+    auto stroker = Stroke(width, caps, joins, miterLimit);
     return stroker.strokePath(path);
 }
 

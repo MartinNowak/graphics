@@ -239,6 +239,13 @@ void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter bli
     debug
     {
         auto outer = ir;
+        // mapRect is exact for axis-aligned boxes but control points of
+        // curved segments can round a hair outside it; give the check a
+        // pixel of tolerance so it flags real escapes, not float noise.
+        outer.left -= 2;
+        outer.top -= 2;
+        outer.right += 2;
+        outer.bottom += 2;
         void checkPoints(FPoint[] pts)
         {
             foreach(pt; pts)

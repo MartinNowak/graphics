@@ -88,7 +88,27 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
 
     void moveTo(in FPoint pt)
     {
-        assert(!lastVerbWas(Path.Verb.Move));
+        // An SVG path like "M 0 0 Z M 10 10 ..." leaves a dangling Move when
+        // close() skips an empty subpath: start the new subpath over rather
+        // than asserting.
+        if (lastVerbWas(Path.Verb.Move))
+        {
+            // Appender has no popBack: drop the dangling Move by rebuilding
+            // the tail (paths are short; this is the rare "M Z M" idiom).
+            auto pts = (cast()_points).data.dup, vbs = (cast()_verbs).data.dup;
+            static if (!is(P == immutable) && !is(V == immutable))
+            {
+                _points.clear();
+                _verbs.clear();
+            }
+            else
+            {
+                _points = _points.init;
+                _verbs = _verbs.init;
+            }
+            _points.put(pts[0 .. $-1]);
+            _verbs.put(vbs[0 .. $-1]);
+        }
         _points.put(pt);
         _verbs.put(Path.Verb.Move);
     }
@@ -606,6 +626,17 @@ struct Path
         assert(p.points[$-3 .. $] == [FPoint(0, 0), FPoint(5, 0), FPoint(5, 5)]);
         p.relCubicTo(FVector(-1, 0), FVector(-1, -1), FVector(-5, -5));
         assert(p.points[$-1] == FPoint(0, 0));
+
+        // SVG "M 0 0 Z M 10 10": close() skips the empty subpath, so the
+        // following moveTo must not see a dangling Move verb.
+        p = Path.init;
+        p.moveTo(FPoint(0, 0));
+        p.close(); // empty subpath: no verb emitted
+        p.moveTo(FPoint(1, 1)); // replaces the dangling Move
+        assert(p.points == [FPoint(1, 1)]);
+        assert(p.verbs == [Path.Verb.Move]);
+        p.lineTo(FPoint(2, 2));
+        assert(p.verbs == [Path.Verb.Move, Path.Verb.Line]);
 
         p = Path.init;
         p.moveTo(FPoint(0, 0));
