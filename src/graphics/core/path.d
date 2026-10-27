@@ -521,13 +521,35 @@ struct Path
     }
 
     alias int delegate(ref Verb, ref FPoint[]) IterDg;
+
     int apply(Flattener=void)(scope IterDg dg) const
+    {
+        return applyImpl!(false, Flattener)(dg);
+    }
+
+    // Iteration for fill passes: unlike apply/opApply, every subpath is
+    // closed. The rasterizer integrates boundary line integrals, and an
+    // unclosed subpath contributes to the integral without the shoelace
+    // term det(lastPt, moveTo) of the implicit closing edge, so both fill
+    // rules mis-render it (even-odd flips coverage across a whole region).
+    // Stroke passes keep plain apply/opApply: there a synthetic closing
+    // edge would be a visible artifact on "M...L" subpaths.
+    int applyFilled(Flattener=void)(scope IterDg dg) const
+    {
+        return applyImpl!(true, Flattener)(dg);
+    }
+
+    alias apply!() opApply;
+
+    private int applyImpl(bool FillClose, Flattener=void)(scope IterDg dg) const
     {
         if (_data.empty)
             return 0;
 
         FPoint moveTo=void, lastPt=void;
         FPoint[4] tmpPts=void;
+        static if (FillClose)
+            bool open=false; // current subpath has content and is unclosed
 
         auto vs = verbs.save;
         auto pts = points.save;
@@ -549,6 +571,19 @@ struct Path
             final switch (verb)
             {
             case Path.Verb.Move:
+                static if (FillClose)
+                {
+                    // an implicit closing edge where "Z" was left out,
+                    // emitted before the new subpath starts
+                    if (open && lastPt != moveTo)
+                    {
+                        tmpPts[0] = lastPt;
+                        tmpPts[1] = moveTo;
+                        if (auto res = emit(Path.Verb.Line, tmpPts[0 .. 2]))
+                            return res;
+                    }
+                    open = false;
+                }
                 moveTo = lastPt = tmpPts[0] = pts.front;
                 pts.popFront;
                 if (auto res = emit(Path.Verb.Move, tmpPts[0 .. 1]))
@@ -566,6 +601,8 @@ struct Path
                 }
                 if (auto res = emit(Path.Verb.Close, tmpPts[0 .. 0]))
                     return res;
+                static if (FillClose)
+                    open = false;
                 break;
 
             foreach(v; TypeTuple!(Path.Verb.Line, Path.Verb.Quad, Path.Verb.Cubic))
@@ -576,16 +613,28 @@ struct Path
                     tmpPts[i+1] = pts[i];
                 lastPt = pts[v-1];
                 pts.popFrontN(v);
+                static if (FillClose)
+                    open = true;
                 if (auto res = emit(verb, tmpPts[0 .. v+1]))
                     return res;
                 break;
             }
             }
         }
+
+        static if (FillClose)
+        {
+            // close the final subpath
+            if (open && lastPt != moveTo)
+            {
+                tmpPts[0] = lastPt;
+                tmpPts[1] = moveTo;
+                if (auto res = emit(Path.Verb.Line, tmpPts[0 .. 2]))
+                    return res;
+            }
+        }
         return 0;
     }
-
-    alias apply!() opApply;
 
     bool isClosedContour()
     {
@@ -813,6 +862,94 @@ struct Path
         twoSubpaths.moveTo(FPoint(2, 0));
         twoSubpaths.lineTo(FPoint(3, 0));
         assert(!twoSubpaths.isClosedContour);
+    }
+
+    unittest
+    {
+        // applyFilled(): every subpath is closed. The implicit closing
+        // edge lands before the next Move and at end of path; explicit
+        // Close verbs are not double-closed; edges after a Close belong
+        // to the subpath and close back to its moveTo.
+        Path open, explicit;
+        open.moveTo(FPoint(0, 0));
+        open.lineTo(FPoint(4, 0));
+        open.moveTo(FPoint(1, 1)); // unclosed interior subpath
+        open.lineTo(FPoint(2, 1));
+        open.lineTo(FPoint(2, 3)); // ... and unclosed last subpath
+
+        explicit.moveTo(FPoint(0, 0));
+        explicit.lineTo(FPoint(4, 0));
+        explicit.close();
+        explicit.moveTo(FPoint(1, 1));
+        explicit.lineTo(FPoint(2, 1));
+        explicit.lineTo(FPoint(2, 3));
+        explicit.close();
+
+        struct Walk { Verb[] vs; FPoint[][] ps; }
+        Walk collect(bool Filled)(Path p)
+        {
+            Walk w;
+            int walkIt(ref Path.Verb v, ref FPoint[] pts)
+            {
+                w.vs ~= v;
+                w.ps ~= pts.dup;
+                return 0;
+            }
+            static if (Filled)
+                p.applyFilled(&walkIt);
+            else
+                p.apply(&walkIt);
+            return w;
+        }
+
+        // plain apply leaves the subpaths open (stroke semantics)
+        auto plain = collect!(false)(open);
+        assert(plain.vs == [Path.Verb.Move, Path.Verb.Line, Path.Verb.Move,
+                            Path.Verb.Line, Path.Verb.Line], to!string(plain.vs));
+        assert(plain.ps == [
+            [FPoint(0,0)], [FPoint(0,0), FPoint(4,0)], [FPoint(1,1)],
+            [FPoint(1,1), FPoint(2,1)], [FPoint(2,1), FPoint(2,3)]]);
+
+        // applyFilled emits the same primitives as apply on the explicitly
+        // closed path, minus the Close verbs
+        auto walked = collect!(true)(open);
+        auto closed = collect!(false)(explicit);
+        Verb[] closedNoZ;
+        FPoint[][] closedPts;
+        foreach (i, v; closed.vs)
+            if (v != Path.Verb.Close)
+            {
+                closedNoZ ~= v;
+                closedPts ~= closed.ps[i];
+            }
+        assert(walked.vs == closedNoZ, to!string(walked.vs));
+        assert(walked.ps == closedPts, to!string(walked.ps));
+        assert(walked.ps.canFind([FPoint(4,0), FPoint(0,0)]));  // closed at next Move
+        assert(walked.ps.canFind([FPoint(2,3), FPoint(1,1)]));  // closed at end
+
+        // trailing edge after a Close closes back to the moveTo
+        Path reopened;
+        reopened.moveTo(FPoint(0, 0));
+        reopened.lineTo(FPoint(4, 0));
+        reopened.lineTo(FPoint(4, 4));
+        reopened.close();
+        reopened.lineTo(FPoint(0, 4));
+        auto rew = collect!(true)(reopened);
+        assert(rew.vs == [Path.Verb.Move, Path.Verb.Line, Path.Verb.Line, Path.Verb.Line,
+                          Path.Verb.Close, Path.Verb.Line, Path.Verb.Line],
+               to!string(rew.vs));
+        assert(rew.ps[3] == [FPoint(4,4), FPoint(0,0)] && rew.ps[$-1] == [FPoint(0,4), FPoint(0,0)]);
+
+        // Move-only subpaths are already squashed by PathData.moveTo ("M Z M"
+        // handling), and a subpath that wanders back onto its own moveTo
+        // grows no degenerate closing edge.
+        Path emptyish;
+        emptyish.moveTo(FPoint(0, 0));
+        emptyish.moveTo(FPoint(1, 1)); // replaces the dangling Move
+        emptyish.lineTo(FPoint(3, 1));
+        emptyish.lineTo(FPoint(1, 1)); // lastPt == moveTo: nothing to close
+        auto ew = collect!(true)(emptyish);
+        assert(ew.vs == [Path.Verb.Move, Path.Verb.Line, Path.Verb.Line], to!string(ew.vs));
     }
 
     unittest

@@ -742,10 +742,9 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
             }
 
             if (doFill)
-            {
-                path.close();
+                // subpaths are implicitly closed at raster time
+                // (Path.applyFilled); no path.close() needed here.
                 canvas.drawPath(path, Paint(fillC));
-            }
             if (doStroke)
                 canvas.drawPath(stroked, Paint(strokeC));
             path.reset();
@@ -852,10 +851,9 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
             }
 
             if (doFill)
-            {
-                path.close();
+                // glyph outlines carry explicit Close verbs; the fill
+                // closure (applyFilled) covers any straggler subpath.
                 canvas.drawPath(path, Paint(fillC));
-            }
             if (doStroke)
                 canvas.drawPath(stroked, Paint(strokeC));
             path.reset();

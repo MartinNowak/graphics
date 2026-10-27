@@ -260,7 +260,9 @@ void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter bli
         return;
     WaveletRaster wr = WaveletRaster(ir);
 
-    foreach(verb, pts; mat.perspective ? &path.apply!(QuadCubicFlattener) : &path.opApply)
+    // Fills integrate closed contours: applyFilled synthesizes the
+    // implicit closing edge for subpaths whose "Z" was left out.
+    foreach(verb, pts; mat.perspective ? &path.applyFilled!(QuadCubicFlattener) : &path.applyFilled!())
     {
         final switch(verb)
         {
@@ -394,6 +396,50 @@ unittest
         Draw(bm, Matrix(), bm.bounds).drawTextOnPath("i", follow, tp);
         assert(bm.inked);
     }
+}
+
+unittest
+{
+    import graphics.core.testing : blackBitmap, pixel, solidPaint;
+
+    // Fill closes every subpath implicitly: a path with two unclosed
+    // subpaths must rasterize pixel-identically to the same path with
+    // both subpaths explicitly closed. (Before applyFilled the interior
+    // subpath fed an open chain to the line integral and mis-filled;
+    // this holds under non-zero, which is the only rule in this step.)
+    auto bm = blackBitmap(8, 8);
+    auto paint = solidPaint(Color.Red);
+    auto d = Draw(bm, Matrix(), bm.bounds);
+
+    Path open, explicit;
+    open.moveTo(FPoint(0, 0));
+    open.lineTo(FPoint(7, 0));
+    open.lineTo(FPoint(0, 7));
+    open.moveTo(FPoint(2, 2)); // unclosed interior subpath
+    open.lineTo(FPoint(5, 2));
+    open.lineTo(FPoint(2, 5));
+
+    explicit.moveTo(FPoint(0, 0));
+    explicit.lineTo(FPoint(7, 0));
+    explicit.lineTo(FPoint(0, 7));
+    explicit.close();
+    explicit.moveTo(FPoint(2, 2));
+    explicit.lineTo(FPoint(5, 2));
+    explicit.lineTo(FPoint(2, 5));
+    explicit.close();
+
+    bm.eraseColor(Color.Black);
+    d.drawPath(open, paint);
+    PMColor[] allFirst, allSecond;
+    foreach (y; 0 .. bm.height)
+        allFirst ~= bm.getLine!PMColor(y).dup;
+    bm.eraseColor(Color.Black);
+    d.drawPath(explicit, paint);
+    foreach (y; 0 .. bm.height)
+        allSecond ~= bm.getLine!PMColor(y).dup;
+    assert(allFirst == allSecond, "unclosed subpaths must fill like explicitly closed ones");
+    assert(pixel(bm, 1, 1) == Color.Red); // big triangle interior painted
+    assert(pixel(bm, 3, 3) == PMColor(Color.Red)); // interior subpath painted
 }
 
 unittest

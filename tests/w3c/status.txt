@@ -82,7 +82,7 @@ color-prop-02-f.svg OK 890
 color-prop-03-t.svg OK 849
 color-prop-04-t.svg OK 49754
 color-prop-05-t.svg OK 12062
-conform-viewers-01-t.svg OK 6634
+conform-viewers-01-t.svg OK 3411
 conform-viewers-02-f.svg OK 8417
 conform-viewers-03-f.svg OK 4018
 coords-coord-01-t.svg OK 882
@@ -266,7 +266,7 @@ painting-stroke-07-t.svg OK 1651
 painting-stroke-08-t.svg OK 2542
 painting-stroke-09-t.svg OK 2629
 painting-stroke-10-t.svg OK 5772
-paths-data-01-t.svg OK 6610
+paths-data-01-t.svg OK 3390
 paths-data-02-t.svg OK 6304
 paths-data-03-f.svg OK 9060
 paths-data-04-t.svg OK 8208
