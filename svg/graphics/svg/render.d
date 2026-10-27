@@ -269,6 +269,14 @@ Matrix viewFit(const(float)[4] vb, float w, float h, PAR par)
     return m;
 }
 
+// Unit tangent vector; (0, 0) when the segment is degenerate - marker
+// placement reads that as the zero-length case (§11.4.1).
+private FPoint unit(FPoint v)
+{
+    immutable l = sqrt(v.x * v.x + v.y * v.y);
+    return l > 0 ? FPoint(v.x / l, v.y / l) : FPoint(0, 0);
+}
+
 // Parse `stroke-dasharray`: null means "none" or invalid (the attribute is
 // then ignored). SVG: an odd count of entries is repeated to an even one;
 // a list that sums to zero renders like none; negative values are an error.
@@ -430,6 +438,10 @@ private struct Renderer
     bool clipMode;
     int clipDepth;
 
+    // Painting <marker> content: §11.4 keeps markers out of marker
+    // content (no recursion), so flushPath skips them while set.
+    bool markerMode;
+
     static struct Style
     {
         bool transform;
@@ -472,6 +484,11 @@ private struct Renderer
         // mask values are per-pixel scalars on premultiplied pixels, so
         // stacking them multiplies exactly and order never matters.
         string[] maskUrls;
+
+        // marker-start/mid/end (§11.4). Unlike clip/mask these are
+        // ordinary inherited properties: a value replaces (not chains)
+        // the inherited one and "none" cancels it. Empty = no marker.
+        string markerStart, markerMid, markerEnd;
 
         // Stroke geometry.
         CapStyle caps;
@@ -675,6 +692,38 @@ private struct Renderer
                     bool mhfb;
                     if (urlPaint(v, mid, mfb, mhfb))
                         style.maskUrls = style.maskUrls ~ mid;
+                }
+                break;
+
+            case "marker-start", "marker-mid", "marker-end":
+                // §11.4: ordinary inherited properties, not a chain -
+                // the value replaces whatever was inherited and "none"
+                // cancels it; a malformed value drops the declaration.
+                // The `marker` shorthand is deliberately absent: it is
+                // CSS-only, not a presentation attribute (04-f's top
+                // row must have no markers at all).
+                {
+                    string mid;
+                    Color mfb;
+                    bool mhfb;
+                    if (equalCase(strip(v), "none"))
+                    {
+                        if (k == "marker-start")
+                            style.markerStart = "";
+                        if (k == "marker-mid")
+                            style.markerMid = "";
+                        if (k == "marker-end")
+                            style.markerEnd = "";
+                    }
+                    else if (urlPaint(v, mid, mfb, mhfb))
+                    {
+                        if (k == "marker-start")
+                            style.markerStart = mid;
+                        if (k == "marker-mid")
+                            style.markerMid = mid;
+                        if (k == "marker-end")
+                            style.markerEnd = mid;
+                    }
                 }
                 break;
 
@@ -990,7 +1039,7 @@ private struct Renderer
     // layer: empty clipPath, all children display:none, or
     // objectBoundingBox units against a degenerate bbox.
     void maskedPaint(in Style s, Paint fillP, Paint strokeP,
-        bool doFill, bool doStroke, in Path stroked)
+        bool doFill, bool doStroke, in Path stroked, bool doMarkers = false)
     {
         if (clipDepth >= 8)
             return; // clip/mask nested inside clipPath/mask content
@@ -1007,6 +1056,10 @@ private struct Renderer
         }
         if (doStroke)
             oc.drawPath(stroked, strokeP);
+        // Markers belong to the element's paint, so the element's
+        // clip/mask applies to them too (§11.4).
+        if (doMarkers)
+            drawMarkers(s, oc, scratch);
 
         foreach (clipId; s.clipUrls)
             if (!clipMultiply(clipId, scratch, bbox))
@@ -1263,6 +1316,238 @@ private struct Renderer
         return any;
     }
 
+    // SVG 1.1 §11.4: markers decorate the vertices of a stroked or
+    // filled path.
+    // Walk the path with plain iteration (not the fill pass): the closing
+    // edge of a `Z` arrives as the explicit Line it is followed by the
+    // Close verb, so junctions and tangents mirror the document's own
+    // vertices - the rasteriser's implicit closure must not invent
+    // marker geometry. Vertex rule per subpath: start at the first
+    // junction, mid at interior junctions, end at the last; a moveto is
+    // only ever a start/end junction, and a subpath without a segment
+    // (a lone moveto) gets nothing.
+    void drawMarkers(in Style s, Canvas target, Bitmap dev)
+    {
+        struct Junction
+        {
+            FPoint p;
+            FPoint tin, tout; // unit tangents, zero on a degenerate edge
+        }
+
+        Junction[][] subs;
+        foreach (ref Path.Verb v, ref FPoint[] p; path)
+        {
+            final switch (v)
+            {
+            case Path.Verb.Move:
+                subs.length += 1;
+                subs[$ - 1] ~= Junction(p[0], FPoint(0, 0), FPoint(0, 0));
+                break;
+            case Path.Verb.Line: // pts = [from, to]
+                immutable t = unit(p[1] - p[0]);
+                subs[$ - 1][$ - 1].tout = t;
+                subs[$ - 1] ~= Junction(p[1], t, FPoint(0, 0));
+                break;
+            case Path.Verb.Quad: // pts = [from, ctrl, to]
+                subs[$ - 1][$ - 1].tout = unit(p[1] - p[0]);
+                subs[$ - 1] ~= Junction(p[2], unit(p[2] - p[1]), FPoint(0, 0));
+                break;
+            case Path.Verb.Cubic: // pts = [from, c1, c2, to]
+                subs[$ - 1][$ - 1].tout = unit(p[1] - p[0]);
+                subs[$ - 1] ~= Junction(p[3], unit(p[3] - p[2]), FPoint(0, 0));
+                break;
+            case Path.Verb.Close:
+                break; // closing edge already arrived as its Line
+            }
+        }
+
+        foreach (ref sub; subs)
+            if (sub.length > 1) // a segment is needed to hang markers on
+                foreach (i, ref jn; sub)
+                {
+                    bool isStart;
+                    string url;
+                    FPoint dir;
+                    if (i == 0)
+                    {
+                        isStart = true;
+                        url = s.markerStart;
+                        dir = jn.tout;
+                    }
+                    else if (i == sub.length - 1)
+                    {
+                        url = s.markerEnd;
+                        dir = jn.tin;
+                    }
+                    else
+                    {
+                        url = s.markerMid;
+                        dir = unit(jn.tin + jn.tout); // tangent bisector
+                        if (dir.x == 0 && dir.y == 0)
+                            dir = jn.tout; // cusp reversal: no bisector
+                    }
+                    if (url.empty)
+                        continue;
+                    // Zero-length edge: with butt caps the stroke paints
+                    // no dot, so its start/end markers stay hidden too;
+                    // round/square caps paint them at zero orientation.
+                    if (dir.x == 0 && dir.y == 0 && s.caps == CapStyle.Butt)
+                        continue;
+                    renderMarker(url, jn.p, dir, isStart, s, target, dev);
+                }
+    }
+
+    // Paint one marker at a vertex. Its coordinate system: translate to
+    // the vertex, rotate per `orient` (default 0 - fixed; auto/auto-
+    // start-reverse follow the path direction), scale by stroke-width
+    // unless markerUnits="userSpaceOnUse", map through viewBox, then
+    // position so that (refX, refY) - in viewBox space when there is a
+    // viewBox, marker space otherwise - lands on the vertex. Inheritance
+    // follows the clipPath/mask subtree rule (masking-path-12-f): the
+    // chain's own attributes, nothing from the referrer's ancestors.
+    void renderMarker(in string url, in FPoint at, in FPoint dir,
+        bool isStart, in Style s, Canvas target, Bitmap dev)
+    {
+        immutable idx = doc.byId(url);
+        if (idx == Document.unknown)
+            return; // broken reference paints nothing
+        bool invalid;
+        const string[] markerKinds = ["marker"];
+        auto chain = hrefChain(doc, idx, invalid, markerKinds);
+        if (invalid || chain.empty || chain[0].name != "marker")
+            return;
+
+        immutable swUnits =
+            !equalCase(strAttr(chain, "markerUnits"), "userspaceonuse");
+
+        auto lc = lengthCtx();
+        float mlen(string raw, float deflt, float pctRef)
+        {
+            lc.pctRef = pctRef;
+            try
+                return parseLength(raw, lc);
+            catch (Exception)
+                return deflt;
+        }
+
+        auto raw = strAttr(chain, "markerWidth");
+        immutable mw = raw.length ? mlen(raw, 3.0f, vpW) : 3.0f;
+        raw = strAttr(chain, "markerHeight");
+        immutable mh = raw.length ? mlen(raw, 3.0f, vpH) : 3.0f;
+        if (!(mw > 0) || !(mh > 0))
+            return; // negative viewport: error, marker not rendered
+
+        raw = strAttr(chain, "refX");
+        immutable rx = raw.length ? mlen(raw, 0.0f, vpW) : 0.0f;
+        raw = strAttr(chain, "refY");
+        immutable ry = raw.length ? mlen(raw, 0.0f, vpH) : 0.0f;
+
+        // orient: default 0 - and the local must start at 0, since a
+        // bare `float angle;` seeds float.init (NaN) and NaN != 0 turns
+        // the default into a rotate-by-NaN matrix.
+        float angle = 0.0f;
+        if (auto o = strAttr(chain, "orient"))
+        {
+            if (equalCase(o, "auto"))
+                angle = atan2(dir.y, dir.x) * 180.0f / PI;
+            else if (equalCase(o, "auto-start-reverse")) // SVG 2, cheap
+                angle = atan2(dir.y, dir.x) * 180.0f / PI +
+                    (isStart ? 180.0f : 0.0f);
+            else
+                try
+                    angle = to!float(strip(o));
+                catch (ConvException)
+                    angle = 0.0f; // malformed orient: treat as 0
+        }
+
+        Renderer m;
+        m.doc = doc;
+        m.bmp = dev;
+        m.canvas = new Canvas(dev);
+        m.inRoot = true;
+        m.markerMode = true; // §11.4: no markers on marker content
+        m.clipDepth = clipDepth + 1;
+        m.vpW = vpW;
+        m.vpH = vpH;
+
+        Matrix mm;
+        mm.reset();
+        Matrix t;
+        t.reset();
+        t.setTranslate(at.x, at.y);
+        mm = mm * t;
+        if (angle != 0.0f)
+        {
+            Matrix r;
+            r.reset();
+            r.setRotate(angle); // degrees, clockwise (y is down)
+            mm = mm * r;
+        }
+        if (swUnits && s.strokeWidth != 1.0f)
+        {
+            Matrix q;
+            q.reset();
+            q.setScale(s.strokeWidth, s.strokeWidth);
+            mm = mm * q;
+        }
+        Matrix vf;
+        vf.reset();
+        FPoint vref = FPoint(rx, ry);
+        if (auto vbRaw = strAttr(chain, "viewBox"))
+        {
+            float[4] vb;
+            try
+            {
+                parseViewBox(vb, vbRaw);
+                if (vb[2] > 0 && vb[3] > 0)
+                {
+                    auto parRaw = strAttr(chain, "preserveAspectRatio");
+                    vf = viewFit(vb, mw, mh,
+                        parsePAR(parRaw.length ? parRaw : "xMidYMid meet"));
+                    // refX/refY live in the viewBox space, and aligning
+                    // them with the vertex absorbs the viewport
+                    // translation: a content point lands at
+                    // Vb(c) - Vb(ref) around the vertex (exactly the
+                    // test suite's own expansion, painting-marker-
+                    // 06-f's translate(8) scale(0.2) translate(-ref)).
+                    vref = FPoint(vf[0][0] * rx + vf[0][1] * ry + vf[0][2],
+                                  vf[1][0] * rx + vf[1][1] * ry + vf[1][2]);
+                }
+            }
+            catch (Exception) {} // malformed viewBox: attribute ignored
+        }
+        t.reset();
+        t.setTranslate(-vref.x, -vref.y);
+        mm = mm * t;
+        m.canvas.matrix = target.matrix * mm; // marker viewport space
+
+        // overflow: hidden is the default for a marker viewport, so
+        // content is clipped to the viewport rect. Clipping happens in
+        // viewport space, before the viewBox mapping is folded into
+        // the matrix - no inverse-viewBox arithmetic needed. Engine
+        // clips are device-space AABBs: exact for axis-aligned
+        // viewports (07-f's oversized triangle), a bounding box for
+        // rotated ones - and a no-op for content that fits its
+        // viewport, which is all of the suite's rotated markers.
+        // overflow="visible" skips the clip.
+        if (!equalCase(strAttr(chain, "overflow"), "visible"))
+            m.canvas.clipRect(IRect(0, 0, to!int(min(mw, 1_000_000.0f)),
+                to!int(min(mh, 1_000_000.0f))));
+
+        mm = mm * vf;
+        m.canvas.matrix = target.matrix * mm; // content space
+
+        foreach_reverse (ref e; chain)
+            m.pushStyle(e.attrs);
+        foreach (ref e; chain)
+            if (e.children.length)
+            {
+                foreach (ch; e.children)
+                    m.renderChild(ch);
+                break;
+            }
+    }
+
     // Paint the current `path` with the style resolved from `attr`: fill
     // first, then the stroke over it (SVG paint order).
     void flushPath(in string[string] attr)
@@ -1308,8 +1593,16 @@ private struct Renderer
 
         if (doFill || doStroke)
         {
+            // Markers paint at vertices when the element is stroked OR
+            // filled (§11.4.1) - painting-marker-07-f's fill-only paths
+            // carry markers; marker content itself never nests markers.
+            // Text markers are not supported (yet).
+            immutable doMarkers = (doFill || doStroke) && !markerMode
+                && (s.markerStart.length || s.markerMid.length
+                    || s.markerEnd.length);
             if (s.clipUrls.length || s.maskUrls.length)
-                maskedPaint(s, fillP, strokeP, doFill, doStroke, stroked);
+                maskedPaint(s, fillP, strokeP, doFill, doStroke, stroked,
+                    doMarkers);
             else
             {
                 if (doFill)
@@ -1323,6 +1616,8 @@ private struct Renderer
                 }
                 if (doStroke)
                     canvas.drawPath(stroked, strokeP);
+                if (doMarkers)
+                    drawMarkers(s, canvas, bmp);
             }
         }
         path.reset();
@@ -3093,4 +3388,173 @@ unittest
         <rect width="20" height="20" fill="lime" mask="url(#cyc)"/>
         </svg>`);
     assert(bmp.getLine!PMColor(10)[10].a == 0, "self-referencing mask: capped, not rendered");
+}
+
+unittest
+{
+    // §11.4 markers. A 4x4 red square, refX/refY (2,2), hangs centred
+    // on each vertex of this polyline; the default markerUnits scales
+    // the marker viewport by stroke-width 2, so each marker covers the
+    // 8x8 block v-4 .. v+3.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="2" refY="2">
+            <rect width="4" height="4" fill="red"/></marker>
+        <path d="M 6 20 L 20 20 L 34 20" stroke="black" stroke-width="2"
+            marker-start="url(#sq)" marker-mid="url(#sq)" marker-end="url(#sq)"/>
+        </svg>`);
+    foreach (vx; [6, 20, 34])
+        assert(bmp.getLine!PMColor(17)[vx].r == 255, "start/mid/end markers at the vertices");
+    assert(bmp.getLine!PMColor(16)[2].r == 255 && bmp.getLine!PMColor(23)[9].r == 255,
+        "strokeWidth units scale the viewport: the box spans v-4 .. v+3");
+    assert(bmp.getLine!PMColor(25)[20].a == 0, "nothing outside the marker boxes");
+    immutable bare = bmp.getLine!PMColor(19)[12]; // between markers: just the stroke
+    assert(bare.a == 255 && bare.r == 0 && bare.b == 0, "the stroke itself paints on");
+
+    // No stroke and no fill: no markers.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="2" refY="2">
+            <rect width="4" height="4" fill="red"/></marker>
+        <path d="M 6 20 L 20 20 L 34 20" fill="none" stroke="none"
+            marker-mid="url(#sq)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(17)[20].a == 0, "no stroke and no fill, no markers");
+
+    // orient: a tall bar (2x4) west of the ref point. orient 0 keeps it
+    // there; orient 90 swings it over the pixel east of the vertex.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="bar" markerWidth="4" markerHeight="4" refX="2" refY="2" orient="0">
+            <rect width="2" height="4" fill="red"/></marker>
+        <path d="M 6 20 L 20 20 L 34 20" stroke="black" stroke-width="1"
+            marker-mid="url(#bar)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(19)[18].r == 255 && bmp.getLine!PMColor(19)[21].r == 0,
+        "orient 0: the bar sits west of the vertex");
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="bar" markerWidth="4" markerHeight="4" refX="2" refY="2" orient="90">
+            <rect width="2" height="4" fill="red"/></marker>
+        <path d="M 6 20 L 20 20 L 34 20" stroke="black" stroke-width="1"
+            marker-mid="url(#bar)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(19)[21].r == 255, "orient 90: the bar swings over the vertex");
+
+    // orient="auto" follows the path tangent (bisector at a mid vertex):
+    // on the vertical polyline (0,1) is 90 degrees, same box as above.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="bar" markerWidth="4" markerHeight="4" refX="2" refY="2" orient="auto">
+            <rect width="2" height="4" fill="red"/></marker>
+        <path d="M 20 6 L 20 20 L 20 34" stroke="black" stroke-width="1"
+            marker-mid="url(#bar)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(19)[21].r == 255, "auto: tangent (0,1) turns the bar 90 degrees");
+    assert(bmp.getLine!PMColor(19)[18].r == 255, "auto: the bar crosses the vertex");
+
+    // markerUnits="userSpaceOnUse" ignores stroke-width: v-2 .. v+3.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="2" refY="2"
+            markerUnits="userSpaceOnUse">
+            <rect width="4" height="4" fill="red"/></marker>
+        <path d="M 6 20 L 20 20 L 34 20" stroke="black" stroke-width="2"
+            marker-start="url(#sq)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(18)[4].r == 255, "userSpaceOnUse: the box is v-2 .. v+3");
+    assert(bmp.getLine!PMColor(16)[3].a == 0, "userSpaceOnUse ignores stroke-width");
+
+    // Inheritance: marker properties on an ancestor group reach the
+    // painted child, and marker-mid="none" cancels just that one.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="2" refY="2">
+            <rect width="4" height="4" fill="red"/></marker>
+        <g marker-start="url(#sq)" marker-mid="url(#sq)" marker-end="url(#sq)">
+            <path d="M 6 20 L 20 20 L 34 20" stroke="black" stroke-width="2"/>
+        </g>
+        </svg>`);
+    assert(bmp.getLine!PMColor(17)[6].r == 255 && bmp.getLine!PMColor(17)[34].r == 255,
+        "marker properties inherit from ancestor groups");
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="2" refY="2">
+            <rect width="4" height="4" fill="red"/></marker>
+        <g marker-start="url(#sq)" marker-mid="url(#sq)" marker-end="url(#sq)">
+            <path d="M 6 20 L 20 20 L 34 20" marker-mid="none" stroke="black" stroke-width="2"/>
+        </g>
+        </svg>`);
+    assert(bmp.getLine!PMColor(17)[20].a == 0, `marker-mid="none" cancels the inherited mid`);
+    assert(bmp.getLine!PMColor(17)[6].r == 255, "the other inherited markers survive");
+
+    // The `marker` shorthand is CSS-only - NOT a presentation attribute
+    // (painting-marker-04-f's top row must stay unmarked).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="2" refY="2">
+            <rect width="4" height="4" fill="red"/></marker>
+        <g marker="url(#sq)">
+            <path d="M 6 20 L 20 20 L 34 20" stroke="black" stroke-width="2"/>
+        </g>
+        </svg>`);
+    assert(bmp.getLine!PMColor(17)[20].a == 0, "the marker shorthand is not a presentation attribute");
+
+    // §11.4.1: markers hang off stroked OR filled elements - this
+    // referrer has no stroke, and 07-f pins that display:none on the
+    // referenced marker (directly or via an ancestor) does not hide a
+    // reference-drawn marker.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="2" refY="2" display="none">
+            <rect width="4" height="4" fill="red"/></marker>
+        <g display="none">
+            <marker id="sq2" markerWidth="4" markerHeight="4" refX="2" refY="2">
+                <rect width="4" height="4" fill="red"/></marker>
+        </g>
+        <path d="M 6 20 L 20 20 L 34 20" fill="lime"
+            marker-start="url(#sq)" marker-mid="url(#sq2)"/>
+        </svg>`);
+    // stroke-width defaults to 1 here, so the marker box is v-2 .. v+1:
+    // probe row 19, not 17 as in the stroke-width-2 cases.
+    assert(bmp.getLine!PMColor(19)[6].r == 255 && bmp.getLine!PMColor(19)[20].r == 255,
+        "fill-only elements carry markers; display:none does not hide referenced markers");
+
+    // A marker viewBox offset cancels against ref alignment: this
+    // viewBox="20 20 10 10" marker with ref (25,25) must sit exactly
+    // like an unshifted 10x10 marker with ref (5,5) - sw 2 x fit 0.2
+    // x ... = 4px box centred on the vertex (painting-marker-06-f).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="off" viewBox="20 20 10 10" markerWidth="2" markerHeight="2" refX="25" refY="25">
+            <rect x="20" y="20" width="10" height="10" fill="purple"/></marker>
+        <path d="M 6 20 L 34 20" stroke="black" stroke-width="2" marker-start="url(#off)"/>
+        </svg>`);
+    immutable shifted = bmp.getLine!PMColor(18)[5];
+    assert(shifted.r == 128 && shifted.b == 128 && shifted.a == 255,
+        "viewBox offset cancels against refX/refY, marker centred on the vertex");
+
+    // Broken reference: that marker paints nothing, neighbours survive.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="2" refY="2">
+            <rect width="4" height="4" fill="red"/></marker>
+        <path d="M 6 20 L 20 20 L 34 20" stroke="black" stroke-width="2"
+            marker-start="url(#nope)" marker-mid="url(#sq)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(17)[6].a == 0, "broken reference paints nothing");
+    assert(bmp.getLine!PMColor(17)[20].r == 255, "the sibling marker still paints");
+
+    // Vertex rule: mid markers sit only at interior junctions - never a
+    // moveto. The first subpath's middle vertex is the only mid; the
+    // second subpath starts mid-path (26 is an interior position but a
+    // moveto, so no mid), and its end (38) gets no mid either.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="2" refY="2">
+            <rect width="4" height="4" fill="red"/></marker>
+        <path d="M 6 20 L 20 20 L 34 20 M 26 20 L 38 20" stroke="black" stroke-width="2"
+            marker-mid="url(#sq)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(17)[20].r == 255 && bmp.getLine!PMColor(17)[26].a == 0
+        && bmp.getLine!PMColor(17)[38].a == 0, "mid markers only at interior junctions");
+
+    // Markers belong to the element's paint, so the element's clip-path
+    // covers them too (the scratch-composite path).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="2" refY="2">
+            <rect width="4" height="4" fill="red"/></marker>
+        <clipPath id="ch"><rect width="25" height="40"/></clipPath>
+        <path d="M 6 20 L 34 20" stroke="black" stroke-width="2"
+            clip-path="url(#ch)" marker-end="url(#sq)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(17)[34].a == 0, "the element's clip covers its markers too");
+    assert(bmp.getLine!PMColor(19)[24].a == 255, "the stroke paints inside the clip");
 }
