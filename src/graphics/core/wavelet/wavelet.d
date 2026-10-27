@@ -376,13 +376,54 @@ ubyte quantizeVal(float val)
     return quantizeCoverage!nonZeroCoverage(val);
 }
 
+/**
+ * Tolerance for snapping near-full coverage to 1.0 (255 alpha).
+ *
+ * Wavelet/butterfly reconstruction can produce exact integer winding ties that are
+ * off by a few ULPs due to floating-point rounding (e.g., 1.0 - ε)².
+ * Under integer truncation (cov * 255), an undershoot of even 1 ULP truncates to 254,
+ * leaving faint seams across solid interiors.
+ *
+ * Furthermore, while the non-zero rule clamps overshoots (1.0 + ε -> 1.0), the even-odd
+ * triangle wave dips symmetrically on both sides of odd integers, causing the two rules
+ * to disagree on simple interiors unless snapped.
+ *
+ * Snapping coverage values within 1e-5 of full coverage resolves this:
+ * - 1e-5 is well below a single 8-bit alpha step (1/255 ≈ 3.9e-3), making it visually lossless.
+ * - Evaluating this on the coverage output takes a single branch/blend, whereas snapping
+ *   on the reconstructed winding field costs ~6% more blit time and risks wrongly snapping
+ *   genuine subpixel slivers (e.g., multi-crossing overlaps at F = 1.0005).
+ *
+ * See Also:
+ *  [¹](https://doi.org/10.1111/cgf.12070): Manson, J., & Schaefer, S. (2013). Analytic Rasterization of Curves with Polynomial Filters. Computer Graphics Forum, 32.
+ *  [²](https://doi.org/10.48550/arXiv.2610.02468): DesLauriers, M. (2026). Windfoil: Closed-Form Coverage for Real-Time and Differentiable Vector Graphics.
+ */
+private enum float fullCoverageTol = 1e-5f;
+
+/**
+ * Snaps coverage values within `fullCoverageTol` of 1.0 to exactly 1.0.
+ */
+private float snapFullCoverage(float cov)
+{
+    return cov > 1.0f - fullCoverageTol ? 1.0f : cov;
+}
+
+/**
+ * Maps a reconstructed winding value to an 8-bit alpha byte (0–255) using
+ * a specified fill-rule policy.
+ *
+ * Params:
+ *   coverage = A unary function or template mapping a float winding value to [0.0, 1.0].
+ *   val      = The box-filtered winding value reconstructed for the current pixel.
+ */
 ubyte quantizeCoverage(alias coverage)(float val)
 {
+    immutable cov = snapFullCoverage(coverage(val));
     version(DebugNoise) {
         enum noise = 55;
-        return clampTo!ubyte(coverage(val) * (255-noise) + uniform(0, noise));
+        return clampTo!ubyte(cov * (255 - noise) + uniform(0, noise));
     } else {
-        return clampTo!ubyte(coverage(val) * 255);
+        return clampTo!ubyte(cov * 255);
     }
 }
 
@@ -466,6 +507,20 @@ unittest
 
     // quantizeVal keeps its non-zero behaviour (clampTo truncates: 127.5 -> 127)
     assert(quantizeVal(2.0f) == 255 && quantizeVal(0.5f) == 127);
+
+    // Reconstruction noise near integer ties is snapped to full coverage
+    // before the alpha step, so both rules agree bit-exactly on a
+    // noisy tie input.
+    assert(quantizeCoverage!nonZeroCoverage(1.0f - 1e-6f) == 255);
+    assert(quantizeCoverage!evenOddCoverage(1.0f + 1e-6f) == 255);
+    assert(quantizeCoverage!evenOddCoverage(1.0f - 1e-6f) == 255);
+    assert(quantizeCoverage!nonZeroCoverage(1.0f + 1e-6f)
+        == quantizeCoverage!evenOddCoverage(1.0f + 1e-6f));
+
+    // Genuine near-ties (real multi-crossing slivers) are not noise.
+    assert(quantizeCoverage!evenOddCoverage(1.00002f) == 254); // 0.99998 * 255
+    assert(quantizeCoverage!evenOddCoverage(1.002f) == 254); // 0.998 * 255
+    assert(quantizeCoverage!evenOddCoverage(1.01f) == 252);  // 0.99 * 255
 }
 
 void writeGridValue(alias blit)(ubyte ubval, IPoint off, uint w, uint h) {

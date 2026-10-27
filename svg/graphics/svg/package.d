@@ -1425,11 +1425,10 @@ unittest
     auto junk = renderSVG(pentagram(`fill-rule="inherit"`));
     assert(junk.getLine!PMColor(20)[20].r > 200, "inherit at root keeps the initial nonzero");
 
-    // a Jordan contour (the 10-vertex star outline) renders the same
+    // a Jordan contour (the 10-vertex star outline) renders byte-identically
     // under both rules: on F in [0,1] both coverage transforms are the
-    // identity. Only float overshoot across |F| = 1 bites: non-zero
-    // clamps it, the even-odd triangle wave reflects it, so interior
-    // pixels can differ by a couple of units out of 255.
+    // identity, and reconstruction noise around |F| = 1 ties lands just
+    // under full, where quantizeCoverage calls it full again.
     string jordan(string extra)
     {
         return `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
@@ -1440,12 +1439,7 @@ unittest
     auto ja = renderSVG(jordan(`fill-rule="evenodd"`));
     auto jb = renderSVG(jordan(`fill-rule="nonzero"`));
     foreach (y; 0 .. 40)
-    {
-        auto ra = ja.getLine!PMColor(y), rb = jb.getLine!PMColor(y);
-        foreach (x; 0 .. 40)
-            assert(abs(to!int(ra[x].r) - to!int(rb[x].r)) <= 4,
-                   text("Jordan contour deviates at ", [x, y, ra[x].r, rb[x].r]));
-    }
+        assert(ja.getLine!PMColor(y) == jb.getLine!PMColor(y), text("Jordan contour differs at row ", y));
     assert(ja.getLine!PMColor(20)[20].r > 200); // inside either way
 }
 
