@@ -380,6 +380,10 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
         bool fillIsCurrent, strokeIsCurrent;
         bool visible=true; // visibility
 
+        // Inherited fill rule (SVG 1.1 11.2.4); clip-rule waits on clip
+        // paths themselves.
+        Path.FillRule fillRule = Path.FillRule.NonZero;
+
         // Stroke geometry.
         CapStyle caps;
         JoinStyle joins;
@@ -527,7 +531,18 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
                     break;
                 }
 
-                case "fill-rule": // not yet honoured: even-odd fills fall back to non-zero
+                case "fill-rule":
+                    switch (toLower(v))
+                    {
+                    case "evenodd":
+                        style.fillRule = Path.FillRule.EvenOdd;
+                        break;
+                    case "nonzero":
+                        style.fillRule = Path.FillRule.NonZero;
+                        break;
+                    default: // "inherit" and friends: keep the parent value
+                        break;
+                    }
                     break;
 
                 case "clip-rule": // clip paths arrive with the document model
@@ -742,9 +757,13 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
             }
 
             if (doFill)
-                // subpaths are implicitly closed at raster time
+            {
+                // Subpaths are implicitly closed at raster time
                 // (Path.applyFilled); no path.close() needed here.
+                // path.reset() does not clear fillRule, so assign per flush.
+                path.fillRule = s.fillRule;
                 canvas.drawPath(path, Paint(fillC));
+            }
             if (doStroke)
                 canvas.drawPath(stroked, Paint(strokeC));
             path.reset();
@@ -851,9 +870,17 @@ Bitmap renderSVG(string source, float zoom = 1.0f)
             }
 
             if (doFill)
-                // glyph outlines carry explicit Close verbs; the fill
+            {
+                // Glyph outlines carry explicit Close verbs; the fill
                 // closure (applyFilled) covers any straggler subpath.
+                // Pin the rule to non-zero on purpose (the comment above
+                // this block is right): convention-directed TrueType/CFF
+                // outlines fill the same under both rules, and `path` is
+                // shared with flushPath whose fillRule assignment above
+                // would otherwise leak into text.
+                path.fillRule = Path.FillRule.NonZero;
                 canvas.drawPath(path, Paint(fillC));
+            }
             if (doStroke)
                 canvas.drawPath(stroked, Paint(strokeC));
             path.reset();
@@ -1369,19 +1396,170 @@ unittest
 
 unittest
 {
-    // fill-rule="evenodd" is recognised but not honoured yet (non-zero fallback):
-    // the pentagram center fills either way.
-    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
-        <path d="M20,2 25.3,15.6 39,15.6 27.9,24.1 31.8,38 20,29.6 8.2,38 12.1,24.1 1,15.6 14.7,15.6 Z"
-              fill-rule="evenodd" fill="white"/>
-        </svg>`);
-    assert(bmp.getLine!PMColor(20)[20].r > 200, "evenodd currently falls back to non-zero");
+    // fill-rule="evenodd" is honoured: the straight-line pentagram
+    // {5/2} has |W| = 2 in its pentagon core, which even-odd punches
+    // out and non-zero fills.
+    string pentagram(string extra)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+            <path d="M20,2 31.8,38 1,15.6 39,15.6 8.2,38 Z" ` ~ extra ~ ` fill="white"/>
+            </svg>`;
+    }
 
-    auto bmp2 = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
-        <path d="M20,2 25.3,15.6 39,15.6 27.9,24.1 31.8,38 20,29.6 8.2,38 12.1,24.1 1,15.6 14.7,15.6 Z"
-              fill="white"/>
+    auto eo = renderSVG(pentagram(`fill-rule="evenodd"`));
+    assert(eo.getLine!PMColor(20)[20].r < 60, "even-odd punches the pentagram core");
+
+    auto nz = renderSVG(pentagram(`fill-rule="nonzero"`));
+    assert(nz.getLine!PMColor(20)[20].r > 200, "nonzero fills the pentagram core");
+
+    // unset defaults to nonzero; the property inherits; junk keeps parent
+    assert(renderSVG(pentagram("")).getLine!PMColor(20)[20].r > 200);
+    auto inherited = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <g fill-rule="evenodd"><path d="M20,2 31.8,38 1,15.6 39,15.6 8.2,38 Z" fill="white"/></g>
         </svg>`);
-    assert(bmp2.getLine!PMColor(20)[20].r > 200, "nonzero fills the pentagram center");
+    assert(inherited.getLine!PMColor(20)[20].r < 60, "fill-rule inherits from the group");
+    auto reReset = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <g fill-rule="evenodd"><path fill-rule="nonzero" d="M20,2 31.8,38 1,15.6 39,15.6 8.2,38 Z" fill="white"/></g>
+        </svg>`);
+    assert(reReset.getLine!PMColor(20)[20].r > 200, "fill-rule resets per element");
+    auto junk = renderSVG(pentagram(`fill-rule="inherit"`));
+    assert(junk.getLine!PMColor(20)[20].r > 200, "inherit at root keeps the initial nonzero");
+
+    // a Jordan contour (the 10-vertex star outline) renders the same
+    // under both rules: on F in [0,1] both coverage transforms are the
+    // identity. Only float overshoot across |F| = 1 bites: non-zero
+    // clamps it, the even-odd triangle wave reflects it, so interior
+    // pixels can differ by a couple of units out of 255.
+    string jordan(string extra)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+            <path d="M20,2 25.3,15.6 39,15.6 27.9,24.1 31.8,38 20,29.6 8.2,38 12.1,24.1 1,15.6 14.7,15.6 Z" `
+               ~ extra ~ ` fill="white"/>
+            </svg>`;
+    }
+    auto ja = renderSVG(jordan(`fill-rule="evenodd"`));
+    auto jb = renderSVG(jordan(`fill-rule="nonzero"`));
+    foreach (y; 0 .. 40)
+    {
+        auto ra = ja.getLine!PMColor(y), rb = jb.getLine!PMColor(y);
+        foreach (x; 0 .. 40)
+            assert(abs(to!int(ra[x].r) - to!int(rb[x].r)) <= 4,
+                   text("Jordan contour deviates at ", [x, y, ra[x].r, rb[x].r]));
+    }
+    assert(ja.getLine!PMColor(20)[20].r > 200); // inside either way
+}
+
+unittest
+{
+    // nested same-direction triangles (mirrors paths-data-04-t): the
+    // inner triangle is W=2, so even-odd renders a ring and non-zero a
+    // solid fill; a reversed inner contour cancels the winding under
+    // non-zero but parity still punches it under even-odd.
+    string nested(string inner, string extra)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+            <path d="M16,3 29,27 3,27 Z M` ~ inner ~ ` Z" ` ~ extra ~ ` fill="white"/>
+            </svg>`;
+    }
+    alias px = (Bitmap b, int x, int y) => b.getLine!PMColor(y)[x].r;
+
+    auto eo = renderSVG(nested("16,11 23,23 9,23", `fill-rule="evenodd"`));
+    auto nz = renderSVG(nested("16,11 23,23 9,23", `fill-rule="nonzero"`));
+    assert(px(eo, 16, 8) > 200 && px(nz, 16, 8) > 200); // the band fills either way
+    assert(px(eo, 16, 18) < 60,  "even-odd: inner triangle is a hole");
+    assert(px(nz, 16, 18) > 200, "nonzero: inner triangle fills (W=2)");
+
+    auto revEo = renderSVG(nested("16,11 9,23 23,23", `fill-rule="evenodd"`));
+    auto revNz = renderSVG(nested("16,11 9,23 23,23", `fill-rule="nonzero"`));
+    assert(px(revEo, 16, 18) < 60, "even-odd punches regardless of orientation");
+    assert(px(revNz, 16, 18) < 60, "reversed inner contour cancels winding under nonzero");
+
+    // sign independence: a single reversed Jordan contour fills under
+    // even-odd exactly like the same contour forward
+    auto fwd = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+        <path d="M16,3 29,27 3,27 Z" fill-rule="evenodd" fill="white"/>
+        </svg>`);
+    auto rev = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+        <path d="M16,3 3,27 29,27 Z" fill-rule="evenodd" fill="white"/>
+        </svg>`);
+    assert(px(fwd, 16, 10) > 200 && px(rev, 16, 10) > 200, "even-odd is orientation independent");
+}
+
+unittest
+{
+    // two same-direction circle subpaths in ONE path element: the lens
+    // is W=2, punched under even-odd, filled under non-zero. (Separate
+    // <circle> elements would rasterize as separate rasters and never
+    // sum windings - this must be a compound path.)
+    const d = "M21,16 A9,9 0 1 1 3,16 A9,9 0 1 1 21,16 Z "
+           ~ "M29,16 A9,9 0 1 1 11,16 A9,9 0 1 1 29,16 Z";
+    string ovals(string extra)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+            <path d="` ~ d ~ `" ` ~ extra ~ ` fill="white"/>
+            </svg>`;
+    }
+    auto eo = renderSVG(ovals(`fill-rule="evenodd"`));
+    auto nz = renderSVG(ovals(`fill-rule="nonzero"`));
+    assert(eo.getLine!PMColor(16)[16].r < 60, "even-odd punches the overlap lens");
+    assert(nz.getLine!PMColor(16)[16].r > 200, "nonzero fills the overlap lens");
+    assert(eo.getLine!PMColor(16)[8].r > 200 && nz.getLine!PMColor(16)[8].r > 200); // single coverage fills
+}
+
+unittest
+{
+    // Documented limitation: ∫ and mod 2 do not commute, so cells with
+    // TWO boundary crossings mis-evaluate. Two same-direction rectangles
+    // cross the non-zero/even-odd wire exactly at two pixel centers
+    // ((6.5,3.5) and (4.5,6.5)); all coordinates are dyadic so the
+    // winding field there is bit-exact: those cells read F = 1.0, the
+    // even-odd tie that yields FULL coverage where truth is exactly
+    // half. The deviation is asserted as BOUNDED, so a future change -
+    // improvement or new failure mode - trips this test.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" fill="white"
+              d="M0.5,0.5 H6.5 V6.5 H0.5 Z M4.5,3.5 H14.5 V13.5 H4.5 Z"/>
+        </svg>`);
+
+    // exact even-odd coverage for axis-aligned rectangles: the odd-wound
+    // region is the symmetric difference A △ B.
+    struct Rect { double l, t, r, b; }
+    enum A = Rect(0.5, 0.5, 6.5, 6.5), B = Rect(4.5, 3.5, 14.5, 13.5);
+    double span(double lo, double hi, double x0, double x1)
+    {
+        return max(0.0, min(hi, x1) - max(lo, x0));
+    }
+    double area(Rect r, int px, int py)
+    {
+        return span(r.l, r.r, px, px + 1.0) * span(r.t, r.b, py, py + 1.0);
+    }
+    double overlapArea(int px, int py)
+    {
+        Rect c = Rect(max(A.l, B.l), max(A.t, B.t), min(A.r, B.r), min(A.b, B.b));
+        return area(c, px, py);
+    }
+
+    size_t badCells;
+    foreach (py; 0 .. 16)
+    {
+        auto row = bmp.getLine!PMColor(py);
+        foreach (px; 0 .. 16)
+        {
+            immutable pxc = row[px];
+            immutable cov = area(A, px, py) + area(B, px, py) - 2 * overlapArea(px, py);
+            immutable dev = abs(pxc.r / 255.0 - cov);
+            immutable twoCrossings = (px == 6 && py == 3) || (px == 4 && py == 6);
+            if (twoCrossings)
+            {
+                ++badCells;
+                assert(pxc.r >= 240, text("tie cell not near full coverage at ", [px, py]));
+                assert(dev <= 0.55, text("deviation unbounded at ", [px, py, dev]));
+            }
+            else
+                assert(dev <= 4.0 / 255, text("unexpected deviation at ", [px, py, dev]));
+        }
+    }
+    assert(badCells == 2, text("expected exactly the two crossing cells, got ", badCells));
 }
 
 unittest
