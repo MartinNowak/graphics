@@ -1,6 +1,6 @@
 module graphics.svg.core;
 
-import std.ascii, std.algorithm, std.conv, std.functional, std.range;
+import std.ascii, std.algorithm, std.conv, std.functional, std.math, std.range;
 
 import guip.point;
 import graphics.core.matrix;
@@ -48,12 +48,25 @@ bool transformSVG(ref Matrix mat, string s)
             break;
 
         case "skewX":
-            m.setSkewX(parse!float(s));
+        {
+            // SVG skewX(a) is affine: x' = x + y·tan(a). The library's
+            // setSkewX puts the tangent in the w-row, which under the
+            // matrix's projective point mapping divides by (1 + x·tan) -
+            // not an SVG skew. Build the matrix by hand instead.
+            immutable t = tan(parse!float(s) * PI / 180.0f);
+            m.reset();
+            m[0][1] = t;
             break;
+        }
 
         case "skewY":
-            m.setSkewY(parse!float(s));
+        {
+            // SVG skewY(a): y' = y + x·tan(a) (same reasoning as skewX).
+            immutable t = tan(parse!float(s) * PI / 180.0f);
+            m.reset();
+            m[1][0] = t;
             break;
+        }
 
         case "matrix":
             // SVG matrix(a b c d e f): x' = ax + cy + e, y' = bx + dy + f.
@@ -417,12 +430,15 @@ unittest
     transformSVG(m, "rotate(90, 5, 5)");
     assert(near(m * FPoint(5, 5), FPoint(5, 5)));
 
+    // SVG skews are affine shears (not the library's w-row projective skew):
     m.reset();
-    transformSVG(m, "skewX(0.5)");
-    assert(m.perspective);
+    transformSVG(m, "skewX(45)");
+    assert(!m.perspective);
+    assert(near(m * FPoint(0, 1), FPoint(1, 1)));
     m.reset();
-    transformSVG(m, "skewY(0.5)");
-    assert(m.perspective);
+    transformSVG(m, "skewY(45)");
+    assert(!m.perspective);
+    assert(near(m * FPoint(1, 0), FPoint(1, 1)));
 
     m.reset();
     assert(transformSVG(m, "matrix(1 2 3 4 5 6)"));

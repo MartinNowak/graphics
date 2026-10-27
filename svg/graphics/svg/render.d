@@ -934,14 +934,21 @@ private struct Renderer
 
         case "line":
             {
-                immutable p0 = FPoint(a.convLen("x0", 0.0f, lc, RefAxis.width),
-                                      a.convLen("y0", 0.0f, lc, RefAxis.height));
-                immutable p1 = FPoint(a.convLen("x1", 0.0f, lc, RefAxis.width),
+                immutable p0 = FPoint(a.convLen("x1", 0.0f, lc, RefAxis.width),
                                       a.convLen("y1", 0.0f, lc, RefAxis.height));
+                immutable p1 = FPoint(a.convLen("x2", 0.0f, lc, RefAxis.width),
+                                      a.convLen("y2", 0.0f, lc, RefAxis.height));
 
-                path.moveTo(p0);
-                path.lineTo(p1);
-                flushPath(a);
+                // Zero-length lines are never emitted: they add nothing to
+                // fills, and the wavelet stroker asserts on degenerate
+                // round-cap subpaths. (Browsers paint round/square-cap
+                // zero-length segments as dots; TODO.)
+                if (p0 != p1)
+                {
+                    path.moveTo(p0);
+                    path.lineTo(p1);
+                    flushPath(a);
+                }
             }
             break;
 
@@ -1983,4 +1990,32 @@ unittest
     assert(bmpD.getLine!PMColor(10)[11].r == 255); // dash at 10..14
     assert(bmpD.getLine!PMColor(10)[15].r == 0);   // gap at 14..18
     assert(bmpD.getLine!PMColor(10)[19].r == 255); // dash at 18..22
+}
+
+unittest
+{
+    // <line> spans x1,y1 -> x2,y2 (SVG 1.1 shapes chapter): the segment
+    // lives where the attributes say, not from the origin.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">
+        <line x1="2" y1="3" x2="18" y2="3" stroke="red" stroke-width="2"/>
+        </svg>`);
+    auto row = bmp.getLine!PMColor(3);
+    assert(row[1].a == 0 && row[2].r == 255, "segment starts at x1");
+    assert(row[17].r == 255 && row[18].a == 0, "segment ends at x2");
+    assert(bmp.getLine!PMColor(2)[9].r == 255
+        && bmp.getLine!PMColor(4)[9].a == 0, "stroke-width 2 centred on y1");
+
+    // A zero-length line paints nothing (and must not trip the stroker).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">
+        <line x1="9" y1="5" x2="9" y2="5" stroke="red" stroke-width="8" stroke-linecap="round"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[9].a == 0, "zero-length line paints nothing");
+
+    // skewX(45) shears x by +y (affine, not the projective shear the
+    // matrix library's w-row would give): mid-stroke lands at x = 30+25.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="70" height="60" viewBox="0 0 70 60">
+        <line x1="30" y1="40" x2="30" y2="10" stroke="red" stroke-width="4" transform="skewX(45)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(25)[55].r == 255, "skewed segment follows the shear");
+    assert(bmp.getLine!PMColor(25)[30].a == 0, "nothing stays at the unskewed x");
 }
