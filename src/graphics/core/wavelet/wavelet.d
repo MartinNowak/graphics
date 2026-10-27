@@ -3,6 +3,7 @@ module graphics.core.wavelet.wavelet;
 import std.algorithm, std.array, std.bitmanip, std.conv, std.math, std.random,
     std.string, std.typecons, core.bitop;
 import graphics.bezier.cartesian, graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
+import graphics.core.path : Path;
 import graphics.math.clamp, graphics.math.poly;
 import graphics.core.wavelet.calc_coeffs;
 import guip.bitmap, guip.point, guip.rect, guip.size;
@@ -269,8 +270,22 @@ struct WaveletRaster
     /// column `x - clipRect.left`. Decouples the quadtree's Z-order
     /// traversal from the framebuffer's linear scanline layout: the
     /// traversal only touches one byte per pixel here, and the blitter
-    /// consumes the scratch line by line.
+    /// consumes the scratch line by line. The fill rule is picked from
+    /// `fillRule` here - one instantiation per blit, no per-pixel branch.
     void blit()
+    {
+        final switch (fillRule)
+        {
+        case Path.FillRule.NonZero:
+            blitCoverage!nonZeroCoverage();
+            break;
+        case Path.FillRule.EvenOdd:
+            blitCoverage!evenOddCoverage();
+            break;
+        }
+    }
+
+    private void blitCoverage(alias coverage)()
     {
         if (_clipRect.empty)
             return;
@@ -292,7 +307,7 @@ struct WaveletRaster
 
         // Can happen with only the root node on very small paths (1x1 pixels)
         if (_depth == 0)
-            writeGridValue!blitRow(quantizeVal(_rootConst), _clipRect.pos, 1, 1);
+            writeGridValue!blitRow(quantizeCoverage!coverage(_rootConst), _clipRect.pos, 1, 1);
         else
         {
             // Root square is 2^_depth; the grid is anchored at the clip
@@ -303,7 +318,7 @@ struct WaveletRaster
                 edge = cast(Edge)(edge | Edge.east);
             if (_clipRect.pos.y + sq > _clipRect.bottom)
                 edge = cast(Edge)(edge | Edge.south);
-            writeToGrid!blitRow(
+            writeToGrid!(blitRow, coverage)(
                 _coeffMarks[], _coeffs[], 0, _rootConst, _clipRect.pos, _depth - 1,
                 edge, _clipRect);
         }
@@ -313,6 +328,9 @@ struct WaveletRaster
     uint _depth;
     IRect _clipRect;
     Bitmap scratch;
+
+    // Fill rule applied to the reconstructed winding field at write-out.
+    Path.FillRule fillRule = Path.FillRule.NonZero;
 
     enum MAX_DEPTH = 15; // limited by ushort for linearQuadtreeCoord
     Interim[MAX_DEPTH] _interimStack;
@@ -329,17 +347,125 @@ enum Edge : ubyte
     south  = 1 << 1
 }
 
-// Quantize a wavelet value to the 8-bit alpha the blit delegate expects.
-// (Done per pixel that is actually written, so the DebugNoise random
-// stream is only consumed for painted pixels.)
+
+/**
+ * Quantizes a reconstructed winding value into an 8-bit alpha value (0–255)
+ * using the default non-zero fill rule.
+ *
+ * Background:
+ * Wavelet traversal reconstructs the cell-averaged box-filtered winding number,
+ * not a binary inside/outside indicator. By Green's theorem, the boundary integrals
+ * of Manson & Schaefer (2011)¹ satisfy:
+ *     ∮_{∂M} F_e · n ds == ∬ ψ_e(p) · W(p) dA
+ *
+ * Because integration produces an average winding field rather than final coverage,
+ * the fill rule must be applied per pixel cell *after* reconstruction (Windfoil,
+ * DesLauriers 2026, sec. 3.1)². For simple Jordan contours, winding is strictly [0, 1],
+ * making winding and coverage identical¹.
+ *
+ * Note: Quantization runs only for pixels actually written to the destination,
+ * ensuring the DebugNoise random stream is consumed solely by painted pixels.
+ *
+ * See Also:
+ *  [¹](https://doi.org/10.1111/cgf.12070): Manson, J., & Schaefer, S. (2013). Analytic Rasterization of Curves with Polynomial Filters. Computer Graphics Forum, 32.
+ *  [²](https://doi.org/10.48550/arXiv.2610.02468): DesLauriers, M. (2026). Windfoil: Closed-Form Coverage for Real-Time and Differentiable Vector Graphics.
+ *  [Jordan curve theorem](https://en.wikipedia.org/wiki/Jordan_curve_theorem)
+ */
 ubyte quantizeVal(float val)
+{
+    return quantizeCoverage!nonZeroCoverage(val);
+}
+
+ubyte quantizeCoverage(alias coverage)(float val)
 {
     version(DebugNoise) {
         enum noise = 55;
-        return clampTo!ubyte(abs(val * (255-noise)) + uniform(0, noise));
+        return clampTo!ubyte(coverage(val) * (255-noise) + uniform(0, noise));
     } else {
-        return clampTo!ubyte(abs(val * 255));
+        return clampTo!ubyte(coverage(val) * 255);
     }
+}
+
+/**
+ * Non-zero fill rule: maps winding number W to coverage via min(|W|, 1.0)¹.
+ *
+ * The absolute value ensures orientation independence (handles counter-clockwise
+ * vs. clockwise contours identically), clamping any winding magnitude >= 1.0 to full coverage.
+ *
+ * See Also:
+ *  [¹](https://doi.org/10.1111/cgf.12070): Manson, J., & Schaefer, S. (2013). Analytic Rasterization of Curves with Polynomial Filters. Computer Graphics Forum, 32.
+ */
+float nonZeroCoverage(float val)
+{
+    return min(abs(val), 1.0f);
+}
+
+/**
+ * Even-odd fill rule: maps winding number W to coverage by computing the distance
+ * from W to the nearest even integer¹.
+ *
+ * Formulation:
+ * Evaluates a periodic triangle wave of period 2:
+ *     r = |W| mod 2
+ *     coverage = min(r, 2.0 - r)
+ * This produces zeros at even integers (exterior / holes) and peaks of 1.0 at odd integers
+ * (interior)¹. It is inherently orientation-invariant.
+ *
+ * Exactness:
+ * For pixels where winding varies by at most 1 across the footprint (e.g., solid interior
+ * cells or an edge with a single boundary crossing separating regions W and W+1 with
+ * fractional area a):
+ *     F = W + a
+ * Here, evenOddCoverage(F) yields the mathematically exact odd-winding area fraction¹ ².
+ *
+ * Known Limitation:
+ * Integration (averaging) and modulo 2 do not commute²:
+ *     (∬ W dA) mod 2  !=  ∬ (W mod 2) dA
+ *
+ * When a pixel footprint covers multiple boundary crossings (e.g., self-intersections,
+ * tangencies, or hair-thin overlapping paths), this approximation can fail[cite: 1, 2]. For example,
+ * a pixel covered 50% by W=0 and 50% by W=2 averages to F=1.0, which incorrectly evaluates
+ * to full coverage (1.0) instead of empty coverage (0.0)².
+ *
+ * Because this error is strictly confined to pixels directly straddling multi-contour
+ * crossings, total error scales with crossing count rather than image area¹. This same
+ * engineering trade-off is shared by other real-time GPU renderers such as Slug and
+ * Vello (Windfoil, DesLauriers 2026, sec. 8)[cite: 1]. Eliminating it completely would require either
+ * per-footprint supersampling or decomposing the input into a planar arrangement beforehand¹ ².
+ *
+ * See Also:
+ *  [¹](https://doi.org/10.1111/cgf.12070): Manson, J., & Schaefer, S. (2013). Analytic Rasterization of Curves with Polynomial Filters. Computer Graphics Forum, 32.
+ *  [²](https://doi.org/10.48550/arXiv.2610.02468): DesLauriers, M. (2026). Windfoil: Closed-Form Coverage for Real-Time and Differentiable Vector Graphics.
+ */
+float evenOddCoverage(float val)
+{
+    immutable r = abs(val) % 2.0f;
+    return min(r, 2.0f - r);
+}
+
+unittest
+{
+    // The two transforms on the reconstructed winding field.
+    assert(nonZeroCoverage(0) == 0 && nonZeroCoverage(1) == 1);
+    assert(nonZeroCoverage(2) == 1 && nonZeroCoverage(-1) == 1);
+    assert(nonZeroCoverage(0.5f) == 0.5f && nonZeroCoverage(-0.25f) == 0.25f);
+
+    // Triangle wave, period 2; the tie at odd integers (F=1 -> full
+    // coverage) is inherent to the rule, not a bug: that is where a
+    // cell holds a single boundary crossing and is covered "half and
+    // more" by odd winding.
+    assert(evenOddCoverage(0) == 0);
+    assert(evenOddCoverage(1) == 1);
+    assert(evenOddCoverage(2) == 0);
+    assert(evenOddCoverage(3) == 1);
+    assert(evenOddCoverage(-1) == 1);
+    assert(evenOddCoverage(-2) == 0);
+    assert(evenOddCoverage(0.5f) == 0.5f);
+    assert(evenOddCoverage(1.5f) == 0.5f);
+    assert(evenOddCoverage(2.5f) == 0.5f);
+
+    // quantizeVal keeps its non-zero behaviour (clampTo truncates: 127.5 -> 127)
+    assert(quantizeVal(2.0f) == 255 && quantizeVal(0.5f) == 127);
 }
 
 void writeGridValue(alias blit)(ubyte ubval, IPoint off, uint w, uint h) {
@@ -359,12 +485,12 @@ void writeGridValue(alias blit)(ubyte ubval, IPoint off, uint w, uint h) {
 // bounds arithmetic. Border blocks are culled when fully outside, then
 // clamped: cull + edge flag together guarantee the width/height fall in
 // [1, locRes], so a single subtract is exact at every level.
-void writeBlock(alias blit)(float cval, IPoint off, uint locRes, Edge edge,
+void writeBlock(alias blit, alias coverage)(float cval, IPoint off, uint locRes, Edge edge,
                            in IRect clip)
 {
     if (edge == Edge.inside)
     {
-        auto ubval = quantizeVal(cval);
+        auto ubval = quantizeCoverage!coverage(cval);
         if (!ubval)
             return;
         writeGridValue!blit(ubval, off, locRes, locRes);
@@ -375,7 +501,7 @@ void writeBlock(alias blit)(float cval, IPoint off, uint locRes, Edge edge,
         return;
     auto w = edge & Edge.east ? uint(clip.right) - off.x : locRes;
     auto h = edge & Edge.south ? uint(clip.bottom) - off.y : locRes;
-    auto ubval = quantizeVal(cval);
+    auto ubval = quantizeCoverage!coverage(cval);
     if (!ubval)
         return;
     writeGridValue!blit(ubval, off, w, h);
@@ -385,7 +511,7 @@ void writeBlock(alias blit)(float cval, IPoint off, uint locRes, Edge edge,
 // butterfly (8 float ops). Written as row-major runs, coalescing
 // horizontal neighbours that quantize to the same alpha — the merge
 // only reduces call count, never coverage.
-void writeQuadDepth0(alias blit)(float val, in Coeffs coeff, IPoint off,
+void writeQuadDepth0(alias blit, alias coverage)(float val, in Coeffs coeff, IPoint off,
                                 Edge edge, in IRect clip)
 {
     uint w, h;
@@ -410,10 +536,10 @@ void writeQuadDepth0(alias blit)(float val, in Coeffs coeff, IPoint off,
     // are equal.
     void row(float a, float b, int y)
     {
-        auto qa = quantizeVal(a);
+        auto qa = quantizeCoverage!coverage(a);
         if (w == 2)
         {
-            auto qb = quantizeVal(b);
+            auto qb = quantizeCoverage!coverage(b);
             if (qa == qb)
                 writeGridValue!blit(qa, IPoint(off.x, y), 2, 1);
             else
@@ -440,7 +566,7 @@ void writeQuadDepth0(alias blit)(float val, in Coeffs coeff, IPoint off,
 // Quadtree traversal. `edge` tracks which clip border the node square
 // touches. NW never touches east/south, and an interior node has a fully
 // interior subtree, so interior subtrees carry no bounds checks at all.
-void writeToGrid(alias blit)
+void writeToGrid(alias blit, alias coverage)
     (in size_t*[] coeffMarks, Coeffs[][] coeffs, uint cidx, float val,
      IPoint offset, uint depth, Edge edge, in IRect clip)
 in
@@ -459,7 +585,7 @@ body
 
     if (depth == 0)
     {
-        writeQuadDepth0!blit(val, coeff, offset, edge, clip);
+        writeQuadDepth0!(blit, coverage)(val, coeff, offset, edge, clip);
         return;
     }
 
@@ -504,39 +630,39 @@ body
     Edge edgeNW = edges(innerE, innerS);
     auto cval = s0 + d0;
     if (mask & 0b0001u)
-        writeToGrid!blit(coeffMarks, coeffs, cidx, cval, offset, depth - 1,
+        writeToGrid!(blit, coverage)(coeffMarks, coeffs, cidx, cval, offset, depth - 1,
                          edgeNW, clip);
     else
-        writeBlock!blit(cval, offset, locRes, edgeNW, clip);
+        writeBlock!(blit, coverage)(cval, offset, locRes, edgeNW, clip);
 
     // NE: east inherited exactly, south re-checked
     cval = s0 - d0;
     auto offNE = IPoint(offset.x + locRes, offset.y);
     auto edgeNE = edges(edgeE == Edge.east, innerS);
     if (mask & 0b0010u)
-        writeToGrid!blit(coeffMarks, coeffs, cidx + 1, cval, offNE, depth - 1,
+        writeToGrid!(blit, coverage)(coeffMarks, coeffs, cidx + 1, cval, offNE, depth - 1,
                          edgeNE, clip);
     else
-        writeBlock!blit(cval, offNE, locRes, edgeNE, clip);
+        writeBlock!(blit, coverage)(cval, offNE, locRes, edgeNE, clip);
 
     // SW: east re-checked, south inherited exactly
     cval = s1 + d1;
     auto offSW = IPoint(offset.x, offset.y + locRes);
     auto edgeSW = edges(innerE, edgeS == Edge.south);
     if (mask & 0b0100u)
-        writeToGrid!blit(coeffMarks, coeffs, cidx + 2, cval, offSW, depth - 1,
+        writeToGrid!(blit, coverage)(coeffMarks, coeffs, cidx + 2, cval, offSW, depth - 1,
                          edgeSW, clip);
     else
-        writeBlock!blit(cval, offSW, locRes, edgeSW, clip);
+        writeBlock!(blit, coverage)(cval, offSW, locRes, edgeSW, clip);
 
     // SE: both inherited exactly
     cval = s1 - d1;
     auto offSE = IPoint(offset.x + locRes, offset.y + locRes);
     if (mask & 0b1000u)
-        writeToGrid!blit(coeffMarks, coeffs, cidx + 3, cval, offSE, depth - 1,
+        writeToGrid!(blit, coverage)(coeffMarks, coeffs, cidx + 3, cval, offSE, depth - 1,
                          edge, clip);
     else
-        writeBlock!blit(cval, offSE, locRes, edge, clip);
+        writeBlock!(blit, coverage)(cval, offSE, locRes, edge, clip);
 }
 
 unittest

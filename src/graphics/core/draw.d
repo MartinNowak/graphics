@@ -259,6 +259,7 @@ void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter bli
     if (!ir.intersect(clip))
         return;
     WaveletRaster wr = WaveletRaster(ir);
+    wr.fillRule = path.fillRule;
 
     // Fills integrate closed contours: applyFilled synthesizes the
     // implicit closing edge for subpaths whose "Z" was left out.

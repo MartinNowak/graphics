@@ -472,6 +472,11 @@ struct Path
 {
     ImmutablePathData _data;
 
+    // Fill rule for rasterization. Not part of the geometry: reset()
+    // only clears _data, so flush sites must assign it, not rely on it
+    // being reset.
+    FillRule fillRule = FillRule.NonZero;
+
     alias _data this;
 
     enum Verb : ubyte
@@ -481,6 +486,14 @@ struct Path
         Quad  = 2,
         Cubic = 3,
         Close = 4,
+    }
+
+    // How to map the winding number accumulated by the rasterizer to
+    // fill coverage. NonZero: winding != 0; EvenOdd: winding mod 2.
+    enum FillRule
+    {
+        NonZero,
+        EvenOdd,
     }
 
     enum Direction
