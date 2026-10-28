@@ -13,6 +13,7 @@ import graphics.core.pmcolor : PMColor, alphaMul, alphaScale, invAlphaScale;
 import graphics.core.shader : Shader, ColorShader, MappingShader;
 import graphics.svg.color;
 import graphics.svg.core;
+import graphics.svg.filter;
 import graphics.svg.gradient;
 import graphics.svg.parser;
 import graphics.svg.pattern;
@@ -632,6 +633,20 @@ private struct Renderer
     // Painting <marker> content: §11.4 keeps markers out of marker
     // content (no recursion), so flushPath skips them while set.
     bool markerMode;
+
+    // filterDepth caps filter-on-filter nesting: each level's offscreen
+    // scratch is nested in its parent's, and reference cycles (a
+    // filtered subtree that re-references its own filter via <use>)
+    // stop at the cap and paint unfiltered.
+    int filterDepth;
+
+    // During a filtered subtree's paint this tracks the union of all
+    // painted geometry bboxes (user space) - the objectBoundingBox
+    // basis for filter regions and primitive subregions, which the
+    // spec defines on *geometry*, not painted coverage (AA pixels
+    // would inflate it).
+    bool bboxTrack;
+    FRect bboxAccum;
 
     // Directory of the source document (trailing '/'), the default base
     // for relative <image> hrefs; "" means the process cwd.
@@ -1283,13 +1298,17 @@ private struct Renderer
         if (!any)
             return;
 
-        // Composite scratch over the device with standard PM src-over.
-        // Not canvas.drawBitmap: the sprite blit premultiplies its
-        // source while blending (S32A_Opaque_BlitRow32), i.e. it wants
-        // a straight-ARGB buffer, and scratch is already premultiplied
-        // - its own alpha would scale twice. scratch is exactly as big
-        // as bmp, so the viewport clip is a no-op and a plain blend
-        // matches it.
+        blendPM(scratch);
+    }
+
+    // Composite a full-canvas scratch over the device with standard PM
+    // src-over. Not canvas.drawBitmap: the sprite blit premultiplies its
+    // source while blending (S32A_Opaque_BlitRow32), i.e. it wants a
+    // straight-ARGB buffer, and scratch is already premultiplied - its own
+    // alpha would scale twice. scratch is exactly as big as bmp, so the
+    // viewport clip is a no-op and a plain blend matches it.
+    void blendPM(in Bitmap scratch)
+    {
         foreach (y; 0 .. bmp.height)
         {
             auto d = bmp.getLine!PMColor(y);
@@ -1774,6 +1793,8 @@ private struct Renderer
         // color's own alpha.
         immutable op = clamp(s.opacity, 0f, 1f);
         immutable bbox = path.bounds; // objectBoundingBox paint-server basis
+        if (bboxTrack)
+            bboxAccum = unionBox(bboxAccum, bbox); // filter region basis (§15.5)
         Paint fillP = resolvePaint(true, s, op * clamp(s.fillOpacity, 0f, 1f), bbox);
         Paint strokeP = resolvePaint(false, s, op * clamp(s.strokeOpacity, 0f, 1f), bbox);
 
@@ -1918,6 +1939,8 @@ private struct Renderer
         // keep the non-zero winding rule.
         immutable op = clamp(s.opacity, 0f, 1f);
         immutable bbox = path.bounds; // objectBoundingBox paint-server basis
+        if (bboxTrack)
+            bboxAccum = unionBox(bboxAccum, bbox); // filter region basis (§15.5)
         Paint fillP = resolvePaint(true, s, op * clamp(s.fillOpacity, 0f, 1f), bbox);
         Paint strokeP = resolvePaint(false, s, op * clamp(s.strokeOpacity, 0f, 1f), bbox);
 
@@ -2054,6 +2077,8 @@ private struct Renderer
         p.shader = new ImageShader(drawn, sx, sy);
         Path q;
         q.addRect(vis);
+        if (bboxTrack)
+            bboxAccum = unionBox(bboxAccum, q.bounds); // filter region basis (§15.5)
         canvas.drawPath(q, p);
     }
 
@@ -2524,6 +2549,22 @@ private struct Renderer
             return;
         }
 
+        // Filtered paint (§15): the offscreen pass fires ahead of the
+        // ordinary dispatch - the filter applies to the whole element,
+        // leaf, container, or <use> instance alike. clipMode skips it:
+        // clipPath children contribute geometry only, and filters are
+        // no part of that reading (§14.3).
+        if (!clipMode && "filter" in n.attrs)
+            if (filteredElement(ch))
+                return;
+
+        paintSubtree(ch);
+    }
+
+    // Paint one element and its subtree through the ordinary dispatch.
+    void paintSubtree(size_t ch)
+    {
+        auto n = doc.nodes[ch];
         if (n.name == "use")
         {
             useElement(ch);
@@ -2538,6 +2579,478 @@ private struct Renderer
         element(n.name, n.attrs);
         walk(ch);
         closeElement(n.name);
+    }
+
+    // Filtered paint (§15.1): render the element's subtree into an
+    // offscreen scratch, run the <filter>'s primitive chain over that
+    // raster, and blend the result back. The offscreen convention
+    // matches maskedPaint: a full-canvas buffer, semantically bounded
+    // by the filter effects region (§15.5).
+    //
+    // Returns true when the element's paint was consumed - including
+    // when the filter resolves to nothing. A broken reference and a
+    // chain that ends up with no executed primitive both yield
+    // transparent black and the element disappears entirely (filters-
+    // felem-01-b pins this for dangling references, empty filters, and
+    // an empty filter with a custom region alike).
+    bool filteredElement(size_t ch)
+    {
+        immutable v = strip(doc.nodes[ch].attrs.get("filter", ""));
+        if (v.empty || equalCase(v, "none"))
+            return false; // none / invalid value: ordinary painting
+
+        string id;
+        Color fb;
+        bool hasFb;
+        if (!urlPaint(v, id, fb, hasFb))
+            return false; // not a funciri: invalid attribute, ignored
+
+        immutable target = doc.byId(id);
+        if (target == Document.unknown || doc.nodes[target].name != "filter")
+            return true; // broken reference: the element is not rendered
+
+        if (filterDepth >= 4)
+            return false; // cycle/depth cap: paint unfiltered
+
+        auto f = makeFilter(doc, target);
+
+        // The element's CTM: the filter region and the objectBoundingBox
+        // maths ride the same matrix that paints the subtree - including
+        // the element's own transform, still an unapplied attribute here.
+        Matrix ctm = canvas.matrix;
+        if (auto t = "transform" in doc.nodes[ch].attrs)
+            transformSVG(ctm, *t);
+
+        // Render the subtree into the scratch, tracking the painted
+        // geometry's bbox (the objectBoundingBox basis).
+        auto scratch = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
+        scratch.eraseColor(Color(0));
+        auto oc = new Canvas(scratch);
+        oc.matrix = ctm;
+
+        auto oldCanvas = canvas;
+        auto oldBmp = bmp;
+        immutable oldTrack = bboxTrack;
+        immutable oldAccum = bboxAccum;
+        FRect local; // this filter's own geometry union
+        canvas = oc;
+        bmp = scratch;
+        bboxTrack = true;
+        bboxAccum = FRect(0, 0, 0, 0);
+        ++filterDepth;
+        scope (exit)
+        {
+            canvas = oldCanvas;
+            bmp = oldBmp;
+            bboxTrack = oldTrack;
+            bboxAccum = oldTrack ? unionBox(oldAccum, bboxAccum) : oldAccum;
+            --filterDepth;
+        }
+        paintSubtree(ch);
+        local = bboxAccum; // (kept for clarity: `local` = this subtree's bbox)
+
+        // The objectBoundingBox basis in device space (corner AABB - the
+        // same approximation rotated content accepts from the marker
+        // viewport clip). A degenerate geometry bbox makes every
+        // objectBoundingBox computation zero-sized, and a zero-width or
+        // -height region disables rendering (§15.5) - a filtered stroked
+        // line with a zero-area bbox vanishes exactly as the browsers'
+        // references show.
+        auto src = rasterFrom(scratch, f.linearRGB);
+        IBox4 basis;
+        if (f.objBB)
+        {
+            if (local.width <= 0 || local.height <= 0)
+                return true;
+            basis = bboxToDevice(local, ctm);
+        }
+        IBox4 region = lengthBox(f.x, f.y, f.width, f.height, f.objBB, basis, ctm);
+        if (region.empty)
+            return true; // empty effects region: nothing renders (§15.5)
+
+        // §15.5: every offscreen is the intersection with the effects
+        // region - so the source enters the chain region-clipped, and
+        // primitives that spread (blur) see transparent black beyond it.
+        src.clipTo(region);
+
+        auto res = runChain(f, src, region, basis, ctm, doc.nodes[ch].attrs, local);
+        res.clipTo(region);
+        // Blend back into the real destination: `bmp` still names the
+        // scratch here, so point it at the pre-offscreen bitmap first
+        // (the scope(exit) restore below then becomes a no-op).
+        bmp = oldBmp;
+        blendPM(bitmapFrom(res, f.linearRGB));
+        return true;
+    }
+
+    // Run the primitive chain (§15.3). Inputs resolve by name - the
+    // built-ins plus earlier `result`s - and a primitive's implicit
+    // input is the previous primitive's output (SourceGraphic before
+    // the first one). Unrecognised primitives are ignored (§15.1); a
+    // chain that ends up executing nothing yields transparent black.
+    Raster runChain(in FilterSpec f, Raster src, in IBox4 region, in IBox4 basis,
+                    in Matrix ctm, in string[string] a, in FRect basisUser)
+    {
+        immutable clut = srgbDecodeLUT(); // flood colors join the working space
+
+        Raster sa = Raster(src.w, src.h); // SourceAlpha: coverage as black (§15.3)
+        foreach (i; 0 .. sa.px.length / 4)
+            sa.px[i * 4 + 3] = src.px[i * 4 + 3];
+
+        Raster[string] named;
+        named["SourceGraphic"] = src;
+        named["SourceAlpha"] = sa;
+        Raster last = src; // the implicit input chain
+        Raster res = Raster(src.w, src.h); // transparent unless a primitive writes it
+
+        // Lazy inputs: snapshotting the backdrop or painting the
+        // element's paint servers is pure cost for simple chains.
+        Raster bg, fillP, strokeP;
+        bool haveBg = false, haveFill = false, haveStroke = false;
+
+        void initBg()
+        {
+            if (haveBg)
+                return;
+            bg = rasterFrom(bmp, f.linearRGB); // live canvas = the backdrop
+            bg.clipTo(region); // BackgroundImage is "under the filter
+            haveBg = true;    // region" (§15.3)
+        }
+
+        Raster input(in string[string] at, string key)
+        {
+            if (auto p = key in at)
+            {
+                immutable nm = strip(*p);
+                if (auto q = nm in named)
+                    return *q;
+                if (nm == "BackgroundImage")
+                {
+                    initBg();
+                    return bg;
+                }
+                if (nm == "BackgroundAlpha")
+                {
+                    initBg();
+                    Raster ba = Raster(bg.w, bg.h);
+                    foreach (i; 0 .. ba.px.length / 4)
+                        ba.px[i * 4 + 3] = bg.px[i * 4 + 3];
+                    return ba;
+                }
+                if (nm == "FillPaint" || nm == "StrokePaint")
+                {
+                    immutable isFill = nm == "FillPaint";
+                    if (isFill && !haveFill)
+                    {
+                        fillP = paintServerRaster(true, f, region, ctm, a, basisUser);
+                        haveFill = true;
+                    }
+                    else if (!isFill && !haveStroke)
+                    {
+                        strokeP = paintServerRaster(false, f, region, ctm, a, basisUser);
+                        haveStroke = true;
+                    }
+                    return isFill ? fillP : strokeP;
+                }
+                return Raster(src.w, src.h); // dangling result name: transparent
+            }
+            return last;
+        }
+
+        // A primitive <number>/<coordinate>: plain numbers, no units.
+        float num(in string[string] at, string key, float def)
+        {
+            if (auto p = key in at)
+                try
+                    return to!float(strip(*p));
+                catch (ConvException)
+                    return def; // invalid: the attribute is ignored
+            return def;
+        }
+
+        // primitiveUnits scaling: objectBoundingBox numbers are fractions
+        // of the bbox's device extent; userSpaceOnUse (the default)
+        // numbers are user units, riding the CTM's axis scales into raster
+        // pixels. Rotated CTMs take magnitudes only - no test pins the
+        // direction of an offset or blur along a rotated axis.
+        immutable sx = sqrt(ctm[0][0] ^^ 2 + ctm[1][0] ^^ 2);
+        immutable sy = sqrt(ctm[0][1] ^^ 2 + ctm[1][1] ^^ 2);
+        float scaleX(float v) { return f.primsObjBB ? v * (basis.x1 - basis.x0) : v * sx; }
+        float scaleY(float v) { return f.primsObjBB ? v * (basis.y1 - basis.y0) : v * sy; }
+
+        foreach (pi; f.prims)
+        {
+            immutable e = doc.nodes[pi];
+            bool ran = false; // did this primitive contribute?
+            switch (e.name)
+            {
+            case "feOffset":
+            {
+                Raster o;
+                offsetShift(o, input(e.attrs, "in"),
+                    to!int(round(scaleX(num(e.attrs, "dx", 0)))),
+                    to!int(round(scaleY(num(e.attrs, "dy", 0)))));
+                res = o;
+                ran = true;
+                break;
+            }
+
+            case "feFlood":
+            {
+                Color fc; // initial flood-color is black (§15.6.12)
+                if (auto p = "flood-color" in e.attrs)
+                    if (!parsePaint(*p, fc))
+                        fc = Color.Black;
+                float fo = 1.0f;
+                if (auto p = "flood-opacity" in e.attrs)
+                    try
+                        fo = clamp(to!float(strip(*p)), 0.0f, 1.0f);
+                    catch (ConvException)
+                        {}
+                float[4] col;
+                col[0] = f.linearRGB ? clut[fc.r] : fc.r / 255.0f;
+                col[1] = f.linearRGB ? clut[fc.g] : fc.g / 255.0f;
+                col[2] = f.linearRGB ? clut[fc.b] : fc.b / 255.0f;
+                col[3] = fc.a / 255.0f * fo; // alpha is linear (§15.2)
+                col[0 .. 3] *= col[3]; // store premultiplied
+                Raster o = Raster(src.w, src.h);
+                flood(o, intersect(primSubregion(e, f, region, basis, ctm), region), col);
+                res = o;
+                ran = true;
+                break;
+            }
+
+            case "feComposite":
+            {
+                CompOp op = CompOp.over;
+                if (auto p = "operator" in e.attrs)
+                    switch (toLower(strip(*p)))
+                    {
+                    case "in": op = CompOp.inOp; break;
+                    case "out": op = CompOp.outOp; break;
+                    case "atop": op = CompOp.atop; break;
+                    case "xor": op = CompOp.xorOp; break;
+                    case "arithmetic": op = CompOp.arithmetic; break;
+                    default: break; // invalid: the initial over
+                    }
+                float[4] k = [num(e.attrs, "k1", 0), num(e.attrs, "k2", 0),
+                              num(e.attrs, "k3", 0), num(e.attrs, "k4", 0)];
+                Raster d = Raster(src.w, src.h);
+                composite(d, input(e.attrs, "in"), input(e.attrs, "in2"), op, k);
+                res = d;
+                ran = true;
+                break;
+            }
+
+            case "feBlend":
+            {
+                BlendMode mode = BlendMode.normal;
+                if (auto p = "mode" in e.attrs)
+                    switch (toLower(strip(*p)))
+                    {
+                    case "multiply": mode = BlendMode.multiply; break;
+                    case "screen": mode = BlendMode.screen; break;
+                    case "darken": mode = BlendMode.darken; break;
+                    case "lighten": mode = BlendMode.lighten; break;
+                    default: break; // normal, and unknown modes per §15.4
+                    }
+                Raster d = Raster(src.w, src.h);
+                blend(d, input(e.attrs, "in"), input(e.attrs, "in2"), mode);
+                res = d;
+                ran = true;
+                break;
+            }
+
+            case "feMerge":
+            {
+                Raster acc = Raster(src.w, src.h);
+                foreach (cn; e.children)
+                {
+                    immutable ce = doc.nodes[cn];
+                    if (ce.name.empty)
+                        continue; // text noise inside the merge list
+                    mergeOver(acc, input(ce.attrs, "in"));
+                }
+                res = acc;
+                ran = true;
+                break;
+            }
+
+            case "feGaussianBlur":
+            {
+                // stdDeviation is "s [t]"; a lone value blurs both axes.
+                float s1 = 0, s2 = 0;
+                size_t seen = 0;
+                if (auto p = "stdDeviation" in e.attrs)
+                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                        if (seen < 2)
+                            try
+                            {
+                                if (seen == 0) s1 = to!float(t);
+                                else s2 = to!float(t);
+                            }
+                            catch (ConvException)
+                                {}
+                        ++seen;
+                if (seen == 1)
+                    s2 = s1;
+                Raster o;
+                gaussianBlur(o, input(e.attrs, "in"), scaleX(s1), scaleY(s2));
+                res = o;
+                ran = true;
+                break;
+            }
+
+            default:
+                break; // unrecognised primitive: ignored (§15.1)
+            }
+
+            // Only a primitive that ran feeds the implicit input chain and
+            // claims a `result` name. The subregion hard-clips every result
+            // (§15.7.3), always within the filter region.
+            if (ran)
+            {
+                res.clipTo(intersect(primSubregion(e, f, region, basis, ctm), region));
+                last = res;
+                if (auto r = "result" in e.attrs)
+                    named[strip(*r)] = res;
+            }
+        }
+        return res;
+    }
+
+    // FillPaint/StrokePaint inputs (§15.3): the referencing element's
+    // paint server as a continuous-tone image - literally painting the
+    // region rect with that paint under the element's CTM, so gradients,
+    // patterns, and plain colors resolve exactly as they would when the
+    // element itself paints.
+    Raster paintServerRaster(bool isFill, in FilterSpec f, in IBox4 region,
+                             in Matrix ctm, in string[string] a, in FRect basisUser)
+    {
+        // A singular CTM maps nothing anywhere: transparent input.
+        immutable det = ctm[0][0] * ctm[1][1] - ctm[0][1] * ctm[1][0];
+        if (det == 0.0f)
+            return Raster(cast(int) bmp.width, cast(int) bmp.height);
+
+        const s = pushStyle(a);
+        scope (exit) popStyle();
+        immutable op = clamp(s.opacity, 0.0f, 1.0f)
+            * (isFill ? clamp(s.fillOpacity, 0.0f, 1.0f) : clamp(s.strokeOpacity, 0.0f, 1.0f));
+        auto paint = resolvePaint(isFill, s, op, basisUser);
+
+        // A user-space rect covering the region: the region's corners
+        // map back through the inverse CTM, so the quad stays a full
+        // region cover under rotation.
+        auto inv = ctm.inverted;
+        FPoint[4] pts = [FPoint(region.x0, region.y0), FPoint(region.x1, region.y0),
+                         FPoint(region.x0, region.y1), FPoint(region.x1, region.y1)];
+        inv.mapPoints(pts[]);
+        immutable rx0 = min(min(pts[0].x, pts[1].x), min(pts[2].x, pts[3].x));
+        immutable rx1 = max(max(pts[0].x, pts[1].x), max(pts[2].x, pts[3].x));
+        immutable ry0 = min(min(pts[0].y, pts[1].y), min(pts[2].y, pts[3].y));
+        immutable ry1 = max(max(pts[0].y, pts[1].y), max(pts[2].y, pts[3].y));
+
+        Path rp;
+        rp.reset();
+        rp.moveTo(FPoint(rx0, ry0));
+        rp.lineTo(FPoint(rx1, ry0));
+        rp.lineTo(FPoint(rx1, ry1));
+        rp.lineTo(FPoint(rx0, ry1));
+        rp.close();
+
+        auto pb = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
+        pb.eraseColor(Color(0));
+        Canvas pc = new Canvas(pb);
+        pc.matrix = ctm;
+        pc.drawPath(rp, paint);
+        auto r = rasterFrom(pb, f.linearRGB);
+        r.clipTo(region);
+        return r;
+    }
+
+    // Filter primitive subregion (§15.1): x/y/width/height restrict the
+    // primitive, defaulting to the filter's own x/y/width/height - read
+    // in primitiveUnits, so when the units differ it is NOT the same box
+    // as the effects region. A zero-size subregion makes the primitive's
+    // result transparent black.
+    IBox4 primSubregion(in Element e, in FilterSpec f, in IBox4 region,
+                        in IBox4 basis, in Matrix ctm)
+    {
+        if ("x" !in e.attrs && "y" !in e.attrs
+            && "width" !in e.attrs && "height" !in e.attrs)
+            return region; // §15.7.3: the default subregion IS the filter region
+
+        string g(string k, string def)
+        {
+            if (auto p = k in e.attrs)
+                return *p;
+            return def;
+        }
+        return lengthBox(g("x", ""), g("y", ""), g("width", ""),
+                         g("height", ""), f.primsObjBB, basis, ctm);
+    }
+
+    // A box of four <length>s in device pixels: objectBoundingBox
+    // fractions of the basis box, or userSpaceOnUse lengths riding the
+    // element's CTM. Pixels even partly covered count (§15.5's
+    // "any pixels which even partly intersect"), hence floor/ceil;
+    // invalid lengths fall back to the §15.1 attribute defaults, and a
+    // zero or negative width/height disables the box.
+    IBox4 lengthBox(string xs, string ys, string ws, string hs,
+                    bool objBB, in IBox4 basis, in Matrix ctm)
+    {
+        float x, y, w, h;
+        if (objBB)
+        {
+            if (!bbFraction(xs, x)) x = -0.10f;
+            if (!bbFraction(ys, y)) y = -0.10f;
+            if (!bbFraction(ws, w)) w = 1.20f;
+            if (!bbFraction(hs, h)) h = 1.20f;
+            if (w <= 0 || h <= 0 || basis.empty)
+                return IBox4();
+            immutable bw = basis.x1 - basis.x0, bh = basis.y1 - basis.y0;
+            return IBox4(cast(int) floor(basis.x0 + x * bw),
+                         cast(int) floor(basis.y0 + y * bh),
+                         cast(int) ceil(basis.x0 + (x + w) * bw),
+                         cast(int) ceil(basis.y0 + (y + h) * bh));
+        }
+
+        string[string] la = ["x": xs, "y": ys, "width": ws, "height": hs];
+        LengthCtx lc = lengthCtx();
+        x = convLen(la, "x", -0.10f * lc.vpW, lc, RefAxis.width);
+        y = convLen(la, "y", -0.10f * lc.vpH, lc, RefAxis.height);
+        w = convLen(la, "width", 1.20f * lc.vpW, lc, RefAxis.width);
+        h = convLen(la, "height", 1.20f * lc.vpH, lc, RefAxis.height);
+        if (w <= 0 || h <= 0)
+            return IBox4();
+        return bboxToDevice(FRect(x, y, x + w, y + h), ctm);
+    }
+
+    // A user-space rect into the raster's device box (corner AABB).
+    IBox4 bboxToDevice(in FRect r, in Matrix ctm)
+    {
+        FPoint[4] pts = [FPoint(r.x, r.y), FPoint(r.x + r.width, r.y),
+                         FPoint(r.x, r.y + r.height), FPoint(r.x + r.width, r.y + r.height)];
+        ctm.mapPoints(pts[]);
+        immutable x0 = min(min(pts[0].x, pts[1].x), min(pts[2].x, pts[3].x));
+        immutable x1 = max(max(pts[0].x, pts[1].x), max(pts[2].x, pts[3].x));
+        immutable y0 = min(min(pts[0].y, pts[1].y), min(pts[2].y, pts[3].y));
+        immutable y1 = max(max(pts[0].y, pts[1].y), max(pts[2].y, pts[3].y));
+        return IBox4(cast(int) floor(x0), cast(int) floor(y0),
+                     cast(int) ceil(x1), cast(int) ceil(y1));
+    }
+
+    // Union of geometry boxes; empty boxes (zero area) absorb nothing.
+    static FRect unionBox(FRect a, FRect b)
+    {
+        if (a.width <= 0 || a.height <= 0)
+            return b;
+        if (b.width <= 0 || b.height <= 0)
+            return a;
+        immutable x0 = min(a.x, b.x), y0 = min(a.y, b.y);
+        immutable x1 = max(a.x + a.width, b.x + b.width);
+        immutable y1 = max(a.y + a.height, b.y + b.height);
+        return FRect(x0, y0, x1, y1); // FRect's ctor takes (left, top, right, bottom)
     }
 
     // <switch>: the first child element whose conditional processing tests
@@ -3958,4 +4471,43 @@ unittest
         <rect width="40" height="40" fill="lime" clip-path="url(#ch)"/>
         </svg>`, 1.0f, imgBase);
     assert(bmp.getLine!PMColor(20)[20].a == 0, "an image is not a valid clip child");
+}
+
+unittest
+{
+    // A filtered container must see the bbox of its whole subtree:
+    // the objectBoundingBox region of a <g> covers every child, so an
+    // identity chain keeps them all (guards the FRect right/bottom vs
+    // width/height constructor mix-up in the bbox union).
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="50">
+        <filter id="id" filterUnits="objectBoundingBox" x="0%" y="0%" width="100%" height="100%">
+            <feGaussianBlur stdDeviation="0"/>
+        </filter>
+        <g filter="url(#id)">
+            <rect x="10" y="10" width="40" height="10" fill="blue"/>
+            <rect x="10" y="25" width="40" height="10" fill="#ff0"/>
+        </g>
+        </svg>`);
+    immutable top = bmp.getLine!PMColor(15)[30];
+    immutable bot = bmp.getLine!PMColor(30)[30];
+    assert(top.a == 255 && top.r == 0 && top.g == 0 && top.b > 250, "first child survives");
+    assert(bot.a == 255 && bot.r > 250 && bot.g > 250 && bot.b < 5, "last child survives");
+
+    // feBlend normal over a half-transparent flood is plain source-over
+    // (the PM blend term carries the backdrop's alpha): blue 0.5 over
+    // flood green 0.5 gives PM (0, 0.25, 0.5, 0.75) in linearRGB, i.e.
+    // sRGB (0, 156, 213, 191), composited over white.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="50">
+        <filter id="bn" filterUnits="objectBoundingBox" x="0%" y="0%" width="100%" height="100%">
+            <feFlood flood-color="#0f0" flood-opacity="0.5" result="g"/>
+            <feBlend in="SourceGraphic" in2="g" mode="normal"/>
+        </filter>
+        <rect width="60" height="50" fill="white"/>
+        <rect x="10" y="10" width="40" height="30" fill="blue" opacity="0.5" filter="url(#bn)"/>
+        </svg>`);
+    immutable px = bmp.getLine!PMColor(25)[30];
+    assert(px.a == 255, "opaque backdrop");
+    assert(px.r > 60 && px.r < 68, `red is the white showing through: ${to!string(px)}`);
+    assert(px.g > 177 && px.g < 185, `green straight 1/3: ${to!string(px)}`);
+    assert(px.b > 219 && px.b < 227, `blue straight 2/3: ${to!string(px)}`);
 }
