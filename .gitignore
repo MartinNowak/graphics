@@ -30,3 +30,8 @@ lib*/
 import/
 doc/
 .dub
+
+# local copy of the SVG 1.1 Second Edition spec (REC-SVG11-20110816)
+# used as an implementation reference
+REC-SVG11-20110816/
+REC-SVG11-20110816.zip

@@ -59,6 +59,12 @@ done
 [ -x "$BIN" ] || { echo "binary missing - run: dub build :svg" >&2; exit 1; }
 mkdir -p "$OUT"
 
+# Tests fetch ../images/... and ../resources/... relative to their own
+# location, and they run from $OUT (one level below where the suite's
+# svg/ lives) - give those names a home at tests/w3c/.
+ln -sfn suite/images tests/w3c/images
+ln -sfn suite/resources tests/w3c/resources
+
 # The workhorse, one test file: prints "NAME.svg OK <AE>" or "NAME.svg ERROR -".
 run_one() {
     local f=$1 stem=$2 ae

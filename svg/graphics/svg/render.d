@@ -1,6 +1,8 @@
 module graphics.svg.render;
 
-import std.algorithm, std.ascii, std.conv, std.exception, std.math, std.range, std.string;
+import std.algorithm, std.ascii, std.base64, std.conv, std.exception, std.math, std.range, std.string;
+import core.bitop : bswap;
+import gamut;
 import graphics;
 import graphics.core.fonthost;
 import graphics.core.glyph;
@@ -8,7 +10,7 @@ import graphics.core.matrix;
 import graphics.core.patheffect;
 import graphics.core.path_detail.path_measure;
 import graphics.core.pmcolor : PMColor, alphaMul, alphaScale, invAlphaScale;
-import graphics.core.shader : Shader, ColorShader;
+import graphics.core.shader : Shader, ColorShader, MappingShader;
 import graphics.svg.color;
 import graphics.svg.core;
 import graphics.svg.gradient;
@@ -277,6 +279,195 @@ private FPoint unit(FPoint v)
     return l > 0 ? FPoint(v.x / l, v.y / l) : FPoint(0, 0);
 }
 
+// §9.8 image sampler: browsers filter scaled images bilinearly, and
+// nearest (plain BitmapShader) both stair-steps upscales and misses
+// the browsers' half-pixel registration: the blitter asks for shader
+// points at integer device indices (pixel centers), while the browser
+// samples at natural coord (x+0.5-t)/s. u = pt + 0.5/s - 0.5 rebases
+// one convention into the other (and is the identity at s=1, so 1:1
+// placement stays pixel exact). Interpolation happens on premultiplied
+// channels; the bitmap's own pixels are straight and premultiply once
+// per neighbour read.
+class ImageShader : MappingShader
+{
+    this(Bitmap src, float sx, float sy)
+    {
+        this.src = src;
+        this.sx = sx;
+        this.sy = sy;
+    }
+
+    override @property bool opaque() const
+    {
+        return src.opaque;
+    }
+
+    override void getRange(float x, float y, PMColor[] data)
+    {
+        mapLine!(colorAt)(this, x, y, data);
+    }
+
+    // Premultiplied pair lerp; weights {256-w, w} sum to 256 so the
+    // shift is exact at both endpoints (the gradient lerp's {255-w,
+    // w} pair would darken a full-strength blend by one), and the
+    // result is assembled channel-wise so no implicit Color->PMColor
+    // constructor can premultiply the linear combination a second time.
+    static PMColor lerp(in PMColor a, in PMColor b, float u)
+    {
+        immutable w = cast(uint) clamp(round(u * 256), 0.0f, 256.0f);
+        Color px;
+        px.r = cast(ubyte) (((256 - w) * a.r + w * b.r) >> 8);
+        px.g = cast(ubyte) (((256 - w) * a.g + w * b.g) >> 8);
+        px.b = cast(ubyte) (((256 - w) * a.b + w * b.b) >> 8);
+        px.a = cast(ubyte) (((256 - w) * a.a + w * b.a) >> 8);
+        PMColor res;
+        res._color = px;
+        return res;
+    }
+
+    static PMColor colorAt(ImageShader sh, in FPoint pt)
+    {
+        immutable u = pt.x + 0.5f / sh.sx - 0.5f;
+        immutable v = pt.y + 0.5f / sh.sy - 0.5f;
+        if (u < -0.5f || v < -0.5f || u > sh.src.width - 0.5f
+            || v > sh.src.height - 0.5f)
+            return PMColor(Color(0));
+
+        immutable i0 = to!int(floor(u)), j0 = to!int(floor(v));
+        immutable fu = u - i0, fv = v - j0;
+        // clamp (replicate) at the edges, as browsers do within the
+        // half-texel border the weights reach
+        immutable iw = to!int(sh.src.width) - 1, ih = to!int(sh.src.height) - 1;
+        immutable ic = clamp(i0, 0, iw), jc = clamp(j0, 0, ih);
+        immutable i1 = min(i0 + 1, iw), j1 = min(j0 + 1, ih);
+
+        auto top = lerp(PMColor(sh.src.getLine!Color(jc)[ic]),
+            PMColor(sh.src.getLine!Color(jc)[i1]), fu);
+        auto bot = lerp(PMColor(sh.src.getLine!Color(j1)[ic]),
+            PMColor(sh.src.getLine!Color(j1)[i1]), fu);
+        return lerp(top, bot, fv);
+    }
+
+    Bitmap src;
+    float sx, sy;
+}
+
+// §5.1.2 URL plumbing for <image>: only plain filesystem paths are in
+// play. resolveHref returns null for an empty href, a same-document
+// fragment (an <image> cannot paint an inline element) and any URL
+// scheme (http:, data:, ... - no network, and no file: pretence);
+// otherwise the path joined onto `base` with ./.. segments collapsed.
+private string resolveHref(string base, string href)
+{
+    if (href.empty || href[0] == '#')
+        return null;
+    if (auto h = find(href, '#')) // drop the #fragment
+        href = href[0 .. cast(ptrdiff_t)(h.ptr - href.ptr)];
+    if (href.empty)
+        return null;
+
+    // letters [+alnum.-]* before a ':' = a URL scheme. Everything but
+    // data: needs a network we don't have; data: (04-t embeds both a
+    // JPEG and a PNG) is handled by loadSVGImage.
+    immutable c = indexOf(href, ':');
+    if (c > 0 && isAlpha(href[0]))
+    {
+        bool scheme = true;
+        foreach (ch; href[1 .. c])
+            if (!(isAlphaNum(ch) || ch == '+' || ch == '-' || ch == '.'))
+                scheme = false;
+        if (scheme)
+            return href[0 .. c] == "data" ? href : null;
+    }
+
+    string path = href[0] == '/' ? href : (base.length ? base ~ href : href);
+    string[] segs;
+    foreach (seg; splitter(path, '/'))
+    {
+        if (seg.empty || seg == ".")
+            continue;
+        if (seg == "..")
+        {
+            if (segs.length && segs[$ - 1] != "..")
+                segs.length = segs.length - 1;
+            else if (path[0] != '/')
+                segs ~= ".."; // escape of a relative base
+            continue;
+        }
+        segs ~= seg;
+    }
+    string r = segs.join("/");
+    if (path[0] == '/')
+        r = "/" ~ r;
+    return r.empty ? "." : r;
+}
+
+// xml:base resolution: the value becomes the subtree's base directory.
+private string baseJoin(string base, string v)
+{
+    if (auto r = resolveHref(base, v))
+        return r ~ (r[$ - 1] == '/' ? "" : "/");
+    return base;
+}
+
+// Loaded images keyed by resolved path. Bitmaps keep their straight
+// (non-premultiplied) ARGB, as loaded: the drawing path is an
+// ImageShader, which premultiplies each sampled pixel once when it
+// converts the slot to a PMColor. Premultiplying at load time would
+// scale translucent pixels by (a+1) twice (the suite's tRNS and
+// greyscale-alpha PNGs decode wrong then). Failed loads cache the
+// empty Bitmap so broken references stay cheap, and suite tests
+// reference the same image dozens of times, so the cache is
+// process-lifetime.
+// data: URLs (§7.4: href is a URI, and the suite embeds a JPEG and a
+// PNG this way) are the only scheme we can honour without a network.
+// Only base64 payloads are in play; the bytes go to gamut (the codec
+// behind guip.Bitmap.load) and the decoded pixels are copied into a
+// GC buffer the Bitmap owns, exactly as Bitmap.load now does.
+private Bitmap loadDataURL(string url)
+{
+    auto semi = indexOf(url, ';');
+    enforce(semi > 0 && url.length > semi + 8
+        && url[semi + 1 .. semi + 8] == "base64,",
+        "only base64 data: URLs load");
+
+    Bitmap bmp;
+    Image image;
+    enforce(image.loadFromMemory(Base64.decode(url[semi + 8 .. $]),
+        LOAD_RGB | LOAD_ALPHA | LOAD_8BIT | LOAD_NO_PREMUL
+        | LAYOUT_GAPLESS | LAYOUT_VERT_STRAIGHT),
+        "undecodable data: image");
+
+    bmp.setConfig(Bitmap.Config.ARGB_8888, to!uint(image.width()),
+        to!uint(image.height()));
+    auto px = image.allPixelsAtOnce();
+    enforce(px.length == bmp.buffer.length,
+        "multi-layer image not supported");
+    bmp.buffer[] = px;
+    foreach (ref e; cast(uint[]) bmp.buffer)
+    {
+        version (LittleEndian)
+            e = bswap(e);
+        e = (e << 24) | (e >> 8); // 0xRRGGBBAA -> 0xAARRGGBB
+    }
+    return bmp;
+}
+
+private Bitmap loadSVGImage(string path)
+{
+    static Bitmap[string] cache;
+    if (auto hit = path in cache)
+        return *hit;
+    Bitmap img;
+    try
+        img = path.length > 5 && path[0 .. 5] == "data:"
+            ? loadDataURL(path)
+            : Bitmap.load(path);
+    catch (Exception)
+        img = Bitmap(); // missing, undecodable, or SVG-as-image (later)
+    return cache[path] = img;
+}
+
 // Parse `stroke-dasharray`: null means "none" or invalid (the attribute is
 // then ignored). SVG: an odd count of entries is repeated to an even one;
 // a list that sums to zero renders like none; negative values are an error.
@@ -442,6 +633,10 @@ private struct Renderer
     // content (no recursion), so flushPath skips them while set.
     bool markerMode;
 
+    // Directory of the source document (trailing '/'), the default base
+    // for relative <image> hrefs; "" means the process cwd.
+    string docBase;
+
     static struct Style
     {
         bool transform;
@@ -489,6 +684,11 @@ private struct Renderer
         // ordinary inherited properties: a value replaces (not chains)
         // the inherited one and "none" cancels it. Empty = no marker.
         string markerStart, markerMid, markerEnd;
+
+        // xml:base (§5.1.2): inherited base for relative URLs. Only
+        // <image> reaches outside the document, so only <image> hrefs
+        // consume it. Empty = the document's own directory.
+        string baseUrl;
 
         // Stroke geometry.
         CapStyle caps;
@@ -725,6 +925,14 @@ private struct Renderer
                             style.markerEnd = mid;
                     }
                 }
+                break;
+
+            case "xml:base":
+                // §5.1.2: the subtree's base for relative URLs - kept
+                // as a normalised prefix ending in '/'; a malformed
+                // value keeps the inherited base.
+                style.baseUrl = baseJoin(style.baseUrl.length
+                    ? style.baseUrl : docBase, v);
                 break;
 
             case "visibility":
@@ -1125,6 +1333,8 @@ private struct Renderer
         m.clipDepth = clipDepth + 1;
         m.vpW = vpW;
         m.vpH = vpH;
+        m.docBase = docBase; // <image> hrefs inside subtrees resolve as
+        // they would in the main document (04-b's mask contains one)
         m.canvas.matrix = canvas.matrix;
         if (auto u = strAttr(chain, "clipPathUnits"))
             if (toLower(u) == "objectboundingbox")
@@ -1246,6 +1456,8 @@ private struct Renderer
         m.clipDepth = clipDepth + 1;
         m.vpW = vpW;
         m.vpH = vpH;
+        m.docBase = docBase; // <image> hrefs inside subtrees resolve as
+        // they would in the main document (04-b's mask contains one)
         m.canvas.matrix = canvas.matrix;
 
         // maskContentUnits="objectBoundingBox": children live in
@@ -1469,6 +1681,8 @@ private struct Renderer
         m.clipDepth = clipDepth + 1;
         m.vpW = vpW;
         m.vpH = vpH;
+        m.docBase = docBase; // <image> hrefs inside subtrees resolve as
+        // they would in the main document (04-b's mask contains one)
 
         Matrix mm;
         mm.reset();
@@ -1760,6 +1974,89 @@ private struct Renderer
     }
 
     // Build the path for a shape and flush it with its style.
+    // §9.8 <image>: the href names a raster file resolved against the
+    // element's xml:base chain (falling back to the document's own
+    // directory). x/y place a viewport of width x height (defaulting
+    // to the image's natural size); the image maps into it exactly as
+    // a viewBox="0 0 nw nh" with the element's preserveAspectRatio
+    // (default xMidYMid meet). An empty or fragment href, an
+    // unsupported URL scheme, a zero/negative viewport and an
+    // undecodable or missing file all render nothing.
+    void imageElement(in string[string] a)
+    {
+        const s = pushStyle(a);
+        scope (exit) popStyle();
+        if (!s.visible)
+            return;
+
+        immutable path = resolveHref(s.baseUrl.length ? s.baseUrl : docBase,
+            a.get("href", a.get("xlink:href", "")));
+        if (path is null)
+            return;
+        auto img = loadSVGImage(path);
+        if (img.config == Bitmap.Config.NoConfig)
+            return; // broken reference: §9.8 renders nothing
+
+        immutable float nw = img.width, nh = img.height;
+        auto lc = lengthCtx();
+        immutable x = a.convLen("x", 0.0f, lc, RefAxis.width);
+        immutable y = a.convLen("y", 0.0f, lc, RefAxis.height);
+        immutable w = a.convLen("width", nw, lc, RefAxis.width);
+        immutable h = a.convLen("height", nh, lc, RefAxis.height);
+        if (!(w > 0) || !(h > 0))
+            return;
+
+        float[4] vb = [0, 0, nw, nh];
+        immutable fit = viewFit(vb, w, h,
+            parsePAR(a.get("preserveAspectRatio", "")));
+
+        // Paint only the overlap of viewport and image in natural-px
+        // space: that intersection IS the viewport clip "slice"
+        // overflow needs, exact even at fractional sizes (viewFit is
+        // axis-aligned, so the inverse per axis is just the division).
+        immutable sx = fit[0][0], sy = fit[1][1];
+        FRect vis = FRect(-fit[0][2] / sx, -fit[1][2] / sy,
+            (w - fit[0][2]) / sx, (h - fit[1][2]) / sy);
+        if (!vis.intersect(FRect(0, 0, nw, nh)))
+            return;
+
+        canvas.save();
+        scope (exit) canvas.restore();
+        Matrix t;
+        t.reset();
+        t.setTranslate(x, y);
+        canvas.matrix = canvas.matrix * t * fit;
+
+        // Paint color is ignored on the shader path (and gradients
+        // fold opacity at build time): fold `opacity` into a
+        // throwaway copy. The pixels are straight ARGB, so scaling
+        // the stored alpha is exactly right - the shader then
+        // premultiplies with the scaled alpha once.
+        Bitmap drawn = img;
+        immutable alpha = clamp(s.opacity, 0f, 1f);
+        if (alpha < 1f)
+        {
+            drawn = Bitmap(Bitmap.Config.ARGB_8888, img.width, img.height);
+            immutable sc = alphaScale(to!ubyte(round(alpha * 255)));
+            foreach (py; 0 .. img.height)
+            {
+                auto row = img.getLine!Color(py);
+                auto dst = drawn.getLine!Color(py);
+                foreach (i; 0 .. row.length)
+                {
+                    dst[i] = row[i];
+                    dst[i].a = alphaMul(row[i].a, sc);
+                }
+            }
+        }
+
+        Paint p;
+        p.shader = new ImageShader(drawn, sx, sy);
+        Path q;
+        q.addRect(vis);
+        canvas.drawPath(q, p);
+    }
+
     void shape(string tag, in string[string] a)
     {
         auto lc = lengthCtx();
@@ -1862,6 +2159,14 @@ private struct Renderer
                 catch (Exception e2) {}
                 flushPath(a);
             }
+            break;
+
+        case "image":
+            // An <image> inside <clipPath> is not a valid clip child
+            // (§14.3: only shapes, text and <use> count): it paints
+            // nothing and contributes nothing to the clip mask.
+            if (!clipMode)
+                imageElement(a);
             break;
 
         default:
@@ -2299,10 +2604,14 @@ private struct Renderer
 }
 
 // Parses `source` and renders it into a fresh Bitmap.
-Bitmap renderSVG(string source, float zoom = 1.0f)
+// Render `source` to a fresh bitmap. `baseDir` is the source file's
+// directory (trailing '/'): the base for relative <image> hrefs;
+// empty = the process cwd.
+Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "")
 {
     Renderer r;
     r.doc = parseSVG(source);
+    r.docBase = baseDir;
     r.zoom = zoom;
     r.walk(0); // the document pseudo-root; inRoot latches at the <svg>
     return r.bmp;
@@ -3557,4 +3866,96 @@ unittest
         </svg>`);
     assert(bmp.getLine!PMColor(17)[34].a == 0, "the element's clip covers its markers too");
     assert(bmp.getLine!PMColor(19)[24].a == 255, "the stroke paints inside the clip");
+}
+
+unittest
+{
+    // <image> (§9.8). hrefs resolve against renderSVG's baseDir (main
+    // passes the file's directory); these run from the repo root.
+    immutable imgBase = "tests/w3c/suite/images/";
+
+    // 1:1 placement is pixel exact: basn0g01.png (1-bit black and
+    // white) is white at (0, 0) and black at (5, 5); missing
+    // width/height fall back to the natural size.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <image href="PngSuite/basn0g01.png" x="4" y="4"/>
+        </svg>`, 1.0f, imgBase);
+    immutable first = bmp.getLine!PMColor(4)[4];
+    assert(first.r == 255 && first.g == 255 && first.b == 255 && first.a == 255,
+        "1:1 image placement (white pixel)");
+    immutable dark = bmp.getLine!PMColor(9)[9];
+    assert(dark.r == 0 && dark.a == 255, "1:1 image placement (black pixel)");
+    assert(bmp.getLine!PMColor(37)[5].a == 0, "nothing beyond the 32x32 image");
+
+    // Scaled images sample bilinearly, matching the browsers'
+    // half-pixel registration (u = x/s + 0.5/s - 0.5). At 64x32 over
+    // a 32x32 image with preserveAspectRatio="none", sx is 2 and sy
+    // 1: x=15 lands on natural u=7.25 and x=16 on u=7.75, straddling
+    // basn0g04's row-12 step 68 -> 85 at column 8. Nearest would
+    // answer (round(192*68+64*85)>>8, round(64*68+192*85)>>8) = (72, 80).
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32">
+        <image href="PngSuite/basn0g04.png" width="64" height="32"
+            preserveAspectRatio="none"/>
+        </svg>`, 1.0f, imgBase);
+    immutable edgeLo = bmp.getLine!PMColor(12)[15];
+    immutable edgeHi = bmp.getLine!PMColor(12)[16];
+    assert(edgeLo.r == 72 && edgeHi.r == 80, "scaled images sample bilinearly");
+
+    // data: URI hrefs (§7.4: href is a URI, and struct-image-04-t
+    // embeds a JPEG and PNG this way). A 1x1 opaque-red PNG scaled to
+    // 10x10 must cover the viewport edge to edge: every device pixel
+    // center maps into the half-texel border (u = x/10 + 0.05 - 0.5
+    // stays in [-0.5, 0.5]), so bilinear clamps to the single pixel.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+        <image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12P4z8DwHwAFAAH/cpxSZwAAAABJRU5ErkJggg=="
+            width="10" height="10"/>
+        </svg>`, 1.0f, imgBase);
+    immutable dot = bmp.getLine!PMColor(5)[5];
+    assert(dot.r == 255 && dot.g == 0 && dot.b == 0 && dot.a == 255,
+        "data: URIs decode and draw like files");
+    assert(bmp.getLine!PMColor(0)[9].a == 255, "the 1x1 tile upscales edge-to-edge");
+
+    // xml:base (§5.1.2) rebases the subtree's hrefs.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <g xml:base="../images/"><image href="PngSuite/basn0g01.png"/></g>
+        </svg>`, 1.0f, "tests/w3c/suite/svg/");
+    assert(bmp.getLine!PMColor(5)[5].r == 0 && bmp.getLine!PMColor(5)[5].a == 255,
+        "xml:base resolves relative image hrefs");
+
+    // Broken references render nothing (§9.8): missing file, a URL
+    // scheme (no network here), and a same-document fragment.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+        <image href="no-such-file.png" width="20" height="20"/>
+        <image href="http://example.com/x.png" width="20" height="20"/>
+        <image href="#frag" width="20" height="20"/>
+        <image width="20" height="20"/>
+        </svg>`, 1.0f, imgBase);
+    assert(bmp.getLine!PMColor(10)[10].a == 0, "broken image references render nothing");
+
+    // opacity folds into the pixels (Paint color is ignored on the
+    // shader path, so gradients do the same at build time): white
+    // scaled to alpha 128 premultiplies to a fully grey 128 pixel.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+        <image href="PngSuite/basn0g01.png" width="10" height="10" opacity="0.5"/>
+        </svg>`, 1.0f, imgBase);
+    immutable half = bmp.getLine!PMColor(0)[0];
+    assert(half.a == 128 && half.r == 128, "opacity scales the image");
+
+    // "slice" overflows the viewport, and the viewport clips it: at
+    // 64x16 over a 32x32 image the scale is 2, so unclipped content
+    // would also cover row 20 of the (deliberately taller) canvas.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="40">
+        <image href="PngSuite/basn0g01.png" width="64" height="16"
+            preserveAspectRatio="xMidYMid slice"/>
+        </svg>`, 1.0f, imgBase);
+    assert(bmp.getLine!PMColor(1)[1].a == 255, "slice paints inside the viewport");
+    assert(bmp.getLine!PMColor(20)[1].a == 0, "slice content clips at the viewport");
+
+    // An <image> inside <clipPath> is not a clip shape (§14.3): it
+    // contributes no geometry, so the empty clip hides the element.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <clipPath id="ch"><image href="PngSuite/basn0g01.png"/></clipPath>
+        <rect width="40" height="40" fill="lime" clip-path="url(#ch)"/>
+        </svg>`, 1.0f, imgBase);
+    assert(bmp.getLine!PMColor(20)[20].a == 0, "an image is not a valid clip child");
 }

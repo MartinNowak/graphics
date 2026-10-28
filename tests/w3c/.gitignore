@@ -2,3 +2,9 @@
 suite/
 out/
 W3C_SVG_11_TestSuite.tar.gz
+
+# relative-path symlinks run.sh creates for the suite's images/ and
+# resources/ directories (the tests reference them as ../images/...);
+# run.sh recreates them on every run
+images
+resources

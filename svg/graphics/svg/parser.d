@@ -1,15 +1,45 @@
 module graphics.svg.parser;
 
+import std.algorithm : countUntil;
 import std.exception;
 import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser;
 import std.experimental.xml.interfaces : isCursor, XMLKind;
 
-// Flatten the attributes of the cursor's current element into a map.
-string[string] attrs(CursorType)(ref CursorType cursor) if (isCursor!CursorType)
+enum xlinkNS = "http://www.w3.org/1999/xlink";
+
+// Flatten the attributes of the cursor's current element into a map,
+// resolving namespace prefixes against `ns`. XLink attributes are
+// defined by namespace, not by prefix spelling (§5.1.2): a `P:local`
+// attribute whose prefix resolves to the XLink namespace is stored
+// normalized as `xlink:local`, and one bound to any other namespace
+// (conform-viewers-03-f binds `xlink` to nonsense on purpose) is
+// dropped - such attributes carry no rendering meaning. The undeclared
+// `xlink` prefix keeps working (seeded default, lenient as before);
+// `xml:` and `xmlns:` declarations are kept verbatim.
+string[string] attrs(CursorType)(ref CursorType cursor, in string[string] ns)
+    if (isCursor!CursorType)
 {
     string[string] res;
     foreach (a; cursor.attributes)
+    {
+        immutable col = countUntil(a.name, ':');
+        if (col > 0)
+        {
+            immutable prefix = a.name[0 .. cast(size_t) col];
+            if (prefix != "xmlns")
+            {
+                auto uri = prefix in ns;
+                if (uri !is null && *uri != xlinkNS && prefix != "xml")
+                    continue; // unknown-namespace attribute: inert
+                if (uri !is null && *uri == xlinkNS)
+                {
+                    res["xlink:" ~ a.name[cast(size_t) col + 1 .. $]] = a.value;
+                    continue;
+                }
+            }
+        }
         res[a.name] = a.value;
+    }
     return res;
 }
 
@@ -75,10 +105,47 @@ Document parseSVG(string source)
     size_t[string] ids;
     size_t root = Document.unknown;
 
+    // Prefix -> namespace URIs, live for the subtree currently being
+    // walked. `xlink` starts out bound so documents that never declare
+    // it still render (as before); an explicit rebinding shadows it.
+    string[string] ns = ["xlink": xlinkNS,
+        "xml": "http://www.w3.org/XML/1998/namespace"];
+
+    struct Binding
+    {
+        string prefix, old; // old == null: the prefix had no binding
+    }
+
+    // Apply the current element's own xmlns: declarations (they cover
+    // its attributes too, so this runs before attrs()); returns what
+    // to undo after the subtree.
+    Binding[] bindNs()
+    {
+        Binding[] changed;
+        foreach (a; c.attributes)
+            if (a.name.length > 6 && a.name[0 .. 6] == "xmlns:")
+            {
+                immutable prefix = a.name[6 .. $];
+                auto p = prefix in ns;
+                changed ~= Binding(prefix, p ? *p : null);
+                ns[prefix] = a.value;
+            }
+        return changed;
+    }
+
+    void unbindNs(ref Binding[] changed)
+    {
+        foreach_reverse (b; changed)
+            if (b.old is null)
+                ns.remove(b.prefix);
+            else
+                ns[b.prefix] = b.old;
+    }
+
     void addElement(size_t parent)
     {
         immutable idx = nodes.length;
-        auto a = attrs(c);
+        auto a = attrs(c, ns);
         nodes ~= Element(c.name, a);
         nodes[parent].children ~= idx;
         auto idp = "id" in a;
@@ -105,12 +172,20 @@ Document parseSVG(string source)
         do switch (c.kind)
         {
         case XMLKind.elementStart:
-            addElement(parent);
-            if (c.enter())
-                walkChildren(nodes.length - 1);
+            {
+                auto declared = bindNs();
+                addElement(parent);
+                if (c.enter())
+                    walkChildren(nodes.length - 1);
+                unbindNs(declared);
+            }
             break;
         case XMLKind.elementEmpty:
-            addElement(parent);
+            {
+                auto declared = bindNs();
+                addElement(parent);
+                unbindNs(declared);
+            }
             break;
         case XMLKind.text, XMLKind.cdata:
             addText(parent);
@@ -238,4 +313,26 @@ unittest
             rUnderDefs = true;
     assert(rUnderDefs, "the rect following an empty element is its sibling");
     assert(doc.byId("S") != Document.unknown);
+}
+
+unittest
+{
+    // XLink is the namespace, not the prefix: a prefix bound elsewhere
+    // is inert (conform-viewers-03-f's `<g xmlns:xlink="bogus">` must
+    // not paint its image), any prefix bound to the real namespace
+    // normalizes to `xlink:`, and bindings unwind with the subtree.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:x="http://www.w3.org/1999/xlink">
+        <image x:href="norm.png"/>
+        <g xmlns:xlink="http://example.net/bar">
+            <image xlink:href="bad.png"/>
+        </g>
+        <image xlink:href="good.png"/>
+        </svg>`);
+    string[] hrefs;
+    foreach (n; doc.nodes)
+        if (auto p = "xlink:href" in n.attrs)
+            hrefs ~= *p;
+    assert(hrefs == ["norm.png", "good.png"],
+        "XLink attributes follow their namespace binding");
 }
