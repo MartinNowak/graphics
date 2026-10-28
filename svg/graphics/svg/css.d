@@ -5,30 +5,48 @@ module graphics.svg.css;
 // parser arena (selectors match the *original* tree, so `use` clones match
 // at their source position, as styling-css-* pins).
 //
-// Core: type/`*`/`.class`/`#id` compounds with descendant and `>`
-// combinators, the specificity triple, and `!important`. Constructs not
-// yet applied (attribute selectors, `+`, `:first-child`, `:lang()`,
-// interaction pseudo-classes) compile to a never-match compound, which
-// keeps their rules inert and the rendered picture identical to no CSS.
+// Core: type/`*`/`.class`/`#id`/`[attr]` compounds with descendant, `>`
+// and `+` combinators, `:first-child`/`:lang()`, the specificity triple,
+// `!important`, and `@import` spliced in at the import point (CSS 2.1
+// §6.4.3 sheet order). Constructs not yet applied (interaction
+// pseudo-classes, @media, @font-face) compile away: the at-rules are
+// skipped, and unsupported selectors keep their rules but never match.
 
-import std.algorithm : canFind, sort;
-import std.array : appender, split;
-import std.ascii : isWhite, toLower;
+import std.algorithm : canFind, find, sort;
+import std.array : appender, join, split;
+import std.ascii : isAlpha, isAlphaNum, isWhite, toLower;
+import std.file : exists, readText;
+import std.path : dirName;
 import std.range;
-import std.string : strip;
+import std.string : indexOf, strip;
 
 import graphics.svg.parser : Document, Element, parseSVG;
 
+/// One `[name]` / `[name op value]` condition. `op`: 0 = presence only,
+/// '=' exact, '~' whitespace-word, '|' value or value-prefixed-by-a-hyphen,
+/// 'n' an operator this engine does not apply yet (CSS3 ^= $= *= - the
+/// condition, and hence the compound, never matches).
+struct Attr
+{
+    string name;
+    char   op;
+    string val;
+}
+
 /// One compound simple selector: `circle`, `*`, `.test3`, `#alpha-2`,
-/// `g#alpha`, ... `never` marks a construct that cannot match at runtime:
-/// the not-yet-implemented pseudo-classes and pseudo-elements (a compound
-/// is still kept, and counted, so its specificity behaves the same).
+/// `g#alpha`, `circle[cx="50"]`, `.test6:first-child`, `:lang(en)`, ...
+/// `never` marks a construct that cannot match at runtime: the
+/// interaction pseudo-classes and pseudo-elements (the compound is still
+/// kept, and counted, so its specificity behaves the same).
 struct Compound
 {
-    string     type;     // element name (case-sensitive: XML); "" = none
-    bool       star;     // `*`: any element, contributes no specificity
+    string     type;       // element name (case-sensitive: XML); "" = none
+    bool       star;       // `*`: any element, contributes no specificity
     string     id;
     string[]   classes;
+    Attr[]     attrs;
+    bool       firstChild; // :first-child (no preceding element sibling)
+    string     lang;       // :lang(tag), lower-cased; "" = no :lang
     bool       never;
 }
 
@@ -38,7 +56,8 @@ struct Compound
 struct Rule
 {
     Compound[] chain;
-    bool[]     child;  // child[i], i > 0: the combinator before chain[i] is `>`
+    char[]     comb;   // comb[i], i > 0: '>' child, '+' adjacent sibling,
+                       // anything else descendant
     int[3]     spec;   // (#id, .class/attr/pseudo-class, type) triple
     size_t     order;  // sheet order across all <style> elements
     string[]   props;  // property names, lower-cased (CSS: case-insensitive)
@@ -58,8 +77,10 @@ struct Decl
 private enum npos = size_t.max;
 
 /// Parse one style sheet. `order` is the document-wide rule counter the
-/// caller threads through every <style> element so sheet order survives.
-Rule[] parseSheet(string src, ref size_t order)
+/// caller threads through every <style> element so sheet order survives;
+/// `baseDir` resolves this sheet's `@import` targets (nested imports
+/// resolve against their own file), `depth` caps import recursion.
+Rule[] parseSheet(string src, ref size_t order, string baseDir = "", int depth = 0)
 {
     Rule[] rules;
     src = stripComments(src);
@@ -72,11 +93,25 @@ Rule[] parseSheet(string src, ref size_t order)
         if (i >= src.length)
             break;
 
-        // At-rules are noise for now: a statement ends at its top-level
-        // `;`, a block at its matching `}` (@font-face; @media would also
-        // just be skipped whole here).
         if (src[i] == '@')
         {
+            // @import is the one at-rule whose content applies: its sheet
+            // splices in right at the import point, so its rules cascade
+            // exactly as if written there (CSS 2.1 §6.4.3). The rest are
+            // noise: a statement ends at its top-level `;`, a block at
+            // its matching `}` (@font-face; @media is skipped whole too).
+            string url;
+            immutable semi = topAt(src, i, ';');
+            if (depth < 8 && parseImport(src[i .. $], url) && semi != npos)
+            {
+                immutable brace = findFrom(src, i, '{');
+                if (brace == npos || semi < brace)
+                {
+                    rules ~= importRules(url, baseDir, order, depth);
+                    i = semi + 1;
+                    continue;
+                }
+            }
             i = skipAtRule(src, i);
             continue;
         }
@@ -109,7 +144,7 @@ Rule[] parseSheet(string src, ref size_t order)
                 auto c = compileSelector(sel);
                 if (c.malformed || c.chain.empty)
                     continue; // an invalid selector drops the rule
-                rules ~= Rule(c.chain, c.child, c.spec, order++,
+                rules ~= Rule(c.chain, c.comb, c.spec, order++,
                               props, vals, imps);
             }
         }
@@ -118,12 +153,13 @@ Rule[] parseSheet(string src, ref size_t order)
     return rules;
 }
 
-/// All rules of every <style> element, in document order. Style text
+/// All rules of every <style> element, in document order; `baseDir` is
+/// the document's directory for resolving `@import` targets. Style text
 /// arrives as the parser wrote it: sxml hands `&gt;` through raw while
 /// CDATA sections are literal, and the suite writes the same `>`
 /// selector both ways (styling-css-04-f escapes, struct-use-10-f is
 /// CDATA), so the text is XML-unescaped before it is tokenized.
-Rule[] collectStyles(in Document doc)
+Rule[] collectStyles(in Document doc, string baseDir = "")
 {
     Rule[] rules;
     size_t order = 0;
@@ -138,7 +174,7 @@ Rule[] collectStyles(in Document doc)
                 foreach (t; doc.nodes[ch].children)
                     if (doc.nodes[t].name.empty)
                         src ~= doc.nodes[t].text;
-                rules ~= parseSheet(xmlUnescape(src), order);
+                rules ~= parseSheet(xmlUnescape(src), order, baseDir);
             }
             walk(ch);
         }
@@ -168,22 +204,45 @@ int[] cssAncestry(in immutable(Element)[] nodes)
     return parent;
 }
 
+/// sib[i] = arena index of node i's previous *element* sibling, -1 when
+/// there is none (`+` and :first-child only count elements, CSS-wise).
+/// Arena order is document DFS order, so one pass suffices.
+int[] cssPrevSib(in immutable(Element)[] nodes, in int[] parent)
+{
+    int[] sib = new int[](nodes.length);
+    int[] last = new int[](nodes.length); // per-parent: last element child
+    sib[] = -1;
+    last[] = -1;
+
+    foreach (i, ref el; nodes)
+    {
+        immutable p = i ? parent[i] : -1;
+        if (p < 0 || el.name.empty)
+            continue;
+        sib[i] = last[p];
+        last[p] = cast(int) i;
+    }
+    return sib;
+}
+
 /// Does rule `r` apply to node `idx`? The last compound is matched
-/// against the element itself and the chain is walked right-to-left up
-/// the parent array: `>` steps exactly one parent, a space any number.
-bool matches(in immutable(Element)[] nodes, in int[] parent,
+/// against the element itself and the chain is walked right-to-left:
+/// `>` steps exactly one parent, `+` one previous sibling, and a space
+/// any number of ancestors.
+bool matches(in immutable(Element)[] nodes, in int[] parent, in int[] sib,
              size_t idx, ref const Rule r)
 {
     int cur = cast(int) idx;
-    if (!matchCompound(nodes[cur], r.chain[$ - 1]))
+    if (!matchCompound(nodes, parent, sib, cur, r.chain[$ - 1]))
         return false;
 
     for (int i = cast(int) r.chain.length - 2; i >= 0; --i)
     {
-        if (r.child[i + 1])
+        immutable ch = r.comb[i + 1];
+        if (ch == '+' || ch == '>')
         {
-            cur = parent[cur];
-            if (cur < 0 || !matchCompound(nodes[cur], r.chain[i]))
+            cur = ch == '+' ? sib[cur] : parent[cur];
+            if (cur < 0 || !matchCompound(nodes, parent, sib, cur, r.chain[i]))
                 return false;
         }
         else
@@ -193,7 +252,7 @@ bool matches(in immutable(Element)[] nodes, in int[] parent,
                 cur = parent[cur];
                 if (cur < 0)
                     return false;
-                if (matchCompound(nodes[cur], r.chain[i]))
+                if (matchCompound(nodes, parent, sib, cur, r.chain[i]))
                     break;
             }
         }
@@ -204,11 +263,11 @@ bool matches(in immutable(Element)[] nodes, in int[] parent,
 /// The rules matching node `idx` in cascade order: specificity triple
 /// ascending, then sheet order (CSS 2.1 §6.4.3 - the winner is last).
 const(Rule)[] cssCascade(in immutable(Element)[] nodes, in int[] parent,
-                         size_t idx, in Rule[] rules)
+                         in int[] sib, size_t idx, in Rule[] rules)
 {
     const(Rule)[] ms;
     foreach (ref const r; rules)
-        if (matches(nodes, parent, idx, r))
+        if (matches(nodes, parent, sib, idx, r))
             ms ~= r;
 
     // Sort indices: the elements themselves are const.
@@ -276,8 +335,10 @@ private size_t importantPos(string v)
 
 // ---------------------------------------------------------------- matcher
 
-private bool matchCompound(ref const Element el, ref const Compound c)
+private bool matchCompound(in immutable(Element)[] nodes, in int[] parent,
+                           in int[] sib, int idx, ref const Compound c)
 {
+    ref immutable(Element) el = nodes[idx];
     if (el.name.empty || c.never)
         return false;
     if (!c.star && !c.type.empty && el.name != c.type)
@@ -302,7 +363,64 @@ private bool matchCompound(ref const Element el, ref const Compound c)
                 return false;
         }
     }
+    foreach (ref a; c.attrs)
+    {
+        // Attribute names and values are XML: case-sensitive, and an
+        // attribute with an empty value still counts as present.
+        auto have = a.name in el.attrs;
+        if (have is null)
+            return false;
+        if (a.op == 0)
+            continue;
+        if (a.op == 'n')
+            return false; // CSS3 operator: the compound never matches
+        if (a.op == '=')
+        {
+            if (*have != a.val)
+                return false;
+        }
+        else if (a.op == '~')
+        {
+            if (!canFind(split(*have), a.val))
+                return false;
+        }
+        else // '|': the value itself, or value + '-' subtag
+        {
+            if (*have != a.val &&
+                !((*have).length > a.val.length &&
+                    (*have)[0 .. a.val.length] == a.val &&
+                    (*have)[a.val.length] == '-'))
+                return false;
+        }
+    }
+    if (c.firstChild && sib[idx] >= 0)
+        return false;
+    if (!c.lang.empty && !langMatches(nodes, parent, idx, c.lang))
+        return false;
     return true;
+}
+
+// CSS 2.1 §6.4: an element's language is the value of the nearest
+// lang/xml:lang attribute on it or any ancestor; :lang(tag) matches
+// that tag or a hyphen-extended subtag of it, case-insensitively.
+private bool langMatches(in immutable(Element)[] nodes, in int[] parent,
+                         int idx, string want)
+{
+    for (int i = idx; i >= 0; i = parent[i])
+    {
+        string v = nodes[i].attrs.get("xml:lang", nodes[i].attrs.get("lang", ""));
+        if (v.empty)
+            continue;
+
+        string low;
+        foreach (ch; v)
+            low ~= cast(char) toLower(ch);
+        if (low == want)
+            return true;
+        return low.length > want.length && low[0 .. want.length] == want &&
+            low[want.length] == '-';
+    }
+    return false;
 }
 
 // -------------------------------------------------------- declaration side
@@ -344,7 +462,7 @@ private Decl[] parseDecls(string block)
 private struct Chain
 {
     Compound[] chain;
-    bool[]     child;
+    char[]     comb;
     int[3]     spec;
     bool       malformed;
 }
@@ -354,17 +472,19 @@ private Chain compileSelector(string s)
     Chain cs;
 
     Compound c;
-    bool open;    // `c` holds a compound not yet emitted
-    bool curGt;   // combinator before the open compound
-    bool pendingGt; // a `>` seen after the last compound ended
+    bool open;       // `c` holds a compound not yet emitted
+    char curComb;    // the combinator before the open compound
+    char pendingComb; // a `>`/`+` seen after the last compound ended
 
     void emit()
     {
-        cs.child ~= cs.chain.empty ? false : curGt;
-        curGt = false;
+        cs.comb ~= curComb ? curComb : ' '; // ' ' also the index-0 placeholder
+        curComb = 0;
         if (!c.id.empty)
             ++cs.spec[0];
-        cs.spec[1] += cast(int) c.classes.length;
+        cs.spec[1] += cast(int) c.classes.length + cast(int) c.attrs.length;
+        if (c.firstChild || !c.lang.empty)
+            ++cs.spec[1]; // pseudo-classes count like .class (CSS 2.1)
         if (!c.type.empty) // `*` adds nothing (styling-css-04-f: `#alpha * rect` = 101)
             ++cs.spec[2];
         cs.chain ~= c;
@@ -380,30 +500,30 @@ private Chain compileSelector(string s)
         if (i >= s.length)
             break;
 
-        if (s[i] == '>')
+        if (s[i] == '>' || s[i] == '+')
         {
-            if (!open)
+            if (!open || pendingComb)
             {
-                cs.malformed = true; // `>` with nothing to its left
+                cs.malformed = true; // combinator with nothing on its left
                 return cs;
             }
-            pendingGt = true;
+            pendingComb = s[i];
             ++i;
             continue;
         }
 
         if (!startsCompound(s[i]))
         {
-            cs.malformed = true; // `+`, `~`, `|`, `[`, junk
+            cs.malformed = true; // `~`, `|`, junk
             return cs;
         }
 
         if (open)
         {
             emit();
-            curGt = pendingGt;
+            curComb = pendingComb;
         }
-        pendingGt = false;
+        pendingComb = 0;
 
         if (!parseCompound(s, i, c))
         {
@@ -413,9 +533,9 @@ private Chain compileSelector(string s)
         open = true;
     }
 
-    if (open && pendingGt)
+    if (open && pendingComb)
     {
-        cs.malformed = true; // dangling `>`
+        cs.malformed = true; // dangling combinator
         return cs;
     }
     if (open)
@@ -426,7 +546,7 @@ private Chain compileSelector(string s)
 private bool startsCompound(char ch)
 {
     return ch == '*' || ch == '#' || ch == '.' || ch == ':' ||
-        isIdentStart(ch);
+        ch == '[' || isIdentStart(ch);
 }
 
 private bool isIdentStart(char ch)
@@ -491,24 +611,110 @@ private bool parseCompound(string s, ref size_t i, ref Compound c)
                 return false;
             c.classes ~= s[start .. i];
         }
-        else if (ch == ':')
+        else if (ch == '[')
         {
-            // Nothing pseudo matches yet: interaction states never by
-            // nature, structural ones until they are implemented - a
-            // never compound keeps the rule inert either way.
-            c.never = true;
-            if (++i < s.length && s[i] == ':') // pseudo-element
+            ++i;
+            while (i < s.length && isWhite(s[i]))
                 ++i;
+            immutable start = i;
             while (i < s.length && isIdent(s[i]))
                 ++i;
-            if (i < s.length && s[i] == '(')
+            if (i == start)
+                return false;
+            immutable name = s[start .. i];
+
+            char op = 0;
+            while (i < s.length && isWhite(s[i]))
+                ++i;
+            if (i < s.length && s[i] == '=')
+                op = '=', ++i;
+            else if (i + 1 < s.length && (s[i] == '~' || s[i] == '|' ||
+                s[i] == '^' || s[i] == '$' || s[i] == '*') && s[i + 1] == '=')
             {
-                int depth = 1;
-                for (++i; i < s.length && depth; ++i)
-                    if (s[i] == '(')
-                        ++depth;
-                    else if (s[i] == ')')
-                        --depth;
+                op = s[i] == '~' ? '~' : s[i] == '|' ? '|' : 'n';
+                i += 2;
+            }
+
+            string val;
+            if (op)
+            {
+                while (i < s.length && isWhite(s[i]))
+                    ++i;
+                if (i < s.length && (s[i] == '"' || s[i] == '\''))
+                {
+                    immutable q = s[i++];
+                    immutable v = i;
+                    while (i < s.length && s[i] != q)
+                        ++i;
+                    if (i >= s.length)
+                        return false; // unterminated string
+                    val = s[v .. i];
+                    ++i;
+                }
+                else
+                {
+                    immutable v = i;
+                    while (i < s.length && isIdent(s[i]))
+                        ++i;
+                    if (i == v)
+                        return false; // missing value
+                    val = s[v .. i];
+                }
+                while (i < s.length && isWhite(s[i]))
+                    ++i;
+            }
+            if (i >= s.length || s[i] != ']')
+                return false;
+            ++i;
+            c.attrs ~= Attr(name, op, val);
+        }
+        else if (ch == ':')
+        {
+            if (++i < s.length && s[i] == ':') // pseudo-element: never
+            {
+                c.never = true;
+                ++i;
+                while (i < s.length && isIdent(s[i]))
+                    ++i;
+            }
+            else
+            {
+                immutable start = i;
+                while (i < s.length && isIdent(s[i]))
+                    ++i;
+                immutable name = s[start .. i];
+
+                string arg;
+                if (i < s.length && s[i] == '(')
+                {
+                    immutable start2 = ++i;
+                    int depth = 1;
+                    while (i < s.length && depth)
+                    {
+                        if (s[i] == '(')
+                            ++depth;
+                        else if (s[i] == ')')
+                            --depth;
+                        if (depth)
+                            ++i;
+                    }
+                    if (depth)
+                        return false; // unterminated
+                    arg = strip(s[start2 .. i]);
+                    ++i; // the ')'
+                }
+
+                if (name == "first-child")
+                    c.firstChild = true;
+                else if (name == "lang")
+                {
+                    if (arg.empty)
+                        return false; // :lang needs its tag
+                    foreach (ch2; arg)
+                        c.lang ~= cast(char) toLower(ch2);
+                }
+                else
+                    c.never = true; // :hover and friends stay inert
             }
         }
         else
@@ -561,6 +767,139 @@ private size_t skipAtRule(string s, size_t i) // s[i] == '@'
         ++i;
     }
     return s.length;
+}
+
+// Recognize `@import <url-token>|<string>` at the start of s; `url`
+// comes back with any quotes gone. Trailing media queries are not the
+// caller's problem: an `@import` that is not a plain statement fails
+// the caller's `;`-before-`{` test and is skipped whole anyway.
+private bool parseImport(string s, out string url)
+{
+    size_t i = 1;
+    while (i < s.length && isIdent(s[i]))
+        ++i;
+    string kw;
+    foreach (ch; s[1 .. i])
+        kw ~= cast(char) toLower(ch);
+    if (kw != "import")
+        return false;
+    while (i < s.length && isWhite(s[i]))
+        ++i;
+
+    string head;
+    if (i + 4 <= s.length)
+        foreach (ch; s[i .. i + 4])
+            head ~= cast(char) toLower(ch);
+
+    if (head == "url(")
+    {
+        i += 4;
+        while (i < s.length && isWhite(s[i]))
+            ++i;
+        if (i < s.length && (s[i] == '"' || s[i] == '\''))
+        {
+            immutable q = s[i++];
+            immutable start = i;
+            while (i < s.length && s[i] != q)
+                ++i;
+            if (i >= s.length)
+                return false; // unterminated string inside url(
+            url = s[start .. i];
+            ++i;
+        }
+        else
+        {
+            immutable start = i;
+            while (i < s.length && s[i] != ')' && !isWhite(s[i]))
+                ++i;
+            url = s[start .. i];
+        }
+        while (i < s.length && s[i] != ')')
+            ++i;
+        if (i >= s.length)
+            return false; // unterminated url(
+        ++i;
+    }
+    else if (i < s.length && (s[i] == '"' || s[i] == '\''))
+    {
+        immutable q = s[i++];
+        immutable start = i;
+        while (i < s.length && s[i] != q)
+            ++i;
+        if (i >= s.length)
+            return false;
+        url = s[start .. i];
+        ++i;
+    }
+    else
+        return false;
+    return !url.empty;
+}
+
+// Read and parse one imported sheet. Missing files and URL schemes
+// contribute no rules; the target's own directory becomes the base
+// for anything IT imports. resolveHref wants its base slash-terminated,
+// and dirName() hands back one without.
+private Rule[] importRules(string url, string baseDir, ref size_t order, int depth)
+{
+    immutable base = baseDir.length && baseDir[$ - 1] != '/' ? baseDir ~ "/" : baseDir;
+    immutable path = resolveHref(base, url);
+    if (path.empty || canFind(path, ':') || !path.exists)
+        return null;
+    return parseSheet(cast(string) readText(path), order, dirName(path) ~ "/", depth + 1);
+}
+
+// ------------------------------------------------------------------- URLs
+
+// §5.1.2 URL plumbing, for <image> hrefs and @import targets alike:
+// only plain filesystem paths are in play. resolveHref returns null
+// for an empty href, a same-document fragment (an <image> cannot paint
+// an inline element) and any URL scheme (http:, data:, ... - no
+// network, and no file: pretence); otherwise the path joined onto
+// `base` with ./.. segments collapsed.
+string resolveHref(string base, string href)
+{
+    if (href.empty || href[0] == '#')
+        return null;
+    if (auto h = find(href, '#')) // drop the #fragment
+        href = href[0 .. cast(ptrdiff_t)(h.ptr - href.ptr)];
+    if (href.empty)
+        return null;
+
+    // letters [+alnum.-]* before a ':' = a URL scheme. Everything but
+    // data: needs a network we don't have; data: (04-t embeds both a
+    // JPEG and a PNG) is handled by loadSVGImage.
+    immutable c = indexOf(href, ':');
+    if (c > 0 && isAlpha(href[0]))
+    {
+        bool scheme = true;
+        foreach (ch; href[1 .. c])
+            if (!(isAlphaNum(ch) || ch == '+' || ch == '-' || ch == '.'))
+                scheme = false;
+        if (scheme)
+            return href[0 .. c] == "data" ? href : null;
+    }
+
+    string path = href[0] == '/' ? href : (base.length ? base ~ href : href);
+    string[] segs;
+    foreach (seg; split(path, '/'))
+    {
+        if (seg.empty || seg == ".")
+            continue;
+        if (seg == "..")
+        {
+            if (segs.length && segs[$ - 1] != "..")
+                segs.length = segs.length - 1;
+            else if (path[0] != '/')
+                segs ~= ".."; // escape of a relative base
+            continue;
+        }
+        segs ~= seg;
+    }
+    string r = segs.join("/");
+    if (path[0] == '/')
+        r = "/" ~ r;
+    return r.empty ? "." : r;
 }
 
 private size_t closeBrace(string s, size_t open) // index of the matching `}`
@@ -760,26 +1099,57 @@ unittest
     auto c = compileSelector(`#alpha * rect`);
     assert(!c.malformed && c.chain.length == 3);
     assert(c.spec == [1, 0, 1]); // `*` contributes nothing
-    assert(!c.child[1] && !c.child[2]);
+    assert(c.comb[1] == ' ' && c.comb[2] == ' ');
 
     c = compileSelector(`g#alpha`);
     assert(c.chain.length == 1 && c.chain[0].type == "g" &&
         c.chain[0].id == "alpha" && c.spec == [1, 0, 1]);
 
     c = compileSelector(`defs > rect`);
-    assert(c.chain.length == 2 && c.child[1]);
+    assert(c.chain.length == 2 && c.comb[1] == '>');
 
     c = compileSelector(`*.test2`); // (groups split in parseSheet)
     assert(!c.malformed && c.chain[0].star && c.chain[0].classes == ["test2"]);
     c = compileSelector(`.a.b`);
     assert(c.chain.length == 1 && c.chain[0].classes.length == 2);
     c = compileSelector(`a > b c`);
-    assert(c.chain.length == 3 && c.child[1] && !c.child[2]); // `>` binds one link
+    assert(c.chain.length == 3 && c.comb[1] == '>' && c.comb[2] == ' ');
 
-    c = compileSelector(`a + rect`);
-    assert(c.malformed); // next phase; dropped until then
+    c = compileSelector(`a + rect`); // (styling-css-04-f `/* 101 */`-style chains)
+    assert(!c.malformed && c.comb[1] == '+');
+    c = compileSelector(`g#delta + g > rect + rect`);
+    assert(!c.malformed && c.spec == [1, 0, 4] &&
+        c.comb[1] == '+' && c.comb[2] == '>' && c.comb[3] == '+');
     c = compileSelector(`a:hover`);
     assert(!c.malformed && c.chain[0].never); // kept inert, not dropped
+    c = compileSelector(`a + + b`);
+    assert(c.malformed); // double combinator
+
+    // Attribute conditions (unquoted values included), :first-child and
+    // :lang; both pseudo-classes count like .class (CSS 2.1 §6.4.3,
+    // even where the test's hand-written /* 102 */ comments disagree).
+    c = compileSelector(`[id=testAttributeSelector]`);
+    assert(!c.malformed && c.chain[0].attrs.length == 1 &&
+        c.chain[0].attrs[0].name == "id" && c.chain[0].attrs[0].op == '=' &&
+        c.chain[0].attrs[0].val == "testAttributeSelector" && c.spec == [0, 1, 0]);
+    c = compileSelector(`circle[cx] .test8`);
+    assert(!c.malformed && c.chain[0].attrs[0].op == 0);
+    c = compileSelector(`circle[ foo ~= "warning1" ]`);
+    assert(!c.malformed && c.chain[0].attrs[0].op == '~' &&
+        c.chain[0].attrs[0].val == "warning1");
+    c = compileSelector(`[lang |= en]`);
+    assert(!c.malformed && c.chain[0].attrs[0].op == '|' &&
+        c.chain[0].attrs[0].val == "en");
+    c = compileSelector(`circle[foo^="x"]`);
+    assert(!c.malformed && c.chain[0].attrs[0].op == 'n'); // inert condition
+    c = compileSelector(`.test6:first-child`);
+    assert(!c.malformed && c.chain[0].firstChild && c.spec == [0, 2, 0]);
+    c = compileSelector(`#delta + g#epsilon * rect:first-child`);
+    assert(!c.malformed && c.spec == [2, 1, 2]);
+    c = compileSelector(`:lang(fr-ca)`);
+    assert(!c.malformed && c.chain[0].lang == "fr-ca" && c.spec == [0, 1, 0]);
+    c = compileSelector(`a:first-child`);
+    assert(!c.malformed && !c.chain[0].never); // no longer a `never` pseudo
 }
 
 unittest
@@ -808,29 +1178,30 @@ unittest
         a:hover rect { fill: purple }           /* inert */
     `), order);
     assert(rules.length == 6); // the `:hover` rule stays, inert
-    assert(rules[1].chain[0].type == "defs" && rules[1].child[1]); // escaped `&gt;` compiled as `>`
+    assert(rules[1].chain[0].type == "defs" && rules[1].comb[1] == '>'); // escaped `&gt;` compiled as `>`
 
     auto parent = cssAncestry(doc.nodes);
+    auto sib = cssPrevSib(doc.nodes, parent);
 
-    auto ms = cssCascade(doc.nodes, parent, doc.byId("r1"), rules);
+    auto ms = cssCascade(doc.nodes, parent, sib, doc.byId("r1"), rules);
     assert(ms.length == 2); // `rect` and `#alpha .testClass1` (r1's
                             // parent is the g, so the `defs >` rule misses)
     assert(ms[0].spec == [0, 0, 1]); // `rect` first: specificity 001
     assert(ms[1].spec == [1, 1, 0]); // winner last: #alpha .testClass1
 
-    ms = cssCascade(doc.nodes, parent, doc.byId("r2"), rules);
+    ms = cssCascade(doc.nodes, parent, sib, doc.byId("r2"), rules);
     assert(ms.length == 3); // rect, .b, g#beta > rect
     assert(ms[$ - 1].spec == [1, 0, 2]); // two type names count twice
 
     // r3: class value is case-sensitive (testclass1 != .testClass1),
     // the `:hover` rule never matches, and only bare `rect` applies.
-    ms = cssCascade(doc.nodes, parent, doc.byId("r3"), rules);
+    ms = cssCascade(doc.nodes, parent, sib, doc.byId("r3"), rules);
     assert(ms.length == 1 && ms[0].spec == [0, 0, 1]);
 
     // `use` clones match at the original position: r1 keeps matching
     // through #alpha no matter where it gets painted (it is in <defs>).
-    assert(matches(doc.nodes, parent, doc.byId("r1"), rules[2]));
-    assert(!matches(doc.nodes, parent, doc.byId("r1"), rules[1])); // `defs > rect` misses: parent is the g
+    assert(matches(doc.nodes, parent, sib, doc.byId("r1"), rules[2]));
+    assert(!matches(doc.nodes, parent, sib, doc.byId("r1"), rules[1])); // `defs > rect` misses: parent is the g
 }
 
 unittest
@@ -844,4 +1215,79 @@ unittest
     assert(rules.length == 2);
     assert(rules[0].chain[0].type == "g" && rules[0].order == 0);
     assert(rules[1].chain[0].type == "rect" && rules[1].order == 1);
+}
+
+unittest
+{
+    // 5b matching: `+` on the sibling map, attribute conditions,
+    // :first-child, :lang() - the shapes pinned by struct-use-11-f,
+    // styling-css-04-f, selector-types-*.css and styling-css-05-b.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <g id="sibs"><circle id="c1" cx="50"/><circle id="c2"/><rect id="q"/></g>
+        <g id="fc"><text id="t1" xml:lang="en-GB">x</text><text id="t2" xml:lang="fr-ca">y</text></g>
+        <path id="pa" foo="a warning1 b" lang="en"/>
+    </svg>`);
+    auto parent = cssAncestry(doc.nodes);
+    auto sib = cssPrevSib(doc.nodes, parent);
+    assert(sib[doc.byId("c1")] < 0 && sib[doc.byId("q")] == cast(int) doc.byId("c2"));
+
+    size_t order = 0;
+    auto rules = parseSheet(`
+        circle + rect { fill: gold }      /* the sibling rule hits only #q */
+        [id=missing] { fill: black }      /* unquoted value; matches nothing */
+        circle[cx] { fill: blue }
+        circle[cx="50"] { fill: red }
+        [foo~="warning1"] { fill: orange }
+        [lang|="en"] { stroke: silver }
+        text:first-child { fill: teal }
+        :lang(en) { stroke-width: 2 }
+        :lang(fr) { stroke-dasharray: 4 }
+    `, order);
+    assert(rules.length == 9);
+
+    auto ms = cssCascade(doc.nodes, parent, sib, doc.byId("q"), rules);
+    assert(ms.length == 1 && ms[0].vals[0] == "gold");
+
+    // c1: [cx] and [cx="50"] tie at 011, so sheet order decides - and
+    // c2 (no cx at all) matches neither.
+    ms = cssCascade(doc.nodes, parent, sib, doc.byId("c1"), rules);
+    assert(ms.length == 2 && ms[$ - 1].vals[0] == "red");
+    assert(cssCascade(doc.nodes, parent, sib, doc.byId("c2"), rules).empty);
+
+    // t1 is #fc's first element child, t2 is not; :lang(fr) matches
+    // fr-ca as a range prefix, :lang(en) matches en-GB likewise.
+    ms = cssCascade(doc.nodes, parent, sib, doc.byId("t1"), rules);
+    assert(ms.length == 2); // teal + stroke-width
+    ms = cssCascade(doc.nodes, parent, sib, doc.byId("t2"), rules);
+    assert(ms.length == 1 && ms[0].vals[0] == "4"); // :lang(fr) only
+
+    ms = cssCascade(doc.nodes, parent, sib, doc.byId("pa"), rules);
+    assert(ms.length == 3); // [foo~=], [lang|=], :lang(en) via `lang=`
+}
+
+unittest
+{
+    // @import splices the imported sheet AT the import point (sheet
+    // order keeps the cascade right), nested imports resolve against
+    // their own file, and a missing target contributes nothing (the
+    // x.css above simply yielded no rules).
+    import std.file : remove, write;
+    enum poly = "css5b_poly_test.css"; // innermost: one rule
+    enum mid = "css5b_mid_test.css";   // imports poly, then adds one
+    write(poly, `polygon { fill: purple }`);
+    write(mid, `@import "css5b_poly_test.css"; ellipse { fill: gold }`);
+    scope (exit) remove(mid);
+    scope (exit) remove(poly);
+
+    size_t order = 0;
+    auto rules = parseSheet(`
+        rect { fill: red }
+        @import url("css5b_mid_test.css");
+        circle { fill: blue }
+    `, order, ".");
+    assert(rules.length == 4);
+    assert(rules[0].chain[0].type == "rect" && rules[0].order == 0);
+    assert(rules[1].chain[0].type == "polygon" && rules[1].order == 1);
+    assert(rules[2].chain[0].type == "ellipse" && rules[2].order == 2);
+    assert(rules[3].chain[0].type == "circle" && rules[3].order == 3);
 }

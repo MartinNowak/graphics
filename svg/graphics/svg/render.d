@@ -354,55 +354,8 @@ class ImageShader : MappingShader
     float sx, sy;
 }
 
-// §5.1.2 URL plumbing for <image>: only plain filesystem paths are in
-// play. resolveHref returns null for an empty href, a same-document
-// fragment (an <image> cannot paint an inline element) and any URL
-// scheme (http:, data:, ... - no network, and no file: pretence);
-// otherwise the path joined onto `base` with ./.. segments collapsed.
-private string resolveHref(string base, string href)
-{
-    if (href.empty || href[0] == '#')
-        return null;
-    if (auto h = find(href, '#')) // drop the #fragment
-        href = href[0 .. cast(ptrdiff_t)(h.ptr - href.ptr)];
-    if (href.empty)
-        return null;
-
-    // letters [+alnum.-]* before a ':' = a URL scheme. Everything but
-    // data: needs a network we don't have; data: (04-t embeds both a
-    // JPEG and a PNG) is handled by loadSVGImage.
-    immutable c = indexOf(href, ':');
-    if (c > 0 && isAlpha(href[0]))
-    {
-        bool scheme = true;
-        foreach (ch; href[1 .. c])
-            if (!(isAlphaNum(ch) || ch == '+' || ch == '-' || ch == '.'))
-                scheme = false;
-        if (scheme)
-            return href[0 .. c] == "data" ? href : null;
-    }
-
-    string path = href[0] == '/' ? href : (base.length ? base ~ href : href);
-    string[] segs;
-    foreach (seg; splitter(path, '/'))
-    {
-        if (seg.empty || seg == ".")
-            continue;
-        if (seg == "..")
-        {
-            if (segs.length && segs[$ - 1] != "..")
-                segs.length = segs.length - 1;
-            else if (path[0] != '/')
-                segs ~= ".."; // escape of a relative base
-            continue;
-        }
-        segs ~= seg;
-    }
-    string r = segs.join("/");
-    if (path[0] == '/')
-        r = "/" ~ r;
-    return r.empty ? "." : r;
-}
+// resolveHref (§5.1.2 URL plumbing) lives in css.d now: @import targets
+// need the same base-relative, ./..-collapsing resolution as <image> hrefs.
 
 // xml:base resolution: the value becomes the subtree's base directory.
 private string baseJoin(string base, string v)
@@ -628,11 +581,13 @@ private struct Renderer
     bool inRoot; // latches at the first <svg> element; nodes before it are inert
 
     // Author style sheet (§6.2): every <style> element's rules in sheet
-    // order, plus the arena parent map the selector matcher walks. Both
-    // are set in renderSVG and copied to the offscreen renderers; with
-    // no rules a pushStyle behaves exactly as in the attributes-only era.
+    // order, plus the arena parent and previous-sibling maps the
+    // selector matcher walks. All set in renderSVG and copied to the
+    // offscreen renderers; with no rules a pushStyle behaves exactly as
+    // in the attributes-only era.
     Rule[] cssRules;
     int[] cssParent;
+    int[] cssSib;
 
     // The text run being accumulated inside a <text>/<tspan>.
     bool inText;
@@ -1218,7 +1173,7 @@ private struct Renderer
 
         const(Rule)[] ms;
         if (idx != Document.unknown && !cssRules.empty)
-            ms = cssCascade(doc.nodes, cssParent, idx, cssRules);
+            ms = cssCascade(doc.nodes, cssParent, cssSib, idx, cssRules);
 
         foreach (ref const r; ms)
             foreach (i, ref p; r.props)
@@ -1355,6 +1310,7 @@ private struct Renderer
         t.doc = doc;
         t.cssRules = cssRules;
         t.cssParent = cssParent;
+        t.cssSib = cssSib;
         t.patternDepth = patternDepth + 1;
         t.bmp = Bitmap(Bitmap.Config.ARGB_8888, tw, th);
         t.canvas = new Canvas(t.bmp);
@@ -1482,6 +1438,7 @@ private struct Renderer
         m.doc = doc;
         m.cssRules = cssRules;
         m.cssParent = cssParent;
+        m.cssSib = cssSib;
         m.bmp = maskBmp;
         m.canvas = new Canvas(maskBmp);
         m.inRoot = true;
@@ -1608,6 +1565,7 @@ private struct Renderer
         m.doc = doc;
         m.cssRules = cssRules;
         m.cssParent = cssParent;
+        m.cssSib = cssSib;
         m.bmp = maskBmp;
         m.canvas = new Canvas(maskBmp);
         m.inRoot = true;
@@ -1834,6 +1792,7 @@ private struct Renderer
         m.doc = doc;
         m.cssRules = cssRules;
         m.cssParent = cssParent;
+        m.cssSib = cssSib;
         m.bmp = dev;
         m.canvas = new Canvas(dev);
         m.inRoot = true;
@@ -3868,9 +3827,10 @@ Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "")
 {
     Renderer r;
     r.doc = parseSVG(source);
-    r.cssRules = collectStyles(r.doc); // §6.2 author sheet, document order
-    r.cssParent = cssAncestry(r.doc.nodes);
     r.docBase = baseDir;
+    r.cssRules = collectStyles(r.doc, baseDir); // §6.2 author sheet, document order
+    r.cssParent = cssAncestry(r.doc.nodes);
+    r.cssSib = cssPrevSib(r.doc.nodes, r.cssParent);
     r.zoom = zoom;
     r.walk(0); // the document pseudo-root; inRoot latches at the <svg>
 
