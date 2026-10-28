@@ -62,20 +62,24 @@ whose AE grew, or suite membership changing without a rebase. Improvements
 (`ERROR` → `OK`, shrinking AE) never fail the gate; run `--update` to lock
 them in and ratchet the baseline down.
 
-## Current baseline (2026-10, after step 3 "geometry compliance")
+## Current baseline (2026-10, after step 5c "text layout")
 
-524 of 526 tests render and compare (`OK`), 2 are `ERROR`; total tracked
-AE ≈ 7.06 M differing pixels. (At first landing it was 357 OK / 169 ERROR /
-6.27 M; the AE sum rose because formerly-crashing tests now contribute
-their real AE and several not-yet-implemented features shifted pixels.)
+525 of 526 tests render and compare (`OK`), 1 is `ERROR`; total tracked
+AE is 4,905,966 differing pixels. (At first landing it was 357 OK /
+169 ERROR / 6.27 M; after step 3 "geometry compliance" 524 OK / 7.06 M.
+The AE sum initially rose because formerly-crashing tests began
+contributing their real AE.)
 
-- The 2 `ERROR`s (`coords-transformattr-01-f`, `coords-units-02-b`) are
-  skew matrices whose projection crosses the vanishing line; control
-  points legitimately leave the raster bounds and the wavelet raster's
-  debug check aborts. Same verdict as the first baseline.
-- Largest remaining AE contributors are deferred feature areas: `<use>`,
-  `clip-path`/masking, `<view>` fragments, CSS `<style>` blocks, SMIL
-  animated frames and font/text metric differences (see caveat below).
+- The one `ERROR` (`coords-transformattr-01-f`) is a skew matrix whose
+  projection crosses the vanishing line; control points legitimately
+  leave the raster bounds and the wavelet raster's debug check aborts.
+  Its twin `coords-units-02-b` was fixed with the affine-skew step.
+- Largest remaining AE categories are planned feature areas: SMIL
+  animated frames (`animate-elem` 781 K), suite SVG fonts (`text-intro`
+  530 K), `<view>` fragments (`struct-frag` 344 K), SVG-as-image
+  (`struct-image` 647 K, partly a reference-suite defect) — plus the
+  text/font metric floor (see caveat below). The feature plan and its
+  AE ratchet table live in `svg/ROADMAP.md`.
 
 ## Text/font caveat
 
