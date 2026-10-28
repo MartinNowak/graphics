@@ -2043,6 +2043,12 @@ private struct Renderer
         if (!vis.intersect(FRect(0, 0, nw, nh)))
             return;
 
+        // The filter region basis is the element's geometry bbox in user
+        // space: for <image> that is the viewport rect (§7.8), not the
+        // natural-pixel box the shader path below draws into.
+        if (bboxTrack)
+            bboxAccum = unionBox(bboxAccum, FRect(x, y, x + w, y + h)); // §15.5
+
         canvas.save();
         scope (exit) canvas.restore();
         Matrix t;
@@ -2077,8 +2083,6 @@ private struct Renderer
         p.shader = new ImageShader(drawn, sx, sy);
         Path q;
         q.addRect(vis);
-        if (bboxTrack)
-            bboxAccum = unionBox(bboxAccum, q.bounds); // filter region basis (§15.5)
         canvas.drawPath(q, p);
     }
 
@@ -2614,9 +2618,14 @@ private struct Renderer
 
         auto f = makeFilter(doc, target);
 
-        // The element's CTM: the filter region and the objectBoundingBox
-        // maths ride the same matrix that paints the subtree - including
-        // the element's own transform, still an unapplied attribute here.
+        // The element's CTM for region maths: the filter region and the
+        // objectBoundingBox basis ride the same matrix that paints the
+        // subtree - including the element's own transform. The scratch
+        // canvas, however, starts from the plain parent CTM: paintSubtree
+        // replays this element's own attributes too, and its style
+        // machinery applies the transform attribute once. Double-seeding
+        // it here would slide SourceGraphic out of its own region (the
+        // filtered <use> in filters-conv-05-f).
         Matrix ctm = canvas.matrix;
         if (auto t = "transform" in doc.nodes[ch].attrs)
             transformSVG(ctm, *t);
@@ -2626,7 +2635,7 @@ private struct Renderer
         auto scratch = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
         scratch.eraseColor(Color(0));
         auto oc = new Canvas(scratch);
-        oc.matrix = ctm;
+        oc.matrix = canvas.matrix;
 
         auto oldCanvas = canvas;
         auto oldBmp = bmp;
@@ -2963,6 +2972,91 @@ private struct Renderer
                 Raster o;
                 componentTransfer(o, input(e.attrs, "in"), fn);
                 res = o;
+                ran = true;
+                break;
+            }
+
+            case "feConvolveMatrix":
+            {
+                // order is "<x> [<y>]" of positive integers, default 3;
+                // kernelMatrix must hold exactly orderX*orderY numbers.
+                // A broken shape (bad count, divisor 0, out-of-range
+                // target) leaves the primitive producing transparent
+                // black rather than paint.
+                int[2] ord = [3, 3]; // [orderX, orderY]
+                size_t seen = 0;
+                bool bad = false;
+                if (auto p = "order" in e.attrs)
+                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    {
+                        if (seen < 2)
+                        {
+                            try
+                                ord[cast(int) seen] = to!int(strip(t));
+                            catch (ConvException)
+                                bad = true;
+                            if (ord[cast(int) seen] < 1)
+                                bad = true;
+                        }
+                        ++seen;
+                    }
+                if (seen == 1)
+                    ord[1] = ord[0];
+
+                float[] k;
+                if (auto p = "kernelMatrix" in e.attrs)
+                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                        try
+                            k ~= to!float(t);
+                        catch (ConvException)
+                            bad = true;
+                if (k.length != ord[0] * ord[1])
+                    bad = true;
+
+                // divisor defaults to the kernel sum, 1 when that is 0;
+                // an explicit 0 is an error.
+                float div = 0.0f;
+                if (auto p = "divisor" in e.attrs)
+                {
+                    div = num(e.attrs, "divisor", 0.0f);
+                    if (div == 0.0f)
+                        bad = true;
+                }
+                else
+                {
+                    foreach (v; k)
+                        div += v;
+                    if (div == 0.0f)
+                        div = 1.0f;
+                }
+
+                immutable tx = to!int(num(e.attrs, "targetX", ord[0] / 2.0f));
+                immutable ty = to!int(num(e.attrs, "targetY", ord[1] / 2.0f));
+                if (tx < 0 || tx >= ord[0] || ty < 0 || ty >= ord[1])
+                    bad = true;
+
+                ConvEdge em = ConvEdge.duplicate;
+                if (auto p = "edgeMode" in e.attrs)
+                {
+                    immutable v = toLower(strip(*p));
+                    if (v == "wrap")
+                        em = ConvEdge.wrap;
+                    else if (v == "none")
+                        em = ConvEdge.none;
+                }
+                bool pa = false;
+                if (auto p = "preserveAlpha" in e.attrs)
+                    pa = strip(*p) == "true" || strip(*p) == "1";
+
+                if (!bad)
+                {
+                    Raster o;
+                    convolve(o, input(e.attrs, "in"), k, ord[0], ord[1], tx, ty,
+                        div, num(e.attrs, "bias", 0.0f), em, pa);
+                    res = o;
+                }
+                else
+                    res = Raster(src.w, src.h); // disabled: transparent
                 ran = true;
                 break;
             }

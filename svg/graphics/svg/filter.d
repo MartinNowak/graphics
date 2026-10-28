@@ -695,6 +695,121 @@ unittest
         to!string(d.px[]));
 }
 
+/// feConvolveMatrix §15.13: convolution runs on premultiplied working
+/// values; the kernel is applied rotated 180° (coefficient for source
+/// offset (J-targetX, I-targetY) is k[orderY-I-1][orderX-J-1], per the
+/// spec formula). Bias enters alpha raw and colours at bias·ALPHA_X,Y;
+/// preserveAlpha unpremultiplies the colours, runs the kernel on those,
+/// and re-premultiplies against the untouched source alpha.
+enum ConvEdge { duplicate, wrap, none }
+
+void convolve(ref Raster dst, in Raster src, in float[] k, int ox, int oy,
+    int tx, int ty, float divisor, float bias, ConvEdge edge, bool preserveAlpha)
+{
+    dst = Raster(src.w, src.h);
+
+    float samp(in Raster r, int sx, int sy, int c)
+    {
+        switch (edge)
+        {
+        case ConvEdge.duplicate:
+            return r.px[(min(max(sy, 0), r.h - 1) * r.w + min(max(sx, 0), r.w - 1)) * 4 + c];
+        case ConvEdge.wrap:
+            {
+                immutable wx = ((sx % r.w) + r.w) % r.w, wy = ((sy % r.h) + r.h) % r.h;
+                return r.px[(wy * r.w + wx) * 4 + c];
+            }
+        default: // none: zero (including alpha) outside
+            return sx >= 0 && sx < r.w && sy >= 0 && sy < r.h ? r.px[(sy * r.w + sx) * 4 + c] : 0.0f;
+        }
+    }
+
+    // straight form of one colour sample (alpha of that sample itself).
+    float sampS(int sx, int sy, int c)
+    {
+        immutable a = samp(src, sx, sy, 3);
+        return a > 0.0f ? samp(src, sx, sy, c) / a : 0.0f;
+    }
+
+    foreach (y; 0 .. src.h)
+        foreach (x; 0 .. src.w)
+        {
+            immutable p = cast(size_t) (y * src.w + x) * 4;
+            float[4] acc = 0.0f;
+            foreach (I; 0 .. oy)
+                foreach (J; 0 .. ox)
+                {
+                    immutable coef = k[(oy - 1 - I) * ox + (ox - 1 - J)];
+                    immutable sx = x - tx + J, sy = y - ty + I;
+                    if (preserveAlpha)
+                        foreach (c; 0 .. 3)
+                            acc[c] += sampS(sx, sy, c) * coef;
+                    else
+                        foreach (c, ref ac; acc)
+                            ac += samp(src, sx, sy, cast(int) c) * coef;
+                }
+
+            if (preserveAlpha)
+            {
+                dst.px[p + 3] = src.px[p + 3]; // ALPHA_X,Y = SOURCE_X,Y
+                foreach (c; 0 .. 3)
+                    dst.px[p + c] = (acc[c] / divisor + bias * dst.px[p + 3]) * dst.px[p + 3];
+            }
+            else
+            {
+                dst.px[p + 3] = acc[3] / divisor + bias;
+                foreach (c; 0 .. 3)
+                    dst.px[p + c] = acc[c] / divisor + bias * dst.px[p + 3];
+            }
+        }
+}
+
+unittest
+{
+    // The spec's identity kernel: rotated 180° it is its own inverse.
+    auto src = Raster(2, 1);
+    Raster d;
+    src.px[] = [1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f];
+    convolve(d, src, [0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f],
+        3, 3, 1, 1, 1.0f, 0.0f, ConvEdge.none, false);
+    assert(d.px[] == src.px[], to!string(d.px[]));
+
+    // order="1 2" with an asymmetric kernel pins the 180° rotation:
+    // targetY = floor(2/2) = 1, so k[1] multiplies the row above the
+    // target and k[0] the target's own row - red above blue at y=0 is
+    // the k[0] tap alone, and 2*red + blue at y=1.
+    src = Raster(1, 2);
+    src.px[] = [1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f]; // red above blue
+    convolve(d, src, [1.0f, 2.0f], 1, 2, 0, 1, 3.0f, 0.0f, ConvEdge.none, false);
+    assert(isClose(d.px[0], 1.0f / 3, 1e-5f) && d.px[1] == 0.0f
+        && isClose(d.px[3], 1.0f / 3, 1e-5f), to!string(d.px[0 .. 4]));
+    assert(isClose(d.px[4], 2.0f / 3, 1e-5f) && isClose(d.px[6], 1.0f / 3, 1e-5f)
+        && isClose(d.px[7], 1.0f, 1e-5f), to!string(d.px[4 .. 8]));
+
+    // Edge modes on a single red pixel with a 1/9 box kernel: "none"
+    // keeps just the centre tap; duplicate (and wrap, on a 1x1) fill it.
+    src = Raster(1, 1);
+    src.px[] = [1.0f, 0.0f, 0.0f, 1.0f];
+    auto box = repeat(1.0f, 9).array;
+    convolve(d, src, box, 3, 3, 1, 1, 9.0f, 0.0f, ConvEdge.none, false);
+    assert(isClose(d.px[0], 1.0f / 9, 1e-5f) && isClose(d.px[3], 1.0f / 9, 1e-5f));
+    convolve(d, src, box, 3, 3, 1, 1, 9.0f, 0.0f, ConvEdge.duplicate, false);
+    assert(d.px[] == [1.0f, 0.0f, 0.0f, 1.0f], to!string(d.px[]));
+
+    // preserveAlpha keeps alpha and runs the kernel on straight colours;
+    // the raw form convolves alpha too and lets bias ride the result.
+    src.px[] = [0.5f, 0.0f, 0.0f, 0.5f]; // half-alpha straight red
+    convolve(d, src, [0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f],
+        3, 3, 1, 1, 1.0f, 0.0f, ConvEdge.none, true);
+    assert(d.px[] == [0.5f, 0.0f, 0.0f, 0.5f], to!string(d.px[]));
+    convolve(d, src, [0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f],
+        3, 3, 1, 1, 1.0f, 0.5f, ConvEdge.none, false);
+    // alpha: 0.5 + 0.5 = 1; PM red: 0.5 + 0.5*1; and bias lands on
+    // every component, so the black channels lift to 0.5 - the
+    // "0.5 gray is the zero response" trick §15.13 spells out.
+    assert(d.px[] == [1.0f, 0.5f, 0.5f, 1.0f], to!string(d.px[]));
+}
+
 /// feGaussianBlur, §15.16.1: for s >= 2 three box blurs stand in for the
 /// Gaussian - d = floor(s·3·sqrt(2π)/4 + 0.5); odd d takes three boxes of
 /// size d centred on the output pixel, even d two boxes of size d half a
