@@ -3585,6 +3585,20 @@ Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "")
     r.docBase = baseDir;
     r.zoom = zoom;
     r.walk(0); // the document pseudo-root; inRoot latches at the <svg>
+
+    // The device is composited premultiplied (blendPM), but an ARGB_8888
+    // Bitmap - and any PNG saved from it - is straight-alpha by definition,
+    // so convert on the way out. guip stores floor(c*(a+1)/256), making the
+    // inverse round(p*256/(a+1)) clamped; a 0 and a 255 are identities.
+    foreach (y; 0 .. r.bmp.height)
+        foreach (ref px; r.bmp.getLine!PMColor(y))
+            if (px.a && px.a != 255)
+            {
+                immutable s = px.a + 1;
+                px.r = cast(ubyte) min(255, (px.r * 256 + s / 2) / s);
+                px.g = cast(ubyte) min(255, (px.g * 256 + s / 2) / s);
+                px.b = cast(ubyte) min(255, (px.b * 256 + s / 2) / s);
+            }
     return r.bmp;
 }
 
@@ -4098,12 +4112,16 @@ unittest
         {
             immutable pxc = row[px];
             immutable cov = area(A, px, py) + area(B, px, py) - 2 * overlapArea(px, py);
-            immutable dev = abs(pxc.r / 255.0 - cov);
+            // AA coverage rides the alpha byte; the save pass keeps the
+            // white channel straight (near 255) wherever alpha is nonzero.
+            immutable dev = abs(pxc.a / 255.0 - cov);
             immutable twoCrossings = (px == 6 && py == 3) || (px == 4 && py == 6);
+            if (pxc.a)
+                assert(pxc.r >= 240, text("straight channel lost at ", [px, py]));
             if (twoCrossings)
             {
                 ++badCells;
-                assert(pxc.r >= 240, text("tie cell not near full coverage at ", [px, py]));
+                assert(pxc.a >= 240, text("tie cell not near full coverage at ", [px, py]));
                 assert(dev <= 0.55, text("deviation unbounded at ", [px, py, dev]));
             }
             else
@@ -4258,7 +4276,8 @@ unittest
 
     // Paint alphas fold into the stop alphas at build time (the blitter
     // only applies AA coverage): stop-opacity 0.5 x fill-opacity 0.5 of
-    // opaque white lands at alpha ~ 255*0.25 = 64, premultiplied ~64.
+    // opaque white lands at alpha ~ 255*0.25 = 64; the straight-out save
+    // recovers the near-white channel from the premultiplied 64.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
         <defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" x2="10" y1="0" y2="0">
             <stop offset="0" stop-color="white" stop-opacity="0.5"/>
@@ -4267,7 +4286,7 @@ unittest
         <rect width="10" height="10" fill="url(#g)" fill-opacity="0.5"/>
         </svg>`);
     auto px = bmp.getLine!PMColor(5)[5];
-    assert(px.a >= 60 && px.a <= 68 && px.r >= 60 && px.r <= 68, to!string([px.a, px.r]));
+    assert(px.a >= 60 && px.a <= 68 && px.r >= 248, to!string([px.a, px.r]));
 }
 
 unittest
@@ -4586,10 +4605,10 @@ unittest
     assert(bmp.getLine!PMColor(10)[15].a == 0, "no mask coverage: nothing");
     assert(bmp.getLine!PMColor(30)[10].a == 0, "black mask blocks the element");
     immutable red = bmp.getLine!PMColor(50)[10];
-    assert(red.a > 52 && red.a < 56 && red.b == red.a,
-        "red luminance 0.2126 scales alpha (and premul b matches)");
+    assert(red.a > 52 && red.a < 56 && red.b >= 245,
+        "red luminance 0.2126 scales alpha (straight blue stays full)");
     immutable alf = bmp.getLine!PMColor(70)[10];
-    assert(alf.a > 126 && alf.a < 130 && alf.g == alf.a,
+    assert(alf.a > 126 && alf.a < 130 && alf.g >= 250,
         "maskType=alpha: half-transparent black passes 0.5");
 
     // Broken mask references and empty masks: the element is not
@@ -4659,7 +4678,7 @@ unittest
         <g mask="url(#g1m)"><rect width="40" height="40" fill="lime" mask="url(#g2m)"/></g>
         </svg>`);
     immutable two = bmp.getLine!PMColor(20)[20];
-    assert(two.a > 126 && two.a < 130 && two.g == two.a, "stacked masks multiply");
+    assert(two.a > 126 && two.a < 130 && two.g >= 250, "stacked masks multiply");
 
     // A mask that masks itself terminates at the nesting cap and,
     // every layer being empty, renders nothing.
@@ -4904,13 +4923,14 @@ unittest
     assert(bmp.getLine!PMColor(10)[10].a == 0, "broken image references render nothing");
 
     // opacity folds into the pixels (Paint color is ignored on the
-    // shader path, so gradients do the same at build time): white
-    // scaled to alpha 128 premultiplies to a fully grey 128 pixel.
+    // shader path, so gradients do the same at build time): white scaled
+    // to alpha 128 saves as straight white at alpha 128 (the save pass
+    // unpremultiplies the device's grey-128 back).
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
         <image href="PngSuite/basn0g01.png" width="10" height="10" opacity="0.5"/>
         </svg>`, 1.0f, imgBase);
     immutable half = bmp.getLine!PMColor(0)[0];
-    assert(half.a == 128 && half.r == 128, "opacity scales the image");
+    assert(half.a == 128 && half.r >= 250, "opacity scales the image");
 
     // "slice" overflows the viewport, and the viewport clips it: at
     // 64x16 over a 32x32 image the scale is 2, so unclipped content
