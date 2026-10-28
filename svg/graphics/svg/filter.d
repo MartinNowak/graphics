@@ -3,6 +3,7 @@ module graphics.svg.filter;
 import std.algorithm, std.ascii, std.conv, std.math, std.range, std.string;
 import guip;
 import graphics.core.pmcolor : PMColor;
+import graphics.svg.color : parsePaint;
 import graphics.svg.parser : Document;
 
 // SVG 1.1 §15: the filter model (a parsed <filter> plus its primitives) and
@@ -1512,6 +1513,279 @@ unittest
 }
 
 // ---------------------------------------------------------------------------
+// Lighting (§15.8, §15.14, §15.22): the input's alpha is a height map
+// Z = surfaceScale * I(x,y); the §15.14 Sobel 3x3 kernels - nine position
+// classes, so the support never leaves the image the primitive sees - give
+// the surface normal, and the Phong diffuse/specular terms follow the
+// spec's formulas literally. All lengths arrive in device pixels (the
+// renderer scales primitive-unit numbers for positions); angles are degrees.
+// ---------------------------------------------------------------------------
+
+/// One light source child element (§15.8.2-§15.8.4), positions already in
+/// device pixels. limitingConeAngle keeps float.max as the "attribute
+/// absent" sentinel: no cone limit.
+struct Light
+{
+    int kind = 0;                      // 0 feDistantLight, 1 point, 2 spot
+    float azimuth = 0.0f, elevation = 0.0f; // feDistantLight, degrees
+    float x = 0.0f, y = 0.0f, z = 0.0f;     // fePointLight / feSpotLight
+    float pointsAtX = 0.0f, pointsAtY = 0.0f, pointsAtZ = 0.0f; // feSpotLight's aim
+    float specularExponent = 1.0f;     // feSpotLight focus exponent
+    float limitingConeAngle = float.max;
+}
+
+// The §15.14 kernel table, row-major position classes (top-left corner
+// first, interior fifth). FACTOR_x = fx[0] / (fx[1] * dx); the kx/ky rows
+// run (y-dy, y, y+dy). Missing samples carry zero weight, which is what
+// lets an edge kernel never reference a sample outside the image.
+private struct NormalKernel
+{
+    int[2] fx, fy;
+    int[9] kx, ky;
+}
+
+private immutable NormalKernel[9] normalKernels =
+[
+    // top/left corner
+    NormalKernel([2, 3], [2, 3], [0, 0, 0, 0, -2, 2, 0, -1, 1],
+                         [0, 0, 0, 0, -2, -1, 0, 2, 1]),
+    // top row
+    NormalKernel([1, 3], [1, 2], [0, 0, 0, -2, 0, 2, -1, 0, 1],
+                         [0, 0, 0, -1, -2, -1, 1, 2, 1]),
+    // top/right corner
+    NormalKernel([2, 3], [2, 3], [0, 0, 0, -2, 2, 0, -1, 1, 0],
+                         [0, 0, 0, -1, -2, 0, 1, 2, 0]),
+    // left column
+    NormalKernel([1, 2], [1, 3], [0, -1, 1, 0, -2, 2, 0, -1, 1],
+                         [0, -2, -1, 0, 0, 0, 0, 2, 1]),
+    // interior pixels
+    NormalKernel([1, 4], [1, 4], [-1, 0, 1, -2, 0, 2, -1, 0, 1],
+                         [-1, -2, -1, 0, 0, 0, 1, 2, 1]),
+    // right column
+    NormalKernel([1, 2], [1, 3], [-1, 1, 0, -2, 2, 0, -1, 1, 0],
+                         [-1, -2, 0, 0, 0, 0, 1, 2, 0]),
+    // bottom/left corner
+    NormalKernel([2, 3], [2, 3], [0, -1, 1, 0, -2, 2, 0, 0, 0],
+                         [0, -2, -1, 0, 2, 1, 0, 0, 0]),
+    // bottom row
+    NormalKernel([1, 3], [1, 2], [-1, 0, 1, -2, 0, 2, 0, 0, 0],
+                         [-1, -2, -1, 1, 2, 1, 0, 0, 0]),
+    // bottom/right corner
+    NormalKernel([2, 3], [2, 3], [-1, 1, 0, -2, 2, 0, 0, 0, 0],
+                         [-1, -2, 0, 1, 2, 0, 0, 0, 0]),
+];
+
+/// feDiffuseLighting (§15.14) and feSpecularLighting (§15.22) into `dst`.
+/// The diffuse result is fully opaque (Da = 1 everywhere, flat regions
+/// included); the specular one packs Sa = max(Sr,Sg,Sb) and stores its
+/// channels straight-through - they never exceed that alpha, so they *are*
+/// the premultiplied channels. lightRGB is lighting-color decoded into the
+/// working space; kConstant is kd/ks and specExp the Phong exponent. The
+/// normal kernels sample at +/-dx, +/-dy pixels with the edge classes
+/// resolved against `box`, the image as the primitive sees it.
+void lighting(ref Raster dst, in Raster src, const Light lit, bool specular,
+    float surfaceScale, float kConstant, float specExp,
+    const float[3] lightRGB, int dx, int dy, in IBox4 box)
+{
+    dst = Raster(src.w, src.h);
+
+    // A distant light gives a constant L; az/el are device-space angles.
+    float[3] cL;
+    if (lit.kind == 0)
+    {
+        immutable az = lit.azimuth * PI / 180.0f, el = lit.elevation * PI / 180.0f;
+        cL = [cos(az) * cos(el), sin(az) * cos(el), sin(el)];
+    }
+
+    // The spot axis S (light -> pointsAt) and the cone threshold are
+    // constant across the image (§15.14); coneCos stays -1 when the
+    // attribute is absent: -L.S never falls below it.
+    float[3] sV;
+    float coneCos = -1.0f;
+    if (lit.kind == 2)
+    {
+        sV = [lit.pointsAtX - lit.x, lit.pointsAtY - lit.y, lit.pointsAtZ - lit.z];
+        immutable n = sqrt(sV[0] ^^ 2 + sV[1] ^^ 2 + sV[2] ^^ 2);
+        if (n > 0.0f)
+            sV[] /= n;
+        if (lit.limitingConeAngle != float.max)
+            coneCos = cos(lit.limitingConeAngle * PI / 180.0f);
+    }
+
+    immutable x0 = max(box.x0, 0), y0 = max(box.y0, 0);
+    immutable x1 = min(box.x1, src.w), y1 = min(box.y1, src.h);
+
+    foreach (y; y0 .. y1)
+        foreach (x; x0 .. x1)
+        {
+            const col = x - box.x0 < dx ? 0 : (x >= box.x1 - dx ? 2 : 1);
+            const row = y - box.y0 < dy ? 0 : (y >= box.y1 - dy ? 2 : 1);
+            ref immutable k = normalKernels[row * 3 + col];
+
+            float[9] ii;
+            foreach (j, yy; [y - dy, y, y + dy])
+                foreach (i, xx; [x - dx, x, x + dx])
+                    ii[j * 3 + i] = (xx >= 0 && xx < src.w && yy >= 0 && yy < src.h)
+                        ? src.px[(cast(size_t) yy * src.w + xx) * 4 + 3] : 0.0f;
+
+            // N, per the §15.14 formulas (the minus sign is the spec's).
+            float nx = 0.0f, ny = 0.0f;
+            foreach (j; 0 .. 9)
+            {
+                nx += k.kx[j] * ii[j];
+                ny += k.ky[j] * ii[j];
+            }
+            nx = -surfaceScale * (k.fx[0] / (cast(float) k.fx[1] * dx)) * nx;
+            ny = -surfaceScale * (k.fy[0] / (cast(float) k.fy[1] * dy)) * ny;
+            immutable nn = sqrt(nx ^^ 2 + ny ^^ 2 + 1.0f);
+            nx /= nn; ny /= nn;
+            immutable nz = 1.0f / nn;
+
+            // L: constant for distant, sample -> light otherwise.
+            float[3] L;
+            if (lit.kind == 0)
+                L = cL;
+            else
+            {
+                L = [lit.x - x, lit.y - y, lit.z - surfaceScale * ii[4]];
+                immutable n = sqrt(L[0] ^^ 2 + L[1] ^^ 2 + L[2] ^^ 2);
+                if (n > 0.0f)
+                    L[] /= n; // n == 0: L stays null and lights nothing
+            }
+
+            // The light's colour vector; a spot light attenuates it by the
+            // focus exponent, and dies inside none-of-the-cone conditions.
+            float[3] Lrgb = lightRGB[];
+            if (lit.kind == 2)
+            {
+                immutable ls = L[0] * sV[0] + L[1] * sV[1] + L[2] * sV[2];
+                if (ls > 0.0f || -ls < coneCos)
+                    Lrgb[] = 0.0f;
+                else
+                {
+                    immutable att = pow(-ls, lit.specularExponent);
+                    foreach (c; 0 .. 3)
+                        Lrgb[c] *= att;
+                }
+            }
+
+            immutable p = (cast(size_t) y * dst.w + x) * 4;
+            if (!specular)
+            {
+                immutable nl = nx * L[0] + ny * L[1] + nz * L[2];
+                foreach (c; 0 .. 3)
+                    dst.px[p + c] = kConstant * nl * Lrgb[c];
+                dst.px[p + 3] = 1.0f;
+            }
+            else
+            {
+                // H = (L + E)/|L + E| with the eye at E = (0,0,1) (§15.22).
+                float[3] H = [L[0], L[1], L[2] + 1.0f];
+                immutable hn = sqrt(H[0] ^^ 2 + H[1] ^^ 2 + H[2] ^^ 2);
+                float nh = 0.0f;
+                if (hn > 0.0f)
+                    nh = max(0.0f, (nx * H[0] + ny * H[1] + nz * H[2]) / hn);
+                immutable ph = pow(nh, specExp);
+                float m = 0.0f;
+                foreach (c; 0 .. 3)
+                {
+                    dst.px[p + c] = kConstant * ph * Lrgb[c];
+                    m = max(m, dst.px[p + c]);
+                }
+                dst.px[p + 3] = m;
+            }
+        }
+}
+
+unittest
+{
+    // Flat surface under a head-on distant light (elevation 90): N = L =
+    // (0,0,1), so the diffuse term is kd * lighting-color everywhere -
+    // opaque even though the input is fully transparent - and the
+    // specular term peaks at ks * color with Sa = max(Sr,Sg,Sb)
+    // (§15.14, §15.22).
+    Raster src = Raster(4, 4); // all transparent: a flat zero-height field
+    Light lit; // default kind: feDistantLight, az = el = 0
+    lit.elevation = 90.0f;
+    const float[3] red = [1.0f, 0.0f, 0.0f];
+
+    Raster o;
+    lighting(o, src, lit, false, 1.0f, 1.0f, 1.0f, red, 1, 1, IBox4(0, 0, 4, 4));
+    assert(o.px[0] == 1.0f && o.px[3] == 1.0f); // transparent input: still lit
+    assert(o.px[(cast(size_t) 1 * 4 + 1) * 4 + 0] == 1.0f);
+    assert(o.px[(cast(size_t) 1 * 4 + 1) * 4 + 1] == 0.0f);
+
+    Raster s;
+    lighting(s, src, lit, true, 1.0f, 2.0f, 1.0f, red, 1, 1, IBox4(0, 0, 4, 4));
+    immutable q = (cast(size_t) 1 * 4 + 1) * 4;
+    assert(s.px[q] == 2.0f && s.px[q + 3] == 2.0f); // ks=2, alpha = max
+
+    // A linear alpha ramp along x: the interior kernel sums to 4*dx*slope,
+    // slope = 1/8, so Nx = -surfaceScale/4 * 1 = -0.25 at a middle pixel.
+    // Light from azimuth 180 lights that slope with N.L = 0.25/sqrt(17/16).
+    Raster ramp = Raster(9, 3);
+    foreach (yy; 0 .. 3)
+        foreach (xx; 0 .. 9)
+            ramp.px[(cast(size_t) yy * 9 + xx) * 4 + 3] = xx / 8.0f;
+    lit.azimuth = 180.0f;
+    lit.elevation = 0.0f;
+    Raster d;
+    lighting(d, ramp, lit, false, 1.0f, 1.0f, 1.0f, red, 1, 1, IBox4(0, 0, 9, 3));
+    immutable mid = (cast(size_t) 1 * 9 + 4) * 4;
+    assert(d.px[mid].isClose(0.25f / sqrt(1.0625f), 1e-5f), to!string(d.px[mid]));
+    assert(d.px[mid + 3] == 1.0f);
+}
+
+unittest
+{
+    // Uniform plateau at height 1 under a point light at (0,0,2): the
+    // pixel under the light sees L = (0,0,1) (z - surfaceScale*I = 1),
+    // while the far corner leans away and dims by 1/sqrt(33). The spot
+    // variant with its axis pointing down keeps full strength under the
+    // light (-L.S = 1, any focus exponent).
+    Raster src = Raster(5, 5);
+    foreach (i; 0 .. 25)
+        src.px[i * 4 + 3] = 1.0f; // plateau at height surfaceScale * 1
+    Light lit;
+    lit.kind = 1;
+    lit.x = 0.0f;
+    lit.y = 0.0f;
+    lit.z = 2.0f;
+    Raster o;
+    lighting(o, src, lit, false, 1.0f, 1.0f, 1.0f, [1.0f, 1.0f, 1.0f], 1, 1,
+        IBox4(0, 0, 5, 5));
+    assert(o.px[0].isClose(1.0f, 1e-6f) && o.px[3] == 1.0f);
+    immutable far = (cast(size_t) 4 * 5 + 4) * 4;
+    assert(o.px[far].isClose(1.0f / sqrt(33.0f), 1e-5f), to!string(o.px[far]));
+
+    lit.kind = 2;
+    lit.pointsAtX = 0.0f;
+    lit.pointsAtY = 0.0f;
+    lit.pointsAtZ = -10.0f; // axis straight down
+    lit.specularExponent = 2.0f;
+    Raster s;
+    lighting(s, src, lit, true, 1.0f, 1.0f, 1.0f, [1.0f, 1.0f, 1.0f], 1, 1,
+        IBox4(0, 0, 5, 5));
+    assert(s.px[0].isClose(1.0f, 1e-6f) && s.px[3].isClose(1.0f, 1e-6f));
+
+    // A sample behind the lamp takes no light: the axis aims along +x and
+    // (0,0) sits at -x from the light, so L.S > 0 (§15.14).
+    lit.x = 2.0f;
+    lit.y = 2.0f;
+    lit.z = 2.0f;
+    lit.pointsAtX = 102.0f;
+    lit.pointsAtY = 2.0f;
+    lit.pointsAtZ = 2.0f;
+    Raster d;
+    lighting(d, src, lit, false, 1.0f, 1.0f, 1.0f, [1.0f, 1.0f, 1.0f], 1, 1,
+        IBox4(0, 0, 5, 5));
+    assert(d.px[0] == 0.0f && d.px[3] == 1.0f); // (0,0): no light, still opaque
+    immutable side = (cast(size_t) 0 * 5 + 4) * 4;
+    assert(d.px[side].isClose(1.0f / 3.0f * pow(2.0f / 3.0f, 2.0f), 1e-5f),
+        to!string(d.px[side])); // (4,0) faces the lit (+x) side of the cone
+}
+
+// ---------------------------------------------------------------------------
 // The filter model: <filter> + primitives, read straight off the arena.
 // ---------------------------------------------------------------------------
 
@@ -1530,6 +1804,9 @@ struct FilterSpec
     bool primsObjBB;       // primitiveUnits (§15.3); default userSpaceOnUse
     bool linearRGB = true; // color-interpolation-filters; §15.2 initial value
     size_t[] prims;        // arena indices, document order
+    Color color = Color.Black; // the 'color' property as inherited at the
+                               // <filter> element - the currentColor base
+                               // for flood-color/lighting-color (§15.8.5)
 }
 
 FilterSpec makeFilter(ref const Document doc, size_t target)
@@ -1551,14 +1828,45 @@ FilterSpec makeFilter(ref const Document doc, size_t target)
     }
 
     // The first filter in the chain with primitive children wins (§15.1).
+    size_t owner = target;
     foreach (fi; chain)
     {
         foreach (ch; doc.nodes[fi].children)
             if (!doc.nodes[ch].name.empty)
                 f.prims ~= ch;
         if (f.prims.length)
+        {
+            owner = fi;
             break;
+        }
     }
+
+    // currentColor (§6.2.2) inside flood-color/lighting-color resolves
+    // against the 'color' property inherited at the primitives' ancestors -
+    // document-tree inheritance, which filters-light-05-f pins down with
+    // <defs color="...">. The arena carries no parent links, so walk down
+    // from the pseudo-root carrying the value instead. Only presentation
+    // attributes are read; currentColor/inherit fail parsePaint and pass
+    // the inherited value through untouched.
+    bool seek(size_t n, Color c)
+    {
+        if (auto p = "color" in doc.nodes[n].attrs)
+        {
+            Color v;
+            if (parsePaint(*p, v))
+                c = v;
+        }
+        if (n == owner)
+        {
+            f.color = c;
+            return true;
+        }
+        foreach (ch; doc.nodes[n].children)
+            if (seek(ch, c))
+                return true;
+        return false;
+    }
+    seek(0, Color.Black);
 
     // Attribute lookup falls back along the same chain.
     string attr(string name)

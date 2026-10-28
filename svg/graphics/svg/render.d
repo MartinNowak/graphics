@@ -2806,6 +2806,20 @@ private struct Renderer
             return def;
         }
 
+        // The currentColor base for flood-color/lighting-color (§15.8.5):
+        // the primitive's own parseable `color` attribute when it carries
+        // one, else the value inherited at the <filter> element.
+        Color primColor(in Element el)
+        {
+            if (auto p = "color" in el.attrs)
+            {
+                Color v;
+                if (parsePaint(*p, v))
+                    return v;
+            }
+            return f.color;
+        }
+
         // primitiveUnits scaling: objectBoundingBox numbers are fractions
         // of the bbox's device extent; userSpaceOnUse (the default)
         // numbers are user units, riding the CTM's axis scales into raster
@@ -2840,8 +2854,14 @@ private struct Renderer
             {
                 Color fc; // initial flood-color is black (§15.6.12)
                 if (auto p = "flood-color" in e.attrs)
-                    if (!parsePaint(*p, fc))
-                        fc = Color.Black;
+                {
+                    Color v;
+                    if (parsePaint(*p, v))
+                        fc = v;
+                    else if (equalCase(strip(*p), "currentColor"))
+                        fc = primColor(e);
+                    // invalid value: the initial black stands (§15.1)
+                }
                 float fo = 1.0f;
                 if (auto p = "flood-opacity" in e.attrs)
                     try
@@ -3307,6 +3327,154 @@ private struct Renderer
                 }
                 else
                     res = Raster(src.w, src.h); // disabled: transparent
+                ran = true;
+                break;
+            }
+
+            case "feDiffuseLighting":
+            case "feSpecularLighting":
+            {
+                // §15.14/§15.22: the input's alpha is a height map, and
+                // the light is the primitive's single light-source child
+                // (§15.8.2-4). surfaceScale is a bare number that never
+                // rides the primitiveUnits scale - the objectBoundingBox/
+                // userSpaceOnUse twins of filters-light-03-f both say 5
+                // and render identically. Light *positions* do ride it:
+                // 03-f's oBB z fractions are exactly z / sqrt((w²+h²)/2),
+                // the root-mean-square of the bbox sides.
+                const bool spec = e.name == "feSpecularLighting";
+
+                Light lit;
+                foreach (cn; e.children)
+                {
+                    immutable lc = doc.nodes[cn];
+                    if (lc.name == "feDistantLight")
+                    {
+                        lit.kind = 0;
+                        lit.azimuth = num(lc.attrs, "azimuth", 0.0f);
+                        lit.elevation = num(lc.attrs, "elevation", 0.0f);
+                        break;
+                    }
+                    if (lc.name == "fePointLight")
+                    {
+                        lit.kind = 1;
+                        lit.x = num(lc.attrs, "x", 0.0f);
+                        lit.y = num(lc.attrs, "y", 0.0f);
+                        lit.z = num(lc.attrs, "z", 0.0f);
+                        break;
+                    }
+                    if (lc.name == "feSpotLight")
+                    {
+                        lit.kind = 2;
+                        lit.x = num(lc.attrs, "x", 0.0f);
+                        lit.y = num(lc.attrs, "y", 0.0f);
+                        lit.z = num(lc.attrs, "z", 0.0f);
+                        lit.pointsAtX = num(lc.attrs, "pointsAtX", 0.0f);
+                        lit.pointsAtY = num(lc.attrs, "pointsAtY", 0.0f);
+                        lit.pointsAtZ = num(lc.attrs, "pointsAtZ", 0.0f);
+                        lit.specularExponent = num(lc.attrs, "specularExponent", 1.0f);
+                        if (auto p = "limitingConeAngle" in lc.attrs)
+                        {
+                            try
+                                lit.limitingConeAngle = to!float(strip(*p));
+                            catch (ConvException)
+                                {} // invalid: no limit, like the attribute being absent
+                        }
+                        break;
+                    }
+                }
+
+                if (lit.kind) // distant lights carry no position
+                {
+                    FPoint toDev(float vx, float vy)
+                    {
+                        if (f.primsObjBB && !basis.empty)
+                            return FPoint(basis.x0 + vx * (basis.x1 - basis.x0),
+                                          basis.y0 + vy * (basis.y1 - basis.y0));
+                        FPoint[1] p = [FPoint(vx, vy)];
+                        ctm.mapPoints(p[]);
+                        return p[0];
+                    }
+                    float scaleZ(float v)
+                    {
+                        if (f.primsObjBB && !basis.empty)
+                        {
+                            immutable float bw = basis.x1 - basis.x0, bh = basis.y1 - basis.y0;
+                            return v * sqrt((bw * bw + bh * bh) / 2.0f);
+                        }
+                        return v * sqrt(sx * sy); // §15.8.3: one z unit = one x/y unit
+                    }
+
+                    immutable p = toDev(lit.x, lit.y);
+                    lit.x = p.x;
+                    lit.y = p.y;
+                    lit.z = scaleZ(lit.z);
+                    if (lit.kind == 2)
+                    {
+                        immutable q = toDev(lit.pointsAtX, lit.pointsAtY);
+                        lit.pointsAtX = q.x;
+                        lit.pointsAtY = q.y;
+                        lit.pointsAtZ = scaleZ(lit.pointsAtZ);
+                    }
+                }
+
+                // kernelUnitLength (§15.14): the default is one pixel of
+                // the source image and does not ride primitiveUnits; the
+                // spec-parsed pair does, and zero or negative is an error
+                // that leaves the default standing.
+                int kx = 1, ky = 1;
+                if (auto p = "kernelUnitLength" in e.attrs)
+                {
+                    float[2] v = [1.0f, 1.0f];
+                    size_t seen = 0;
+                    bool bad = false;
+                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    {
+                        if (seen < 2)
+                        {
+                            try
+                                v[cast(int) seen] = to!float(t);
+                            catch (ConvException)
+                                bad = true;
+                            if (v[cast(int) seen] <= 0.0f)
+                                bad = true;
+                        }
+                        ++seen;
+                    }
+                    if (seen == 1)
+                        v[1] = v[0];
+                    if (!bad)
+                    {
+                        kx = max(1, to!int(round(scaleX(v[0]))));
+                        ky = max(1, to!int(round(scaleY(v[1]))));
+                    }
+                }
+
+                Color lcol = Color.White; // lighting-color initial (§15.8.5)
+                if (auto p = "lighting-color" in e.attrs)
+                {
+                    Color v;
+                    if (parsePaint(*p, v))
+                        lcol = v;
+                    else if (equalCase(strip(*p), "currentColor"))
+                        lcol = primColor(e);
+                    // invalid: the initial white stands (§15.1)
+                }
+                float[3] lrgb;
+                lrgb[0] = f.linearRGB ? clut[lcol.r] : lcol.r / 255.0f;
+                lrgb[1] = f.linearRGB ? clut[lcol.g] : lcol.g / 255.0f;
+                lrgb[2] = f.linearRGB ? clut[lcol.b] : lcol.b / 255.0f;
+
+                Raster o;
+                // surfaceScale is a bare number: the oBB/userSpace twins of
+                // filters-light-03-f both carry surfaceScale="5" and render
+                // identically, so it never rides the primitiveUnits scale -
+                // and 02-f at scale(4) shows it never rides the CTM either.
+                lighting(o, input(e.attrs, "in"), lit, spec,
+                    num(e.attrs, "surfaceScale", 1.0f),
+                    num(e.attrs, spec ? "specularConstant" : "diffuseConstant", 1.0f),
+                    num(e.attrs, "specularExponent", 1.0f), lrgb, kx, ky, sub);
+                res = o;
                 ran = true;
                 break;
             }
