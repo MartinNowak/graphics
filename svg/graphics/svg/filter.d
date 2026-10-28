@@ -919,6 +919,122 @@ unittest
     assert(isClose(mass, 3.0f, 1e-3f), to!string(mass));
 }
 
+/// feTile §15.23: the input replicates through the whole output; the
+/// top/left corner of tile (i,j) sits at (ax + i·tw, ay + j·th), where
+/// (ax,ay,tw,th) is the INPUT image's filter primitive subregion - in
+/// the same absolute device coordinates the rasters are indexed in,
+/// so tile (0,0) coincides with the source's own position and content
+/// is sampled verbatim. A tile position falling outside the source
+/// image (its raster was cropped smaller than the subregion) stays
+/// transparent black.
+void tileRaster(ref Raster dst, in Raster src, int ax, int ay, int tw, int th)
+{
+    dst = Raster(src.w, src.h);
+    if (tw <= 0 || th <= 0)
+        return;
+
+    foreach (int y; 0 .. dst.h)
+    {
+        immutable my = ((y - ay) % th + th) % th;
+        immutable sy = ay + my;
+        if (sy < 0 || sy >= src.h)
+            continue;
+        foreach (int x; 0 .. dst.w)
+        {
+            immutable mx = ((x - ax) % tw + tw) % tw;
+            immutable sx = ax + mx;
+            if (sx < 0 || sx >= src.w)
+                continue;
+            immutable d = (cast(size_t) y * dst.w + x) * 4, s = (cast(size_t) sy * src.w + sx) * 4;
+            dst.px[d .. d + 4] = src.px[s .. s + 4];
+        }
+    }
+}
+
+unittest
+{
+    // A 2x1 red/green pair living at absolute columns 1-2, tiled from
+    // anchor (1,0) with stride 2x1 across a 6x3 canvas: every column
+    // and row carries the wrapped pattern green,red,green,red,...
+    Raster src = Raster(6, 3), d = Raster(0, 0);
+    src.px[(0 * 6 + 1) * 4 + 0] = 1.0f; src.px[(0 * 6 + 1) * 4 + 3] = 1.0f; // red @ row 0 col 1
+    src.px[(0 * 6 + 2) * 4 + 1] = 1.0f; src.px[(0 * 6 + 2) * 4 + 3] = 1.0f; // green @ row 0 col 2
+    tileRaster(d, src, 1, 0, 2, 1);
+    string sig;
+    foreach (int y; 0 .. d.h)
+        foreach (int x; 0 .. d.w)
+        {
+            immutable p = (cast(size_t) y * d.w + x) * 4;
+            sig ~= (d.px[p + 0] > 0 ? "R" : d.px[p + 1] > 0 ? "G" : ".");
+        }
+    assert(sig == "GRGRGRGRGRGRGRGRGR", sig);
+    // A zero-size tile dimension disables the pattern.
+    tileRaster(d, src, 1, 0, 0, 1);
+    auto zero = d.dup;
+    zero.px[] = 0.0f;
+    assert(d.px == zero.px, to!string(d.px[0 .. 8]));
+}
+
+/// feImage §15.18: resample the working-space image into the device
+/// placement rect. (sx,sy,tx,ty) is the viewFit matrix mapping natural
+/// image pixels into the rect's viewport - uniform for meet/slice,
+/// per-axis for "none". Sampling uses the <image> path's half-texel
+/// registration (pixel centres at integer+0.5, bilinear on PM channels,
+/// clamp at the border), so 1:1 placement is pixel exact.
+void placeImage(ref Raster dst, in Raster img, float rx, float ry,
+    float sx, float sy, float tx, float ty)
+{
+    dst = Raster(dst.w, dst.h);
+    if (sx <= 0.0f || sy <= 0.0f || img.w < 1 || img.h < 1)
+        return;
+
+    immutable iw = img.w - 1, ih = img.h - 1;
+    foreach (int y; 0 .. dst.h)
+    {
+        immutable v = (y + 0.5f - ry - ty) / sy - 0.5f;
+        if (v < -0.5f || v > img.h - 0.5f)
+            continue;
+        immutable j0 = cast(int) floor(v), fv = v - j0;
+        immutable jc = min(max(j0, 0), ih), j1 = min(j0 + 1, ih);
+        foreach (int x; 0 .. dst.w)
+        {
+            immutable u = (x + 0.5f - rx - tx) / sx - 0.5f;
+            if (u < -0.5f || u > img.w - 0.5f)
+                continue;
+            immutable i0 = cast(int) floor(u), fu = u - i0;
+            immutable ic = min(max(i0, 0), iw), i1 = min(i0 + 1, iw);
+            immutable top = (cast(size_t) jc * img.w) * 4, bot = (cast(size_t) j1 * img.w) * 4;
+            immutable lc = cast(size_t) ic * 4, rc = cast(size_t) i1 * 4;
+            immutable p = (cast(size_t) y * dst.w + x) * 4;
+            foreach (c; 0 .. 4)
+                dst.px[p + c] = (img.px[top + lc + c] * (1 - fu) + img.px[top + rc + c] * fu) * (1 - fv)
+                    + (img.px[bot + lc + c] * (1 - fu) + img.px[bot + rc + c] * fu) * fv;
+        }
+    }
+}
+
+unittest
+{
+    // Two-pixel PM row (opaque red, half-alpha green) placed at 2x into
+    // a 4x2 rect: the left column sits inside the replicated half-texel
+    // border and takes the red verbatim, the next column the 3:1 PM
+    // blend (pixel centre a quarter of the way to the green texel).
+    Raster img = Raster(2, 1), d = Raster(4, 2);
+    img.px[0] = 1.0f; img.px[3] = 1.0f;                 // red
+    img.px[5] = 0.25f; img.px[7] = 0.5f;                // 0.5-alpha straight green, PM
+    placeImage(d, img, 0, 0, 2.0f, 2.0f, 0.0f, 0.0f);
+    assert(isClose(d.px[0], 1.0f) && isClose(d.px[3], 1.0f), to!string(d.px[0 .. 4]));
+    auto mid = d.px[4 .. 8];
+    assert(mid[0].isClose(0.75f) && mid[1].isClose(0.0625f) && mid[2] == 0.0f
+        && mid[3].isClose(0.875f), to!string(mid));
+    // Row 1 sits inside the half-texel border of the 1-tall source.
+    assert(isClose(d.px[3 + 16], 1.0f), to!string(d.px[16 .. 20]));
+    // 1:1 placement is pixel exact.
+    placeImage(d, img, 1, 0, 1.0f, 1.0f, 0.0f, 0.0f);
+    assert(d.px[4 .. 8] == img.px[0 .. 4] && d.px[8 .. 12] == img.px[4 .. 8],
+        to!string(d.px[4 .. 12]));
+}
+
 // ---------------------------------------------------------------------------
 // The filter model: <filter> + primitives, read straight off the arena.
 // ---------------------------------------------------------------------------

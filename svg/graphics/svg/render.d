@@ -469,6 +469,31 @@ private Bitmap loadSVGImage(string path)
     return cache[path] = img;
 }
 
+// A decoded Bitmap into filter working space (feImage §15.18): the
+// straight ARGB premultiplies into floats, colour through the sRGB
+// decode curve when the chain works in linearRGB (alpha is linear
+// either way, §15.2).
+private Raster bitmapRaster(in Bitmap b, bool linearRGB)
+{
+    immutable clut = srgbDecodeLUT();
+    Raster r = Raster(to!int(b.width), to!int(b.height));
+    foreach (y; 0 .. b.height)
+    {
+        auto row = b.getLine!Color(y);
+        foreach (x; 0 .. row.length)
+        {
+            immutable Color c = row[x];
+            immutable float a = c.a / 255.0f;
+            immutable p = (cast(size_t) y * r.w + x) * 4;
+            r.px[p + 0] = (linearRGB ? clut[c.r] : c.r / 255.0f) * a;
+            r.px[p + 1] = (linearRGB ? clut[c.g] : c.g / 255.0f) * a;
+            r.px[p + 2] = (linearRGB ? clut[c.b] : c.b / 255.0f) * a;
+            r.px[p + 3] = a;
+        }
+    }
+    return r;
+}
+
 // Parse `stroke-dasharray`: null means "none" or invalid (the attribute is
 // then ignored). SVG: an odd count of entries is repeated to an even one;
 // a list that sums to zero renders like none; negative values are an error.
@@ -2710,6 +2735,10 @@ private struct Renderer
         named["SourceGraphic"] = src;
         named["SourceAlpha"] = sa;
         Raster last = src; // the implicit input chain
+        // feTile §15.23 replicates the *input image's* primitive
+        // subregion, so the box travels alongside the raster.
+        IBox4 lastSub = region;
+        IBox4[string] namedSub;
         Raster res = Raster(src.w, src.h); // transparent unless a primitive writes it
 
         // Lazy inputs: snapshotting the backdrop or painting the
@@ -2791,6 +2820,9 @@ private struct Renderer
         {
             immutable e = doc.nodes[pi];
             bool ran = false; // did this primitive contribute?
+            // The §15.7.3 hard-clip box; feImage overrides it with its
+            // placement rect (which doubles as its subregion).
+            IBox4 sub = intersect(primSubregion(e, f, region, basis, ctm), region);
             switch (e.name)
             {
             case "feOffset":
@@ -3061,6 +3093,63 @@ private struct Renderer
                 break;
             }
 
+            case "feTile":
+            {
+                // The tiling anchors on the input's subregion: tile
+                // (i,j) top/left at its origin + (i·w, j·h) (§15.23).
+                // The target is feTile's own subregion, clipped below.
+                IBox4 isub = lastSub;
+                if (auto p = "in" in e.attrs)
+                {
+                    immutable nm = strip(*p);
+                    if (auto q = nm in namedSub)
+                        isub = *q;
+                    else
+                        isub = region; // SourceAlpha & friends span the region
+                }
+                Raster o;
+                tileRaster(o, input(e.attrs, "in"), isub.x0, isub.y0,
+                    isub.x1 - isub.x0, isub.y1 - isub.y0);
+                res = o;
+                ran = true;
+                break;
+            }
+
+            case "feImage":
+            {
+                // The placement rect is the image's fit viewport even
+                // where the filter region clips part of it away; the
+                // subregion (which the rect doubles as) only enters as
+                // the output clip. Missing sides default to
+                // 0%/0%/100%/100% of the filter region (§15.18).
+                const fr = feImageRect(e, f, region, basis, ctm);
+                sub = intersect(IBox4(cast(int) floor(fr.left), cast(int) floor(fr.top),
+                    cast(int) ceil(fr.right), cast(int) ceil(fr.bottom)), region);
+                Raster o = Raster(src.w, src.h);
+                immutable href = e.attrs.get("href", e.attrs.get("xlink:href", ""));
+                if (auto path = resolveHref(docBase, href))
+                {
+                    auto img = loadSVGImage(path);
+                    immutable nw = to!float(img.width), nh = to!float(img.height);
+                    if (img.config != Bitmap.Config.NoConfig && nw > 0 && nh > 0
+                        && !sub.empty)
+                    {
+                        // preserveAspectRatio works exactly as on
+                        // 'image': the natural pixel square fits the
+                        // rect-viewport (fit lands in device units).
+                        float[4] vb = [0.0f, 0.0f, nw, nh];
+                        immutable fit = viewFit(vb, fr.right - fr.left,
+                            fr.bottom - fr.top,
+                            parsePAR(e.attrs.get("preserveAspectRatio", "")));
+                        placeImage(o, bitmapRaster(img, f.linearRGB), fr.left,
+                            fr.top, fit[0][0], fit[1][1], fit[0][2], fit[1][2]);
+                    }
+                }
+                res = o;
+                ran = true;
+                break;
+            }
+
             default:
                 break; // unrecognised primitive: ignored (§15.1)
             }
@@ -3070,10 +3159,14 @@ private struct Renderer
             // (§15.7.3), always within the filter region.
             if (ran)
             {
-                res.clipTo(intersect(primSubregion(e, f, region, basis, ctm), region));
+                res.clipTo(sub);
                 last = res;
+                lastSub = sub;
                 if (auto r = "result" in e.attrs)
+                {
                     named[strip(*r)] = res;
+                    namedSub[strip(*r)] = sub;
+                }
             }
         }
         return res;
@@ -3184,6 +3277,50 @@ private struct Renderer
         if (w <= 0 || h <= 0)
             return IBox4();
         return bboxToDevice(FRect(x, y, x + w, y + h), ctm);
+    }
+
+    // feImage's placement rect (§15.18, continuous device coords):
+    // specified x/y/width/height are primitiveUnits lengths like any
+    // primitive subregion (percentages against the viewport in
+    // userSpaceOnUse, bbox fractions in objectBoundingBox), but an
+    // absent side defaults to 0%/100% *of the filter region* - not the
+    // §15.1 -10%/120% defaults the suite's other primitives get.
+    FRect feImageRect(in Element e, in FilterSpec f, in IBox4 region,
+                      in IBox4 basis, in Matrix ctm)
+    {
+        float x, y, w, h; // device pixels
+
+        if (f.primsObjBB && !basis.empty)
+        {
+            immutable bw = basis.x1 - basis.x0, bh = basis.y1 - basis.y0;
+            float v;
+            x = ("x" in e.attrs && bbFraction(*("x" in e.attrs), v))
+                ? basis.x0 + v * bw : cast(float) region.x0;
+            y = ("y" in e.attrs && bbFraction(*("y" in e.attrs), v))
+                ? basis.y0 + v * bh : cast(float) region.y0;
+            w = ("width" in e.attrs && bbFraction(*("width" in e.attrs), v))
+                ? v * bw : cast(float) (region.x1 - region.x0);
+            h = ("height" in e.attrs && bbFraction(*("height" in e.attrs), v))
+                ? v * bh : cast(float) (region.y1 - region.y0);
+        }
+        else
+        {
+            auto lc = lengthCtx();
+            immutable ux = convLen(e.attrs, "x", 0.0f, lc, RefAxis.width);
+            immutable uy = convLen(e.attrs, "y", 0.0f, lc, RefAxis.height);
+            immutable uw = convLen(e.attrs, "width", 0.0f, lc, RefAxis.width);
+            immutable uh = convLen(e.attrs, "height", 0.0f, lc, RefAxis.height);
+            immutable mx0 = ctm[0][0] * ux + ctm[0][2], mx1 = ctm[0][0] * (ux + uw) + ctm[0][2];
+            immutable my0 = ctm[1][1] * uy + ctm[1][2], my1 = ctm[1][1] * (uy + uh) + ctm[1][2];
+            x = "x" in e.attrs ? min(mx0, mx1) : cast(float) region.x0;
+            y = "y" in e.attrs ? min(my0, my1) : cast(float) region.y0;
+            w = "width" in e.attrs ? fabs(mx1 - mx0) : cast(float) (region.x1 - region.x0);
+            h = "height" in e.attrs ? fabs(my1 - my0) : cast(float) (region.y1 - region.y0);
+        }
+
+        if (w <= 0 || h <= 0)
+            return FRect(0, 0);
+        return FRect(x, y, x + w, y + h);
     }
 
     // A user-space rect into the raster's device box (corner AABB).
