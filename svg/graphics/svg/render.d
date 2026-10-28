@@ -713,6 +713,21 @@ private struct Renderer
     // for relative <image> hrefs; "" means the process cwd.
     string docBase;
 
+    // Named baselines a text run's table can align on (SVG 1.1 §10.9.2).
+    // `parent` doubles as both properties' non-shifting spellings: auto,
+    // use-script, no-change, reset-size (dominant) and auto, baseline
+    // (alignment) all leave the parent's baseline table in effect - the
+    // script-specific tables behind use-script need SVG font baseline
+    // attributes (ch. 20), which this engine does not read yet.
+    enum BaseKind
+    {
+        parent,
+        alphabetic,
+        central, middle, mathematical,
+        hanging, ideographic,
+        beforeEdge, afterEdge,
+    }
+
     static struct Style
     {
         bool transform;
@@ -780,10 +795,22 @@ private struct Renderer
         TypeFace.Slant slant=TypeFace.Slant.Roman;
         TextPaint.TextAlign anchor=TextPaint.TextAlign.Left;
 
-        // Text layout properties (§16.2/§16.4): user-unit lengths.
+        // Baseline alignment (§10.9.2). Neither property inherits in the
+        // second edition: dominant-baseline re-establishes the baseline
+        // table for the element and its descendants, so only the resolved
+        // `effBaseline` rides down the style stack; `ownAlign` aligns this
+        // element's runs alone. y/dy always position the *dominant*
+        // baseline line of the table in effect, so a run's glyphs sit at
+        // height h(dominant) below that line (see paintRun).
+        BaseKind dominantBaseline=BaseKind.parent,
+                 alignmentBaseline=BaseKind.parent,
+                 ownAlign=BaseKind.parent,
+                 effBaseline=BaseKind.alphabetic;
+
+        // Text layout properties (§10.11/§10.15/§10.9.2): user-unit lengths.
         // baseline-shift is positive up; `super`/`sub` approximate the
         // font's `ex` as parseLength does (§6.5). preserveWS carries
-        // xml:space through the same inheritance path (§7.1). All
+        // xml:space through the same inheritance path (§10.15). All
         // explicitly initialized: Style's member initializers make gdc
         // emit a field-wise default ctor, which would leave bare fields
         // as garbage.
@@ -848,6 +875,7 @@ private struct Renderer
         // initializer (font defaults included).
         Style style = styles.length ? styles.data.back : Style();
         style.transform = false;
+        style.dominantBaseline = style.alignmentBaseline = BaseKind.parent; // §10.9.2: not inherited
 
         auto lc = lengthCtx(); // percentages/em against the *parent* context
 
@@ -1220,7 +1248,7 @@ private struct Renderer
 
             case "baseline-shift":
             {
-                // super/sub raise/lower by the font's `ex` (§16.2);
+                // super/sub raise/lower by the font's `ex` (§10.9.2);
                 // the engine approximates ex as 0.5em throughout.
                 float res = 0; // `baseline` is 0; see the note above
                 if (v == "super")
@@ -1239,8 +1267,24 @@ private struct Renderer
                 break;
             }
 
+            case "dominant-baseline":
+            case "alignment-baseline":
+            {
+                // §10.9.2 value lists. dominant-baseline spells the edge
+                // baselines text-before-edge/text-after-edge only, while
+                // alignment-baseline accepts both spellings; accepting
+                // both here is the lenient reading. auto/use-script/
+                // no-change/reset-size/baseline and garbage map to the
+                // `parent` sentinel through baseKind.
+                if (k == "dominant-baseline")
+                    style.dominantBaseline = baseKind(v);
+                else
+                    style.alignmentBaseline = baseKind(v);
+                break;
+            }
+
             case "xml:space":
-                style.preserveWS = v == "preserve"; // §7.1
+                style.preserveWS = v == "preserve"; // §10.15
                 break;
 
             case "transform":
@@ -1272,6 +1316,14 @@ private struct Renderer
         foreach (i, ref d; ds)
             if (d.k != "transform" || i == lastTr)
                 apply(d.k, d.v, d.css);
+
+        // §10.9.2 chains: dominant-baseline re-establishes the table for
+        // self and descendants; alignment-baseline picks this element's
+        // own alignment baseline only. Both land that baseline on the
+        // line y/dy carry, which the run shift below turns into a rise.
+        if (style.dominantBaseline != BaseKind.parent)
+            style.effBaseline = style.dominantBaseline;
+        style.ownAlign = style.alignmentBaseline;
 
         styles ~= style;
         return style;
@@ -2110,6 +2162,51 @@ private struct Renderer
              : a == TextPaint.TextAlign.Right ? 1.0f : 0.0f;
     }
 
+    // §10.9.2 baseline keywords to table selector; the non-shifting words
+    // (auto, use-script, no-change, reset-size, baseline) and garbage all
+    // land on the `parent` sentinel.
+    static BaseKind baseKind(string v)
+    {
+        switch (v)
+        {
+        case "alphabetic":   return BaseKind.alphabetic;
+        case "central":      return BaseKind.central;
+        case "middle":       return BaseKind.middle;
+        case "mathematical": return BaseKind.mathematical;
+        case "hanging":      return BaseKind.hanging;
+        case "ideographic":  return BaseKind.ideographic;
+        case "text-before-edge":
+        case "before-edge":  return BaseKind.beforeEdge;
+        case "text-after-edge":
+        case "after-edge":   return BaseKind.afterEdge;
+        default:             return BaseKind.parent;
+        }
+    }
+
+    // Height of a named baseline above the alphabetic one, at the run's
+    // font size (FontMetrics carries a signed descent). Host faces only
+    // carry the hhea metrics, so the spec's named baseline tables collapse
+    // to these metric approximations until SVG fonts bring the real
+    // baseline attributes (ch. 20).
+    static float baselineHeight(BaseKind k, float ascent, float descent)
+    {
+        switch (k)
+        {
+        case BaseKind.central:
+        case BaseKind.middle:
+        case BaseKind.mathematical:
+            return 0.5f * (ascent + descent);
+        case BaseKind.hanging:
+        case BaseKind.beforeEdge:
+            return ascent;
+        case BaseKind.ideographic:
+        case BaseKind.afterEdge:
+            return descent;
+        default: // alphabetic, and the parent table's own dominant line
+            return 0.0f;
+        }
+    }
+
     // The §6.1 positioning lists (x/y/dx/dy): plain user units, so a
     // multi-number value is the list spelling; a lone number may carry
     // units (dx="0.5cm"), the pre-list form - either way the result is
@@ -2285,7 +2382,7 @@ private struct Renderer
     // One run's glyph outlines, placed from `pen` and painted with the
     // run's snapshot style - the same fill/stroke pipeline as
     // flushPath, so fill="none" stroke="..." text works. Placement
-    // follows §6.1.2: x/y assignments are cumulative for the pen, dx
+    // follows §10.4/§10.5: x/y assignments are cumulative for the pen, dx
     // moves this glyph (and the pen follows), dy moves only this
     // glyph's baseline.
     void paintRun(ref TextRun run, const float[] va, ref FPoint pen)
@@ -2295,6 +2392,16 @@ private struct Renderer
         const s = run.style;
         auto cache = faceCache(s);
         immutable scale = run.gScale;
+
+        // §10.9.2: y/dy position the *dominant* baseline of the table in
+        // effect - not always the alphabetic one - so the alphabetic line
+        // the glyphs are drawn on sits that height below (the run's own
+        // alignment-baseline, else the dominant-baseline in effect). And
+        // per baseline-shift's note, that shift rides on top of the
+        // placement without moving the pen.
+        immutable fm = cache.fontMetrics();
+        auto bKind = s.ownAlign != BaseKind.parent ? s.ownAlign : s.effBaseline;
+        immutable float bShift = baselineHeight(bKind, fm.ascent, fm.descent);
 
         path.reset();
         size_t gi;
@@ -2307,7 +2414,8 @@ private struct Renderer
             if (gi < run.ys.length)
                 gy = pen.y = run.ys[gi];
             gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
-            gy -= s.baselineShift; // positive raises the baseline (§16.2)
+            gy += bShift;          // §10.9.2 dominant baseline rides on y/dy
+            gy -= s.baselineShift; // positive raises the baseline (§10.9.2)
 
             Matrix m;
             m.setTranslate(gx, gy);

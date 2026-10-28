@@ -24,25 +24,24 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 5b               | CSS selectors, `+`, `:lang()`, `@import` (§6.6/§6.9)             | 4.91 M     |
 | step 5c               | text layout: position lists, textLength, spacing, anchor chunks  | 4.91 M     |
 |                       | (§10.4-10.5/§10.7/§10.9/§10.11/§10.15)                           |            |
+| step 6                | baseline alignment properties (§10.9.2), host-metric tables      | 4.91 M*    |
+
+\* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
+`alignment-baseline`, so the AE total is unchanged by construction - the
+gate must stay flat, and it does.
 
 ## Next steps
-
-**Step 6 — baseline alignment properties.** `dominant-baseline` and
-`alignment-baseline` (SVG 1.1 §10.9.2, plus the inherited `baseline-shift`
-already landed in 5c): the one gap 5c left in the text chapter. Runs shift
-their baseline per the property's table (auto/use-script/middle/central/
-text-top/middle-of-line…). Targets: `text-align-*` (46 K AE now) and the
-baseline-offset content in `text-tspan-*`/`text-text-*`. The scoreable win
-is capped by the font floor until step 7, but the property model itself is
-small and self-contained.
 
 **Step 7 — embedded SVG fonts.** The `font`/`glyph`/`missing-glyph`/
 `hkern`/`vkern` + `font-face` chain (SVG 1.1 §20.2-§20.8). The suite's
 reference PNGs were rendered with its own SVG fonts from `resources/`
 (FreeSans/FreeSerif derivatives); text-intro-03-b, -06-t and -07-t alone
 are 480 K of the 530 K `text-intro` AE, and these fonts are the floor
-under `text-align-*`, `fonts-*` and the clipped-text masking tests. This
-step makes step 6's real effect measurable.
+under `text-align-*`, `fonts-*` and the clipped-text masking tests. The
+`font-face` baseline attributes (alphabetic/ideographic/mathematical/
+hanging) also replace step 6's ascent-descent approximations with real
+baseline tables - the per-script tables `text-align-07-t/-08-b` render
+through (Tribase).
 
 **Step 8 — views and fragment selection.** The `view` element plus
 fragment-identifier → viewBox resolution (SVG 1.1 §7.7/§17.3.2-§17.3.3).
@@ -73,9 +72,9 @@ future conformance targets (see its "Nothing is excluded" section).
 
 ## Backlog (small, opportunistic)
 
-- Fix stale § numbers in source comments: `render.d`/`css.d`/`filter.d`
-  still cite first-edition numbering (`§6.1` position lists, `§16.x`
-  text properties, `§11.4` markers, `§15.6.x` feColorMatrix).
+- Fix stale § numbers in source comments (text-area refs went with step
+  6): `render.d` still cites `§6.1/§6.1.2/§6.1.3/§6.2/§7.1` around text
+  layout, `§11.4` markers, `§9.8` image; `css.d`/`filter.d` unchecked.
 - External-file hrefs and CSS-selector fragment hrefs
   (struct-use-04/05/06/08-b, 11-f).
 - `color-interpolation-filters="linearRGB"` pass for the filter chain
