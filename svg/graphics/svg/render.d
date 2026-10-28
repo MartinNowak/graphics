@@ -13,6 +13,7 @@ import graphics.core.pmcolor : PMColor, alphaMul, alphaScale, invAlphaScale;
 import graphics.core.shader : Shader, ColorShader, MappingShader;
 import graphics.svg.color;
 import graphics.svg.core;
+import graphics.svg.css;
 import graphics.svg.filter;
 import graphics.svg.gradient;
 import graphics.svg.parser;
@@ -626,6 +627,13 @@ private struct Renderer
     float zoom;
     bool inRoot; // latches at the first <svg> element; nodes before it are inert
 
+    // Author style sheet (§6.2): every <style> element's rules in sheet
+    // order, plus the arena parent map the selector matcher walks. Both
+    // are set in renderSVG and copied to the offscreen renderers; with
+    // no rules a pushStyle behaves exactly as in the attributes-only era.
+    Rule[] cssRules;
+    int[] cssParent;
+
     // The text run being accumulated inside a <text>/<tspan>.
     bool inText;
     FPoint textPos;
@@ -796,7 +804,7 @@ private struct Renderer
         vpH = vb[3];
     }
 
-    Style pushStyle(in string[string] attr)
+    Style pushStyle(in string[string] attr, size_t idx = Document.unknown)
     {
         // Default-construct the base style so every field gets its member
         // initializer (font defaults included).
@@ -805,7 +813,7 @@ private struct Renderer
 
         auto lc = lengthCtx(); // percentages/em against the *parent* context
 
-        void apply(string k, string v)
+        void apply(string k, string v, bool fromCss)
         {
             switch (k)
             {
@@ -964,6 +972,41 @@ private struct Renderer
                         if (k == "marker-end")
                             style.markerEnd = mid;
                     }
+                }
+                break;
+
+            case "marker":
+                // CSS shorthand - the attribute realm has no `marker`
+                // (painting-marker-04-f), so this only ever fires for
+                // rule/inline declarations, and sets all three sides.
+                if (fromCss)
+                {
+                    apply("marker-start", v, true);
+                    apply("marker-mid", v, true);
+                    apply("marker-end", v, true);
+                }
+                break;
+
+            case "font":
+                // CSS shorthand, enough for the suite: the first
+                // length-shaped token is the size, everything after it
+                // the family; leading style/variant/weight keywords are
+                // skipped (those properties keep inheriting).
+                if (fromCss)
+                {
+                    string size, family;
+                    foreach (tok; splitter(v))
+                    {
+                        if (size.empty && !tok.empty
+                            && (isDigit(tok[0]) || tok[0] == '.'))
+                            size = tok;
+                        else if (!size.empty)
+                            family ~= family.empty ? tok : " " ~ tok;
+                    }
+                    if (!size.empty)
+                        apply("font-size", size, true);
+                    if (!family.empty)
+                        apply("font-family", family, true);
                 }
                 break;
 
@@ -1127,22 +1170,87 @@ private struct Renderer
             }
         }
 
-        foreach(k, v; attr)
-        {
-            if (k != "style")
-                apply(k, v);
-            else
-            {
-                foreach(elem; splitter(v, ';'))
-                {
-                    auto p = findSplit(elem, ":");
-                    apply(strip(p[0]), strip(p[2]));
-                }
-            }
-        }
+        // The §6.2/§6.4 cascade flattened into one ordered declaration
+        // list; replaying it through apply() lets later declarations
+        // overwrite earlier ones.
+        auto ds = cascadeDecls(idx, attr);
+
+        // `transform` is the one declaration with a side effect on the
+        // matrix stack (the save() popStyle's restore pairs with): two
+        // applied transforms would compose instead of override and
+        // leave the stack unbalanced, so only the cascade's last one runs.
+        size_t lastTr = size_t.max;
+        foreach (i, ref d; ds)
+            if (d.k == "transform")
+                lastTr = i;
+
+        foreach (i, ref d; ds)
+            if (d.k != "transform" || i == lastTr)
+                apply(d.k, d.v, d.css);
 
         styles ~= style;
         return style;
+    }
+
+    // The cascade as an ordered declaration list: presentation
+    // attributes (specificity 0, at the head of the author sheet; the
+    // SVG 1.1 presentation-attribute realm takes no `!important` so
+    // such values are invalid and the whole attribute is dropped), then
+    // the matched rules in (specificity, sheet order), then the inline
+    // `style` attribute, and finally the rules' !important
+    // declarations. Pushes without an arena index (paint-server chains)
+    // pass Document.unknown and match nothing, as before.
+    private struct CDecl
+    {
+        string k, v;
+        bool css;
+    }
+
+    CDecl[] cascadeDecls(size_t idx, in string[string] attr)
+    {
+        CDecl[] ds;
+        foreach (k, v; attr)
+        {
+            if (k == "style" || hasImportant(v))
+                continue;
+            ds ~= CDecl(k, v, false);
+        }
+
+        const(Rule)[] ms;
+        if (idx != Document.unknown && !cssRules.empty)
+            ms = cssCascade(doc.nodes, cssParent, idx, cssRules);
+
+        foreach (ref const r; ms)
+            foreach (i, ref p; r.props)
+                if (!r.imp[i])
+                    ds ~= CDecl(p, r.vals[i], true);
+
+        foreach (ref d; styleDecls(attr.get("style", "")))
+            ds ~= CDecl(d.prop, d.val, true);
+
+        foreach (ref const r; ms)
+            foreach (i, ref p; r.props)
+                if (r.imp[i])
+                    ds ~= CDecl(p, r.vals[i], true);
+
+        return ds;
+    }
+
+    // Effective `display` through the same cascade (`none` must be seen
+    // by the walk before any style is pushed: the whole subtree drops).
+    // Attribute values are XML-case-sensitive, CSS keyword values are
+    // not, so the comparison follows the winning declaration's realm.
+    bool displayNone(size_t ch)
+    {
+        string v;
+        bool vCss;
+        foreach (ref d; cascadeDecls(ch, doc.nodes[ch].attrs))
+            if (d.k == "display")
+            {
+                v = d.v;
+                vCss = d.css;
+            }
+        return vCss ? equalCase(strip(v), "none") : v == "none";
     }
 
     void popStyle()
@@ -1245,6 +1353,8 @@ private struct Renderer
 
         Renderer t;
         t.doc = doc;
+        t.cssRules = cssRules;
+        t.cssParent = cssParent;
         t.patternDepth = patternDepth + 1;
         t.bmp = Bitmap(Bitmap.Config.ARGB_8888, tw, th);
         t.canvas = new Canvas(t.bmp);
@@ -1370,6 +1480,8 @@ private struct Renderer
         maskBmp.eraseColor(Color(0));
         Renderer m;
         m.doc = doc;
+        m.cssRules = cssRules;
+        m.cssParent = cssParent;
         m.bmp = maskBmp;
         m.canvas = new Canvas(maskBmp);
         m.inRoot = true;
@@ -1494,6 +1606,8 @@ private struct Renderer
         maskBmp.eraseColor(Color(0));
         Renderer m;
         m.doc = doc;
+        m.cssRules = cssRules;
+        m.cssParent = cssParent;
         m.bmp = maskBmp;
         m.canvas = new Canvas(maskBmp);
         m.inRoot = true;
@@ -1718,6 +1832,8 @@ private struct Renderer
 
         Renderer m;
         m.doc = doc;
+        m.cssRules = cssRules;
+        m.cssParent = cssParent;
         m.bmp = dev;
         m.canvas = new Canvas(dev);
         m.inRoot = true;
@@ -1808,9 +1924,9 @@ private struct Renderer
 
     // Paint the current `path` with the style resolved from `attr`: fill
     // first, then the stroke over it (SVG paint order).
-    void flushPath(in string[string] attr)
+    void flushPath(in string[string] attr, size_t idx = Document.unknown)
     {
-        const s = pushStyle(attr);
+        const s = pushStyle(attr, idx);
         scope (exit) popStyle();
 
         // Effective paint alpha: the group `opacity` multiplies the
@@ -2030,9 +2146,9 @@ private struct Renderer
     // (default xMidYMid meet). An empty or fragment href, an
     // unsupported URL scheme, a zero/negative viewport and an
     // undecodable or missing file all render nothing.
-    void imageElement(in string[string] a)
+    void imageElement(in string[string] a, size_t idx = Document.unknown)
     {
-        const s = pushStyle(a);
+        const s = pushStyle(a, idx);
         scope (exit) popStyle();
         if (!s.visible)
             return;
@@ -2111,7 +2227,7 @@ private struct Renderer
         canvas.drawPath(q, p);
     }
 
-    void shape(string tag, in string[string] a)
+    void shape(string tag, in string[string] a, size_t idx = Document.unknown)
     {
         auto lc = lengthCtx();
         switch (tag)
@@ -2133,7 +2249,7 @@ private struct Renderer
                 if (!sz.empty)
                 {
                     path.addRoundRect(FRect(pt, sz), rx, ry);
-                    flushPath(a);
+                    flushPath(a, idx);
                 }
             }
             break;
@@ -2147,7 +2263,7 @@ private struct Renderer
                 if (r > 0)
                 {
                     path.addOval(FRect(pt - r, pt + r));
-                    flushPath(a);
+                    flushPath(a, idx);
                 }
             }
             break;
@@ -2162,7 +2278,7 @@ private struct Renderer
                 if (!rad.empty)
                 {
                     path.addOval(FRect(pt - rad, pt + rad));
-                    flushPath(a);
+                    flushPath(a, idx);
                 }
             }
             break;
@@ -2182,7 +2298,7 @@ private struct Renderer
                 {
                     path.moveTo(p0);
                     path.lineTo(p1);
-                    flushPath(a);
+                    flushPath(a, idx);
                 }
             }
             break;
@@ -2192,7 +2308,7 @@ private struct Renderer
                 string s = a.get("points", "");
                 try path.addSVGPolyLine(s);
                 catch (Exception e2) {}
-                flushPath(a);
+                flushPath(a, idx);
             }
             break;
 
@@ -2202,7 +2318,7 @@ private struct Renderer
                 try path.addSVGPolyLine(s);
                 catch (Exception e2) {}
                 path.close();
-                flushPath(a);
+                flushPath(a, idx);
             }
             break;
 
@@ -2211,7 +2327,7 @@ private struct Renderer
                 string s = a.get("d", "");
                 try path.addSVGPath(s);
                 catch (Exception e2) {}
-                flushPath(a);
+                flushPath(a, idx);
             }
             break;
 
@@ -2220,7 +2336,7 @@ private struct Renderer
             // (§14.3: only shapes, text and <use> count): it paints
             // nothing and contributes nothing to the clip mask.
             if (!clipMode)
-                imageElement(a);
+                imageElement(a, idx);
             break;
 
         default:
@@ -2231,9 +2347,9 @@ private struct Renderer
 
     // Push a nested <svg> viewport: x/y/width/height place the viewport,
     // viewBox + preserveAspectRatio map user space into it.
-    void openViewport(in string[string] a)
+    void openViewport(in string[string] a, size_t idx = Document.unknown)
     {
-        pushStyle(a); // presentation attrs (incl. transform) wrap the viewport
+        pushStyle(a, idx); // presentation attrs (incl. transform) wrap the viewport
 
         auto lc = lengthCtx(); // against the *parent* viewport
         immutable x = a.convLen("x", 0.0f, lc, RefAxis.width);
@@ -2286,16 +2402,16 @@ private struct Renderer
     }
 
     // Returns true if the element opens a style (<g>, <text>, <tspan>, <svg>).
-    bool element(string tag, in string[string] a)
+    bool element(string tag, in string[string] a, size_t idx = Document.unknown)
     {
         switch (tag)
         {
         case "g", "a": // <a> is a plain styled container for rendering
-            pushStyle(a);
+            pushStyle(a, idx);
             return true;
 
         case "svg":
-            openViewport(a);
+            openViewport(a, idx);
             return true;
 
         case "text":
@@ -2309,7 +2425,7 @@ private struct Renderer
                                  a.convLen("y", 0.0f, lc, RefAxis.height) +
                                  a.convLen("dy", 0.0f, lc, RefAxis.height));
             }
-            pushStyle(a);
+            pushStyle(a, idx);
             return true;
 
         case "tspan":
@@ -2332,11 +2448,11 @@ private struct Renderer
                 textPos.x += a.convLen("dx", 0.0f, lc, RefAxis.width);
                 textPos.y += a.convLen("dy", 0.0f, lc, RefAxis.height);
             }
-            pushStyle(a);
+            pushStyle(a, idx);
             return true;
 
         default:
-            shape(tag, a);
+            shape(tag, a, idx);
             return false;
         }
     }
@@ -2407,7 +2523,7 @@ private struct Renderer
         scope (exit) useStack = useStack[0 .. $ - 1];
 
         // The use's own attributes (transform included) wrap the instance.
-        pushStyle(inst.attrs);
+        pushStyle(inst.attrs, idx);
         scope (exit) popStyle();
 
         // x/y is a translate appended innermost to the transform list,
@@ -2461,7 +2577,7 @@ private struct Renderer
                 catch (Exception)
                     vb = [0.0f, 0.0f, w, h];
 
-            pushStyle(orig.attrs); // the symbol's presentation attrs (transform included)
+            pushStyle(orig.attrs, target); // the symbol's presentation attrs (transform included)
             canvas.save();
             canvas.matrix = canvas.matrix * viewFit(vb, w, h,
                 parsePAR(orig.attrs.get("preserveAspectRatio", "xMidYMid meet")));
@@ -2479,7 +2595,7 @@ private struct Renderer
 
         // Any other target (shape, g, text...): exactly as if it were
         // written here.
-        element(orig.name, orig.attrs);
+        element(orig.name, orig.attrs, target);
         walk(target);
         closeElement(orig.name);
     }
@@ -2571,8 +2687,10 @@ private struct Renderer
             return; // failing test: the element is absent from the document
 
         // The whole subtree of reference material or display="none"
-        // is skipped for painting.
-        if (isNonRendering(n.name) || n.attrs.get("display", "") == "none")
+        // is skipped for painting (`display` goes through the cascade:
+        // a rule can hide an element that asked to be block, and an
+        // important attribute can out-rule one that asked to be none).
+        if (isNonRendering(n.name) || displayNone(ch))
         {
             walkSkip(ch);
             return;
@@ -2605,7 +2723,7 @@ private struct Renderer
             return;
         }
 
-        element(n.name, n.attrs);
+        element(n.name, n.attrs, ch);
         walk(ch);
         closeElement(n.name);
     }
@@ -3750,6 +3868,8 @@ Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "")
 {
     Renderer r;
     r.doc = parseSVG(source);
+    r.cssRules = collectStyles(r.doc); // §6.2 author sheet, document order
+    r.cssParent = cssAncestry(r.doc.nodes);
     r.docBase = baseDir;
     r.zoom = zoom;
     r.walk(0); // the document pseudo-root; inRoot latches at the <svg>
