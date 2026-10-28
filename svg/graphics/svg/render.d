@@ -1,6 +1,7 @@
 module graphics.svg.render;
 
 import std.algorithm, std.ascii, std.base64, std.conv, std.exception, std.math, std.range, std.string;
+import std.utf : decode;
 import core.bitop : bswap;
 import gamut;
 import graphics;
@@ -188,7 +189,64 @@ string normalizeText(string s)
             res ~= c;
         }
     }
+    // A gap pending at the node's end is internal when more text
+    // follows; the element's own bounds are trimmed in layoutText
+    // (the model UAs and the suite's references apply).
+    if (space)
+        res ~= ' ';
     return res;
+}
+
+// SVG number list (SVG 1.1 §6.1: the x/y/dx/dy glyph-positioning
+// lists): whitespace and/or comma separated plain user units. Parsing
+// stops at the first malformed token, keeping everything before it.
+float[] parseNumList(string s)
+{
+    float[] res;
+    for (;;)
+    {
+        while (!s.empty && (isWhite(s[0]) || s[0] == ','))
+            s = s[1 .. $];
+        if (s.empty)
+            break;
+        size_t i;
+        if (s[i] == '-' || s[i] == '+')
+            ++i;
+        bool any;
+        while (i < s.length && s[i] >= '0' && s[i] <= '9')
+            ++i, any = true;
+        if (i < s.length && s[i] == '.')
+            for (++i; i < s.length && s[i] >= '0' && s[i] <= '9'; ++i)
+                any = true;
+        if (!any)
+            break;
+        if (i < s.length && (s[i] == 'e' || s[i] == 'E'))
+        {
+            size_t j = i + 1;
+            if (j < s.length && (s[j] == '-' || s[j] == '+'))
+                ++j;
+            bool exp;
+            while (j < s.length && s[j] >= '0' && s[j] <= '9')
+                ++j, exp = true;
+            if (exp)
+                i = j; // a broken exponent stays out: `2e` parses as 2
+        }
+        try
+            res ~= to!float(s[0 .. i]);
+        catch (Exception)
+            break;
+        s = s[i .. $];
+    }
+    return res;
+}
+
+unittest
+{
+    assert(parseNumList("20 40 60") == [20.0f, 40.0f, 60.0f]);
+    assert(parseNumList("-10,-5 5,10") == [-10.0f, -5.0f, 5.0f, 10.0f]);
+    assert(parseNumList("  .3 2e1 ") == [0.3f, 20.0f]);
+    assert(parseNumList("10 junk") == [10.0f]); // garbage ends the list
+    assert(parseNumList("") is null);
 }
 
 // Parse a viewBox value: "min-x min-y width height", whitespace/comma separated.
@@ -589,11 +647,26 @@ private struct Renderer
     int[] cssParent;
     int[] cssSib;
 
-    // The text run being accumulated inside a <text>/<tspan>.
+    // The <text> subtree being accumulated: one run per style/position
+    // break (the element itself opens the first, every <tspan> opens
+    // another). Layout - §6.1 per-glyph x/y/dx/dy lists, §16.3
+    // textLength, §16.4 letter/word-spacing, and the §6.1.3 anchor
+    // shift over the WHOLE chunk - runs at the </text>, where every
+    // run's width is known (flushing per tspan instead let each break
+    // re-anchor itself and the runs piled up on top of each other).
+    static struct TextRun
+    {
+        Style style; // computed-style snapshot taken at the break
+        string text;
+        float[] xs, ys, dxs, dys; // §6.1 positioning lists
+        float textLength; // 0: unset
+        bool adjSpacing;  // lengthAdjust="spacing" (else scale glyphs)
+        float gScale = 1; // spacingAndGlyphs outline scale (layout pass)
+    }
+    TextRun[] textRuns;
     bool inText;
-    FPoint textPos;
-    string textBuf;
-    float lastAdvance;
+    bool runOpen; // the last run may still receive text nodes
+    FPoint textPos; // the <text> x/y chunk origin
 
     // Current viewport in user units (reference for percentages) and the
     // saved stack for nested <svg> viewports.
@@ -706,6 +779,16 @@ private struct Renderer
         TypeFace.Weight weight=TypeFace.Weight.Normal;
         TypeFace.Slant slant=TypeFace.Slant.Roman;
         TextPaint.TextAlign anchor=TextPaint.TextAlign.Left;
+
+        // Text layout properties (§16.2/§16.4): user-unit lengths.
+        // baseline-shift is positive up; `super`/`sub` approximate the
+        // font's `ex` as parseLength does (§6.5). preserveWS carries
+        // xml:space through the same inheritance path (§7.1). All
+        // explicitly initialized: Style's member initializers make gdc
+        // emit a field-wise default ctor, which would leave bare fields
+        // as garbage.
+        float letterSpacing=0, wordSpacing=0, baselineShift=0;
+        bool preserveWS=false;
     }
 
     LengthCtx lengthCtx()
@@ -1111,6 +1194,53 @@ private struct Renderer
                     style.anchor = TextPaint.TextAlign.Left;
                     break;
                 }
+                break;
+
+            case "letter-spacing":
+            case "word-spacing":
+            {
+                // CSS `normal` is 0; percentages/em ride on the font
+                // size like font-size's do (§16.4). `res` starts at 0:
+                // gdc leaves bare float locals as garbage.
+                float res = 0;
+                if (v != "normal")
+                {
+                    lc.pctRef = style.fontSize;
+                    try
+                        res = parseLength(v, lc);
+                    catch (Exception)
+                        break; // inherit/garbage: keep the inherited value
+                }
+                if (k == "letter-spacing")
+                    style.letterSpacing = res;
+                else
+                    style.wordSpacing = res;
+                break;
+            }
+
+            case "baseline-shift":
+            {
+                // super/sub raise/lower by the font's `ex` (§16.2);
+                // the engine approximates ex as 0.5em throughout.
+                float res = 0; // `baseline` is 0; see the note above
+                if (v == "super")
+                    res = 0.5f * style.fontSize;
+                else if (v == "sub")
+                    res = -0.5f * style.fontSize;
+                else if (v != "baseline")
+                {
+                    lc.pctRef = style.fontSize;
+                    try
+                        res = parseLength(v, lc);
+                    catch (Exception)
+                        break;
+                }
+                style.baselineShift = res;
+                break;
+            }
+
+            case "xml:space":
+                style.preserveWS = v == "preserve"; // §7.1
                 break;
 
             case "transform":
@@ -1958,59 +2088,234 @@ private struct Renderer
         path.reset();
     }
 
-    // Render the accumulated text run with the style currently on top
-    // of the style stack: the glyph outlines are built into `path` and
-    // reuse the stroke/fill pipeline of `flushPath`, so
-    // fill="none" stroke="..." text works.
-    void flushText()
+    // Resolve the face from the (inherited) family/weight/slant.
+    // (findFace's variadic template can't deduce qualified `immutable`
+    // enums, so copy them to plain locals first.)
+    static GlyphCache faceCache(ref const Style s)
     {
-        if (styles.empty)
-            return;
-        const s = styles.data.back;
-
-        lastAdvance = 0.0f;
-        if (textBuf.empty)
-        {
-            path.reset();
-            return;
-        }
-
-        // Resolve the face from the (inherited) family/weight/slant.
-        // (findFace's variadic template can't deduce qualified
-        // `immutable` enums, so copy them to plain locals first.)
         TypeFace.Weight w = s.weight;
         TypeFace.Slant sl = s.slant;
         string fam = s.family;
         TypeFace face = fam.length
             ? TypeFace.findFace(w, sl, fam)
             : TypeFace.findFace(w, sl);
-        auto cache = getGlyphCache(face, s.fontSize);
+        return getGlyphCache(face, s.fontSize);
+    }
 
-        // text-anchor: offset the baseline origin by the run width.
-        FPoint at = textPos;
-        lastAdvance = measureText(textBuf, cache);
-        switch (s.anchor)
+    // The fraction of a chunk's width lying left of its anchor point
+    // (SVG 1.1 §6.1.3: start 0, middle 1/2, end 1).
+    static float anchorFrac(TextPaint.TextAlign a)
+    {
+        return a == TextPaint.TextAlign.Center ? 0.5f
+             : a == TextPaint.TextAlign.Right ? 1.0f : 0.0f;
+    }
+
+    // The §6.1 positioning lists (x/y/dx/dy): plain user units, so a
+    // multi-number value is the list spelling; a lone number may carry
+    // units (dx="0.5cm"), the pre-list form - either way the result is
+    // a one-element list. Garbage or an absent attribute: no list.
+    float[] lenList(in string[string] a, string name, LengthCtx lc, RefAxis axis)
+    {
+        if (name !in a)
+            return null;
+        auto res = parseNumList(a[name]);
+        if (res.length == 1)
+            return [a.convLen(name, 0.0f, lc, axis)];
+        return res;
+    }
+
+    // Open the next run with the style just pushed: snapshot it, so
+    // later popStyle()s cannot disturb earlier runs' paint.
+    void newRun(in string[string] a, float[] xs, float[] ys,
+        float[] dxs, float[] dys)
+    {
+        auto lc = lengthCtx();
+        textRuns ~= TextRun(styles.data.back, "", xs, ys, dxs, dys,
+            a.convLen("textLength", 0.0f, lc, RefAxis.width),
+            a.get("lengthAdjust", "") == "spacing");
+    }
+
+    // §7.1 whitespace processing: `default` collapses runs of space
+    // (the element's leading space is trimmed at layout time);
+    // `preserve` keeps every gap, but there is no tab/newline glyph to
+    // draw - those take a space's advance.
+    void appendRunText(string s)
+    {
+        if (!runOpen)
         {
-        case TextPaint.TextAlign.Center:
-            at.x -= 0.5 * lastAdvance;
-            break;
-        case TextPaint.TextAlign.Right:
-            at.x -= lastAdvance;
-            break;
-        default:
+            // Text after a </tspan> belongs to the parent element
+            // again: a fresh run with the style now on the stack
+            // (positioning lists and textLength were the closed
+            // tspan's).
+            textRuns ~= TextRun(styles.data.back, "", null, null, null,
+                null, 0, false);
+            runOpen = true;
+        }
+        ref string buf = textRuns[$ - 1].text;
+        if (!textRuns[$ - 1].style.preserveWS)
+        {
+            buf ~= normalizeText(s);
+            return;
+        }
+        dchar[] keep;
+        foreach (dchar c; s)
+            keep ~= (c == '\n' || c == '\r' || c == '\t') ? ' ' : c;
+        buf ~= cast(string) keep;
+    }
+
+    // Measure, position, and paint the whole <text> at its close:
+    // §6.1.2 per-glyph x/y/dx/dy lists, §16.3 textLength and §16.4
+    // letter/word-spacing feed the advances, and the §6.1.3 anchor
+    // shift spans the WHOLE line - per-tspan flushing could not get
+    // that last one, since a line's width is only known once its last
+    // run has parsed, and anchored multi-chunk lines piled up.
+    void layoutText()
+    {
+        if (textRuns.empty)
+            return;
+
+        // Default whitespace processing trims the element's two
+        // bounds; runs of space inside (including at markup
+        // boundaries) survive as a single gap.
+        if (!textRuns[0].style.preserveWS)
+        {
+            string t = textRuns[0].text;
+            while (!t.empty && t[0] == ' ')
+                t = t[1 .. $];
+            textRuns[0].text = t;
+        }
+        foreach_reverse (ref run; textRuns)
+        {
+            if (run.text.empty)
+                continue;
+            if (!run.style.preserveWS)
+            {
+                string t = run.text;
+                while (!t.empty && t[$ - 1] == ' ')
+                    t = t[0 .. $ - 1];
+                run.text = t;
+            }
             break;
         }
 
-        // Build the glyph outlines at their running baseline positions.
+        // Pass 1: per-glyph advances. letter-spacing follows every
+        // character, word-spacing every U+0020 (the CSS model, so a
+        // trailing gap rides in the anchored width too). textLength
+        // then adjusts: `spacing` spreads the difference over the
+        // gaps, `spacingAndGlyphs` scales the line uniformly -
+        // advances here, outlines in paintRun (§16.3).
+        float[][] advs;
+        advs.length = textRuns.length;
+        foreach (ri, ref run; textRuns)
+        {
+            if (run.text.empty)
+                continue;
+            auto cache = faceCache(run.style);
+            float[] va;
+            foreach (gl; cache.glyphStream(run.text, Glyph.LoadFlag.Metrics))
+                va ~= gl.advance.x;
+            size_t ti;
+            foreach (ref v; va)
+            {
+                immutable dchar cp = decode(run.text, ti);
+                v += run.style.letterSpacing;
+                if (cp == ' ')
+                    v += run.style.wordSpacing;
+            }
+            if (run.textLength > 0 && run.xs.empty && va.length)
+            {
+                float natural = 0; // gdc leaves bare float locals as garbage
+                foreach (v; va)
+                    natural += v;
+                if (va.length == 1)
+                    va[0] = run.textLength; // no gap: the advance itself
+                else if (natural > 0)
+                {
+                    if (run.adjSpacing)
+                    {
+                        immutable delta = (run.textLength - natural)
+                                        / (va.length - 1);
+                        foreach (ref v; va[0 .. $ - 1])
+                            v += delta;
+                    }
+                    else
+                    {
+                        run.gScale = run.textLength / natural;
+                        foreach (ref v; va)
+                            v *= run.gScale;
+                    }
+                }
+            }
+            advs[ri] = va;
+        }
+
+        // Pass 2: chunk by chunk. Flow runs continue the pen; a run
+        // carrying an absolute x list opens a new chunk anchored at
+        // its own x (every glyph there is already pinned, so the
+        // anchor shift is moot). The chunk's pass-1 width decides how
+        // far back from the chunk's x the start moves.
+        FPoint pen = textPos;
+        size_t ri;
+        while (ri < textRuns.length)
+        {
+            // A lone x value is a chunk origin, not a per-glyph pin:
+            // the run flows from it and text-anchor aligns the chunk
+            // there (SVG 1.1 §6.2 chunk model). Multi-value lists do
+            // pin glyphs one at a time, where the anchor is moot.
+            if (textRuns[ri].xs.length == 1)
+            {
+                pen.x = textRuns[ri].xs[0];
+                textRuns[ri].xs = textRuns[ri].xs[1 .. $];
+            }
+            size_t j = ri + 1;
+            while (j < textRuns.length && textRuns[j].xs.empty)
+                ++j;
+            float width = 0; // gdc leaves bare float locals as garbage
+            foreach (k; ri .. j)
+                foreach (v; advs[k])
+                    width += v;
+            if (textRuns[ri].xs.empty)
+                pen.x -= anchorFrac(textRuns[ri].style.anchor) * width;
+            foreach (k; ri .. j)
+                paintRun(textRuns[k], advs[k], pen);
+            ri = j;
+        }
+    }
+
+    // One run's glyph outlines, placed from `pen` and painted with the
+    // run's snapshot style - the same fill/stroke pipeline as
+    // flushPath, so fill="none" stroke="..." text works. Placement
+    // follows §6.1.2: x/y assignments are cumulative for the pen, dx
+    // moves this glyph (and the pen follows), dy moves only this
+    // glyph's baseline.
+    void paintRun(ref TextRun run, const float[] va, ref FPoint pen)
+    {
+        if (run.text.empty)
+            return;
+        const s = run.style;
+        auto cache = faceCache(s);
+        immutable scale = run.gScale;
+
         path.reset();
-        FPoint pos = at;
-        foreach (gl; cache.glyphStream(textBuf,
+        size_t gi;
+        foreach (gl; cache.glyphStream(run.text,
                 Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
         {
+            float gx = (gi < run.xs.length ? run.xs[gi] : pen.x)
+                     + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
+            float gy = pen.y;
+            if (gi < run.ys.length)
+                gy = pen.y = run.ys[gi];
+            gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
+            gy -= s.baselineShift; // positive raises the baseline (§16.2)
+
             Matrix m;
-            m.setTranslate(pos.x, pos.y);
+            m.setTranslate(gx, gy);
             gl.path.apply((ref Path.Verb v, ref FPoint[] pts)
             {
+                if (scale != 1.0f) // spacingAndGlyphs scales outlines in x
+                    foreach (ref p; pts)
+                        p.x *= scale;
                 m.mapPoints(pts);
                 final switch (v)
                 {
@@ -2032,7 +2337,9 @@ private struct Renderer
                 }
                 return 0;
             });
-            pos += gl.advance;
+
+            pen.x = gx + (gi < va.length ? va[gi] : gl.advance.x);
+            ++gi;
         }
 
         // Same effective-opacity compositing as flushPath; glyph outlines
@@ -2093,7 +2400,6 @@ private struct Renderer
             }
         }
         path.reset();
-        textBuf = "";
     }
 
     // Build the path for a shape and flush it with its style.
@@ -2374,41 +2680,43 @@ private struct Renderer
             return true;
 
         case "text":
+        {
             inText = true;
-            textBuf = "";
-            {
-                // x/y (default 0/0), optionally shifted by dx/dy.
-                auto lc = lengthCtx();
-                textPos = FPoint(a.convLen("x", 0.0f, lc, RefAxis.width) +
-                                 a.convLen("dx", 0.0f, lc, RefAxis.width),
-                                 a.convLen("y", 0.0f, lc, RefAxis.height) +
-                                 a.convLen("dy", 0.0f, lc, RefAxis.height));
-            }
+            textRuns.length = 0;
+            auto lc = lengthCtx();
+            auto xs = lenList(a, "x", lc, RefAxis.width);
+            auto ys = lenList(a, "y", lc, RefAxis.height);
+            auto dxs = lenList(a, "dx", lc, RefAxis.width);
+            auto dys = lenList(a, "dy", lc, RefAxis.height);
+            // Chunk origin: the first x/y value (default 0/0); the
+            // rest of those lists position glyphs one at a time. A
+            // dx/dy's first value shifts the first glyph (paintRun),
+            // and the pen follows it, as a lone shift always did.
+            textPos = FPoint(xs.length ? xs[0] : a.convLen("x", 0.0f, lc, RefAxis.width),
+                             ys.length ? ys[0] : a.convLen("y", 0.0f, lc, RefAxis.height));
             pushStyle(a, idx);
+            newRun(a, xs, ys, dxs, dys);
+            runOpen = true;
             return true;
+        }
 
         case "tspan":
-            if (inText && !textBuf.empty)
-            {
-                // Flush the run accumulated in the enclosing element
-                // (the style on top of the stack is that element's) and
-                // advance the text position past it.
-                flushText();
-                textPos.x += lastAdvance;
-            }
-            // x/y (when present) reset the position absolutely; dx/dy
-            // always offset it relative to the current position.
-            {
-                auto lc = lengthCtx();
-                if ("x" in a)
-                    textPos.x = a.convLen("x", 0.0f, lc, RefAxis.width);
-                if ("y" in a)
-                    textPos.y = a.convLen("y", 0.0f, lc, RefAxis.height);
-                textPos.x += a.convLen("dx", 0.0f, lc, RefAxis.width);
-                textPos.y += a.convLen("dy", 0.0f, lc, RefAxis.height);
-            }
+        {
+            // Every tspan opens a run of its own; the pen simply
+            // flows on unless its x/y lists pin glyphs.
+            auto lc = lengthCtx();
+            auto xs = lenList(a, "x", lc, RefAxis.width);
+            auto ys = lenList(a, "y", lc, RefAxis.height);
+            auto dxs = lenList(a, "dx", lc, RefAxis.width);
+            auto dys = lenList(a, "dy", lc, RefAxis.height);
             pushStyle(a, idx);
+            if (inText)
+            {
+                newRun(a, xs, ys, dxs, dys);
+                runOpen = true;
+            }
             return true;
+        }
 
         default:
             shape(tag, a, idx);
@@ -2418,8 +2726,8 @@ private struct Renderer
 
     // The element closed after its subtree was visited (the old
     // onElementEnd). An empty element takes the same path right after
-    // `element`: with no children there is nothing to flush, and
-    // flushText's empty-run short-circuit absorbs the <text></text> vs
+    // `element`: with no children there is nothing to lay out, and
+    // layoutText's empty-run guard absorbs the <text></text> vs
     // <text/> difference.
     void closeElement(string tag)
     {
@@ -2435,22 +2743,22 @@ private struct Renderer
             break;
 
         case "text", "tspan":
-            if (inText)
+            if (tag == "text")
             {
-                flushText();
-                popStyle();  // close the style opened at element start
-                if (tag == "text")
-                {
-                    inText = false;
-                    textBuf = "";
-                }
-                else
-                    // the text position advances past a rendered run
-                    // (spec: a following run continues after it)
-                    textPos.x += lastAdvance;
+                // All runs are in: measure, anchor, place, paint -
+                // before popStyle, so the element's own transform
+                // (a canvas.save/restore pair) is still applied.
+                layoutText();
+                popStyle(); // close the style opened at element start
+                inText = false;
+                runOpen = false;
+                textRuns.length = 0;
             }
             else
-                popStyle();  // stray tspan: keep the stack balanced
+            {
+                popStyle();
+                runOpen = false; // following text reopens the parent's run
+            }
             break;
 
         default:
@@ -3778,7 +4086,7 @@ private struct Renderer
             if (n.name.empty) // a text node
             {
                 if (inText)
-                    textBuf ~= normalizeText(n.text);
+                    appendRunText(n.text);
                 continue;
             }
 
@@ -3811,7 +4119,7 @@ private struct Renderer
             if (n.name.empty)
             {
                 if (inText)
-                    textBuf ~= normalizeText(n.text);
+                    appendRunText(n.text);
             }
             else
                 walkSkip(ch);
@@ -4603,7 +4911,7 @@ unittest
 unittest
 {
     // fill="url(#g)" on <text>: the glyph outline path carries the shader
-    // (flushText resolves paint from the glyph geometry bbox). Host font
+    // (paintRun resolves paint from the glyph geometry bbox). Host font
     // metrics vary, so only "painted at all, and ramp-coloured" is checked.
     auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
         <defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" x2="40" y1="0" y2="0">
