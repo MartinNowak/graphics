@@ -1036,6 +1036,482 @@ unittest
 }
 
 // ---------------------------------------------------------------------------
+// feTurbulence (§15.19/§15.24). The spec prints the exact algorithm -
+// Park–Miller PRNG feeding a Perlin lattice - so the port below follows it
+// verbatim: matching the suite's references is a matter of reproducing the
+// PRNG sequence and the lattice indirection bit-for-bit, and every
+// simplification here is a fusion the math can absorb (the four channels
+// share one selector walk; doubling vec per octave is exact in binary FP).
+// ---------------------------------------------------------------------------
+
+private enum RandM = 2_147_483_647L; // 2**31 - 1
+private enum RandA = 16_807L; // 7**5, primitive root of m
+private enum RandQ = 127_773L; // m / a
+private enum RandR = 2_836L; // m % a
+
+/// §15.24 setup_seed: fold any seed into [1, m-1]. D's % matches C99's
+/// (sign of the dividend), so negative seeds behave as written.
+long turbSetupSeed(long s)
+{
+    if (s <= 0)
+        s = -(s % (RandM - 1)) + 1;
+    if (s > RandM - 1)
+        s = RandM - 1;
+    return s;
+}
+
+/// §15.24 random: Schrage-split Park–Miller step.
+long turbRandom(long s)
+{
+    immutable r = RandA * (s % RandQ) - RandR * (s / RandQ);
+    return r <= 0 ? r + RandM : r;
+}
+
+unittest
+{
+    // The spec's own self-test: seed 1 must yield 1043618065 as the
+    // 10,000th generated number.
+    auto s = 1L;
+    foreach (i; 0 .. 10_000)
+        s = turbRandom(s);
+    assert(s == 1_043_618_065L);
+
+    // setup_seed mappings the suite leans on (filters-turb-02-f): 0 and
+    // every negative seed fold up into the positive sequence.
+    assert(turbSetupSeed(0) == 1);
+    assert(turbSetupSeed(-1) == 2);
+    assert(turbSetupSeed(-2) == 3);
+    assert(turbSetupSeed(2_147_483_648L) == 2_147_483_646L);
+}
+
+/// One turbulence instance: §15.24 init's shuffled lattice selector and
+/// per-channel gradient tables. The mirror range [BSize, 2·BSize] exists so
+/// the b00-style lookups (permutation value + lattice index, up to 510)
+/// never fall off the end.
+struct Turbulence
+{
+    enum BSize = 0x100;
+    enum BM = 0xff;
+    enum PerlinN = 0x1000;
+
+    int[BSize + BSize + 2] sel;
+    // D's type syntax reads inside-out: this is c × index × xy, like C's
+    // fGradient[4][BSize + BSize + 2][2].
+    double[2][BSize + BSize + 2][4] grad;
+
+    this(long seed)
+    {
+        auto ls = turbSetupSeed(seed);
+        foreach (c; 0 .. 4)
+            foreach (n; 0 .. BSize)
+            {
+                sel[n] = n;
+                foreach (m; 0 .. 2)
+                    grad[c][n][m] = (cast(double) cast(int)
+                        ((ls = turbRandom(ls)) % (BSize + BSize)) - BSize) / BSize;
+                immutable s = sqrt(grad[c][n][0] ^^ 2 + grad[c][n][1] ^^ 2);
+                grad[c][n][0] /= s;
+                grad[c][n][1] /= s;
+            }
+        // C's `while (--i)` resumes from the init loop at i == BSize and
+        // exits at 0: slot 0 is never a loop slot (though it can still
+        // trade values as a swap partner).
+        for (int i = BSize; --i;)
+        {
+            immutable k = sel[i];
+            immutable j = cast(int) ((ls = turbRandom(ls)) % BSize);
+            sel[i] = sel[j];
+            sel[j] = k;
+        }
+        foreach (n; 0 .. BSize + 2)
+        {
+            sel[BSize + n] = sel[n];
+            foreach (c; 0 .. 4)
+                foreach (m; 0 .. 2)
+                    grad[c][BSize + n][m] = grad[c][n][m];
+        }
+    }
+}
+
+unittest
+{
+    auto t = Turbulence(1);
+    // the init shuffle only swaps through slots 255..1, but slot 0 can
+    // still be a swap partner: all that survives is that sel is a
+    // permutation over 0..255 with the mirror copies beyond.
+    int sum = 0;
+    foreach (n; 0 .. Turbulence.BSize)
+        sum += t.sel[n];
+    assert(sum == (Turbulence.BSize * (Turbulence.BSize - 1)) / 2);
+    assert(t.sel[Turbulence.BSize] == t.sel[0]);
+    foreach (c; 0 .. 4)
+        foreach (n; 0 .. Turbulence.BSize)
+        {
+            immutable len = sqrt(t.grad[c][n][0] ^^ 2 + t.grad[c][n][1] ^^ 2);
+            assert(len > 0.99 && len < 1.01); // gradients are unit vectors
+        }
+}
+
+/// Stitching state for one octave (§15.24 StitchInfo).
+struct TurbStitch
+{
+    int nWidth, nHeight; // lattice cells to subtract to wrap
+    int nWrapX, nWrapY;  // first lattice index that wraps
+}
+
+private double turbSCurve(double t)
+{
+    return t * t * (3.0 - 2.0 * t);
+}
+
+/// §15.24 noise2 evaluated for all four channels at once: the lattice walk
+/// (indices, raw offsets, smoothstep weights) is channel-independent, so
+/// one walk + four dot products is the same arithmetic as four noise2
+/// calls. A null stitch pointer means noStitch.
+double[4] turbNoise4(ref const Turbulence t, double vx, double vy,
+    const(TurbStitch)* stitch)
+{
+    auto tx = vx + Turbulence.PerlinN;
+    auto bx0 = cast(int) tx;
+    auto bx1 = bx0 + 1;
+    immutable rx0 = tx - cast(int) tx;
+    immutable rx1 = rx0 - 1.0;
+    auto ty = vy + Turbulence.PerlinN;
+    auto by0 = cast(int) ty;
+    auto by1 = by0 + 1;
+    immutable ry0 = ty - cast(int) ty;
+    immutable ry1 = ry0 - 1.0;
+    if (stitch !is null)
+    {
+        if (bx0 >= stitch.nWrapX)
+            bx0 -= stitch.nWidth;
+        if (bx1 >= stitch.nWrapX)
+            bx1 -= stitch.nWidth;
+        if (by0 >= stitch.nWrapY)
+            by0 -= stitch.nHeight;
+        if (by1 >= stitch.nWrapY)
+            by1 -= stitch.nHeight;
+    }
+    bx0 &= Turbulence.BM;
+    bx1 &= Turbulence.BM;
+    by0 &= Turbulence.BM;
+    by1 &= Turbulence.BM;
+    immutable i = t.sel[bx0], j = t.sel[bx1];
+    immutable b00 = t.sel[i + by0], b10 = t.sel[j + by0];
+    immutable b01 = t.sel[i + by1], b11 = t.sel[j + by1];
+    immutable sx = turbSCurve(rx0), sy = turbSCurve(ry0);
+
+    double[4] acc;
+    foreach (c; 0 .. 4)
+    {
+        auto u = rx0 * t.grad[c][b00][0] + ry0 * t.grad[c][b00][1];
+        auto v = rx1 * t.grad[c][b10][0] + ry0 * t.grad[c][b10][1];
+        immutable a = u + sx * (v - u);
+        u = rx0 * t.grad[c][b01][0] + ry1 * t.grad[c][b01][1];
+        v = rx1 * t.grad[c][b11][0] + ry1 * t.grad[c][b11][1];
+        immutable b = u + sx * (v - u);
+        acc[c] = a + sy * (b - a);
+    }
+    return acc;
+}
+
+/// Generate turbulence into the box (a canvas-sized raster; only `box`
+/// is written). Frequencies arrive as lattice cycles per raster pixel in
+/// the same space the raster indexes: a pixel at index x samples the
+/// lattice at (x + x0)·fx. §15.24 turbulence(): each octave doubles vec
+/// and ratio; fractalNoise sums signed samples / ratio, turbulence sums
+/// |sample| / ratio. Color conversion follows the section's two formulas
+/// ((v·255 + 255)/2 for fractalNoise, v·255 for turbulence, each clamped
+/// to 0..255); the generated channels are straight values, premultiplied
+/// on the way into the working-image format.
+void turbulenceFill(ref Raster dst, in IBox4 box, long seed,
+    double fx, double fy, int octaves, bool fractal, bool stitchTiles,
+    double x0, double y0)
+{
+    auto t = Turbulence(seed);
+    if (octaves > 12)
+        octaves = 12; // keep a silly octave count from stalling the frame
+
+    // §15.24: stitchTiles snaps the first-octave frequency to an integral
+    // lattice count across the subregion, whichever side moves it less
+    // relatively, then sets the wrap thresholds. The products below are
+    // dimensionless lattice counts, so pixel-space inputs are as correct
+    // as the reference's user-space ones.
+    TurbStitch[16] oct;
+    if (stitchTiles)
+    {
+        immutable tw = cast(double) (box.x1 - box.x0);
+        immutable th = cast(double) (box.y1 - box.y0);
+        if (tw > 0 && fx != 0.0)
+        {
+            immutable lo = floor(tw * fx) / tw, hi = ceil(tw * fx) / tw;
+            fx = fx / lo < hi / fx ? lo : hi;
+        }
+        if (th > 0 && fy != 0.0)
+        {
+            immutable lo = floor(th * fy) / th, hi = ceil(th * fy) / th;
+            fy = fy / lo < hi / fy ? lo : hi;
+        }
+        oct[0].nWidth = cast(int) (tw * fx + 0.5);
+        oct[0].nWrapX = cast(int) ((box.x0 + x0) * fx + Turbulence.PerlinN + oct[0].nWidth);
+        oct[0].nHeight = cast(int) (th * fy + 0.5);
+        oct[0].nWrapY = cast(int) ((box.y0 + y0) * fy + Turbulence.PerlinN + oct[0].nHeight);
+    }
+    foreach (k; 1 .. octaves)
+    {
+        // Reference octave update: nWidth *= 2; nWrap = 2·nWrap - PerlinN.
+        oct[k].nWidth = oct[k - 1].nWidth * 2;
+        oct[k].nWrapX = oct[k - 1].nWrapX * 2 - Turbulence.PerlinN;
+        oct[k].nHeight = oct[k - 1].nHeight * 2;
+        oct[k].nWrapY = oct[k - 1].nWrapY * 2 - Turbulence.PerlinN;
+    }
+
+    foreach (y; max(0, box.y0) .. min(dst.h, box.y1))
+        foreach (x; max(0, box.x0) .. min(dst.w, box.x1))
+        {
+            auto vecx = (x + x0) * fx;
+            auto vecy = (y + y0) * fy;
+            auto ratio = 1.0;
+            double[4] sum = [0.0, 0.0, 0.0, 0.0];
+            foreach (k; 0 .. octaves)
+            {
+                immutable n = turbNoise4(t, vecx, vecy, stitchTiles ? &oct[k] : null);
+                foreach (c; 0 .. 4)
+                    sum[c] += (fractal ? n[c] : fabs(n[c])) / ratio;
+                vecx *= 2;
+                vecy *= 2;
+                ratio *= 2; // doubling a power-of-two-scaled sum: exact
+            }
+
+            immutable i = (cast(size_t) y * dst.w + x) * 4;
+            double[4] v;
+            foreach (c; 0 .. 4)
+                v[c] = clamp(fractal ? (sum[c] * 255.0 + 255.0) / 2.0 : sum[c] * 255.0,
+                    0.0, 255.0) / 255.0;
+            // Straight -> premultiplied, the working-image convention.
+            dst.px[i .. i + 4] = [to!float(v[0] * v[3]), to!float(v[1] * v[3]),
+                to!float(v[2] * v[3]), to!float(v[3])];
+        }
+}
+
+unittest
+{
+    Raster r = Raster(16, 16);
+    IBox4 box = IBox4(0, 0, 16, 16);
+
+    // Same seed, same image; different seeds, different image.
+    turbulenceFill(r, box, 7, 0.05, 0.05, 2, false, false, 0, 0);
+    Raster r2 = Raster(16, 16);
+    turbulenceFill(r2, box, 7, 0.05, 0.05, 2, false, false, 0, 0);
+    assert(r.px == r2.px);
+    turbulenceFill(r2, box, 8, 0.05, 0.05, 2, false, false, 0, 0);
+    assert(r.px != r2.px);
+
+    // In range, premultiplied (color <= alpha), and the box outside is
+    // left alone.
+    foreach (i; 0 .. r.px.length / 4)
+    {
+        immutable o = i * 4;
+        foreach (c; 0 .. 4)
+            assert(r.px[o + c] >= 0.0f && r.px[o + c] <= 1.0f);
+        foreach (c; 0 .. 3)
+            assert(r.px[o + c] <= r.px[o + 3] + 1e-5f);
+    }
+    Raster r3 = Raster(16, 16);
+    turbulenceFill(r3, IBox4(4, 4, 8, 8), 7, 0.05, 0.05, 1, false, false, 0, 0);
+    assert(r3.px[0 .. 16 * 4].all!(v => v == 0.0f)); // untouched rows
+
+    // Absolute anchoring: sampling at offset pixels equals sampling the
+    // same coordinates in a full raster.
+    Raster full = Raster(16, 16);
+    turbulenceFill(full, box, 7, 0.05, 0.05, 1, false, false, 0, 0);
+    assert(r3.px[(cast(size_t) 5 * 16 + 5) * 4] == full.px[(cast(size_t) 5 * 16 + 5) * 4]);
+
+    // fractalNoise centers near mid gray; turbulence type keeps the
+    // |value| distribution below it.
+    Raster fr = Raster(16, 16);
+    turbulenceFill(fr, box, 3, 0.1, 0.1, 1, true, false, 0, 0);
+    float mean = 0.0f;
+    foreach (i; 0 .. fr.px.length / 4)
+        mean += fr.px[i * 4]; // premultiplied red skews low, so just a sanity bound
+    assert(mean >= 0.0f);
+}
+
+// ---------------------------------------------------------------------------
+// feDisplacementMap (§15.15): P'(x,y) ← P(x + scale·(XC − 0.5),
+// y + scale·(YC − 0.5)). The driving channels come off in2 unpremultiplied
+// (the section says so explicitly); `in` stays premultiplied throughout and
+// gets sampled bilinearly. Pixel centers sit at integer indices, so an
+// integer shift is an exact copy, and input pushed off the raster's extent
+// is simply gone.
+// ---------------------------------------------------------------------------
+
+void displaceMap(ref Raster dst, in Raster src, in Raster map,
+    double scaleX, double scaleY, int xc, int yc)
+{
+    dst = Raster(src.w, src.h);
+    if (scaleX == 0.0 && scaleY == 0.0)
+    {
+        dst.px[] = src.px[]; // scale 0: "no effect on the source image"
+        return;
+    }
+    foreach (y; 0 .. dst.h)
+        foreach (x; 0 .. dst.w)
+        {
+            immutable mp = (cast(size_t) y * map.w + x) * 4;
+            immutable ma = map.px[mp + 3];
+            immutable cx = xc == 3 ? ma : (ma > 0.0f ? map.px[mp + xc] / ma : 0.0);
+            immutable cy = yc == 3 ? ma : (ma > 0.0f ? map.px[mp + yc] / ma : 0.0);
+            immutable u = x + scaleX * (cx - 0.5);
+            immutable v = y + scaleY * (cy - 0.5);
+            immutable i0 = cast(int) floor(u), j0 = cast(int) floor(v);
+            if (i0 < -1 || i0 >= src.w || j0 < -1 || j0 >= src.h)
+                continue; // wholly off the input: transparent
+            immutable fu = u - i0, fv = v - j0;
+
+            immutable o = (cast(size_t) y * dst.w + x) * 4;
+            float[4] outv = [0.0f, 0.0f, 0.0f, 0.0f];
+            foreach (dy; 0 .. 2)
+            {
+                immutable iy = j0 + dy;
+                if (iy < 0 || iy >= src.h)
+                    continue; // transparent sample: contributes nothing
+                foreach (dx; 0 .. 2)
+                {
+                    immutable ix = i0 + dx;
+                    if (ix < 0 || ix >= src.w)
+                        continue;
+                    immutable wt = (dx ? fu : 1.0f - fu) * (dy ? fv : 1.0f - fv);
+                    if (wt == 0.0f)
+                        continue;
+                    immutable sp = (cast(size_t) iy * src.w + ix) * 4;
+                    foreach (c; 0 .. 4)
+                        outv[c] += cast(float) wt * src.px[sp + c];
+                }
+            }
+            dst.px[o .. o + 4] = outv;
+        }
+}
+
+unittest
+{
+    Raster src = Raster(8, 8);
+    immutable dot = (cast(size_t) 5 * 8 + 5) * 4;
+    src.px[dot .. dot + 4] = [1.0f, 0.0f, 0.0f, 1.0f]; // red dot
+
+    // scale 0 copies verbatim (§15.15).
+    Raster d0 = Raster(0, 0);
+    displaceMap(d0, src, Raster(8, 8), 0.0, 0.0, 0, 1);
+    assert(d0.px == src.px);
+
+    // A map of constant R = 1 shifts source lookups by scale·0.5 in +x,
+    // so scale 4 makes the dot appear 2 px left of where it was.
+    Raster map = Raster(8, 8);
+    foreach (i; 0 .. map.px.length / 4)
+        map.px[i * 4 .. i * 4 + 4] = [1.0f, 0.0f, 0.0f, 1.0f]; // R straight = 1
+    Raster d1 = Raster(0, 0);
+    displaceMap(d1, src, map, 4.0, 0.0, 0, 3);
+    assert(d1.px[(cast(size_t) 5 * 8 + 3) * 4] == 1.0f);
+    assert(d1.px[(cast(size_t) 5 * 8 + 5) * 4] == 0.0f);
+
+    // Half-pixel shift bilinearly splits between neighbors.
+    Raster d2 = Raster(0, 0);
+    displaceMap(d2, src, map, 1.0, 0.0, 0, 3); // shift left by 0.5
+    assert(d1.px != d2.px);
+    immutable got = d2.px[(cast(size_t) 5 * 8 + 5) * 4];
+    assert(got > 0.45f && got < 0.55f);
+
+    // Straightening: alpha 0.5, PM red 0.5 => straight R = 1, same shift
+    // as the opaque map; a map pixel with zero alpha reads as channel 0.
+    Raster map2 = Raster(8, 8);
+    foreach (i; 0 .. map2.px.length / 4)
+        map2.px[i * 4 .. i * 4 + 4] = [0.5f, 0.0f, 0.0f, 0.5f];
+    Raster d3 = Raster(0, 0);
+    displaceMap(d3, src, map2, 4.0, 0.0, 0, 3);
+    assert(d3.px[(cast(size_t) 5 * 8 + 3) * 4] == 1.0f);
+}
+
+// ---------------------------------------------------------------------------
+// feMorphology (§15.20): component-wise max (dilate) or min (erode) over a
+// rectangular kernel - width 2·rx, height 2·ry, so integer offsets [-r, r).
+// The section stresses that the operation runs on premultiplied values;
+// samples beyond the input extent are transparent black, which dilate
+// shrugs off and erode chokes on, eating the edges inward.
+// ---------------------------------------------------------------------------
+
+void morphology(ref Raster dst, in Raster src, int rx, int ry, bool dilate)
+{
+    dst = Raster(src.w, src.h);
+    if (rx <= 0 || ry <= 0)
+        return; // radius 0: "the result is a transparent black image"
+
+    foreach (y; 0 .. dst.h)
+        foreach (x; 0 .. dst.w)
+        {
+            float[4] best;
+            foreach (c; 0 .. 4)
+                best[c] = dilate ? -float.max : float.max;
+            foreach (dy; -ry .. ry)
+                foreach (dx; -rx .. rx)
+                {
+                    immutable iy = y + dy, ix = x + dx;
+                    float[4] pv = [0.0f, 0.0f, 0.0f, 0.0f];
+                    if (ix >= 0 && ix < src.w && iy >= 0 && iy < src.h)
+                    {
+                        immutable sp = (cast(size_t) iy * src.w + ix) * 4;
+                        pv[] = src.px[sp .. sp + 4];
+                    }
+                    foreach (c; 0 .. 4)
+                        best[c] = dilate ? max(best[c], pv[c]) : min(best[c], pv[c]);
+                }
+            immutable o = (cast(size_t) y * dst.w + x) * 4;
+            dst.px[o .. o + 4] = best;
+        }
+}
+
+unittest
+{
+    Raster src = Raster(8, 8);
+    // Solid 3x3 red block at (3,3)..(5,5), alpha 1.
+    foreach (y; 3 .. 6)
+        foreach (x; 3 .. 6)
+        {
+            immutable b = (cast(size_t) y * 8 + x) * 4;
+            src.px[b .. b + 4] = [1.0f, 0.0f, 0.0f, 1.0f];
+        }
+
+    // erode r=1: the 2x2 window in [-1,0) x [-1,0) leaves the block's
+    // upper-right survivors at (4,4)..(5,5) - thin features vanish.
+    Raster e1 = Raster(0, 0);
+    morphology(e1, src, 1, 1, false);
+    assert(e1.px[(cast(size_t) 4 * 8 + 4) * 4] == 1.0f);
+    assert(e1.px[(cast(size_t) 5 * 8 + 5) * 4] == 1.0f);
+    assert(e1.px[(cast(size_t) 3 * 8 + 3) * 4] == 0.0f);
+    assert(e1.px[(cast(size_t) 6 * 8 + 6) * 4] == 0.0f);
+
+    // dilate r=1: the same window fattens the block rightward/downward.
+    Raster d1 = Raster(0, 0);
+    morphology(d1, src, 1, 1, true);
+    assert(d1.px[(cast(size_t) 3 * 8 + 3) * 4] == 1.0f);
+    assert(d1.px[(cast(size_t) 6 * 8 + 6) * 4] == 1.0f);
+    assert(d1.px[(cast(size_t) 2 * 8 + 2) * 4] == 0.0f);
+
+    // radius 0 disables: transparent black.
+    Raster e0 = Raster(0, 0);
+    morphology(e0, src, 0, 0, false);
+    assert(e0.px.all!(v => v == 0.0f));
+
+    // erode eats against the raster edge: a solid field erodes away from
+    // the boundary.
+    Raster full = Raster(8, 8);
+    full.px[] = 1.0f;
+    Raster e2 = Raster(0, 0);
+    morphology(e2, full, 1, 1, false);
+    assert(e2.px[0] == 0.0f);
+    assert(e2.px[(cast(size_t) 1 * 8 + 1) * 4] == 1.0f);
+}
+
+// ---------------------------------------------------------------------------
 // The filter model: <filter> + primitives, read straight off the arena.
 // ---------------------------------------------------------------------------
 
@@ -1111,3 +1587,4 @@ FilterSpec makeFilter(ref const Document doc, size_t target)
 
     return f;
 }
+

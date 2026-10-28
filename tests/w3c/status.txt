@@ -133,8 +133,8 @@ filters-conv-03-f.svg OK 6621
 filters-conv-04-f.svg OK 8254
 filters-conv-05-f.svg OK 153943
 filters-diffuse-01-f.svg OK 11247
-filters-displace-01-f.svg OK 15289
-filters-displace-02-f.svg OK 7322
+filters-displace-01-f.svg OK 13766
+filters-displace-02-f.svg OK 1418
 filters-example-01-b.svg OK 2717
 filters-felem-01-b.svg OK 1602
 filters-felem-02-f.svg OK 3243
@@ -151,7 +151,7 @@ filters-light-02-f.svg OK 168112
 filters-light-03-f.svg OK 6081
 filters-light-04-f.svg OK 7446
 filters-light-05-f.svg OK 14220
-filters-morph-01-f.svg OK 29995
+filters-morph-01-f.svg OK 9197
 filters-offset-01-b.svg OK 800
 filters-offset-02-b.svg OK 4656
 filters-overview-01-b.svg OK 6007
@@ -159,8 +159,8 @@ filters-overview-02-b.svg OK 9313
 filters-overview-03-b.svg OK 9323
 filters-specular-01-f.svg OK 10880
 filters-tile-01-b.svg OK 1542
-filters-turb-01-f.svg OK 13883
-filters-turb-02-f.svg OK 164255
+filters-turb-01-f.svg OK 4688
+filters-turb-02-f.svg OK 163411
 fonts-desc-01-t.svg OK 1337
 fonts-desc-02-t.svg OK 1653
 fonts-desc-03-t.svg OK 1561

@@ -3150,6 +3150,167 @@ private struct Renderer
                 break;
             }
 
+            case "feTurbulence":
+            {
+                // §15.19/§15.24: baseFrequency "<number> [<number>]"
+                // (default 0; negative is an error), numOctaves integer
+                // (default 1), seed (default 0, truncated toward zero
+                // on the way into the PRNG), type (default turbulence),
+                // stitchTiles (default noStitch). The noise has no
+                // input at all and fills the primitive subregion.
+                float[2] freq = [0.0f, 0.0f];
+                size_t seen = 0;
+                bool bad = false;
+                if (auto p = "baseFrequency" in e.attrs)
+                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    {
+                        if (seen < 2)
+                        {
+                            try
+                                freq[cast(int) seen] = to!float(t);
+                            catch (ConvException)
+                                bad = true;
+                            if (freq[cast(int) seen] < 0.0f)
+                                bad = true; // negative frequency: error
+                        }
+                        ++seen;
+                    }
+                if (seen == 1)
+                    freq[1] = freq[0];
+
+                int oct = 1;
+                if (auto p = "numOctaves" in e.attrs)
+                {
+                    try
+                        oct = to!int(strip(*p));
+                    catch (ConvException)
+                        oct = 1; // invalid attribute value: ignored
+                    if (oct < 0)
+                        bad = true;
+                }
+
+                // baseFrequency lives in the primitiveUnits space, so
+                // the per-pixel lattice step is freq/scale there: for
+                // userSpaceOnUse the raster's absolute device index
+                // space over the CTM's axis scales (the absolute
+                // anchoring the suite's references show), for
+                // objectBoundingBox normalized fractions of the bbox.
+                double ax = 0.0, ay = 0.0, x0 = 0.0, y0 = 0.0;
+                if (f.primsObjBB)
+                {
+                    immutable bw = basis.x1 - basis.x0, bh = basis.y1 - basis.y0;
+                    if (bw < 1 || bh < 1)
+                        bad = true;
+                    else
+                    {
+                        ax = freq[0] / bw;
+                        ay = freq[1] / bh;
+                        x0 = -cast(double) basis.x0;
+                        y0 = -cast(double) basis.y0;
+                    }
+                }
+                else
+                {
+                    if (sx > 0.0f)
+                        ax = freq[0] / sx;
+                    if (sy > 0.0f)
+                        ay = freq[1] / sy;
+                }
+
+                if (!bad && !sub.empty)
+                {
+                    immutable seed = clamp(num(e.attrs, "seed", 0.0f),
+                        -2_147_483_647.0f, 2_147_483_647.0f);
+                    Raster o = Raster(src.w, src.h);
+                    turbulenceFill(o, sub, cast(long) seed, ax, ay, oct,
+                        strip(e.attrs.get("type", "")) == "fractalNoise",
+                        strip(e.attrs.get("stitchTiles", "")) == "stitch",
+                        x0, y0);
+                    res = o;
+                }
+                else
+                    res = Raster(src.w, src.h); // disabled: transparent
+                ran = true;
+                break;
+            }
+
+            case "feDisplacementMap":
+            {
+                // §15.15: scale is a plain number in primitiveUnits;
+                // the selectors are R/G/B/A and default to A - a value
+                // that isn't one of those keeps the default.
+                int xc = 3, yc = 3;
+                if (auto p = "xChannelSelector" in e.attrs)
+                {
+                    immutable v = toUpper(strip(*p));
+                    if (v == "R")
+                        xc = 0;
+                    else if (v == "G")
+                        xc = 1;
+                    else if (v == "B")
+                        xc = 2;
+                }
+                if (auto p = "yChannelSelector" in e.attrs)
+                {
+                    immutable v = toUpper(strip(*p));
+                    if (v == "R")
+                        yc = 0;
+                    else if (v == "G")
+                        yc = 1;
+                    else if (v == "B")
+                        yc = 2;
+                }
+                const scX = scaleX(num(e.attrs, "scale", 0.0f));
+                const scY = scaleY(num(e.attrs, "scale", 0.0f));
+                Raster o;
+                displaceMap(o, input(e.attrs, "in"), input(e.attrs, "in2"),
+                    scX, scY, xc, yc);
+                res = o;
+                ran = true;
+                break;
+            }
+
+            case "feMorphology":
+            {
+                // §15.20: operator (default erode) and radius
+                // "<number> [<number>]" (default 0 - which disables the
+                // primitive to transparent black; negative is an
+                // error). The whole-pixel window takes the ceiling of
+                // the radius.
+                float[2] rad = [0.0f, 0.0f];
+                size_t seen = 0;
+                bool bad = false;
+                if (auto p = "radius" in e.attrs)
+                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    {
+                        if (seen < 2)
+                        {
+                            try
+                                rad[cast(int) seen] = to!float(t);
+                            catch (ConvException)
+                                bad = true;
+                            if (rad[cast(int) seen] < 0.0f)
+                                bad = true;
+                        }
+                        ++seen;
+                    }
+                if (seen == 1)
+                    rad[1] = rad[0];
+
+                if (!bad)
+                {
+                    Raster o;
+                    morphology(o, input(e.attrs, "in"), to!int(ceil(rad[0])),
+                        to!int(ceil(rad[1])),
+                        strip(e.attrs.get("operator", "")) == "dilate");
+                    res = o;
+                }
+                else
+                    res = Raster(src.w, src.h); // disabled: transparent
+                ran = true;
+                break;
+            }
+
             default:
                 break; // unrecognised primitive: ignored (§15.1)
             }
