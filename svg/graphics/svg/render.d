@@ -2901,6 +2901,72 @@ private struct Renderer
                 break;
             }
 
+            case "feColorMatrix":
+            {
+                // type defaults to "matrix"; values is a whitespace-or-comma
+                // separated number list (§15.6.4/15.6.5).
+                string type = "matrix";
+                if (auto p = "type" in e.attrs)
+                    type = toLower(strip(*p));
+                float[] vals;
+                if (auto p = "values" in e.attrs)
+                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                        try
+                            vals ~= to!float(t);
+                        catch (ConvException)
+                            {}
+                Raster o;
+                colorMatrix(o, input(e.attrs, "in"), cmMatrix(type, vals));
+                res = o;
+                ran = true;
+                break;
+            }
+
+            case "feComponentTransfer":
+            {
+                // The feFuncR/G/B/A children name one channel each; absent
+                // channels stay identity (§15.11).
+                TransferFunc[4] fn;
+                foreach (cn; e.children)
+                {
+                    immutable ce = doc.nodes[cn];
+                    immutable ci = ce.name == "feFuncR" ? 0 : ce.name == "feFuncG" ? 1
+                        : ce.name == "feFuncB" ? 2 : ce.name == "feFuncA" ? 3 : -1;
+                    if (ci < 0)
+                        continue;
+                    auto fp = &fn[ci];
+                    if (auto p = "type" in ce.attrs)
+                    {
+                        immutable t = toLower(strip(*p));
+                        if (t == "table")
+                            fp.kind = TransferFunc.Kind.table;
+                        else if (t == "discrete")
+                            fp.kind = TransferFunc.Kind.discrete;
+                        else if (t == "linear")
+                            fp.kind = TransferFunc.Kind.linear;
+                        else if (t == "gamma")
+                            fp.kind = TransferFunc.Kind.gamma;
+                        // anything else, "identity" included: identity
+                    }
+                    if (auto p = "tableValues" in ce.attrs)
+                        foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                            try
+                                fp.table ~= to!float(t);
+                            catch (ConvException)
+                                {}
+                    fp.slope = num(ce.attrs, "slope", 1.0f);
+                    fp.intercept = num(ce.attrs, "intercept", 0.0f);
+                    fp.amplitude = num(ce.attrs, "amplitude", 1.0f);
+                    fp.exponent = num(ce.attrs, "exponent", 1.0f);
+                    fp.offset = num(ce.attrs, "offset", 0.0f);
+                }
+                Raster o;
+                componentTransfer(o, input(e.attrs, "in"), fn);
+                res = o;
+                ran = true;
+                break;
+            }
+
             default:
                 break; // unrecognised primitive: ignored (§15.1)
             }

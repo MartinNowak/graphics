@@ -484,6 +484,217 @@ unittest
     assert(d.px[] == [0.0f, 0.5f, 0.5f, 0.75f], to!string(d.px[]));
 }
 
+/// feColorMatrix §15.6.4/15.6.5: build the row-major 5x4 matrix named by
+/// `type` from its `values` shortcut. Unknown types, short value lists and
+/// non-matrix types with values present behave as the identity.
+float[20] cmMatrix(in string type, const float[] v)
+{
+    float[20] m = 0.0f;
+    m[0] = m[6] = m[12] = m[18] = 1.0f; // identity; the alpha row stays
+    switch (type)
+    {
+    case "saturate":
+    {
+        immutable s = v.length ? v[0] : 1.0f;
+        m[0 .. 3] = [0.213f + 0.787f * s, 0.715f - 0.715f * s, 0.072f - 0.072f * s];
+        m[5 .. 8] = [0.213f - 0.213f * s, 0.715f + 0.285f * s, 0.072f - 0.072f * s];
+        m[10 .. 13] = [0.213f - 0.213f * s, 0.715f - 0.715f * s, 0.072f + 0.928f * s];
+        break;
+    }
+
+    case "hueRotate":
+    {
+        immutable deg = v.length ? v[0] : 0.0f;
+        immutable c = cos(deg * PI / 180.0f), s = sin(deg * PI / 180.0f);
+        m[0 .. 3] = [0.213f + 0.787f * c - 0.213f * s, 0.715f - 0.715f * c - 0.715f * s,
+                     0.072f - 0.072f * c + 0.928f * s];
+        m[5 .. 8] = [0.213f - 0.213f * c + 0.143f * s, 0.715f + 0.285f * c + 0.140f * s,
+                     0.072f - 0.072f * c - 0.283f * s];
+        m[10 .. 13] = [0.213f - 0.213f * c - 0.787f * s, 0.715f - 0.715f * c + 0.715f * s,
+                       0.072f + 0.928f * c + 0.072f * s];
+        break;
+    }
+
+    case "luminanceToAlpha":
+        m[] = 0.0f;
+        m[15 .. 18] = [0.2125f, 0.7154f, 0.0721f];
+        break;
+
+    default: // matrix
+        if (v.length == 20)
+            m[] = v[0 .. 20];
+        break;
+    }
+    return m;
+}
+
+/// The matrix runs on straight (non-premultiplied) channels, [R G B A 1]
+/// per §15.6.4; only the resulting alpha is clamped, colours stay raw.
+void colorMatrix(ref Raster dst, in Raster src, in float[20] m)
+{
+    dst = Raster(src.w, src.h);
+    foreach (i; 0 .. cast(int) (src.px.length / 4))
+    {
+        immutable p = cast(size_t) i * 4;
+        immutable a = src.px[p + 3];
+        float[4] s;
+        foreach (c; 0 .. 3)
+            s[c] = a > 0.0f ? src.px[p + c] / a : 0.0f;
+        s[3] = a;
+        immutable na = clamp(m[15] * s[0] + m[16] * s[1] + m[17] * s[2]
+            + m[18] * s[3] + m[19], 0.0f, 1.0f);
+        foreach (c; 0 .. 3)
+            dst.px[p + c] = na > 0.0f
+                ? (m[c * 5] * s[0] + m[c * 5 + 1] * s[1] + m[c * 5 + 2] * s[2]
+                   + m[c * 5 + 3] * s[3] + m[c * 5 + 4]) * na
+                : 0.0f;
+        dst.px[p + 3] = na;
+    }
+}
+
+unittest
+{
+    auto src = Raster(1, 1);
+    Raster d;
+
+    // saturate 0 flattens red onto the spec's 0.213 luminance row.
+    src.px[] = [1.0f, 0.0f, 0.0f, 1.0f];
+    colorMatrix(d, src, cmMatrix("saturate", [0.0f]));
+    assert(isClose(d.px[0], 0.213f, 1e-4f) && d.px[1] == d.px[0] && d.px[2] == d.px[0]
+        && d.px[3] == 1.0f, to!string(d.px[]));
+
+    // hueRotate 180: the spec matrix puts red at (-0.574, 0.426, 0.426)
+    // - raw floats, negative lobes untouched until encoding.
+    colorMatrix(d, src, cmMatrix("hueRotate", [180.0f]));
+    assert(isClose(d.px[0], -0.574f, 1e-3f) && isClose(d.px[1], 0.426f, 1e-3f)
+        && isClose(d.px[2], 0.426f, 1e-3f), to!string(d.px[]));
+
+    // luminanceToAlpha empties the colours and moves luminance to A.
+    colorMatrix(d, src, cmMatrix("luminanceToAlpha", null));
+    assert(d.px[0] == 0.0f && d.px[1] == 0.0f && d.px[2] == 0.0f
+        && isClose(d.px[3], 0.2125f, 1e-4f), to!string(d.px[]));
+
+    // Half-alpha straight red through an invert-and-offset matrix: the
+    // straightening must round-trip, so cyan lands at PM 0.5, not 0.25.
+    src.px[] = [0.5f, 0.0f, 0.0f, 0.5f];
+    colorMatrix(d, src, cmMatrix("matrix",
+        [-1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, -1.0f, 0.0f, 0.0f, 1.0f,
+         0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f]));
+    assert(d.px[] == [0.0f, 0.5f, 0.5f, 0.5f], to!string(d.px[]));
+}
+
+/// feComponentTransfer §15.11: a channel transfer function. Absent or
+/// empty feFunc elements stay identity.
+struct TransferFunc
+{
+    enum Kind { identity, table, linear, gamma, discrete }
+    Kind kind = Kind.identity;
+    float[] table; // tableValues: n+1 values (table) or n steps (discrete)
+    float slope = 1.0f, intercept = 0.0f;
+    float amplitude = 1.0f, exponent = 1.0f, offset = 0.0f;
+
+    float op(float c) const
+    {
+        switch (kind)
+        {
+        case Kind.linear:
+            return slope * c + intercept;
+
+        case Kind.gamma:
+            return amplitude * pow(max(c, 0.0f), exponent) + offset;
+
+        case Kind.table:
+            if (table.length < 2)
+                return c; // an empty list is identity
+            {
+                immutable cl = clamp(c, 0.0f, 1.0f), nf = cast(float) (table.length - 1);
+                if (cl >= 1.0f)
+                    return table[$ - 1];
+                immutable k = min(cast(int) (cl * nf), cast(int) table.length - 2);
+                immutable kf = cast(float) k;
+                return table[k] + (cl - kf / nf) * nf * (table[k + 1] - table[k]);
+            }
+
+        case Kind.discrete:
+            if (table.empty)
+                return c;
+            {
+                immutable cl = clamp(c, 0.0f, 1.0f), nf = cast(float) table.length;
+                if (cl >= 1.0f)
+                    return table[$ - 1];
+                return table[min(cast(int) (cl * nf), cast(int) table.length - 1)];
+            }
+
+        default: // identity
+            return c;
+        }
+    }
+}
+
+/// The functions run on straight channels; feFuncA acts on alpha, and
+/// only that result is clamped before the re-premultiply.
+void componentTransfer(ref Raster dst, in Raster src, const TransferFunc[4] fn)
+{
+    dst = Raster(src.w, src.h);
+    foreach (i; 0 .. cast(int) (src.px.length / 4))
+    {
+        immutable p = cast(size_t) i * 4;
+        immutable a = src.px[p + 3];
+        float[4] s;
+        foreach (c; 0 .. 3)
+            s[c] = a > 0.0f ? src.px[p + c] / a : 0.0f;
+        s[3] = a;
+        immutable na = clamp(fn[3].op(s[3]), 0.0f, 1.0f);
+        foreach (c; 0 .. 3)
+            dst.px[p + c] = na > 0.0f ? fn[c].op(s[c]) * na : 0.0f;
+        dst.px[p + 3] = na;
+    }
+}
+
+unittest
+{
+    auto src = Raster(1, 1);
+    Raster d;
+    src.px[] = [0.5f, 0.25f, 0.0f, 0.5f]; // straight (1, 0.5, 0) at A 0.5
+
+    // table "0 0 1 1" at C=1: n=3, k=2 segment endpoint -> 1.
+    TransferFunc[4] fn;
+    fn[0].kind = TransferFunc.Kind.table;
+    fn[0].table = [0.0f, 0.0f, 1.0f, 1.0f];
+    componentTransfer(d, src, fn);
+    assert(isClose(d.px[0], 1.0f * 0.5f, 1e-5f), to!string(d.px[])); // straight 1
+    assert(isClose(d.px[1], 0.5f * 0.5f, 1e-5f) && isClose(d.px[3], 0.5f, 1e-5f));
+
+    // discrete "0 0.5 1": straight green C=0.5 lands on the middle step,
+    // straight red C=1 on the last one.
+    fn[0].kind = TransferFunc.Kind.discrete;
+    fn[1].kind = TransferFunc.Kind.discrete;
+    fn[0].table = [0.0f, 0.5f, 1.0f];
+    fn[1].table = fn[0].table;
+    componentTransfer(d, src, fn);
+    assert(isClose(d.px[0], 1.0f * 0.5f, 1e-5f) && isClose(d.px[1], 0.5f * 0.5f, 1e-5f),
+        to!string(d.px[]));
+
+    // gamma squares: straight 1 -> 1; linear halves red with intercept.
+    fn[0].kind = TransferFunc.Kind.gamma;
+    fn[0].exponent = 2.0f;
+    componentTransfer(d, src, fn);
+    assert(isClose(d.px[0], 0.5f, 1e-5f));
+    fn[0].kind = TransferFunc.Kind.linear;
+    fn[0].slope = 0.5f;
+    componentTransfer(d, src, fn);
+    assert(isClose(d.px[0], 0.5f * 0.5f, 1e-5f));
+
+    // feFuncA maps A through the function too, and the colours follow
+    // the re-premultiply.
+    fn[] = TransferFunc.init;
+    fn[3].kind = TransferFunc.Kind.linear;
+    fn[3].slope = 0.5f;
+    componentTransfer(d, src, fn);
+    assert(isClose(d.px[3], 0.25f, 1e-5f) && isClose(d.px[0], 0.25f, 1e-5f),
+        to!string(d.px[]));
+}
+
 /// feGaussianBlur, §15.16.1: for s >= 2 three box blurs stand in for the
 /// Gaussian - d = floor(s·3·sqrt(2π)/4 + 0.5); odd d takes three boxes of
 /// size d centred on the output pixel, even d two boxes of size d half a
