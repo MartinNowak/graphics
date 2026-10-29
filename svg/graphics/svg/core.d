@@ -22,7 +22,7 @@ bool transformSVG(ref Matrix mat, string s)
         case "translate":
             immutable x = parse!float(s);
             if (s[0] == ')')
-                m.setTranslate(x, x);
+                m.setTranslate(x, 0); // SVG 1.1 §9.5: translate(tx) => ty = 0
             else
                 m.setTranslate(x, parse!float(s));
             break;
@@ -408,7 +408,7 @@ unittest
 
     Matrix m;
     transformSVG(m, "translate(10)");
-    assert(near(m * FPoint(0, 0), FPoint(10, 10)));
+    assert(near(m * FPoint(0, 0), FPoint(10, 0)), "translate(tx) => ty = 0 (§9.5)");
 
     m.reset();
     transformSVG(m, "translate(10, 20)");
