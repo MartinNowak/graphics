@@ -36,6 +36,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | translate(tx) => (tx, 0) fix (§9.5) landed with it            |            |
 | step 11               | external `use` hrefs: document swap for the cloned subtree,  | 3.39 M     |
 |                       | scope-tagged inherited url(), cross-file loop guard (§5.6)   |            |
+| step 12               | static-profile feature strings (Annex I) + the switch's     | 3.34 M     |
+|                       | own transform (§5.8.2/§5.8.3)                               |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -62,9 +64,22 @@ colliding ids. Root/`<svg>` fragments fit through the existing viewport-fit
 branch; parse failures, dangling fragments and whole-file hrefs paint
 nothing, and a file already on the §9.8 open-document chain breaks
 cross-file cycles. struct-use-05-b fell 54 K, 04-b 11 K, 08-b 1.8 K;
-11-f passes at 418. No planned step follows: what remains is the deferred
-ceilings below and the opportunistic backlog (first item: external CSS
-sheets).
+11-f passes at 418.
+
+Step 12 (static-profile feature strings) landed: featureOK claims the
+full Annex I set listed under `#SVG-static`, and with it `#SVG-static`,
+`#SVGDOM-static` and `#SVGDOM` - Annex I makes SVGDOM true when any
+SVGDOM-* string is, and SVGDOM-static is the DOM surface of exactly the
+feature set this library parses and paints (parser.d's Document/
+Element tree); `#Animation`, scripting and `#SVGDOM-animation`/
+`-dynamic` stay honestly false. Triage of the stale "external CSS
+sheets" backlog item found a real bug in its place: switchElement never
+pushed the switch's own style, so its presentation attrs and transform
+were dropped - struct-cond-03-t places its two branches with
+`translate(0, 140)` on the switch (§5.8.2). struct-cond-03-t fell
+41.0 K -> 0.5 K, animate-elem-36-t 4.3 K -> 2.2 K. The import machinery
+itself turned out to have worked since step 5b; the selector-types
+trio's 43 K is a defective-reference ceiling (deferred below).
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -95,6 +110,18 @@ sheets).
   rect now paints over it (+6.8 K at the step-11 rebase). 04-b's reference
   shows colored shapes no spec-correct render of the referenced files
   produces; 07-b's nested-`<svg>` fit is already handled to §7.7.
+- styling-css-09-f (18.9 K) / styling-css-10-f (9.8 K) / styling-pres-
+  05-f (14.3 K): step 12 triage proved the external-sheet machinery
+  works end to end (`@import` fetch, unquoted `[id=...]` selectors,
+  case-insensitive property names/values) and we render the spec
+  answer for all three: 09-f's seven blue shapes, 10-f's four orange
+  circles, pres-05-f all-green. The archived references are broken:
+  09-f's and pres-05-f's show *no shapes at all* - 09-f's own pass
+  criteria say "seven blue shapes", and pres-05-f's shapes carry
+  markup-level fills - and 10-f's reference shows green circles in a
+  test that contains no green. Matching those would mean re-breaking
+  visibility !important, the CSS case rules, and presentation-attr
+  precedence.
 - `filters-turb` (163 K) / `filters-conv` (172 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
 - Host-font debt (SVGFreeSans/Impact) in `masking-path-03-b/10-b` and the
@@ -108,12 +135,6 @@ sheets).
 - Fix stale § numbers in source comments (text-area refs went with step
   6): `render.d` still cites `§6.1/§6.1.2/§6.1.3/§6.2/§7.1` around text
   layout, `§11.4` markers, `§9.8` image; `css.d`/`filter.d` unchecked.
-- External CSS sheets: follow `@import` url() targets out of embedded
-  sheets (styling-css-09-f imports `selector-types-visibility-hidden.css`,
-  10-f `case-insensitivity.css`; ~48 K across the selector-types pair) and
-  tolerate unquoted attribute-selector values (`[id=testAttributeSelector]`).
-  Verify first whether css.d aborts the whole sheet on an unfetchable
-  import - that decides how much of the ruleset is being lost today.
 - Viewer-side fragment selection (§17.3.2): `#view-id`, `#svgView(...)` and
   `#xywh=` on the CLI's file argument. Pure viewer-URL feature; the suite
   harness passes bare files, so today the no-fragment case (outer svg's

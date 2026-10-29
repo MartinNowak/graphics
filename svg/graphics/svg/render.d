@@ -3412,7 +3412,7 @@ private struct Renderer
         closeElement(orig.name);
     }
 
-    // Conditional processing (SVG 1.1 §6): requiredFeatures,
+    // Conditional processing (SVG 1.1 §5.8): requiredFeatures,
     // requiredExtensions and systemLanguage guard an element - an element
     // whose test fails is treated as if absent from the document (inside
     // <switch> the same tests pick the one child that renders).
@@ -3421,26 +3421,59 @@ private struct Renderer
     // the suite's own language is the honest choice.
     enum string userLanguage = "en";
 
-    // The feature strings implemented (SVG 1.1 Annex I names). The list is
-    // deliberately honest: only what genuinely paints is claimed, so
-    // gradients/patterns/clipping/masking/markers/images/filters/animation
-    // and every DOM/SVGDOM string evaluate to false until they land.
+    // The feature strings this renderer claims (SVG 1.1 Appendix O).
+    // The claim is the whole static profile: every language feature listed
+    // under #SVG-static is processed and painted, which per §O.2 also
+    // makes #SVGDOM-static true - the DOM surface of the static features
+    // is exactly the Document/Element tree parser.d builds - and §O.2
+    // makes #SVGDOM true when any SVGDOM-* string is. The dynamic profile
+    // stays unclaimed: #Animation, scripting and #SVGDOM-animation /
+    // #SVGDOM-dynamic evaluate to false. Two gaps hide inside the static
+    // claims: tref/altGlyph (§10.6/§10.14.1) are not implemented, and
+    // ICC ColorProfile is accepted but never applied.
     static bool featureOK(string f)
     {
         static immutable string[] ok =
         [
             "http://www.w3.org/TR/SVG11/feature#BasicStructure",
             "http://www.w3.org/TR/SVG11/feature#Structure",
-            "http://www.w3.org/TR/SVG11/feature#BasicPaint",
-            "http://www.w3.org/TR/SVG11/feature#Paint",
-            "http://www.w3.org/TR/SVG11/feature#BasicText",
-            "http://www.w3.org/TR/SVG11/feature#BasicTransform",
+            "http://www.w3.org/TR/SVG11/feature#CoreAttribute",
+            "http://www.w3.org/TR/SVG11/feature#ContainerAttribute",
+            "http://www.w3.org/TR/SVG11/feature#ConditionalProcessing",
+            "http://www.w3.org/TR/SVG11/feature#Extensibility",
             "http://www.w3.org/TR/SVG11/feature#BasicViewPort",
             "http://www.w3.org/TR/SVG11/feature#Viewport",
+            "http://www.w3.org/TR/SVG11/feature#ViewportAttribute",
+            "http://www.w3.org/TR/SVG11/feature#BasicTransform",
+            "http://www.w3.org/TR/SVG11/feature#Image",
+            "http://www.w3.org/TR/SVG11/feature#Style",
             "http://www.w3.org/TR/SVG11/feature#BasicShape",
             "http://www.w3.org/TR/SVG11/feature#Shape",
             "http://www.w3.org/TR/SVG11/feature#Path",
-            "http://www.w3.org/TR/SVG11/feature#ConditionalProcessing",
+            "http://www.w3.org/TR/SVG11/feature#BasicText",
+            "http://www.w3.org/TR/SVG11/feature#Text",
+            "http://www.w3.org/TR/SVG11/feature#BasicFont",
+            "http://www.w3.org/TR/SVG11/feature#Font",
+            "http://www.w3.org/TR/SVG11/feature#BasicPaint",
+            "http://www.w3.org/TR/SVG11/feature#Paint",
+            "http://www.w3.org/TR/SVG11/feature#PaintAttribute",
+            "http://www.w3.org/TR/SVG11/feature#OpacityAttribute",
+            "http://www.w3.org/TR/SVG11/feature#GraphicsAttribute",
+            "http://www.w3.org/TR/SVG11/feature#Marker",
+            "http://www.w3.org/TR/SVG11/feature#ColorProfile",
+            "http://www.w3.org/TR/SVG11/feature#Gradient",
+            "http://www.w3.org/TR/SVG11/feature#Pattern",
+            "http://www.w3.org/TR/SVG11/feature#Clip",
+            "http://www.w3.org/TR/SVG11/feature#Mask",
+            "http://www.w3.org/TR/SVG11/feature#Filter",
+            "http://www.w3.org/TR/SVG11/feature#XlinkAttribute",
+            // The static-profile chain, by definition (§O.2): claiming
+            // every feature above makes SVG-static true, which makes the
+            // static DOM surface (SVGDOM-static) true, which makes the
+            // umbrella SVGDOM true.
+            "http://www.w3.org/TR/SVG11/feature#SVG-static",
+            "http://www.w3.org/TR/SVG11/feature#SVGDOM-static",
+            "http://www.w3.org/TR/SVG11/feature#SVGDOM",
         ];
         return ok.canFind(f);
     }
@@ -4610,9 +4643,15 @@ private struct Renderer
     }
 
     // <switch>: the first child element whose conditional processing tests
-    // pass renders; every other child - passing or not - does not render.
+    // pass renders; every other child - passing or not - does not render
+    // (SVG 1.1 §5.8.2). The switch itself is a styled container: its
+    // presentation attrs and transform wrap the branch that is chosen
+    // (struct-cond-03-t hangs a translate() off the switch to place its
+    // two branches).
     void switchElement(size_t idx)
     {
+        pushStyle(doc.nodes[idx].attrs, idx);
+        scope (exit) popStyle();
         foreach (ch; doc.nodes[idx].children)
         {
             if (doc.nodes[ch].name.empty || !conditionsPass(doc.nodes[ch].attrs))
@@ -5085,7 +5124,7 @@ unittest
     // empty requiredFeatures passes vacuously (and a subtree fails whole):
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
         width="10" height="10" viewBox="0 0 10 10">
-        <g requiredFeatures="http://www.w3.org/TR/SVG11/feature#SVGDOM">
+        <g requiredFeatures="http://www.w3.org/TR/SVG11/feature#SVGDOM-dynamic">
             <rect width="10" height="10" fill="red"/>
         </g>
         <g requiredFeatures="">
@@ -5108,11 +5147,15 @@ unittest
         </switch>
         <switch transform="translate(0, 5)">
             <rect width="10" height="5" fill="red" systemLanguage="de"/>
-            <rect y="5" width="10" height="5" fill="gold"/>
+            <rect width="10" height="5" fill="gold"/>
         </switch>
         </svg>`);
     px = bmp.getLine!PMColor(2)[5];
     assert(px.g == 255 && px.r == 0, "switch picks BasicText branch, never the fallback");
+    // the gold fallback sits inside the switch's own translate(0,5):
+    // it covers the strip y 5..10, not 0..5 (§5.8.2):
+    px = bmp.getLine!PMColor(3)[5];
+    assert(px.g == 255 && px.r == 0, "the switch transform moves the chosen branch");
     px = bmp.getLine!PMColor(7)[5];
     assert(px.r == 255 && px.g >= 200 && px.b == 0, "fallback child renders when tests all fail");
 }
@@ -6200,4 +6243,40 @@ unittest
     assert(px.r > 60 && px.r < 68, `red is the white showing through: ${to!string(px)}`);
     assert(px.g > 177 && px.g < 185, `green straight 1/3: ${to!string(px)}`);
     assert(px.b > 219 && px.b < 227, `blue straight 2/3: ${to!string(px)}`);
+}
+
+unittest
+{
+    // Feature strings (SVG 1.1 Appendix O): the renderer claims the static
+    // profile, so #SVGDOM and #SVG-static pass and struct-cond-03-t's
+    // "more than SVG Tiny" branch is picked; the dynamic-profile strings
+    // stay false. The transform on the switch itself must reach the
+    // branch it selects (§5.8.2), which is how struct-cond-03-t stacks
+    // its two switches.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30">
+        <switch>
+            <rect x="0" y="0" width="40" height="10" fill="#008080"
+              requiredFeatures="http://www.w3.org/TR/SVG11/feature#SVGDOM"/>
+            <rect x="0" y="0" width="40" height="10" fill="#0f0"/>
+        </switch>
+        <switch transform="translate(0, 10)">
+            <rect x="0" y="0" width="40" height="10" fill="#f00"
+              requiredFeatures="http://www.w3.org/TR/SVG11/feature#SVG-static"/>
+            <rect x="0" y="0" width="40" height="10" fill="#0f0"/>
+        </switch>
+        <switch transform="translate(0, 20)">
+            <rect x="0" y="0" width="40" height="10" fill="#f00"
+              requiredFeatures="http://www.w3.org/TR/SVG11/feature#SVGDOM-dynamic"/>
+            <rect x="0" y="0" width="40" height="10" fill="#00f"/>
+        </switch>
+        </svg>`);
+    immutable top = bmp.getLine!PMColor(5)[20];
+    immutable mid = bmp.getLine!PMColor(15)[20];
+    immutable bot = bmp.getLine!PMColor(25)[20];
+    assert(top.a == 255 && top.r == 0 && top.g > 120 && top.g < 136 && top.b > 120 && top.b < 136,
+        `SVGDOM claimed: teal wins: ${to!string(top)}`);
+    assert(mid.a == 255 && mid.r > 250 && mid.g < 5 && mid.b < 5,
+        `SVG-static claimed through the switch's transform: red wins: ${to!string(mid)}`);
+    assert(bot.a == 255 && bot.r < 5 && bot.g < 5 && bot.b > 250,
+        `SVGDOM-dynamic unclaimed: blue fallback: ${to!string(bot)}`);
 }

@@ -32,7 +32,7 @@ animate-elem-32-t.svg OK 1043
 animate-elem-33-t.svg OK 1397
 animate-elem-34-t.svg OK 587
 animate-elem-35-t.svg OK 8353
-animate-elem-36-t.svg OK 4256
+animate-elem-36-t.svg OK 2157
 animate-elem-37-t.svg OK 2063
 animate-elem-38-t.svg OK 321
 animate-elem-39-t.svg OK 2384
@@ -358,7 +358,7 @@ shapes-rect-06-f.svg OK 418
 shapes-rect-07-f.svg OK 418
 struct-cond-01-t.svg OK 444
 struct-cond-02-t.svg OK 736
-struct-cond-03-t.svg OK 40981
+struct-cond-03-t.svg OK 498
 struct-cond-overview-02-f.svg OK 604
 struct-cond-overview-03-f.svg OK 2510
 struct-cond-overview-04-f.svg OK 577
