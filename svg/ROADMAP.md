@@ -31,6 +31,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | (§7.5.1/§7.7)                                                  |            |
 | step 9                | SVG as image content: .svg image hrefs via a sub-renderer,    | 3.90 M     |
 |                       | loop guards (§9.8)                                           |            |
+| step 10               | SMIL timeline end states: animate/Color/Transform/Motion,     | 3.44 M     |
+|                       | freeze + syncbase + max/min (§19.2); single-argument          |            |
+|                       | translate(tx) => (tx, 0) fix (§9.5) landed with it            |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -38,11 +41,15 @@ gate must stay flat, and it does.
 
 ## Next steps
 
-**Step 10 — SMIL core subset.** `animate`/`animateTransform`/
-`animateColor` over geometry, paint and transform attributes with
-`fill="freeze"` end states. `animate-elem` is the single biggest category
-(781 K across 68 tests); the harness already tracks those AE numbers as
-future conformance targets (see its "Nothing is excluded" section).
+Step 10 (SMIL core subset) landed: the CLI renders every document as
+though the timeline had run to t = +infinity - `fill="freeze"` end values,
+indefinite runs, syncbase begin/end lists and `max=`/`min=` clamping,
+`animateMotion` as a supplemental translate left of the transform chain
+(with `rotate="auto"`). `animate-elem` fell 781 K -> 334 K; most of the
+rest of the drop is the §9.5 `translate(tx)` fix (linking-a-07-t -33 K,
+coords-transformattr -15 K, filters-composite-05-f -16 K). No planned
+step follows: what remains is the deferred ceilings below and the
+opportunistic backlog.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -55,6 +62,13 @@ future conformance targets (see its "Nothing is excluded" section).
   zoom/pan (`onload` handlers, `viewport.zoomAndPan`) — scripting end-states
   again; step 8's viewport sizing did not move them.
 - `interact-*`: pointer events / interactivity — out of scope.
+- `animate-elem-53-t` (2.1 K) / `animate-elem-63-t` (1.0 K): the only two
+  animate tests whose references cannot be reached from any static
+  end-state frame. 53-t's reference shows the RR square *before* its scale
+  leg finished and paints the whole blue pair red (capture glitch); 63-t's
+  shows the two event-ended `set` rows back at base — only true after the
+  checker's click/accessKey plus 5 s — while an unfired end event leaves
+  those runs active forever. Every other state in both tests matches.
 - struct-image-13/14/15-f (453 K): the reference PNGs deviate from the
   tile PNGs they composite; our tiles match ground truth at AE 0 — a
   reference-suite defect, documented in the `<image>` commit message.

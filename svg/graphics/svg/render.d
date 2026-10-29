@@ -23,6 +23,7 @@ import graphics.svg.gradient;
 import graphics.svg.parser;
 import graphics.svg.pattern;
 import graphics.svg.pserver;
+import graphics.svg.smil;
 
 // ASCII case-insensitive comparison for SVG keywords (exact length).
 private bool equalCase(string a, string b)
@@ -4503,6 +4504,8 @@ Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "",
 {
     Renderer r;
     r.doc = parseSVG(source);
+    applySMILEndStates(r.doc); // the CLI timeline runs to t=+inf before
+        // anything reads the attributes; image documents stay static
     r.docBase = baseDir;
     if (docPath.length)
         r.svgImages = [docPath]; // the document itself is "in flight"
