@@ -1,6 +1,8 @@
 module graphics.svg.render;
 
 import std.algorithm, std.ascii, std.base64, std.conv, std.exception, std.math, std.range, std.string;
+import std.file : readText;
+import std.path : dirName;
 import std.utf : decode;
 import core.bitop : bswap;
 import gamut;
@@ -719,6 +721,12 @@ private struct Renderer
     // font-family names one of these gets its in-range characters drawn
     // from the SVG font; everything else falls through to the host face.
     SvgFont*[][string] svgFonts;
+
+    // The SVG-as-image reference chain (§9.8): the files being
+    // rendered right now, seeded with the CLI's document itself. A
+    // file href already on the chain is a reference loop - an error
+    // state painting nothing (struct-image-12-b pins that).
+    string[] svgImages;
 
     // Named baselines a text run's table can align on (SVG 1.1 §10.9.2).
     // `parent` doubles as both properties' non-shifting spellings: auto,
@@ -1638,6 +1646,7 @@ private struct Renderer
         // they would in the main document (04-b's mask contains one)
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
+        m.svgImages = svgImages; // so do the image loop guards
         m.canvas.matrix = canvas.matrix;
         if (auto u = strAttr(chain, "clipPathUnits"))
             if (toLower(u) == "objectboundingbox")
@@ -1766,6 +1775,7 @@ private struct Renderer
         // they would in the main document (04-b's mask contains one)
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
+        m.svgImages = svgImages; // so do the image loop guards
         m.canvas.matrix = canvas.matrix;
 
         // maskContentUnits="objectBoundingBox": children live in
@@ -1996,6 +2006,7 @@ private struct Renderer
         // they would in the main document (04-b's mask contains one)
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
+        m.svgImages = svgImages; // so do the image loop guards
 
         Matrix mm;
         mm.reset();
@@ -2730,6 +2741,40 @@ private struct Renderer
     // (default xMidYMid meet). An empty or fragment href, an
     // unsupported URL scheme, a zero/negative viewport and an
     // undecodable or missing file all render nothing.
+    // SVG 1.1 §9.8 / SVG Image: an href naming an SVG document makes
+    // that document the image's content. Render it offscreen at its
+    // intrinsic size - its own root sizing, setupRoot's conjured
+    // container included for missing/% width/height - and hand the
+    // raster to the viewport fit/clip/compose below. Unreadable or
+    // malformed files and reference loops are broken references:
+    // §9.8 renders nothing for those.
+    Bitmap svgImageBitmap(string path)
+    {
+        if (svgImages.length >= 8 || canFind(svgImages, path))
+            return Bitmap(); // loop (or runaway nesting): paints nothing
+
+        Renderer t;
+        try
+        {
+            t.doc = parseSVG(cast(string) readText(path));
+            t.docBase = dirName(path) ~ "/"; // its own directory is the
+                // base for what IT references (level1.svg -> level2.svg)
+            t.cssRules = collectStyles(t.doc, t.docBase);
+            t.cssParent = cssAncestry(t.doc.nodes);
+            t.cssSib = cssPrevSib(t.doc.nodes, t.cssParent);
+            t.svgFonts = collectFonts(t.doc, t.docBase);
+            t.svgImages = svgImages ~ path;
+            t.zoom = 1.0f; // natural pixels; the fit below scales the
+                // raster into the <image>'s viewport
+            t.setupRoot(t.doc.nodes[t.doc.root].attrs); // canvas + fit
+            t.inRoot = true; // the <svg> root is already set up
+            t.walk(t.doc.root); // its children are the image content
+        }
+        catch (Exception)
+            return Bitmap(); // unreadable / malformed document
+        return t.bmp;
+    }
+
     void imageElement(in string[string] a, size_t idx = Document.unknown)
     {
         const s = pushStyle(a, idx);
@@ -2741,7 +2786,10 @@ private struct Renderer
             a.get("href", a.get("xlink:href", "")));
         if (path is null)
             return;
-        auto img = loadSVGImage(path);
+        // .svg hrefs render through the sub-renderer above; anything
+        // else goes to the bitmap decoder (PNG/JPEG/data: URI).
+        Bitmap img = path.length >= 4 && equalCase(path[$ - 4 .. $], ".svg")
+            ? svgImageBitmap(path) : loadSVGImage(path);
         if (img.config == Bitmap.Config.NoConfig)
             return; // broken reference: §9.8 renders nothing
 
@@ -4450,11 +4498,15 @@ private struct Renderer
 // Render `source` to a fresh bitmap. `baseDir` is the source file's
 // directory (trailing '/'): the base for relative <image> hrefs;
 // empty = the process cwd.
-Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "")
+Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "",
+    string docPath = "")
 {
     Renderer r;
     r.doc = parseSVG(source);
     r.docBase = baseDir;
+    if (docPath.length)
+        r.svgImages = [docPath]; // the document itself is "in flight"
+        // for image hrefs: a document drawing its own file is a loop
     r.cssRules = collectStyles(r.doc, baseDir); // §6.2 author sheet, document order
     r.svgFonts = collectFonts(r.doc, baseDir);  // ch. 20 SVG font store
     r.cssParent = cssAncestry(r.doc.nodes);
@@ -4638,6 +4690,42 @@ unittest
         </svg>`);
     assert(bmp.getLine!PMColor(40)[59].b == 255); // x from 10 to 60
     assert(bmp.getLine!PMColor(40)[1].b == 0);
+}
+
+unittest
+{
+    // SVG as image content (§9.8): an href naming an .svg document
+    // renders that document at its intrinsic size through the same
+    // viewport fit as bitmaps; loops and broken references paint nothing.
+    import std.file : mkdir, remove, rmdir, tempDir, write;
+    import std.path : buildPath;
+    import std.process : thisProcessID;
+
+    immutable dir = buildPath(tempDir, "gsvg-img-" ~ to!string(thisProcessID));
+    mkdir(dir);
+    immutable sub = buildPath(dir, "sub.svg"), lp = buildPath(dir, "loop.svg");
+    scope (exit) { remove(sub); remove(lp); rmdir(dir); }
+
+    write(sub, `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10">`
+        ~ `<rect width="20" height="10" fill="#00ff00"/></svg>`);
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
+        <image x="10" y="5" width="20" height="10" href="sub.svg"/></svg>`, 1, dir ~ "/");
+    assert(bmp.getLine!PMColor(10)[15].g == 255, "svg image drawn 1:1 at x/y");
+    assert(bmp.getLine!PMColor(10)[5].g == 0);
+
+    // a mutual reference loop terminates without painting the looped leg
+    write(lp, `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">`
+        ~ `<image width="20" height="20" href="sub.svg"/></svg>`);
+    write(sub, `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">`
+        ~ `<rect width="20" height="20" fill="#00ff00"/><image width="20" height="20" href="loop.svg"/></svg>`);
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <image width="20" height="20" href="loop.svg"/></svg>`, 1, dir ~ "/");
+    assert(bmp.getLine!PMColor(10)[10].g == 255, "loop paints its first leg once");
+
+    // broken reference: an .svg that is not there paints nothing (§9.8)
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <image width="20" height="20" href="missing.svg"/></svg>`, 1, dir ~ "/");
+    assert(bmp.getLine!PMColor(10)[10].a == 0, "broken ref paints nothing");
 }
 
 unittest

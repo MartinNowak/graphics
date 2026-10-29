@@ -13,6 +13,6 @@ void main(string[] args)
         defaultGetoptPrinter("Render SVG files to PNG files.", rslt.options);
     enforce(zoom > 0, "zoom factor must be positive");
     foreach (file; args[1 .. $])
-        renderSVG(cast(string) read(file), zoom, file.dirName ~ "/")
+        renderSVG(cast(string) read(file), zoom, file.dirName ~ "/", file)
             .save(file.setExtension("png"));
 }

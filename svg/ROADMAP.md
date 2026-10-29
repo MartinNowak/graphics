@@ -29,16 +29,14 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | CSS face matching (§20.2-20.8)                                 |            |
 | step 8                | viewer viewport + root svg sizing, root viewBox/par fit        | 4.02 M     |
 |                       | (§7.5.1/§7.7)                                                  |            |
+| step 9                | SVG as image content: .svg image hrefs via a sub-renderer,    | 3.90 M     |
+|                       | loop guards (§9.8)                                           |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
 gate must stay flat, and it does.
 
 ## Next steps
-
-**Step 9 — SVG as image.** `<image href="*.svg">` composites through the
-offscreen sub-renderer path already used by pattern/clip/mask (SVG 1.1
-§5.7). Targets: struct-image-05-b/11-b/12-b/16-f/17-b/19-f (~143 K).
 
 **Step 10 — SMIL core subset.** `animate`/`animateTransform`/
 `animateColor` over geometry, paint and transform attributes with
@@ -50,6 +48,9 @@ future conformance targets (see its "Nothing is excluded" section).
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
   end-states — a CLI renderer has no DOM API surface; verdicts stay as-is.
+  struct-image-11-b (22 K) belongs here too: the references were captured
+  after the W3C checker clicked every `<image>` (`onclick` makeGreen), so
+  the correct static (blue) state can never match.
 - `conform-viewers` (14 K): references captured after script-driven viewer
   zoom/pan (`onload` handlers, `viewport.zoomAndPan`) — scripting end-states
   again; step 8's viewport sizing did not move them.
