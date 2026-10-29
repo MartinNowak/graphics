@@ -16,6 +16,7 @@ import graphics.svg.color;
 import graphics.svg.core;
 import graphics.svg.css;
 import graphics.svg.filter;
+import graphics.svg.fonts;
 import graphics.svg.gradient;
 import graphics.svg.parser;
 import graphics.svg.pattern;
@@ -712,6 +713,12 @@ private struct Renderer
     // Directory of the source document (trailing '/'), the default base
     // for relative <image> hrefs; "" means the process cwd.
     string docBase;
+
+    // SVG fonts (ch. 20): lower-cased family name -> font, collected at
+    // setup and shared with the offscreen renderers. A run whose first
+    // font-family names one of these gets its in-range characters drawn
+    // from the SVG font; everything else falls through to the host face.
+    SvgFont*[][string] svgFonts;
 
     // Named baselines a text run's table can align on (SVG 1.1 §10.9.2).
     // `parent` doubles as both properties' non-shifting spellings: auto,
@@ -1630,6 +1637,8 @@ private struct Renderer
         m.vpH = vpH;
         m.docBase = docBase; // <image> hrefs inside subtrees resolve as
         // they would in the main document (04-b's mask contains one)
+        m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
+        // and filters exactly as they do in the main rendering
         m.canvas.matrix = canvas.matrix;
         if (auto u = strAttr(chain, "clipPathUnits"))
             if (toLower(u) == "objectboundingbox")
@@ -1756,6 +1765,8 @@ private struct Renderer
         m.vpH = vpH;
         m.docBase = docBase; // <image> hrefs inside subtrees resolve as
         // they would in the main document (04-b's mask contains one)
+        m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
+        // and filters exactly as they do in the main rendering
         m.canvas.matrix = canvas.matrix;
 
         // maskContentUnits="objectBoundingBox": children live in
@@ -1984,6 +1995,8 @@ private struct Renderer
         m.vpH = vpH;
         m.docBase = docBase; // <image> hrefs inside subtrees resolve as
         // they would in the main document (04-b's mask contains one)
+        m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
+        // and filters exactly as they do in the main rendering
 
         Matrix mm;
         mm.reset();
@@ -2207,6 +2220,156 @@ private struct Renderer
         }
     }
 
+    // The same table for an SVG face, whose font-face carries the real
+    // alignment attributes (§20.4): offsets relative to the face's own
+    // alphabetic baseline (the line the glyph outlines sit on), at
+    // fs = font-size/units-per-em. Rows the face omits collapse to the
+    // host approximations.
+    static float svgBaselineHeight(BaseKind k, SvgFont* f, float fs)
+    {
+        immutable float asc = (f.ascent - f.alphabetic) * fs,
+                      desc = (f.descent - f.alphabetic) * fs;
+        switch (k)
+        {
+        case BaseKind.central:
+        case BaseKind.middle:
+            {
+                immutable float central = f.hasIdeographic
+                    ? (f.ideographic - f.alphabetic) * 0.5f * fs
+                    : 0.5f * (asc + desc);
+                return k == BaseKind.middle && f.hasXHeight
+                    ? central + f.xHeight * 0.5f * fs
+                    : central;
+            }
+        case BaseKind.mathematical:
+            return f.hasMathematical
+                ? (f.mathematical - f.alphabetic) * fs : 0.5f * (asc + desc);
+        case BaseKind.hanging:
+            return f.hasHanging
+                ? (f.hanging - f.alphabetic) * fs : asc;
+        case BaseKind.ideographic:
+            return f.hasIdeographic
+                ? (f.ideographic - f.alphabetic) * fs : desc;
+        case BaseKind.beforeEdge:
+            return asc;
+        case BaseKind.afterEdge:
+            return desc;
+        default: // alphabetic, and the parent table's own dominant line
+            return 0.0f;
+        }
+    }
+
+    // The run's SVG face when its family names one (§20.8.5). Style.family
+    // already holds just the first name of the list, stripped of quotes.
+    SvgFont* svgFace(ref const Style s)
+    {
+        if (!s.family.length)
+            return null;
+        auto p = toLower(s.family) in svgFonts;
+        return p ? matchFace(*p, faceWeight(s.weight), faceStyle(s.slant))
+                 : null;
+    }
+
+    // The engine's five named weights stand in for the numeric CSS scale.
+    static int faceWeight(TypeFace.Weight w)
+    {
+        switch (w)
+        {
+        case TypeFace.Weight.Thin:  return 100;
+        case TypeFace.Weight.Light: return 300;
+        case TypeFace.Weight.Bold:  return 700;
+        case TypeFace.Weight.Heavy: return 900;
+        default:                    return 400;
+        }
+    }
+
+    static int faceStyle(TypeFace.Slant sl)
+    {
+        return sl == TypeFace.Slant.Italic ? 1
+             : sl == TypeFace.Slant.Oblique ? 2 : 0;
+    }
+
+    // One positioned glyph of an SVG-font run: the code points of the
+    // run text it covers, and whether the SVG face (sf) or the host
+    // face draws it. GlyphStream yields one glyph per code point (no
+    // shaping), so a code-point-at-a-time host fallback is equivalent
+    // to streaming the run. `gs` is null inside an SVG face when the
+    // font has no missing-glyph: the glyph advances but draws nothing.
+    private struct GSlot
+    {
+        size_t lo, hi; // byte range in the run text (host fallback)
+        SvgFont* sf;
+        SvgGlyph* gs;
+        dchar lead;    // first code point: the word-spacing rule
+    }
+
+    private GSlot[] glyphSlots(string text, SvgFont* sf)
+    {
+        GSlot[] slots;
+        size_t i;
+        while (i < text.length)
+        {
+            size_t j = i;
+            immutable dchar ch = decode(text, j);
+            if (sf.covers(ch))
+            {
+                size_t used;
+                auto g = sf.select(text, i, used); // §20.6 first match
+                slots ~= GSlot(i, i + used, sf, g, ch);
+                i += used;
+            }
+            else
+            {
+                slots ~= GSlot(i, j, null, null, ch);
+                i = j;
+            }
+        }
+        return slots;
+    }
+
+    // Emit one glyph outline's verbs into `path` under `m`: an SVG font
+    // glyph first converts from font units (y up, glyph origin at
+    // (ox, oy)) to the user-space em (`fs`); then spacingAndGlyphs
+    // scales the outline in x (§16.3); then `m` places it on the
+    // baseline. The callback mutates the per-verb point copies only,
+    // never the stored outline.
+    void appendGlyph(ref const Path g, Matrix m, float gScale,
+                     bool fontUnits, float fs, float ox, float oy)
+    {
+        g.apply((ref Path.Verb v, ref FPoint[] pts)
+        {
+            if (fontUnits)
+                foreach (ref p; pts)
+                {
+                    p.x = (p.x - ox) * fs;
+                    p.y = -(p.y - oy) * fs;
+                }
+            if (gScale != 1.0f) // spacingAndGlyphs scales outlines in x
+                foreach (ref p; pts)
+                    p.x *= gScale;
+            m.mapPoints(pts);
+            final switch (v)
+            {
+            case Path.Verb.Move:
+                path.moveTo(pts[0]);
+                break;
+            case Path.Verb.Line:
+                path.lineTo(pts[1]);
+                break;
+            case Path.Verb.Quad:
+                path.quadTo(pts[1], pts[2]);
+                break;
+            case Path.Verb.Cubic:
+                path.cubicTo(pts[1], pts[2], pts[3]);
+                break;
+            case Path.Verb.Close:
+                path.close();
+                break;
+            }
+            return 0;
+        });
+    }
+
     // The §6.1 positioning lists (x/y/dx/dy): plain user units, so a
     // multi-number value is the list spelling; a lone number may carry
     // units (dx="0.5cm"), the pre-list form - either way the result is
@@ -2257,7 +2420,8 @@ private struct Renderer
         dchar[] keep;
         foreach (dchar c; s)
             keep ~= (c == '\n' || c == '\r' || c == '\t') ? ' ' : c;
-        buf ~= cast(string) keep;
+        buf ~= to!string(keep); // proper UTF-8 encode (a bitwise cast of
+        // dchar[] would store UTF-32LE: each char trailed by NUL bytes)
     }
 
     // Measure, position, and paint the whole <text> at its close:
@@ -2308,16 +2472,46 @@ private struct Renderer
             if (run.text.empty)
                 continue;
             auto cache = faceCache(run.style);
+            auto sf = svgFace(run.style);
             float[] va;
-            foreach (gl; cache.glyphStream(run.text, Glyph.LoadFlag.Metrics))
-                va ~= gl.advance.x;
-            size_t ti;
-            foreach (ref v; va)
+            if (sf)
             {
-                immutable dchar cp = decode(run.text, ti);
-                v += run.style.letterSpacing;
-                if (cp == ' ')
-                    v += run.style.wordSpacing;
+                // SVG font run (§20.5-20.7): per-glyph slots, out-of-range
+                // characters falling back to the host face one code point
+                // at a time. letter/word-spacing rides per slot (a ligature
+                // slot counts once), and hkern tightens the PRECEDING
+                // glyph's advance - the spec models kerning as exactly that
+                // reduction, so folding it into va keeps paint, anchoring
+                // and textLength all consistent.
+                immutable float fs = run.style.fontSize / sf.upem;
+                auto slots = glyphSlots(run.text, sf);
+                foreach (i, ref sl; slots)
+                {
+                    float adv = 0; // gdc leaves bare float locals as garbage
+                    if (sl.sf)
+                        adv = (sl.gs ? sl.gs.advX : sf.defaultAdv) * fs;
+                    else
+                        foreach (gl; cache.glyphStream(
+                                run.text[sl.lo .. sl.hi], Glyph.LoadFlag.Metrics))
+                            adv = gl.advance.x;
+                    va ~= adv + run.style.letterSpacing
+                        + (sl.lead == ' ' ? run.style.wordSpacing : 0.0f);
+                    if (sl.sf && i && slots[i - 1].sf is sl.sf)
+                        va[i - 1] -= sf.kernK(slots[i - 1].gs, sl.gs) * fs;
+                }
+            }
+            else
+            {
+                foreach (gl; cache.glyphStream(run.text, Glyph.LoadFlag.Metrics))
+                    va ~= gl.advance.x;
+                size_t ti;
+                foreach (ref v; va)
+                {
+                    immutable dchar cp = decode(run.text, ti);
+                    v += run.style.letterSpacing;
+                    if (cp == ' ')
+                        v += run.style.wordSpacing;
+                }
             }
             if (run.textLength > 0 && run.xs.empty && va.length)
             {
@@ -2391,64 +2585,82 @@ private struct Renderer
             return;
         const s = run.style;
         auto cache = faceCache(s);
+        auto sf = svgFace(s);
         immutable scale = run.gScale;
+        immutable float fs = sf ? s.fontSize / sf.upem : 0.0f;
 
         // §10.9.2: y/dy position the *dominant* baseline of the table in
         // effect - not always the alphabetic one - so the alphabetic line
         // the glyphs are drawn on sits that height below (the run's own
         // alignment-baseline, else the dominant-baseline in effect). And
         // per baseline-shift's note, that shift rides on top of the
-        // placement without moving the pen.
+        // placement without moving the pen. An SVG face answers from its
+        // font-face alignment attributes (§20.4) instead of the hhea
+        // approximations.
         immutable fm = cache.fontMetrics();
         auto bKind = s.ownAlign != BaseKind.parent ? s.ownAlign : s.effBaseline;
-        immutable float bShift = baselineHeight(bKind, fm.ascent, fm.descent);
+        immutable float bShift = sf
+            ? svgBaselineHeight(bKind, sf, fs)
+            : baselineHeight(bKind, fm.ascent, fm.descent);
 
         path.reset();
         size_t gi;
-        foreach (gl; cache.glyphStream(run.text,
-                Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+        if (sf)
         {
-            float gx = (gi < run.xs.length ? run.xs[gi] : pen.x)
-                     + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
-            float gy = pen.y;
-            if (gi < run.ys.length)
-                gy = pen.y = run.ys[gi];
-            gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
-            gy += bShift;          // §10.9.2 dominant baseline rides on y/dy
-            gy -= s.baselineShift; // positive raises the baseline (§10.9.2)
-
-            Matrix m;
-            m.setTranslate(gx, gy);
-            gl.path.apply((ref Path.Verb v, ref FPoint[] pts)
+            // SVG font run: same placement rules as the host path below,
+            // but glyph outlines come from the font (converted from font
+            // units in appendGlyph) and the pen always advances by the
+            // measured `va` (advances + spacing + hkern).
+            foreach (ref sl; glyphSlots(run.text, sf))
             {
-                if (scale != 1.0f) // spacingAndGlyphs scales outlines in x
-                    foreach (ref p; pts)
-                        p.x *= scale;
-                m.mapPoints(pts);
-                final switch (v)
-                {
-                case Path.Verb.Move:
-                    path.moveTo(pts[0]);
-                    break;
-                case Path.Verb.Line:
-                    path.lineTo(pts[1]);
-                    break;
-                case Path.Verb.Quad:
-                    path.quadTo(pts[1], pts[2]);
-                    break;
-                case Path.Verb.Cubic:
-                    path.cubicTo(pts[1], pts[2], pts[3]);
-                    break;
-                case Path.Verb.Close:
-                    path.close();
-                    break;
-                }
-                return 0;
-            });
+                float gx = (gi < run.xs.length ? run.xs[gi] : pen.x)
+                         + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
+                float gy = pen.y;
+                if (gi < run.ys.length)
+                    gy = pen.y = run.ys[gi];
+                gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
+                gy += bShift;          // §10.9.2 dominant baseline rides on y/dy
+                gy -= s.baselineShift; // positive raises the baseline (§10.9.2)
 
-            pen.x = gx + (gi < va.length ? va[gi] : gl.advance.x);
-            ++gi;
+                Matrix m;
+                m.setTranslate(gx, gy);
+                if (sl.sf)
+                {
+                    // A missing glyph without an outline (or no
+                    // missing-glyph element at all) advances silently.
+                    if (sl.gs !is null && sl.gs.hasD)
+                        appendGlyph(sl.gs.d, m, scale, true, fs,
+                                    sf.originX, sf.originY);
+                }
+                else
+                    foreach (gl; cache.glyphStream(run.text[sl.lo .. sl.hi],
+                            Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+                        appendGlyph(gl.path, m, scale, false, 0.0f, 0.0f, 0.0f);
+
+                pen.x = gx + (gi < va.length ? va[gi] : 0.0f);
+                ++gi;
+            }
         }
+        else
+            foreach (gl; cache.glyphStream(run.text,
+                    Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+            {
+                float gx = (gi < run.xs.length ? run.xs[gi] : pen.x)
+                         + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
+                float gy = pen.y;
+                if (gi < run.ys.length)
+                    gy = pen.y = run.ys[gi];
+                gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
+                gy += bShift;          // §10.9.2 dominant baseline rides on y/dy
+                gy -= s.baselineShift; // positive raises the baseline (§10.9.2)
+
+                Matrix m;
+                m.setTranslate(gx, gy);
+                appendGlyph(gl.path, m, scale, false, 0.0f, 0.0f, 0.0f);
+
+                pen.x = gx + (gi < va.length ? va[gi] : gl.advance.x);
+                ++gi;
+            }
 
         // Same effective-opacity compositing as flushPath; glyph outlines
         // keep the non-zero winding rule.
@@ -4245,6 +4457,7 @@ Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "")
     r.doc = parseSVG(source);
     r.docBase = baseDir;
     r.cssRules = collectStyles(r.doc, baseDir); // §6.2 author sheet, document order
+    r.svgFonts = collectFonts(r.doc, baseDir);  // ch. 20 SVG font store
     r.cssParent = cssAncestry(r.doc.nodes);
     r.cssSib = cssPrevSib(r.doc.nodes, r.cssParent);
     r.zoom = zoom;

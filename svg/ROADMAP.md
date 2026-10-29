@@ -25,23 +25,14 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 5c               | text layout: position lists, textLength, spacing, anchor chunks  | 4.91 M     |
 |                       | (§10.4-10.5/§10.7/§10.9/§10.11/§10.15)                           |            |
 | step 6                | baseline alignment properties (§10.9.2), host-metric tables      | 4.91 M*    |
+| step 7                | SVG fonts: faces/glyphs/kerning, external font files,           | 4.36 M     |
+|                       | CSS face matching (§20.2-20.8)                                 |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
 gate must stay flat, and it does.
 
 ## Next steps
-
-**Step 7 — embedded SVG fonts.** The `font`/`glyph`/`missing-glyph`/
-`hkern`/`vkern` + `font-face` chain (SVG 1.1 §20.2-§20.8). The suite's
-reference PNGs were rendered with its own SVG fonts from `resources/`
-(FreeSans/FreeSerif derivatives); text-intro-03-b, -06-t and -07-t alone
-are 480 K of the 530 K `text-intro` AE, and these fonts are the floor
-under `text-align-*`, `fonts-*` and the clipped-text masking tests. The
-`font-face` baseline attributes (alphabetic/ideographic/mathematical/
-hanging) also replace step 6's ascent-descent approximations with real
-baseline tables - the per-script tables `text-align-07-t/-08-b` render
-through (Tribase).
 
 **Step 8 — views and fragment selection.** The `view` element plus
 fragment-identifier → viewBox resolution (SVG 1.1 §7.7/§17.3.2-§17.3.3).
@@ -68,7 +59,10 @@ future conformance targets (see its "Nothing is excluded" section).
 - `filters-turb` (163 K) / `filters-conv` (172 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
 - Host-font debt (SVGFreeSans/Impact) in `masking-path-03-b/10-b` and the
-  remaining `text-*`/`fonts-*` floors — resolved by step 7 or dropped.
+  remaining `text-*`/`fonts-*` floors: step 7 took the fonts in; what is
+  left is raster drift between our AA and the harness's own SVG-font
+  rasterizer. `text-intro-03-b/-06-t/-07-t` (480 K) are a different lever:
+  Arabic shaping with host Noto against Kayrawan/Scheherezade references.
 
 ## Backlog (small, opportunistic)
 
