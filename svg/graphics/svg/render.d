@@ -837,10 +837,15 @@ private struct Renderer
     // Set up the canvas and the viewport zoom (viewBox -> canvas).
     void setupRoot(in string[string] a)
     {
-        // viewBox="min-x min-y width height"; when missing, user space
-        // maps 1:1 to the canvas (user units are px), so the viewBox
-        // defaults to the canvas dims.
-        float[4] vb = [0.0f, 0.0f, 1000.0f, 1000.0f];
+        // SVG 1.1 §7.5.1/§7.7: root width/height are lengths in the
+        // *viewer's* initial viewport, default to 100%, and percentages
+        // resolve against it too - not against the viewBox. The viewer
+        // size is the UA's choice; the SE harness renders every test
+        // into 480x360 (all reference PNGs are that size), so that is
+        // the viewport a CLI renderer conjures up for a document.
+        enum containerW = 480.0f, containerH = 360.0f;
+
+        float[4] vb;
         const hasVB = "viewBox" in a;
         if (hasVB)
         {
@@ -848,20 +853,14 @@ private struct Renderer
             enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
         }
 
-        // width/height are <length>s; at the root a percentage resolves
-        // against the viewBox ("the user space") - "100%" is the whole
-        // document, which is what every W3C test asks for.
         LengthCtx lc;
-        lc.vpW = vb[2];
-        lc.vpH = vb[3];
-        immutable wpx = convLen(a, "width", vb[2], lc, RefAxis.width);
-        immutable hpx = convLen(a, "height", vb[3], lc, RefAxis.height);
+        lc.vpW = containerW;
+        lc.vpH = containerH;
+        immutable wpx = a.convLen("width", containerW, lc, RefAxis.width);
+        immutable hpx = a.convLen("height", containerH, lc, RefAxis.height);
         enforce(wpx > 0 && hpx > 0, "root <svg> needs a positive width and height");
         if (!hasVB)
-        {
-            vb[2] = wpx;
-            vb[3] = hpx;
-        }
+            vb = [0.0f, 0.0f, wpx, hpx]; // user space maps 1:1 to the canvas
 
         immutable width = wpx * zoom;
         immutable height = hpx * zoom;
@@ -4607,7 +4606,7 @@ unittest
 unittest
 {
     // viewBox + width/height="100%" (the W3C suite's standard prolog):
-    // canvas takes the viewBox size.
+    // canvas takes the conjured 480x360 viewer viewport (§7.5.1/§7.7).
     auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 480 360"/>`);
     assert(bmp.width == 480 && bmp.height == 360, to!string(bmp.width));
 
@@ -4615,14 +4614,23 @@ unittest
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 480 360"/>`, 0.5);
     assert(bmp.width == 240 && bmp.height == 180);
 
-    // percent width/height against the viewBox
+    // root percent width/height resolve against the *viewer* viewport,
+    // not the viewBox; the viewBox still rules the user space inside.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="50%" height="25%" viewBox="0 0 400 400"/>`);
-    assert(bmp.width == 200 && bmp.height == 100);
+    assert(bmp.width == 240 && bmp.height == 90, to!string(bmp.width));
 
-    // no viewBox: canvas from width/height, 1:1
+    // absent root width/height default to 100% of the viewer viewport
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"/>`);
+    assert(bmp.width == 480 && bmp.height == 360);
+
+    // no viewBox: canvas from width/height (100% = the viewer viewport),
+    // user space 1:1 - struct-frag-04-t's x/y on the root stays ignored.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#00ff00"/></svg>`);
     assert(bmp.width == 40 && bmp.height == 20);
     assert(bmp.getLine!PMColor(10)[10].g == 255);
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" x="1000" y="1000"><rect x="100" y="100" width="50" height="50" fill="#00ff00"/></svg>`);
+    assert(bmp.width == 480 && bmp.height == 360);
+    assert(bmp.getLine!PMColor(125)[125].g == 255, "root x/y ignored, no shift");
 
     // a rect sized by percent of the viewport
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80" viewBox="0 0 100 80">

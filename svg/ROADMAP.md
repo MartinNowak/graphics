@@ -27,16 +27,14 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 6                | baseline alignment properties (§10.9.2), host-metric tables      | 4.91 M*    |
 | step 7                | SVG fonts: faces/glyphs/kerning, external font files,           | 4.36 M     |
 |                       | CSS face matching (§20.2-20.8)                                 |            |
+| step 8                | viewer viewport + root svg sizing, root viewBox/par fit        | 4.02 M     |
+|                       | (§7.5.1/§7.7)                                                  |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
 gate must stay flat, and it does.
 
 ## Next steps
-
-**Step 8 — views and fragment selection.** The `view` element plus
-fragment-identifier → viewBox resolution (SVG 1.1 §7.7/§17.3.2-§17.3.3).
-Targets: `struct-frag` 344 K (frag-04-t alone 207 K), `conform-viewers`.
 
 **Step 9 — SVG as image.** `<image href="*.svg">` composites through the
 offscreen sub-renderer path already used by pattern/clip/mask (SVG 1.1
@@ -52,6 +50,9 @@ future conformance targets (see its "Nothing is excluded" section).
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
   end-states — a CLI renderer has no DOM API surface; verdicts stay as-is.
+- `conform-viewers` (14 K): references captured after script-driven viewer
+  zoom/pan (`onload` handlers, `viewport.zoomAndPan`) — scripting end-states
+  again; step 8's viewport sizing did not move them.
 - `interact-*`: pointer events / interactivity — out of scope.
 - struct-image-13/14/15-f (453 K): the reference PNGs deviate from the
   tile PNGs they composite; our tiles match ground truth at AE 0 — a
@@ -71,6 +72,10 @@ future conformance targets (see its "Nothing is excluded" section).
   layout, `§11.4` markers, `§9.8` image; `css.d`/`filter.d` unchecked.
 - External-file hrefs and CSS-selector fragment hrefs
   (struct-use-04/05/06/08-b, 11-f).
+- Viewer-side fragment selection (§17.3.2): `#view-id`, `#svgView(...)` and
+  `#xywh=` on the CLI's file argument. Pure viewer-URL feature; the suite
+  harness passes bare files, so today the no-fragment case (outer svg's
+  viewBox/par) is what renders and `<view>` elements stay registered inert.
 - `color-interpolation-filters="linearRGB"` pass for the filter chain
   (ch. 15; feeds `filters-conv-03-f` and friends).
 - `tref` / `altGlyph` text content elements (§10.6/§10.14.1).

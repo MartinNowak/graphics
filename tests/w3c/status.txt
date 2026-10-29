@@ -383,9 +383,9 @@ struct-dom-18-f.svg OK 549
 struct-dom-19-f.svg OK 2722
 struct-dom-20-f.svg OK 2660
 struct-frag-01-t.svg OK 0
-struct-frag-02-t.svg OK 51914
-struct-frag-03-t.svg OK 50940
-struct-frag-04-t.svg OK 206973
+struct-frag-02-t.svg OK 201
+struct-frag-03-t.svg OK 270
+struct-frag-04-t.svg OK 463
 struct-frag-05-t.svg OK 30718
 struct-frag-06-t.svg OK 1358
 struct-group-01-t.svg OK 359
@@ -486,8 +486,8 @@ text-intro-11-t.svg OK 10389
 text-intro-12-t.svg OK 13427
 text-path-01-b.svg OK 2743
 text-path-02-b.svg OK 3882
-text-spacing-01-b.svg OK 15308
-text-text-01-b.svg OK 21126
+text-spacing-01-b.svg OK 5308
+text-text-01-b.svg OK 5546
 text-text-03-b.svg OK 1740
 text-text-04-t.svg OK 879
 text-text-05-t.svg OK 782
