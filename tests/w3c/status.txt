@@ -416,11 +416,11 @@ struct-svg-03-f.svg OK 604
 struct-symbol-01-b.svg OK 533
 struct-use-01-t.svg OK 1949
 struct-use-03-t.svg OK 806
-struct-use-04-b.svg OK 26692
-struct-use-05-b.svg OK 61254
-struct-use-06-b.svg OK 23594
+struct-use-04-b.svg OK 15900
+struct-use-05-b.svg OK 7510
+struct-use-06-b.svg OK 30387
 struct-use-07-b.svg OK 36127
-struct-use-08-b.svg OK 2932
+struct-use-08-b.svg OK 1169
 struct-use-09-b.svg OK 8294
 struct-use-10-f.svg OK 680
 struct-use-11-f.svg OK 418

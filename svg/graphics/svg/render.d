@@ -723,11 +723,34 @@ private struct Renderer
     // from the SVG font; everything else falls through to the host face.
     SvgFont*[][string] svgFonts;
 
-    // The SVG-as-image reference chain (§9.8): the files being
-    // rendered right now, seeded with the CLI's document itself. A
-    // file href already on the chain is a reference loop - an error
-    // state painting nothing (struct-image-12-b pins that).
-    string[] svgImages;
+    // The open-document chain (§9.8, §5.6): the files being rendered
+    // right now, seeded with the CLI's document itself. A file href -
+    // <image> or external <use> - already on the chain is a reference
+    // loop, an error state painting nothing (struct-image-12-b and
+    // struct-use-08-b pin that).
+    string[] openDocs;
+
+    // External-`use` scoping (§5.6): url() values already on the style
+    // stack when an external subtree opens name their ids in the
+    // document that DECLARED them, not in the arena the walk has
+    // swapped in. Those values' ids carry a two-character tag
+    // (0x01 + digit) indexing a snapshot of the declaring document
+    // pushed with the swap; the resolve sites strip the tag and point
+    // the document-dependent state at the snapshot for the lookup.
+    // XML ids can never start with 0x01, so the tag cannot collide
+    // with a real name.
+    struct DocSnap
+    {
+        Document doc;
+        Rule[] cssRules;
+        int[] cssParent, cssSib;
+        SvgFont*[][string] svgFonts;
+        string base;
+    }
+    DocSnap[] docScopes; // declaring documents, tagged by index
+    DocSnap[] snaps;     // saved state while inside one
+
+    enum char scopeMark = '\1';
 
     // Named baselines a text run's table can align on (SVG 1.1 §10.9.2).
     // `parent` doubles as both properties' non-shifting spellings: auto,
@@ -1412,6 +1435,40 @@ private struct Renderer
         styles.shrinkTo(styles.length - 1);
     }
 
+    // Strip a scope tag (see docScopes) from a reference id, pointing
+    // the document-dependent state at the snapshot that declared it
+    // while the lookup runs. Plain ids change nothing. Each true must
+    // be paired with leaveScope().
+    bool enterScope(ref string id)
+    {
+        if (id.length < 3 || id[0] != scopeMark)
+            return false;
+        immutable t = id[1] - '0';
+        id = id[2 .. $];
+        if (t >= docScopes.length)
+            return false; // stale tag: resolve in the current document
+        snaps ~= DocSnap(doc, cssRules, cssParent, cssSib, svgFonts, docBase);
+        doc = docScopes[t].doc;
+        cssRules = docScopes[t].cssRules;
+        cssParent = docScopes[t].cssParent;
+        cssSib = docScopes[t].cssSib;
+        svgFonts = docScopes[t].svgFonts;
+        docBase = docScopes[t].base;
+        return true;
+    }
+
+    void leaveScope()
+    {
+        auto snap = snaps[$ - 1];
+        doc = snap.doc;
+        cssRules = snap.cssRules;
+        cssParent = snap.cssParent;
+        cssSib = snap.cssSib;
+        svgFonts = snap.svgFonts;
+        docBase = snap.base;
+        snaps = snaps[0 .. $ - 1];
+    }
+
     // One side's Paint (fill or stroke) from the style. A paint server
     // (fill/stroke url) replaces the plain color; a server that cannot be
     // built - unknown id, gradient error - falls back to the documented
@@ -1420,9 +1477,11 @@ private struct Renderer
     // the gradient stops at build time.
     Paint resolvePaint(bool isFill, in Style s, float alpha, in FRect bbox)
     {
-        immutable url = isFill ? s.fillUrl : s.strokeUrl;
+        string url = isFill ? s.fillUrl : s.strokeUrl;
         if (url.length)
         {
+            auto scoped = enterScope(url);
+            scope (exit) if (scoped) leaveScope();
             // Dispatch by the referenced element's kind: gradients and
             // patterns are separate servers (§13.2/§14.2); anything else
             // - or a broken reference - is a server error.
@@ -1455,8 +1514,10 @@ private struct Renderer
     // an unscaled paint rasterises 1:1 and tiles exactly; `patternTransform`
     // (rotations included) is sampled through the shader. Paint opacity
     // folds into the tile pixels, mirroring the gradient stops.
-    Shader patternPaint(in string id, in FRect bbox, float paintAlpha)
+    Shader patternPaint(string id, in FRect bbox, float paintAlpha)
     {
+        auto scoped = enterScope(id);
+        scope (exit) if (scoped) leaveScope();
         PatternServer ps;
         if (!patternResolve(doc, id, bbox, vpW, vpH, ps))
             return null;
@@ -1614,8 +1675,10 @@ private struct Renderer
     // paint) and multiply its coverage into `scratch`. Returns false on
     // a broken reference or an empty mask - either way the painted
     // element is not rendered.
-    bool clipMultiply(in string id, ref Bitmap scratch, in FRect bbox)
+    bool clipMultiply(string id, ref Bitmap scratch, in FRect bbox)
     {
+        auto scoped = enterScope(id);
+        scope (exit) if (scoped) leaveScope();
         immutable idx = doc.byId(id);
         if (idx == Document.unknown)
             return false;
@@ -1647,7 +1710,7 @@ private struct Renderer
         // they would in the main document (04-b's mask contains one)
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
-        m.svgImages = svgImages; // so do the image loop guards
+        m.openDocs = openDocs; // so do the reference loop guards
         m.canvas.matrix = canvas.matrix;
         if (auto u = strAttr(chain, "clipPathUnits"))
             if (toLower(u) == "objectboundingbox")
@@ -1705,8 +1768,10 @@ private struct Renderer
     // luminance x alpha. The mask region (maskUnits frame, defaults
     // -10%,-10%,120%,120%) bounds where anything can show: referrer
     // pixels whose user-space centres fall outside it multiply by zero.
-    bool maskMultiply(in string id, ref Bitmap scratch, in FRect bbox)
+    bool maskMultiply(string id, ref Bitmap scratch, in FRect bbox)
     {
+        auto scoped = enterScope(id);
+        scope (exit) if (scoped) leaveScope();
         immutable idx = doc.byId(id);
         if (idx == Document.unknown)
             return false;
@@ -1776,7 +1841,7 @@ private struct Renderer
         // they would in the main document (04-b's mask contains one)
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
-        m.svgImages = svgImages; // so do the image loop guards
+        m.openDocs = openDocs; // so do the reference loop guards
         m.canvas.matrix = canvas.matrix;
 
         // maskContentUnits="objectBoundingBox": children live in
@@ -1936,9 +2001,11 @@ private struct Renderer
     // viewBox, marker space otherwise - lands on the vertex. Inheritance
     // follows the clipPath/mask subtree rule (masking-path-12-f): the
     // chain's own attributes, nothing from the referrer's ancestors.
-    void renderMarker(in string url, in FPoint at, in FPoint dir,
+    void renderMarker(string url, in FPoint at, in FPoint dir,
         bool isStart, in Style s, Canvas target, Bitmap dev)
     {
+        auto scoped = enterScope(url);
+        scope (exit) if (scoped) leaveScope();
         immutable idx = doc.byId(url);
         if (idx == Document.unknown)
             return; // broken reference paints nothing
@@ -2007,7 +2074,7 @@ private struct Renderer
         // they would in the main document (04-b's mask contains one)
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
-        m.svgImages = svgImages; // so do the image loop guards
+        m.openDocs = openDocs; // so do the reference loop guards
 
         Matrix mm;
         mm.reset();
@@ -2751,7 +2818,7 @@ private struct Renderer
     // §9.8 renders nothing for those.
     Bitmap svgImageBitmap(string path)
     {
-        if (svgImages.length >= 8 || canFind(svgImages, path))
+        if (openDocs.length >= 8 || canFind(openDocs, path))
             return Bitmap(); // loop (or runaway nesting): paints nothing
 
         Renderer t;
@@ -2764,7 +2831,7 @@ private struct Renderer
             t.cssParent = cssAncestry(t.doc.nodes);
             t.cssSib = cssPrevSib(t.doc.nodes, t.cssParent);
             t.svgFonts = collectFonts(t.doc, t.docBase);
-            t.svgImages = svgImages ~ path;
+            t.openDocs = openDocs ~ path;
             t.zoom = 1.0f; // natural pixels; the fit below scales the
                 // raster into the <image>'s viewport
             t.setupRoot(t.doc.nodes[t.doc.root].attrs); // canvas + fit
@@ -3141,24 +3208,75 @@ private struct Renderer
     // registry, so backward and forward hrefs, and uses nested inside other
     // instances, all just work; the one thing a clone must not do is recurse
     // forever, so `useStack` tracks the expansion path and drops cycles.
+    //
+    // The href may also address another document - `../images/x.svg#id`.
+    // SVG 1.1 §5.6 treats that as a deep clone too, with a scope split:
+    // property inheritance comes from the use site, but the original's
+    // cascaded CSS values and every url() reference inside the cloned
+    // content are evaluated in the external document (struct-use-05-b
+    // pins both halves: an external `fill=url(#grad)` paints the
+    // EXTERNAL grad even when the referencing document defines an
+    // identically named one, while an inherited currentColor resolves
+    // against the use site). So the external subtree walks against the
+    // external arena - doc/sheet/fonts/base swapped, style stack kept -
+    // and url() paints already on the stack get a scope tag naming the
+    // document that declared them. A file already on the open-document
+    // chain is a cross-file cycle and paints nothing (struct-use-08-b);
+    // and unlike <image>, `use` cannot reference an entire file: a
+    // fragment is required.
     void useElement(size_t idx)
     {
         immutable inst = doc.nodes[idx];
         string href = inst.attrs.get("href", inst.attrs.get("xlink:href", ""));
-        if (href.length < 2 || href[0] != '#')
-            return; // external references (other documents) are not supported
-        immutable target = doc.byId(href[1 .. $]);
-        if (target == Document.unknown)
+        if (href.length < 2)
             return;
-        foreach (t; useStack)
-            if (t == target)
-                return; // reference cycle: render nothing
 
-        useStack ~= target;
-        scope (exit) useStack = useStack[0 .. $ - 1];
+        // href = `#fragment` or `file#fragment`; a bare file names a
+        // whole document, which use cannot address.
+        string frag;
+        bool external;
 
-        // The use's own attributes (transform included) wrap the instance.
-        pushStyle(inst.attrs, idx);
+        // Everything the external swap replaces is snapshotted here, at
+        // function scope - a scope(exit) runs at the end of the block
+        // whose declaration it sits in, and the tail walk below must
+        // still run inside the swap. One gated restore undoes it all.
+        auto keep = DocSnap(doc, cssRules, cssParent, cssSib, svgFonts, docBase);
+        Style[] snap; // external branch: the style stack as it stands
+        // before this use pushes its own entry - the restore below runs
+        // after that entry is popped, so lengths have to match that far.
+        auto keepStack = useStack;
+        immutable scopes = docScopes.length, docs = openDocs.length;
+        scope (exit) if (external)
+        {
+            doc = keep.doc;
+            cssRules = keep.cssRules;
+            cssParent = keep.cssParent;
+            cssSib = keep.cssSib;
+            svgFonts = keep.svgFonts;
+            docBase = keep.base;
+            styles.data[] = snap;
+            docScopes = docScopes[0 .. scopes];
+            openDocs = openDocs[0 .. docs];
+            useStack = keepStack;
+        }
+        if (href[0] == '#')
+            frag = href[1 .. $];
+        else if (auto h = find(href, '#'))
+        {
+            if (h.length < 2)
+                return; // `file#`: empty fragment, unaddressable
+            external = true;
+            frag = h[1 .. $];
+        }
+        if (frag.length == 0)
+            return;
+
+        if (external)
+            snap = styles.data.dup; // untagged, pre-use: see above
+        // The use's own attributes (transform included) wrap the
+        // instance - pushed here, in the referencing document, so the
+        // use element's own cascade sees its real ancestry and baseUrl.
+        const s = pushStyle(inst.attrs, idx);
         scope (exit) popStyle();
 
         // x/y is a translate appended innermost to the transform list,
@@ -3170,6 +3288,65 @@ private struct Renderer
         scope (exit) canvas.restore();
         if (x || y)
             canvas.matrix = canvas.matrix.preTranslate(x, y);
+
+        size_t target = Document.unknown;
+        Document ext;
+        if (external)
+        {
+            immutable path = resolveHref(s.baseUrl.length ? s.baseUrl : docBase, href);
+            if (path is null || path.length < 4 || !equalCase(path[$ - 4 .. $], ".svg"))
+                return; // only SVG documents can be cloned
+            if (openDocs.length >= 8 || canFind(openDocs, path))
+                return; // the file is in flight: a cycle, nothing painted
+            try
+                ext = parseSVG(cast(string) readText(path));
+            catch (Exception)
+                return; // unreadable / malformed: a broken reference
+            target = ext.byId(frag);
+            if (target == Document.unknown)
+                return; // dangling fragment
+
+            // The clone's home document takes over the walk: refs inside
+            // the external content resolve THERE, as they would when the
+            // file is rendered for its own sake, while the style stack -
+            // the inheritance from the use site - keeps running. url()
+            // paints already on that stack name ids in THIS document:
+            // tag them with its snapshot (the resolve sites swap back
+            // through enterScope) and restore the untouched stack on
+            // the way out, so tags never leak to later siblings.
+            const tag = cast(string) [scopeMark, cast(char)('0' + docScopes.length)];
+            foreach (ref st; styles.data)
+            {
+                if (st.fillUrl.length) st.fillUrl = tag ~ st.fillUrl;
+                if (st.strokeUrl.length) st.strokeUrl = tag ~ st.strokeUrl;
+                if (st.markerStart.length) st.markerStart = tag ~ st.markerStart;
+                if (st.markerMid.length) st.markerMid = tag ~ st.markerMid;
+                if (st.markerEnd.length) st.markerEnd = tag ~ st.markerEnd;
+                foreach (ref u; st.clipUrls) u = tag ~ u;
+                foreach (ref u; st.maskUrls) u = tag ~ u;
+            }
+            docScopes ~= DocSnap(doc, cssRules, cssParent, cssSib, svgFonts, docBase);
+            doc = ext;
+            docBase = dirName(path) ~ "/";
+            cssRules = collectStyles(ext, docBase);
+            cssParent = cssAncestry(ext.nodes);
+            cssSib = cssPrevSib(ext.nodes, cssParent);
+            svgFonts = collectFonts(ext, docBase);
+            openDocs ~= path;
+
+            useStack = []; // cycle stacks are arena-local; cross-file
+                           // cycles live on the open-document chain above
+        }
+        else
+            target = doc.byId(frag);
+        if (target == Document.unknown)
+            return;
+
+        foreach (t; useStack)
+            if (t == target)
+                return; // reference cycle: render nothing
+        useStack ~= target;
+        scope (exit) useStack = useStack[0 .. $ - 1];
 
         immutable orig = doc.nodes[target];
         // The original's own attributes travel with the clone: a failing
@@ -4508,8 +4685,8 @@ Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "",
         // anything reads the attributes; image documents stay static
     r.docBase = baseDir;
     if (docPath.length)
-        r.svgImages = [docPath]; // the document itself is "in flight"
-        // for image hrefs: a document drawing its own file is a loop
+        r.openDocs = [docPath]; // the document itself is "in flight":
+        // a document reached again by an image or use href is a loop
     r.cssRules = collectStyles(r.doc, baseDir); // §6.2 author sheet, document order
     r.svgFonts = collectFonts(r.doc, baseDir);  // ch. 20 SVG font store
     r.cssParent = cssAncestry(r.doc.nodes);
@@ -4729,6 +4906,65 @@ unittest
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
         <image width="20" height="20" href="missing.svg"/></svg>`, 1, dir ~ "/");
     assert(bmp.getLine!PMColor(10)[10].a == 0, "broken ref paints nothing");
+}
+
+unittest
+{
+    // External <use> hrefs (5.6): the fragment deep-clones into the use
+    // site; url() paints inherited from the use site keep their home
+    // document's scope, url() values inside the clone resolve in the
+    // external document (even over an identically named local id),
+    // currentColor follows the use site; and missing files, whole files
+    // and cross-file cycles paint nothing.
+    import std.file : mkdir, remove, rmdir, tempDir, write;
+    import std.path : buildPath;
+    import std.process : thisProcessID;
+
+    immutable dir = buildPath(tempDir, "gsvg-ext-" ~ to!string(thisProcessID));
+    mkdir(dir);
+    immutable xp = buildPath(dir, "ext.svg"), ap = buildPath(dir, "a.svg"),
+        bp = buildPath(dir, "b.svg");
+    scope (exit) { remove(xp); remove(ap); remove(bp); rmdir(dir); }
+
+    write(xp, `<svg xmlns="http://www.w3.org/2000/svg" id="root" width="10" height="30" viewBox="0 0 10 30">
+        <defs><linearGradient id="g"><stop offset="0" stop-color="#00ff00"/><stop offset="1" stop-color="#00ff00"/></linearGradient></defs>
+        <rect id="plain" width="10" height="10"/>
+        <rect id="extg" y="10" width="10" height="10" fill="url(#g)"/>
+        <rect id="cur" y="20" width="10" height="10" fill="currentColor"/>
+    </svg>`);
+    // local defs define the SAME id `g` in red: the collision pins scope
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30" viewBox="0 0 40 30">
+        <defs><linearGradient id="g"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#ff0000"/></linearGradient></defs>
+        <g color="#0000ff">
+            <use href="ext.svg#plain" fill="url(#g)"/>
+            <use href="ext.svg#extg" x="10"/>
+            <use href="ext.svg#cur" x="20"/>
+            <use href="ext.svg#root" x="30" width="10" height="10"/>
+        </g>
+        <rect x="0" y="10" width="10" height="10" fill="url(#g)"/></svg>`, 1, dir ~ "/");
+    assert(bmp.getLine!PMColor(5)[5].r == 255, "use-site url(#g) stays local through the clone");
+    assert(bmp.getLine!PMColor(15)[15].g == 255, "the clone's own url(#g) resolves externally");
+    assert(bmp.getLine!PMColor(25)[25].b == 255, "currentColor follows the use site");
+    assert(bmp.getLine!PMColor(5)[35].g == 255, "external root fragment fits as a viewport");
+    assert(bmp.getLine!PMColor(1)[34].a == 255 && bmp.getLine!PMColor(1)[34].g == 0,
+        "the clone inherits the default black fill");
+    assert(bmp.getLine!PMColor(15)[5].r == 255, "scope tags never leak to siblings");
+
+    // cross-file use cycles terminate: each leg paints once, the
+    // reference back into an in-flight document paints nothing
+    write(ap, `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+        <g id="x"><rect width="10" height="10" fill="#00ff00"/><use href="b.svg#y"/></g></svg>`);
+    write(bp, `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+        <g id="y"><rect x="10" width="10" height="10" fill="#ff0000"/><use href="a.svg#x"/></g></svg>`);
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">
+        <use href="a.svg#x"/></svg>`, 1, dir ~ "/");
+    assert(bmp.getLine!PMColor(5)[5].g == 255 && bmp.getLine!PMColor(5)[15].r == 255,
+        "the loop paints each leg once");
+
+    // broken and whole-file references paint nothing
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <use href="gone.svg#x"/><use href="a.svg"/></svg>`, 1, dir ~ "/");
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "missing file and whole-file hrefs paint nothing");
 }
 
 unittest

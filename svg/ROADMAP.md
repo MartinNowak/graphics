@@ -34,6 +34,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 10               | SMIL timeline end states: animate/Color/Transform/Motion,     | 3.44 M     |
 |                       | freeze + syncbase + max/min (§19.2); single-argument          |            |
 |                       | translate(tx) => (tx, 0) fix (§9.5) landed with it            |            |
+| step 11               | external `use` hrefs: document swap for the cloned subtree,  | 3.39 M     |
+|                       | scope-tagged inherited url(), cross-file loop guard (§5.6)   |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -47,9 +49,22 @@ indefinite runs, syncbase begin/end lists and `max=`/`min=` clamping,
 `animateMotion` as a supplemental translate left of the transform chain
 (with `rotate="auto"`). `animate-elem` fell 781 K -> 334 K; most of the
 rest of the drop is the §9.5 `translate(tx)` fix (linking-a-07-t -33 K,
-coords-transformattr -15 K, filters-composite-05-f -16 K). No planned
-step follows: what remains is the deferred ceilings below and the
-opportunistic backlog.
+coords-transformattr -15 K, filters-composite-05-f -16 K).
+
+Step 11 (external `use` hrefs) landed: an external fragment opens and parses
+the file, then swaps the renderer's document-dependent state (document,
+base URL, author sheets, CSS ancestry/sibling maps, font tables) around the
+cloned subtree's walk. Style entries that already carry url() paints at the
+*use site* get a two-character scope mark into the snapshot stack, so
+inherited references keep resolving in the referring document while
+references inside the clone resolve in the external one — including over
+colliding ids. Root/`<svg>` fragments fit through the existing viewport-fit
+branch; parse failures, dangling fragments and whole-file hrefs paint
+nothing, and a file already on the §9.8 open-document chain breaks
+cross-file cycles. struct-use-05-b fell 54 K, 04-b 11 K, 08-b 1.8 K;
+11-f passes at 418. No planned step follows: what remains is the deferred
+ceilings below and the opportunistic backlog (first item: external CSS
+sheets).
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -72,6 +87,14 @@ opportunistic backlog.
 - struct-image-13/14/15-f (453 K): the reference PNGs deviate from the
   tile PNGs they composite; our tiles match ground truth at AE 0 — a
   reference-suite defect, documented in the `<image>` commit message.
+- struct-use-06-b (30 K) / 04-b (16 K) / 07-b (36 K): external-reference
+  tests where step 11 renders to spec but the archived references do not.
+  06-b's body still carries its own "external use isn't implemented, show
+  red rects" fallback *under* the clones, and its reference was captured by
+  a UA that showed exactly that fallback, so the correct lime external
+  rect now paints over it (+6.8 K at the step-11 rebase). 04-b's reference
+  shows colored shapes no spec-correct render of the referenced files
+  produces; 07-b's nested-`<svg>` fit is already handled to §7.7.
 - `filters-turb` (163 K) / `filters-conv` (172 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
 - Host-font debt (SVGFreeSans/Impact) in `masking-path-03-b/10-b` and the
@@ -85,8 +108,12 @@ opportunistic backlog.
 - Fix stale § numbers in source comments (text-area refs went with step
   6): `render.d` still cites `§6.1/§6.1.2/§6.1.3/§6.2/§7.1` around text
   layout, `§11.4` markers, `§9.8` image; `css.d`/`filter.d` unchecked.
-- External-file hrefs and CSS-selector fragment hrefs
-  (struct-use-04/05/06/08-b, 11-f).
+- External CSS sheets: follow `@import` url() targets out of embedded
+  sheets (styling-css-09-f imports `selector-types-visibility-hidden.css`,
+  10-f `case-insensitivity.css`; ~48 K across the selector-types pair) and
+  tolerate unquoted attribute-selector values (`[id=testAttributeSelector]`).
+  Verify first whether css.d aborts the whole sheet on an unfetchable
+  import - that decides how much of the ruleset is being lost today.
 - Viewer-side fragment selection (§17.3.2): `#view-id`, `#svgView(...)` and
   `#xywh=` on the CLI's file argument. Pure viewer-URL feature; the suite
   harness passes bare files, so today the no-fragment case (outer svg's
