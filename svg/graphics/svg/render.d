@@ -1519,7 +1519,11 @@ private struct Renderer
             if (tgt != Document.unknown && doc.nodes[tgt].name == "pattern")
                 sh = patternPaint(url, bbox, alpha);
             else
-                sh = makeGradient(doc, url, bbox, vpW, vpH, s.curColor, alpha);
+                // §13.2.4: the gradient resolves stop-color/stop-opacity and
+                // currentColor in its own document scope, so nothing of this
+                // element's style travels into the stops - only the bbox
+                // (objectBoundingBox units) and the paint's alpha do.
+                sh = makeGradient(doc, url, bbox, vpW, vpH, alpha);
             if (sh !is null)
             {
                 Paint p;
@@ -4976,6 +4980,19 @@ unittest
         </svg>`);
     px = bmp.getLine!PMColor(5)[5];
     assert(px.r == 255 && px.g == 0, to!string(px));
+}
+
+unittest
+{
+    // §13.2.4: a gradient paints the same wherever it is referenced. The
+    // shape's own `color`/`stop-color` are out of the stops' scope, so the
+    // ramp keeps the yellow the definition inherits (color-prop-01-b).
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <defs><g color="yellow"><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0"><stop offset="0" stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient></g></defs>
+        <rect x="0" y="0" width="10" height="10" color="red" stop-color="red" stop-opacity="0" fill="url(#g)" stroke="none"/>
+        </svg>`);
+    auto px = bmp.getLine!PMColor(5)[5];
+    assert(px.r == 255 && px.g == 255 && px.b == 0 && px.a == 255, to!string(px));
 }
 
 unittest

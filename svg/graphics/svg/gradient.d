@@ -205,8 +205,11 @@ class RadialGradientShader : MappingShader
 ///   units (the default) are fractions of it.
 /// * `vpW`/`vpH` - current viewport, the percentage basis for
 ///   gradientUnits="userSpaceOnUse".
-/// * `curColor` resolves stop-color="currentColor".
 /// * `paintAlpha` folds opacity x fill/stroke-opacity into the stop alphas.
+///
+/// Nothing about the referencing shape reaches the stops: `stop-color`,
+/// `stop-opacity` and the currentColor base are inherited properties, and a
+/// gradient takes them from its own place in the document tree (§13.2.4).
 ///
 /// Returns null - caller paints as if the paint were none (or applies the
 /// `url(...) paint` fallback) - when the server cannot paint: unknown id,
@@ -216,7 +219,7 @@ class RadialGradientShader : MappingShader
 /// §13.2 a zero-length linear vector and an r=0 radial are NOT errors:
 /// they paint the last stop's colour solid.
 Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
-    float vpW, float vpH, in Color curColor, float paintAlpha)
+    float vpW, float vpH, float paintAlpha)
 {
     immutable idx = doc.byId(id);
     if (idx == Document.unknown)
@@ -270,7 +273,7 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
                 break;
             }
 
-    auto stops = stopsOf(doc, chain, curColor, paintAlpha);
+    auto stops = stopsOf(doc, idx, chain, paintAlpha);
     if (stops.empty)
         return null; // no stops in the chain: gradient is an error state
 
@@ -311,39 +314,179 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
 
 private:
 
+// The values a gradient's stops may reach for. `color` is an inherited
+// property (§12.2), so it simply travels down the tree; `stop-color` and
+// `stop-opacity` are not (§13.2.4's tables both say Inherited: no), so what
+// travels is only the value a written `inherit` names: the nearest
+// declaration above, or the initial value - black, 1 - if none was written.
+private struct StopScope
+{
+    Color color;      // the currentColor base
+    Color stopColor;
+    float stopOpacity;
+}
+
+// The arena keeps children only, so a <defs> element's ancestors are
+// recovered by walking down from the root: `path` ends up holding
+// root..target, which is the order inheritance is applied in.
+private bool descend(ref const(Document) doc, size_t idx, size_t target,
+    ref size_t[] path)
+{
+    path ~= idx;
+    if (idx == target)
+        return true;
+    foreach (ch; doc.nodes[idx].children)
+        if (doc.nodes[ch].name.length && descend(doc, ch, target, path))
+            return true;
+    path.length -= 1; // back out: this branch does not hold the target
+    return false;
+}
+
+// One ancestor's declarations, applied while descending toward the gradient.
+// A declaration moves the value and everything else leaves it alone:
+// `inherit` asks for precisely what the walk is already carrying, and a
+// value the parser rejects is a declaration the cascade drops (CSS
+// §6.5.1). currentColor binds the element's own color, which the `color`
+// case above has just folded in (§11.2).
+private void cascadeProps(ref StopScope sc, in Element e)
+{
+    if (auto p = "color" in e.attrs)
+    {
+        Color c;
+        if (parsePaint(strip(*p), c))
+            sc.color = c;
+    }
+    if (auto p = "stop-color" in e.attrs)
+    {
+        immutable v = toLower(strip(*p));
+        if (v == "currentcolor")
+            sc.stopColor = sc.color;
+        else
+        {
+            Color c;
+            if (parsePaint(v, c))
+                sc.stopColor = c;
+        }
+    }
+    if (auto p = "stop-opacity" in e.attrs)
+    {
+        immutable v = strip(*p);
+        if (!v.empty && toLower(v) != "inherit")
+            try
+                sc.stopOpacity = clamp(to!float(v), 0.0f, 1.0f);
+            catch (ConvException)
+                {} // malformed number: the declaration is dropped
+    }
+}
+
+// The values in effect at the gradient element `idx`: the ancestors'
+// declarations top-down, then the element's own (§13.2.4).
+private StopScope scopeFor(ref const(Document) doc, size_t idx)
+{
+    StopScope sc = StopScope(Color.Black, Color.Black, 1.0f);
+    size_t[] path;
+    if (!descend(doc, doc.root, idx, path))
+        return sc; // the node is not in this document: initial values
+    foreach (i; path)
+        cascadeProps(sc, doc.nodes[i]);
+    return sc;
+}
+
+// Chain links past the head are xlink:href targets, so each one carries an
+// `id` and the registry maps it back to its own place in the tree; the head
+// stands in when the link carries no usable `id`.
+private size_t chainIndex(ref const(Document) doc, in Element e,
+    size_t fallback)
+{
+    auto p = "id" in e.attrs;
+    immutable idx = p ? doc.byId(strip(*p)) : Document.unknown;
+    return idx == Document.unknown ? fallback : idx;
+}
+
+// A stop's own stop-color and stop-opacity. Leaving the property out is the
+// property's *initial* value - black, 1 - and not the parent's, because
+// §13.2.4's tables say both are Inherited: no; pservers-grad-18-b's
+// lower-left rectangle spells the consequence, a stop that names nothing
+// going to fully opaque black even though its gradient hangs off a
+// `<g stop-color="#f48" stop-opacity="0.5">`. Writing `inherit` is what
+// reaches up the tree instead, and currentColor binds `color`, which really
+// is inherited (§12.2) - that is color-prop-01-b's green middle stop.
+private struct StopValue
+{
+    Color color;
+    float opacity;
+}
+
+private StopValue stopValue(in Element se, ref const(StopScope) sc)
+{
+    StopValue sv = StopValue(Color.Black, 1.0f);
+
+    Color col = sc.color; // `color` travels in, a declaration here wins
+    if (auto p = "color" in se.attrs)
+    {
+        Color c;
+        if (parsePaint(strip(*p), c))
+            col = c;
+    }
+    if (auto p = "stop-color" in se.attrs)
+    {
+        immutable v = toLower(strip(*p));
+        if (v == "inherit")
+            sv.color = sc.stopColor;
+        else if (v == "currentcolor")
+            sv.color = col;
+        else
+        {
+            Color c;
+            if (parsePaint(v, c))
+                sv.color = c;
+        }
+    }
+    if (auto p = "stop-opacity" in se.attrs)
+    {
+        immutable v = strip(*p);
+        if (toLower(v) == "inherit")
+            sv.opacity = sc.stopOpacity;
+        else
+            try
+                sv.opacity = clamp(to!float(v), 0.0f, 1.0f);
+            catch (ConvException)
+                {} // malformed number: the initial value stands
+    }
+    return sv;
+}
+
 // The stops of the first gradient in the chain that defines any (§13.2.3:
 // href-inherited stops come from the closest ancestor that has them).
 // Offsets are clamped to [0,1] and forced monotonic in document order;
 // stop-opacity and the paint's own alpha fold into the stop's Color
-// before it is premultiplied.
-GradientStop[] stopsOf(ref const(Document) doc, const(Element)[] chain,
-    in Color curColor, float paintAlpha)
+// before it is premultiplied. Nothing of the referencing shape reaches a
+// stop: the definition's own place in the tree is the scope (§13.2.4).
+GradientStop[] stopsOf(ref const(Document) doc, size_t head,
+    const(Element)[] chain, float paintAlpha)
 {
     immutable pa = clamp(paintAlpha, 0.0f, 1.0f);
 
-    foreach (ref e; chain)
+    foreach (ci, ref e; chain)
     {
         GradientStop[] res;
         float prev;
+        // §13.2.2: an href template's stops keep the template's ancestors.
+        immutable owner = ci == 0 ? head : chainIndex(doc, e, head);
+        immutable base = scopeFor(doc, owner);
         foreach (ch; e.children)
         {
             auto se = doc.nodes[ch];
             if (se.name != "stop")
                 continue;
 
-            Color c = Color.Black;
-            auto pc = se.attrs.get("stop-color", "black");
-            if (toLower(strip(pc)) == "currentcolor")
-                c = curColor;
-            else if (!parsePaint(pc, c))
-                c = Color.Black; // invalid stop-color: spec default
-
-            immutable so = clamp(attr([se], "stop-opacity", 1.0f, 1.0f), 0.0f, 1.0f);
+            immutable sv = stopValue(se, base);
             immutable cl = clamp(attr([se], "offset", 0.0f, 1.0f), 0.0f, 1.0f);
             immutable off = prev > cl ? prev : cl; // (max overload soup in GDC)
             prev = off;
 
-            c.a = to!ubyte(round(c.a * so * pa));
+            Color c = sv.color;
+            c.a = to!ubyte(round(c.a * sv.opacity * pa));
             res ~= GradientStop(off, PMColor(c));
         }
         // §13.2.4: tied offsets - the later stop controls the overlap
@@ -369,7 +512,7 @@ unittest
             <stop offset="1" stop-color="#0000ff"/>
         </linearGradient>
         </svg>`);
-    auto sh = cast(LinearGradientShader) makeGradient(doc, "g", FRect(0, 0, 10, 10), 10, 10, Color.Black, 1.0f);
+    auto sh = cast(LinearGradientShader) makeGradient(doc, "g", FRect(0, 0, 10, 10), 10, 10, 1.0f);
     assert(sh !is null && sh.opaque && sh.needsMatrix);
 
     auto c = LinearGradientShader.colorAt(sh, FPoint(0, 5));
@@ -407,13 +550,13 @@ unittest
         </svg>`);
     immutable bbox = FRect(10, 0, 20, 10); // shape spans x 10..20
 
-    auto sh = cast(LinearGradientShader) makeGradient(doc, "g", bbox, 10, 10, Color.Black, 1.0f);
+    auto sh = cast(LinearGradientShader) makeGradient(doc, "g", bbox, 10, 10, 1.0f);
     auto c = LinearGradientShader.colorAt(sh, FPoint(10, 5));
     assert(c.r == 0, "bbox left edge is the ramp start");
     c = LinearGradientShader.colorAt(sh, FPoint(20, 5));
     assert(c.r > 250, "bbox right edge is the ramp end");
 
-    sh = cast(LinearGradientShader) makeGradient(doc, "rl", bbox, 10, 10, Color.Black, 1.0f);
+    sh = cast(LinearGradientShader) makeGradient(doc, "rl", bbox, 10, 10, 1.0f);
     auto mid = LinearGradientShader.colorAt(sh, FPoint(15, 5));
     auto mirrored = LinearGradientShader.colorAt(sh, FPoint(25, 5)); // t=1.5 folds to 0.5
     assert(mid.r == mirrored.r && mid.g == mirrored.g && mid.b == mirrored.b, "reflect folds back");
@@ -423,7 +566,7 @@ unittest
     assert(folded.r == nearStart.r, "reflect mirror is symmetric");
 
     // x1="50%" of the bbox is user x=15: the vector (15,0)-(20,0) tiles left.
-    sh = cast(LinearGradientShader) makeGradient(doc, "rp", bbox, 10, 10, Color.Black, 1.0f);
+    sh = cast(LinearGradientShader) makeGradient(doc, "rp", bbox, 10, 10, 1.0f);
     c = LinearGradientShader.colorAt(sh, FPoint(12.5, 5)); // t=-0.5 repeats to 0.5
     assert(c.r == mid.r && c.g == mid.g && c.b == mid.b, "repeat tiles the ramp");
     c = LinearGradientShader.colorAt(sh, FPoint(10, 5)); // t=-1 repeats to 0
@@ -451,7 +594,7 @@ unittest
         </linearGradient>
         </svg>`);
     immutable r10 = FRect(0, 0, 10, 10);
-    auto sh = cast(LinearGradientShader) makeGradient(doc, "kid", r10, 10, 10, Color.Black, 1.0f);
+    auto sh = cast(LinearGradientShader) makeGradient(doc, "kid", r10, 10, 10, 1.0f);
     assert(sh !is null, "inherited the base's stops");
     // gradientUnits + x1/y1 inherited, x2 redefined locally: vector (0,3)->(5,0)
     auto c = LinearGradientShader.colorAt(sh, FPoint(0, 3));
@@ -459,13 +602,13 @@ unittest
     c = LinearGradientShader.colorAt(sh, FPoint(5, 0));
     assert(c.r == 255 && c.g == 0, "local x2 ends the ramp");
 
-    assert(makeGradient(doc, "c1", r10, 10, 10, Color.Black, 1.0f) is null, "href cycle");
-    assert(makeGradient(doc, "nostops", r10, 10, 10, Color.Black, 1.0f) is null, "no stops");
-    assert(makeGradient(doc, "nope", r10, 10, 10, Color.Black, 1.0f) is null, "unknown id");
+    assert(makeGradient(doc, "c1", r10, 10, 10, 1.0f) is null, "href cycle");
+    assert(makeGradient(doc, "nostops", r10, 10, 10, 1.0f) is null, "no stops");
+    assert(makeGradient(doc, "nope", r10, 10, 10, 1.0f) is null, "unknown id");
 
     // §13.2: an href may lead to either gradient kind - "wrong" is a
     // radialGradient inheriting the linear base's stops and units.
-    auto xk = cast(RadialGradientShader) makeGradient(doc, "wrong", r10, 10, 10, Color.Black, 1.0f);
+    auto xk = cast(RadialGradientShader) makeGradient(doc, "wrong", r10, 10, 10, 1.0f);
     assert(xk !is null, "cross-kind href inherits (§13.2.3)");
     auto xc = RadialGradientShader.colorAt(xk, FPoint(5, 5)); // radial defaults: cx=cy=50% of the userSpace viewport (10x10), r=50% of the normalised diagonal (5)
     assert(xc.g == 255 && xc.r == 0, "inherited stop[0] at the centre");
@@ -473,7 +616,7 @@ unittest
     assert(xc.r == 255 && xc.g == 0, "inherited stop[last] on the rim");
 
     // §13.2.2: zero-length vector is not an error - solid last stop.
-    auto pt = cast(LinearGradientShader) makeGradient(doc, "pt", r10, 10, 10, Color.Black, 1.0f);
+    auto pt = cast(LinearGradientShader) makeGradient(doc, "pt", r10, 10, 10, 1.0f);
     assert(pt !is null, "zero-length vector paints");
     immutable pc = LinearGradientShader.colorAt(pt, FPoint(3, 7));
     assert(pc.r == 255 && pc.g == 0 && pc.b == 0, to!string([pc.r, pc.g, pc.b]));
@@ -492,7 +635,7 @@ unittest
         </linearGradient>
         </svg>`);
     auto sh = cast(LinearGradientShader) makeGradient(doc, "s",
-        FRect(0, 0, 10, 10), 10, 10, Color.Black, 0.5f);
+        FRect(0, 0, 10, 10), 10, 10, 0.5f);
     assert(sh !is null && !sh.opaque);
 
     // t=0 clamps to stops[0]: white x stop-opacity 0.5 x paint alpha 0.5
@@ -519,13 +662,77 @@ unittest
         </linearGradient>
         </svg>`);
     auto ts = cast(LinearGradientShader) makeGradient(doc, "tie",
-        FRect(0, 0, 10, 10), 10, 10, Color.Black, 1.0f);
+        FRect(0, 0, 10, 10), 10, 10, 1.0f);
     c = LinearGradientShader.colorAt(ts, FPoint(2, 0)); // t = 0.2 exactly
     assert(c.b == 255 && c.r == 0, to!string([c.r, c.b]));
     c = LinearGradientShader.colorAt(ts, FPoint(1.9, 0)); // end of the white->red ramp
     assert(c.r > 240 && c.g < 40 && c.b < 40, to!string([c.r, c.g, c.b]));
     c = LinearGradientShader.colorAt(ts, FPoint(5, 0)); // blue->black ramp, u=0.375
     assert(c.b >= 155 && c.b <= 163 && c.r < 4 && c.g < 4, to!string([c.r, c.g, c.b]));
+}
+
+unittest
+{
+    // §13.2.4 scope: the stops read the gradient definition's place in the
+    // tree, never the shape that references the server. pservers-grad-18-b
+    // hangs four gradients off `<g stop-color="#f48" stop-opacity="0.5"
+    // color="yellow">` while the four rects sit in groups that all say
+    // something else, and the reference PNGs follow the gradients.
+    // stop-color/stop-opacity are Inherited: no, so `inherit` names the
+    // nearest declaration above while a property the stop leaves out stays
+    // at its initial value.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <g stop-color="#f48" stop-opacity="0.5" color="yellow">
+            <linearGradient id="inh" stop-color="inherit" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0">
+                <stop offset="0" stop-color="green" stop-opacity="1"/>
+                <stop offset="1" stop-color="inherit" stop-opacity="1"/>
+            </linearGradient>
+            <linearGradient id="op" stop-opacity="inherit" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0">
+                <stop offset="0" stop-color="green" stop-opacity="1"/>
+                <stop offset="1" stop-color="green" stop-opacity="inherit"/>
+            </linearGradient>
+            <linearGradient id="unnamed" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0">
+                <stop offset="0" stop-color="green" stop-opacity="1"/>
+                <stop offset="1"/>
+            </linearGradient>
+            <linearGradient id="cc" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0">
+                <stop offset="0" stop-color="green"/>
+                <stop offset="1" stop-color="currentColor" stop-opacity="1"/>
+            </linearGradient>
+        </g>
+        <linearGradient id="own" color="#700" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0">
+            <stop offset="1" stop-color="currentColor"/>
+        </linearGradient>
+        </svg>`);
+    immutable r10 = FRect(0, 0, 10, 10);
+
+    auto sh = cast(LinearGradientShader) makeGradient(doc, "inh", r10, 10, 10, 1.0f);
+    auto c = LinearGradientShader.colorAt(sh, FPoint(10, 0));
+    assert(c.a == 255 && c.r >= 250 && c.g >= 60 && c.g <= 76 && c.b >= 128
+        && c.b <= 144, to!string([c.a, c.r, c.g, c.b])); // the group's pink
+    c = LinearGradientShader.colorAt(sh, FPoint(0, 0));
+    assert(c.a == 255 && c.g == 128 && c.r == 0, to!string([c.a, c.r, c.g])); // CSS green
+
+    sh = cast(LinearGradientShader) makeGradient(doc, "op", r10, 10, 10, 1.0f);
+    c = LinearGradientShader.colorAt(sh, FPoint(10, 0)); // green at 0.5, premultiplied
+    assert(c.a >= 126 && c.a <= 130 && c.g >= 62 && c.g <= 66 && c.r < 4,
+        to!string([c.a, c.r, c.g]));
+
+    // the lower-left rectangle: fully opaque black, not the group's pink
+    sh = cast(LinearGradientShader) makeGradient(doc, "unnamed", r10, 10, 10, 1.0f);
+    c = LinearGradientShader.colorAt(sh, FPoint(10, 0));
+    assert(c.a == 255 && c.r == 0 && c.g == 0 && c.b == 0, to!string([c.a, c.r, c.g, c.b]));
+
+    // currentColor: the group's yellow, and `color` written on the gradient
+    // itself (styling-inherit-01-b) beats the group's.
+    sh = cast(LinearGradientShader) makeGradient(doc, "cc", r10, 10, 10, 1.0f);
+    c = LinearGradientShader.colorAt(sh, FPoint(10, 0));
+    assert(c.a == 255 && c.r == 255 && c.g == 255 && c.b == 0, to!string([c.a, c.r, c.g, c.b]));
+
+    sh = cast(LinearGradientShader) makeGradient(doc, "own", r10, 10, 10, 1.0f);
+    c = LinearGradientShader.colorAt(sh, FPoint(10, 0)); // #700
+    assert(c.a == 255 && c.r >= 115 && c.r <= 123 && c.g < 4 && c.b < 4,
+        to!string([c.a, c.r, c.g, c.b]));
 }
 
 unittest
@@ -554,7 +761,7 @@ unittest
         </radialGradient>
         </svg>`);
     immutable r10 = FRect(0, 0, 10, 10);
-    auto sh = cast(RadialGradientShader) makeGradient(doc, "r", r10, 100, 100, Color.Black, 1.0f);
+    auto sh = cast(RadialGradientShader) makeGradient(doc, "r", r10, 100, 100, 1.0f);
     assert(sh !is null && sh.opaque);
     auto c = RadialGradientShader.colorAt(sh, FPoint(5, 5));
     assert(c.r == 255, "centre (== focus) paints stop[0]");
@@ -567,23 +774,23 @@ unittest
     c = RadialGradientShader.colorAt(sh, FPoint(15, 5)); // past the rim: pad
     assert(c.r == 0, "beyond the family pads at stop[last]");
 
-    auto sf = cast(RadialGradientShader) makeGradient(doc, "f", r10, 100, 100, Color.Black, 1.0f);
+    auto sf = cast(RadialGradientShader) makeGradient(doc, "f", r10, 100, 100, 1.0f);
     c = RadialGradientShader.colorAt(sf, FPoint(2.5, 5));
     assert(c.r == 255, "the focal point paints stop[0]");
     c = RadialGradientShader.colorAt(sf, FPoint(10, 5));
     assert(c.r == 0, "the far side of the end circle pads");
 
-    assert(makeGradient(doc, "neg", r10, 100, 100, Color.Black, 1.0f) is null,
+    assert(makeGradient(doc, "neg", r10, 100, 100, 1.0f) is null,
         "negative r is a parse error (§13.2.3)");
 
     // §13.2.3: r=0 paints the last stop solid rather than erroring out.
-    auto sz = cast(RadialGradientShader) makeGradient(doc, "zero", r10, 100, 100, Color.Black, 1.0f);
+    auto sz = cast(RadialGradientShader) makeGradient(doc, "zero", r10, 100, 100, 1.0f);
     assert(sz !is null);
     immutable zc = RadialGradientShader.colorAt(sz, FPoint(50, 50));
     assert(zc.r == 0 && zc.g == 0 && zc.b == 0 && zc.a == 255, "default stop colour black");
 
     // §13.2.3: fx outside the circle snaps onto it.
-    auto oc = cast(RadialGradientShader) makeGradient(doc, "oc", r10, 100, 100, Color.Black, 1.0f);
+    auto oc = cast(RadialGradientShader) makeGradient(doc, "oc", r10, 100, 100, 1.0f);
     assert(oc !is null);
     c = RadialGradientShader.colorAt(oc, FPoint(7, 5));
     assert(c.r == 255, "clamped focal point paints stop[0]");
@@ -592,17 +799,17 @@ unittest
 
     // bbox defaults cx=cy=r=50% of a 10x10 box: centre (5,5),
     // r = sqrt((100+100)/2) = 10 user units.
-    auto sb = cast(RadialGradientShader) makeGradient(doc, "bb", r10, 100, 100, Color.Black, 1.0f);
+    auto sb = cast(RadialGradientShader) makeGradient(doc, "bb", r10, 100, 100, 1.0f);
     c = RadialGradientShader.colorAt(sb, FPoint(5, 5));
     assert(c.r == 255);
     c = RadialGradientShader.colorAt(sb, FPoint(15, 5));
     assert(c.r <= 3, "bbox r is the box diagonal (10), so (15,5) is the rim");
-    assert(makeGradient(doc, "r", FRect(5, 5, 5, 15), 100, 100, Color.Black, 1.0f)
+    assert(makeGradient(doc, "r", FRect(5, 5, 5, 15), 100, 100, 1.0f)
         !is null, "userSpaceOnUse survives a flat bbox");
 
     // Flat bbox with bbox units: §7.11's supplemental (0,0)->(1,1)
     // mapping is degenerate, so the reference fails - the server errors
     // and paints nothing (pservers-grad-17-b's fallback case).
-    assert(makeGradient(doc, "bb", FRect(5, 5, 5, 15), 100, 100, Color.Black, 1.0f)
+    assert(makeGradient(doc, "bb", FRect(5, 5, 5, 15), 100, 100, 1.0f)
         is null, "flat bbox + objectBoundingBox = server error");
 }

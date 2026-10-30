@@ -73,11 +73,11 @@ animate-interact-pevents-01-t.svg OK 2587
 animate-interact-pevents-02-t.svg OK 838
 animate-interact-pevents-03-t.svg OK 1108
 animate-interact-pevents-04-t.svg OK 1193
-animate-pservers-grad-01-b.svg OK 3482
+animate-pservers-grad-01-b.svg OK 1131
 animate-script-elem-01-b.svg OK 833
 animate-struct-dom-01-b.svg OK 2392
 color-prof-01-f.svg OK 6811
-color-prop-01-b.svg OK 5243
+color-prop-01-b.svg OK 593
 color-prop-02-f.svg OK 442
 color-prop-03-t.svg OK 442
 color-prop-04-t.svg OK 922
@@ -304,7 +304,7 @@ pservers-grad-14-b.svg OK 3574
 pservers-grad-15-b.svg OK 2884
 pservers-grad-16-b.svg OK 1075
 pservers-grad-17-b.svg OK 1455
-pservers-grad-18-b.svg OK 7592
+pservers-grad-18-b.svg OK 1120
 pservers-grad-20-b.svg OK 1446
 pservers-grad-21-b.svg OK 10196
 pservers-grad-22-b.svg OK 1275
@@ -440,7 +440,7 @@ styling-css-08-f.svg OK 462
 styling-css-09-f.svg OK 18878
 styling-css-10-f.svg OK 9818
 styling-elem-01-b.svg OK 1611
-styling-inherit-01-b.svg OK 4758
+styling-inherit-01-b.svg OK 2750
 styling-pres-01-t.svg OK 726
 styling-pres-02-f.svg OK 1120
 styling-pres-03-f.svg OK 7277

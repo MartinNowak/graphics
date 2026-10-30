@@ -51,6 +51,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 18               | currentColor binds at the element that writes  | 3.17 M     |
 |                       | the paint value, not the one inheriting it     |            |
 |                       | (§11.2/§12.2)                                 |            |
+| step 19               | gradient stops read the definition's place in  | 3.16 M     |
+|                       | the tree, not the referencing shape's (§13.2.4) |           |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -234,20 +236,62 @@ currentColor paint declaration is inherited into an element that sets
 `fill`, the same rule for `stroke`, and the keyword one level down, where
 the child's own red is the right answer.
 
-Up next - step 19, same rule on the other side of a paint server: `stop-color`
-resolves in the *gradient definition's* scope, not the referencing element's.
-pservers-grad-18-b states it - "the stop-color is inherited from the
-location of the gradient definition" - which is §13.2.4's inheritance from
-the gradient element's ancestors, and it is where `<linearGradient
-color="green">` and `<radialGradient color="#700">` sit in color-prop-01-b
-and styling-inherit-01-b. Measured: 01-b's middle stop is `#008000` in the
-reference against our `#0000FF` (5.2 K), styling-inherit-01-b 4.8 K, and one
-of pservers-grad-18-b's four sub-rects is green-to-yellow `#F2F900` against
-our green-to-blue `#0007F2` (7.6 K; the other three want
-`stop-color="inherit"`/`stop-opacity="inherit"`, also §13.2.4, and belong to
-the same step). `gradient.d` currently receives `curColor` from the
-referencing element's style, and the arena stores no parent pointer, so that
-step needs a scope for gradient content.
+Step 19 (a gradient's stops read the definition's place in the tree) landed:
+the REC says it in one sentence, twice - "Properties inherit into the
+'linearGradient' element from its ancestors; properties do not inherit from
+the element referencing the 'linearGradient' element" (§13.2.2, again in
+§13.2.3, and §13.3 says the same of `<pattern>`). What reaches a stop is
+what its gradient inherits, so `makeGradient` lost its `Color curColor`
+parameter: only the bbox (objectBoundingBox units) and the paint's alpha
+cross over from the referencing shape. The subtlety is *what* is inherited,
+and §13.2.4's own property tables answer it - `stop-color` and
+`stop-opacity` are **Inherited: no** - so `inherit` names the nearest
+declaration above while a property the stop leaves out sits at its initial
+value (black, 1). pservers-grad-18-b is the four-case pin, four gradients
+under `<g stop-color="#f48" stop-opacity="0.5" color="yellow">` and four
+rects in groups that all say otherwise: green-to-pink (`inherit`), green at
+half opacity (`stop-opacity="inherit"` reaching the group past a gradient
+that declares nothing), green to *fully opaque black* (the unnamed stop:
+`#000700`, not the group's pink), and green to fully-opaque yellow
+(currentColor off the definition's `color`, since `color` really is
+inherited - §12.2). Mechanically the arena stores children, not parents, so
+`descend` walks root -> gradient, `cascadeProps` applies each ancestor's
+declarations top-down (a declaration moves the value; `inherit` and an
+unparseable value leave it alone), `scopeFor` puts the two together per
+gradient, and `stopValue` resolves one stop against that scope with the
+initial values first. Chain links past the head are href targets, so their
+stops keep the template's own ancestors (`chainIndex`, §13.2.2). SMIL rides
+along: end states rewrite attributes in place, so animate-pservers-grad-01-b's
+animations on the definition's own group reach the walk while the four on
+the *referencing* groups do nothing. Exactly the predicted rows moved -
+18-b 7,592 -> 1,120, color-prop-01-b 5,243 -> 593, animate-pservers-grad-01-b
+3,482 -> 1,131, styling-inherit-01-b 4,758 -> 2,750, all 15,481 AE - and
+pservers-grad-23-f's 604 did not move, the control case where both readings
+are black. All eight of 18-b's stop samples now sit on the reference; its
+1,120 and 01-b's 593 are the suite PNGs' own 1-LSB gradient noise. Unittests
+pin the four cases and the gradient's own `color="#700"`, and that the
+referencing rect's `color`/`stop-color`/`stop-opacity` cannot reach a stop.
+
+Up next - step 20, the other half of §13.2.3: objectBoundingBox radial
+geometry. The bbox mapping is non-uniform, so a radial gradient in a
+non-square box is an *ellipse* - pservers-grad-21-b draws the extent itself,
+`rx="24" ry="18"` for `r="20%"` on a 120x90 rect, and asks that "the
+gradient fills don't extend outside the blue ellipses"; styling-inherit-01-b
+draws `<ellipse rx="90" ry="60">` beside its default-geometry radial rect
+(180x120, r=50%) making the same point. We draw a circle: `makeGradient`
+folds objectBoundingBox `r` through `brScale = sqrt((w²+h²)/2)`, so 21-b
+sits at 10,196 with its whole rect off, and the family is 13-b 9,812, 04-b
+7,039, 05-b 5,584, 11-b 5,323, 14-b 3,574 plus styling-inherit-01-b's
+residual 2,750 - an X across both default rects. The href side is already
+right: a probe (since deleted) rendering `<radialGradient xlink:href="#g1"
+cx="0%">` against the explicit equivalent measured AE 0, and in 21-b the
+windows over the two explicit `fx` rows differ (704 and 1,510 of 6,400)
+where the no-`fx` row is at noise level (56). So the step is the ellipse
+plus §13.2.3's focal rule - "the 0% gradient stop is mapped to (fx, fy)",
+`fx` coinciding with `cx` unless an href template gives it, and a focal
+point outside the circle pulled back to the perimeter - and
+`RadialGradientShader`'s `FPoint c, float r, FPoint f` (a circle) suggests
+the fix goes through the shader matrix rather than the geometry.
 
 ## Deferred / accepted ceilings (do not chase)
 
