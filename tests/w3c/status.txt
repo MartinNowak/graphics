@@ -223,7 +223,7 @@ masking-opacity-01-b.svg OK 1280
 masking-path-01-b.svg OK 1209
 masking-path-02-b.svg OK 459
 masking-path-03-b.svg OK 7025
-masking-path-04-b.svg OK 30640
+masking-path-04-b.svg OK 15512
 masking-path-05-f.svg OK 418
 masking-path-06-b.svg OK 7905
 masking-path-07-b.svg OK 1884

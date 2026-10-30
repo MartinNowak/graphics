@@ -38,6 +38,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | scope-tagged inherited url(), cross-file loop guard (§5.6)   |            |
 | step 12               | static-profile feature strings (Annex I) + the switch's     | 3.34 M     |
 |                       | own transform (§5.8.2/§5.8.3)                               |            |
+| step 13               | clip-path/mask on `<image>`: the paint goes offscreen      | 3.33 M     |
+|                       | with the element's box + user-space CTM (§14.3.5/§14.4)     |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -81,17 +83,27 @@ were dropped - struct-cond-03-t places its two branches with
 itself turned out to have worked since step 5b; the selector-types
 trio's 43 K is a defective-reference ceiling (deferred below).
 
-Up next - step 13, `masking-path-04-b` (30.6 K, the worst masking
-contributor). It is the only suite test that puts `clip-path` on an
-`<image>` (masking-path-11-b's mask covers a `<rect>`), and `imageElement`
-paints through `canvas.drawPath` without ever consulting
-`Style.clipUrls`/`Style.maskUrls` - so the bottom row paints the whole
-bluesquid viewport instead of only the "Clip Test" glyph outlines of
-`<clipPath id="sample">`. §14.3.1 makes `clip-path` apply to every element
-that generates paint, `<image>` included, and `mask` (§14.4) goes the same
-way. What is left afterwards is the host-font floor already noted below:
-`fc-match Impact` answers Noto Sans here, so the clip's letterforms - like
-the yellow row's - cannot match the reference.
+Step 13 (clip-path/mask on `<image>`) landed: `imageElement` routes its
+paint through `maskedPaint` when `Style.clipUrls`/`Style.maskUrls` are
+non-empty, so a raster image honours both properties like any other
+graphics element - §14.3.5 and §14.4 both apply to container elements and
+graphics elements, and §3.6.2 makes the image one. The plumbing is the
+interesting part: `maskedPaint`, `clipMultiply` and `maskMultiply` now take
+the element's geometry as parameters - its box (what objectBoundingBox
+fractions are taken of) and its user-space CTM - instead of reading
+`path.bounds` and `canvas.matrix`. For an image both reads would be wrong:
+it fills a rect in its own natural-pixel space under the §5.7 viewport-fit
+transform, while its box is the viewport rect and its clip/mask geometry
+belongs in the element's own user space. The two spaces cannot be
+decoupled any other way: the blitter always hands a mapping shader
+`matrix.inverted` of the canvas CTM (`Blitter.Choose`), so the fit rides
+the same matrix the clip would be drawn with.
+masking-path-04-b fell 30.6 K -> 15.5 K; the rest is the host-font floor
+below (`fc-match Impact` answers Noto Sans, so both the yellow "Clip Test"
+row and the glyph outlines cutting the image differ from the reference's
+Impact). A unittest pins the four image cases: userSpaceOnUse clip,
+objectBoundingBox clip (basis = the viewport rect, not the natural-pixel
+path), broken reference (paint dropped) and `mask`.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -136,10 +148,13 @@ the yellow row's - cannot match the reference.
   precedence.
 - `filters-turb` (163 K) / `filters-conv` (172 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
-- Host-font debt (SVGFreeSans/Impact) in `masking-path-03-b/10-b` and the
-  remaining `text-*`/`fonts-*` floors: step 7 took the fonts in; what is
+- Host-font debt (SVGFreeSans/Impact) in `masking-path-03-b/04-b/10-b` and
+  the remaining `text-*`/`fonts-*` floors: step 7 took the fonts in; what is
   left is raster drift between our AA and the harness's own SVG-font
-  rasterizer. `text-intro-03-b/-06-t/-07-t` (480 K) are a different lever:
+  rasterizer. Step 13's residual 15.5 K on 04-b is that floor alone - the
+  clip now cuts the image by the right *shapes*, only the Impact letterforms
+  are missing (`fc-match Impact` answers Noto Sans here).
+  `text-intro-03-b/-06-t/-07-t` (480 K) are a different lever:
   Arabic shaping with host Noto against Kayrawan/Scheherezade references.
 
 ## Backlog (small, opportunistic)
@@ -147,6 +162,10 @@ the yellow row's - cannot match the reference.
 - Fix stale § numbers in source comments (text-area refs went with step
   6): `render.d` still cites `§6.1/§6.1.2/§6.1.3/§6.2/§7.1` around text
   layout, `§11.4` markers, `§9.8` image; `css.d`/`filter.d` unchecked.
+  Chapter numbers from the local SE's own headings: text is 10, painting
+  11 (markers §11.6), the `image` element §5.7, `viewBox`/`par` §7.7/§7.8,
+  objectBoundingBox units §7.11, clip-path §14.3.5, mask §14.4, feature
+  strings Appendix O. Comments only: the gate must stay byte-identical.
 - Viewer-side fragment selection (§17.3.2): `#view-id`, `#svgView(...)` and
   `#xywh=` on the CLI's file argument. Pure viewer-URL feature; the suite
   harness passes bare files, so today the no-fragment case (outer svg's

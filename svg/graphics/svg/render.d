@@ -1610,13 +1610,21 @@ private struct Renderer
     // nonexistent-reference rule covers `mask`) - and so does an empty
     // layer: empty clipPath, all children display:none, or
     // objectBoundingBox units against a degenerate bbox.
+    //
+    // The fill is the member `path`; `bbox`/`geom` describe the element's
+    // geometry - its box (what objectBoundingBox units, §7.11, are
+    // fractions of) and its user-space CTM. They are parameters rather
+    // than path.bounds / canvas.matrix because <image> paints through its
+    // §5.7 viewport fit: the path lives in natural pixels under that
+    // transform while the box is the viewport rect, and the clip/mask
+    // geometry belongs in the element's own user space.
     void maskedPaint(in Style s, Paint fillP, Paint strokeP,
-        bool doFill, bool doStroke, in Path stroked, bool doMarkers = false)
+        bool doFill, bool doStroke, in Path stroked, in FRect bbox,
+        in Matrix geom, bool doMarkers = false)
     {
         if (clipDepth >= 8)
             return; // clip/mask nested inside clipPath/mask content
 
-        immutable bbox = path.bounds; // objectBoundingBox units basis
         auto scratch = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
         scratch.eraseColor(Color(0));
         Canvas oc = new Canvas(scratch);
@@ -1634,10 +1642,10 @@ private struct Renderer
             drawMarkers(s, oc, scratch);
 
         foreach (clipId; s.clipUrls)
-            if (!clipMultiply(clipId, scratch, bbox))
+            if (!clipMultiply(clipId, scratch, bbox, geom))
                 return; // broken reference or empty clip: not rendered
         foreach (maskId; s.maskUrls)
-            if (!maskMultiply(maskId, scratch, bbox))
+            if (!maskMultiply(maskId, scratch, bbox, geom))
                 return; // broken reference or empty mask: not rendered
 
         bool any;
@@ -1675,7 +1683,8 @@ private struct Renderer
     // paint) and multiply its coverage into `scratch`. Returns false on
     // a broken reference or an empty mask - either way the painted
     // element is not rendered.
-    bool clipMultiply(string id, ref Bitmap scratch, in FRect bbox)
+    bool clipMultiply(string id, ref Bitmap scratch, in FRect bbox,
+        in Matrix geom)
     {
         auto scoped = enterScope(id);
         scope (exit) if (scoped) leaveScope();
@@ -1711,7 +1720,7 @@ private struct Renderer
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
         m.openDocs = openDocs; // so do the reference loop guards
-        m.canvas.matrix = canvas.matrix;
+        m.canvas.matrix = geom;
         if (auto u = strAttr(chain, "clipPathUnits"))
             if (toLower(u) == "objectboundingbox")
             {
@@ -1723,7 +1732,7 @@ private struct Renderer
                 bb[1][1] = bbox.height;
                 bb[0][2] = bbox.left;
                 bb[1][2] = bbox.top;
-                m.canvas.matrix = canvas.matrix * bb;
+                m.canvas.matrix = geom * bb;
             }
 
         // Inheritance: the clipPath subtree sees the chain's own
@@ -1768,7 +1777,8 @@ private struct Renderer
     // luminance x alpha. The mask region (maskUnits frame, defaults
     // -10%,-10%,120%,120%) bounds where anything can show: referrer
     // pixels whose user-space centres fall outside it multiply by zero.
-    bool maskMultiply(string id, ref Bitmap scratch, in FRect bbox)
+    bool maskMultiply(string id, ref Bitmap scratch, in FRect bbox,
+        in Matrix geom)
     {
         auto scoped = enterScope(id);
         scope (exit) if (scoped) leaveScope();
@@ -1842,7 +1852,7 @@ private struct Renderer
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
         m.openDocs = openDocs; // so do the reference loop guards
-        m.canvas.matrix = canvas.matrix;
+        m.canvas.matrix = geom;
 
         // maskContentUnits="objectBoundingBox": children live in
         // fractions of the paint bbox - the same supplemental matrix
@@ -1856,7 +1866,7 @@ private struct Renderer
                 bb[1][1] = bbox.height;
                 bb[0][2] = bbox.left;
                 bb[1][2] = bbox.top;
-                m.canvas.matrix = canvas.matrix * bb;
+                m.canvas.matrix = geom * bb;
             }
 
         // Inheritance follows masking-path-12-f just like clipPath: the
@@ -1877,7 +1887,7 @@ private struct Renderer
         // Multiply in the mask value, testing region membership through
         // the inverse CTM so a transformed mask region stays exact.
         immutable alphaType = equalCase(strAttr(chain, "maskType"), "alpha");
-        immutable inv = canvas.matrix.inverted;
+        immutable inv = geom.inverted;
         bool any;
         foreach (y; 0 .. bmp.height)
         {
@@ -2210,7 +2220,7 @@ private struct Renderer
                     || s.markerEnd.length);
             if (s.clipUrls.length || s.maskUrls.length)
                 maskedPaint(s, fillP, strokeP, doFill, doStroke, stroked,
-                    doMarkers);
+                    bbox, canvas.matrix, doMarkers);
             else
             {
                 if (doFill)
@@ -2777,7 +2787,8 @@ private struct Renderer
         if (doFill || doStroke)
         {
             if (s.clipUrls.length || s.maskUrls.length)
-                maskedPaint(s, fillP, strokeP, doFill, doStroke, stroked);
+                maskedPaint(s, fillP, strokeP, doFill, doStroke, stroked,
+                    bbox, canvas.matrix);
             else
             {
                 if (doFill)
@@ -2850,14 +2861,16 @@ private struct Renderer
         if (!s.visible)
             return;
 
-        immutable path = resolveHref(s.baseUrl.length ? s.baseUrl : docBase,
+        // Named `src`, not `path`: the member `path` is the geometry the
+        // paint below rasterises, and the clip branch at the end needs it.
+        immutable src = resolveHref(s.baseUrl.length ? s.baseUrl : docBase,
             a.get("href", a.get("xlink:href", "")));
-        if (path is null)
+        if (src is null)
             return;
         // .svg hrefs render through the sub-renderer above; anything
         // else goes to the bitmap decoder (PNG/JPEG/data: URI).
-        Bitmap img = path.length >= 4 && equalCase(path[$ - 4 .. $], ".svg")
-            ? svgImageBitmap(path) : loadSVGImage(path);
+        Bitmap img = src.length >= 4 && equalCase(src[$ - 4 .. $], ".svg")
+            ? svgImageBitmap(src) : loadSVGImage(src);
         if (img.config == Bitmap.Config.NoConfig)
             return; // broken reference: §9.8 renders nothing
 
@@ -2892,6 +2905,8 @@ private struct Renderer
 
         canvas.save();
         scope (exit) canvas.restore();
+        immutable geom = canvas.matrix; // the element's user space, which
+        // its clip/mask geometry rides - see maskedPaint
         Matrix t;
         t.reset();
         t.setTranslate(x, y);
@@ -2924,7 +2939,24 @@ private struct Renderer
         p.shader = new ImageShader(drawn, sx, sy);
         Path q;
         q.addRect(vis);
-        canvas.drawPath(q, p);
+        // clip-path/mask apply to every element that generates paint,
+        // <image> included (§14.3.5/§14.4: both properties apply to
+        // container and graphics elements, and a raster image is a
+        // graphics element - §3.6.2) - masking-path-04-b clips an
+        // image with the glyph outlines of a <clipPath><text>. maskedPaint
+        // rasterises the member `path`, so park the visibility rect in it
+        // for the call; the objectBoundingBox basis stays the viewport
+        // rect, not that path.
+        if (s.clipUrls.length || s.maskUrls.length)
+        {
+            auto saved = path;
+            path = q;
+            scope (exit) path = saved;
+            maskedPaint(s, p, Paint(), true, false, Path(),
+                FRect(x, y, x + w, y + h), geom);
+        }
+        else
+            canvas.drawPath(q, p);
     }
 
     void shape(string tag, in string[string] a, size_t idx = Document.unknown)
@@ -6204,6 +6236,33 @@ unittest
         <rect width="40" height="40" fill="lime" clip-path="url(#ch)"/>
         </svg>`, 1.0f, imgBase);
     assert(bmp.getLine!PMColor(20)[20].a == 0, "an image is not a valid clip child");
+}
+
+unittest
+{
+    // clip-path and mask apply to <image> just as they do to any other
+    // graphics element (§14.3.5/§14.4) - masking-path-04-b's clipped
+    // image. The objectBoundingBox basis is the image's geometry box, the
+    // viewport rect (§5.7), NOT the natural-pixel rect the image shader
+    // fills, and a broken reference drops the paint like everywhere else.
+    // (format, not ${}: a wysiwyg backtick string keeps the dollars)
+    immutable px = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12P4z8DwHwAFAAH/cpxSZwAAAABJRU5ErkJggg==";
+    auto bmp = renderSVG(format(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="80">
+        <clipPath id="half"><rect width="10" height="80"/></clipPath>
+        <clipPath id="bb" clipPathUnits="objectBoundingBox"><rect width="1" height="0.5"/></clipPath>
+        <mask id="m"><rect y="60" width="10" height="20" fill="white"/></mask>
+        <image href="%s" width="20" height="20" clip-path="url(#half)"/>
+        <image href="%s" y="20" width="20" height="20" clip-path="url(#bb)"/>
+        <image href="%s" y="40" width="20" height="20" clip-path="url(#nope)"/>
+        <image href="%s" y="60" width="20" height="20" mask="url(#m)"/>
+        </svg>`, px, px, px, px));
+    assert(bmp.getLine!PMColor(10)[5].r == 255, "userSpaceOnUse clip: image paints inside");
+    assert(bmp.getLine!PMColor(10)[15].a == 0, "userSpaceOnUse clip: nothing outside");
+    assert(bmp.getLine!PMColor(25)[5].r == 255, "bbox clip: top half of the viewport rect paints");
+    assert(bmp.getLine!PMColor(35)[5].a == 0, "bbox clip: bottom half stays clear");
+    assert(bmp.getLine!PMColor(50)[5].a == 0, "broken clip reference: image not rendered");
+    assert(bmp.getLine!PMColor(70)[5].r == 255, "mask: white mask geometry passes the image");
+    assert(bmp.getLine!PMColor(70)[15].a == 0, "mask: nothing outside it");
 }
 
 unittest
