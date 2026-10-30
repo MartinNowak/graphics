@@ -270,22 +270,37 @@ class RadialGradientShader : MappingShader
         immutable cq = Dx * Dx + Dy * Dy;
 
         double t;
-        if (a == 0) // focus exactly on the end circle: linear equation
-            t = b == 0 ? 0 : -cq / b;
+        if (a == 0) // focus exactly on the end circle: the t^2 term goes,
+        {           // and with it the far side of that circle
+            if (b >= 0) // b == 0 asks cq = 0 of a point that is not the
+                return sampleStops(pthis.stops, pthis.spread, 1); // focus
+            t = -cq / b;
+        }
         else
         {
             auto disc = b * b - 4 * a * cq;
             if (disc < 0) // no circle of the family reaches this point
                 return sampleStops(pthis.stops, pthis.spread, 1);
             disc = sqrt(disc);
-            immutable t1 = (-b + disc) / (2 * a);
-            immutable t2 = (-b - disc) / (2 * a);
-            // focus inside the end circle: both roots are >= 0 and the
-            // larger is the paint; outside: the smaller touches first.
-            immutable inside = Lx * Lx + Ly * Ly < pthis.r * pthis.r;
-            t = inside ? max(t1, t2) : min(t1, t2);
-            if (t < 0)
-                t = 0;
+            // Roots the last bits can be trusted with. The textbook pair is
+            // not merely inelegant here: §13.2.3's focal snap leaves |L| == r
+            // up to rounding, so a is often a residual of one ulp and then
+            // (-b +/- disc) is a difference of nearly equal numbers over that
+            // residual - pservers-grad-21-b's third row turned into plateaus
+            // of constant alpha, and the far side of its end circle painted
+            // stop[0] instead of padding. q keeps the half of the formula
+            // whose numerator cannot cancel; the product of the roots (cq/a)
+            // gives the other half for free.
+            immutable q = -(b + copysign(disc, b)) / 2;
+            immutable t1 = q / a;
+            immutable t2 = q == 0 ? 0 : cq / q;
+            // A point belongs to one circle of the family with t >= 0: with
+            // the focus inside the end circle (a < 0) the two roots straddle
+            // zero and the positive one is it, while both negative means the
+            // family points the other way and the point is outside it.
+            if (t1 < 0 && t2 < 0)
+                return sampleStops(pthis.stops, pthis.spread, 1);
+            t = t1 < 0 ? t2 : (t2 < 0 ? t1 : min(t1, t2));
         }
         return sampleStops(pthis.stops, pthis.spread, cast(float) t);
     }
@@ -1113,4 +1128,57 @@ unittest
     // and paints nothing (pservers-grad-17-b's fallback case).
     assert(makeGradient(doc, "bb", FRect(5, 5, 5, 15), 100, 100, 1.0f)
         is null, "flat bbox + objectBoundingBox = server error");
+}
+
+unittest
+{
+    // §13.2.3's focal snap leaves the focus *on* the end circle, and that is
+    // the one geometry where the t^2 coefficient of |pt - centre(t)| = r*t
+    // vanishes - in a non-square bbox it usually survives as a one-ulp
+    // residual, which is worse, because the solver then divides a difference
+    // of nearly equal numbers by it. pservers-grad-21-b's third row is that
+    // case (cx=100%, fx=25%, r=20% over a 120x90 box): the reference paints a
+    // smooth ramp from the snapped focus to the centre and stop[1] over the
+    // far side of the end circle. cx=0% with the same fx/fy/r reaches the
+    // same geometry through exact arithmetic, so the two must agree.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <radialGradient id="c100" cx="100%" r="20%" fx="25%">
+            <stop offset="0" stop-color="black"/>
+            <stop offset="1" stop-color="black" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="c0" cx="0%" r="20%" fx="25%">
+            <stop offset="0" stop-color="black"/>
+            <stop offset="1" stop-color="black" stop-opacity="0"/>
+        </radialGradient>
+        </svg>`);
+    immutable box = FRect(0, 0, 120, 90);
+
+    // cx=100%: centre at x=120, focus snapped to x=96, end circle over x=96..144
+    auto sa = cast(RadialGradientShader) makeGradient(doc, "c100", box, 120, 90, 1.0f);
+    assert(sa !is null);
+    assert(RadialGradientShader.colorAt(sa, FPoint(96, 45)).a == 255,
+        "the snapped focus paints stop[0]");
+    // t = 0.2917 on the axis there, so the fade sits at 255*(1-t)
+    immutable mid = RadialGradientShader.colorAt(sa, FPoint(110, 45));
+    assert(mid.a >= 178 && mid.a <= 183, to!string(mid.a));
+    int prev = 256;
+    foreach (x; 97 .. 120) // no plateau anywhere on the focus -> centre ramp
+    {
+        immutable alpha = RadialGradientShader.colorAt(sa, FPoint(x, 45)).a;
+        assert(alpha < prev, to!string([x, alpha, prev]));
+        prev = alpha;
+    }
+    // behind the focus, and past the end circle, no circle of the family
+    // reaches: the fade runs out and pads at stop[1].
+    assert(RadialGradientShader.colorAt(sa, FPoint(40, 45)).a == 0);
+
+    // cx=0%: centre at x=0, focus snapped to x=24, end circle over x=-24..24
+    auto sb = cast(RadialGradientShader) makeGradient(doc, "c0", box, 120, 90, 1.0f);
+    assert(sb !is null);
+    assert(RadialGradientShader.colorAt(sb, FPoint(24, 45)).a == 255);
+    immutable same = RadialGradientShader.colorAt(sb, FPoint(10, 45));
+    assert(same.a >= 178 && same.a <= 183, to!string(same.a)); // mirrors x=110 above
+    immutable far = RadialGradientShader.colorAt(sb, FPoint(40, 45));
+    assert(far.a == 0 && far.r == 0 && far.g == 0 && far.b == 0,
+        "past the end circle pads at stop[1], not stop[0]");
 }

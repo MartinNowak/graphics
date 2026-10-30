@@ -59,6 +59,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 21               | gradientTransform rides under the gradient's   | 3.11 M     |
 |                       | own space: the bbox map composes over it, so   |            |
 |                       | a skewed radial paints an ellipse (§13.2.2)    |            |
+| step 22               | a radial focus snapped onto the end circle     | 3.11 M     |
+|                       | leaves a degenerate quadratic, so its roots    |            |
+|                       | are solved without cancellation (§13.2.3)      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -361,20 +364,68 @@ would run it along the bottom to (20,0)), and the error states - an
 unparsable list, `scale(0)`, `matrix(0 0 0 0 5 5)` - plus the attribute
 travelling down an href chain.
 
-Up next - step 22, a probe of the gradient family's residuals instead of a new
-chapter, now that the family is read end to end. Start with what pservers-
-grad-11-b (5,323) is *not*: crop its first rect's band and it reads 0 AE,
-`fx` on `cx` and all, so the radial math there is already right; the 5,323
-sits in the 40 px gradient stroke (282) and in the two Arial text bands below
-(1,688 and 2,162), which is the host-font class the roadmap declines. That
-leaves 21-b (4,940), whose pass criteria is that an href-inherited
-`cx/cy/r`/`fx` triple paints identically to the same triple spelled out, over
-a `stop-opacity="0"` fade; and 13-b (3,782), thirty 100x60 boxes walking the
-focal point across `fx` - §13.2.3's clamp inside the ellipse step 20 made
-real. Both are shader-side questions with a self-checking reference image,
-which is what a probe wants. And one pattern row picked up on the way: 06-b's
-bottom bar still carries 306 AE inside its own band, with `patternTransform`
-implemented two steps back, so the lattice itself has an edge to find.
+Step 22 probed the gradient family's residuals instead of opening a chapter,
+and the probe found a real defect rather than a ceiling. §13.2.3's clamp -
+"if the focus point lies outside the circle or ellipse defined by r, the focus
+point and the perimeter of the circle or ellipse coincide" - is exactly the
+state pservers-grad-21-b writes with `cx="100%" fx="25.00%" r="20.00%"`, and
+after the clamp `|L| == r` holds only up to rounding: `colorAt`'s
+`a = L dot L - r*r` came out as a one-ulp residue (-2.08e-17 on 21-b's 120x90
+box) while `b` and `disc` both sit near 0.05, so the textbook
+`(-b +/- disc) / 2a` divides a difference of two nearly equal numbers by that
+residue and the root is noise. Grad5's ramp turned into plateaus of constant
+alpha (191/159/127 where the reference runs 202 down to 128). Where `a` landed
+exactly 0 - `cx="00.00%"`, so `fx - cx = 0.25` divides exactly by `r` - the
+linear branch was worse: it handed back `t < 0` for points *past* the end
+circle and `sampleStops` clamped that to stop[0], so the far half of the
+rectangle painted opaque black where the reference is transparent. The solve
+is now the cancellation-free one (`q = -(b + copysign(disc, b)) / 2`, roots
+`q/a` and `cq/q`), the `a == 0` case pads at the last stop when `b >= 0`
+instead of running off the ramp's start, and the root is chosen from the sign
+of `a` - a positive `a` crosses both circles, so the smaller non-negative one
+- rather than from an `inside` flag rebuilt per pixel from the post-clamp
+focus, which was the other half of the same confusion. A unittest pins both
+symptoms and the padded case on a 120x90 box: the `c100`/`c0` mirror pair,
+focus snapped onto the perimeter, paints stop[0]; alpha sits at 178-183 at
+x = 110 where the linear solve says `t = 0.2917`; alpha falls strictly across
+x = 97..119, the rows that were plateaus; and both the region behind the
+focus and the region past the end circle pad at stop[1].
+
+Measured: pservers-grad-21-b 4,940 -> 968 and pservers-grad-13-b
+3,782 -> 2,841, and no other row in the suite moves; the baseline rebases
+3,113,645 -> 3,108,732. What is left on 21-b is its own guide-ellipse strokes
+(110 AE at the cell at x = 160, y = 120, 70 at x = 160, y = 220), the green
+reference box running down x = 360 and the `$Revision` text band - deferred
+classes, and the row is at that floor.
+
+The probe also settled 13-b, in the other direction, and it belongs on the
+ceiling list. Post-fix its ring geometry agrees with the reference pixel for
+pixel: the t = 0.5 ring is at y = 71 in both, the t = 1 boundary at y = 92 in
+both, and at x = 300 both end at y = 86. Only the ramp's weighting differs,
+and it fits with no free parameter - composited blue is `139*w` for us and
+`139*w^2` for the reference, which is interpolating `stop-color` and
+`stop-opacity` separately instead of premultiplied; whole columns then agree
+to a mean of 1.3 levels (x = 60, x = 100, x = 300). The renderer that captured
+those PNGs in 2009 did exactly that, and SVG 2 / CSS Images 4 §4.6 ask for
+premultiplied, so ours stays. The corollary explains the family's floor: the
+only four gradient tests that mention `stop-opacity` at all - 05-b, 13-b,
+18-b, 21-b - are four of its six worst rows, and 21-b, whose fades hold the
+colour constant and so cancel the term, fell to the floor as soon as the focus
+solve was fixed.
+
+Up next - step 23, and the same sweep picked the target up for free:
+coords-viewattr-02-b (10,977) paints *nothing* at any of its thirteen
+`<image>` boxes, and it is not a decoder gap - the same blob written as one
+line loads yellow both from a `probe.jpg` href and from a data href, in the
+same render. The difference is that the suite wraps its base64 at 76 columns,
+XML §3.3.3 normalizes an attribute value's newlines to spaces, and
+`loadDataURL` hands that string to `Base64.decode`, which refuses: enforce,
+empty `Bitmap`, blank box. §7.4's href is a URI-reference and RFC 4648
+§3 / MIME base64 both allow line breaks in the payload, so tolerating
+whitespace there is the feature - a few lines. Rows carrying a data URI with a
+break in it: 02-b's thirteen JPEGs (10,977) and animate-elem-40-t's two
+`image/jpg` (4,573); the rest of the data-URI rows keep their payload on one
+line already, so the win is measured, not assumed.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -435,6 +486,13 @@ implemented two steps back, so the lattice itself has an edge to find.
   precedence.
 - `filters-turb` (163 K) / `filters-conv` (172 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
+- Gradient ramps that change colour across a `stop-opacity` change
+  (`pservers-grad-13-b` 2.8 K, `-05-b` 1.0 K, `-18-b` 1.1 K): the archived
+  references interpolate `stop-color` and `stop-opacity` separately - step 22
+  pinpoints composited blue as `139*w^2` there against our `139*w`, whole
+  columns to a mean of 1.3 levels - while we interpolate premultiplied, as
+  SVG 2 and CSS Images 4 §4.6 require. Ring geometry matches exactly;
+  only the weighting is the reference's.
 - Host-font debt (SVGFreeSans/Impact) in `masking-path-03-b/04-b/10-b` and
   the remaining `text-*`/`fonts-*` floors: step 7 took the fonts in; what is
   left is raster drift between our AA and the harness's own SVG-font
