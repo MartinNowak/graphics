@@ -25,6 +25,7 @@ unittest
 }
 
 /// Parse an SVG `<color>` or `<paint>` value: CSS/SVG color keywords,
+/// including the CSS2 system colors SVG 1.1 §6.2 inherits,
 /// #rgb/#rgba/#rrggbb/#rrggbbaa, rgb() (0..255 or percentages), `none`
 /// (transparent) and `transparent`. `currentColor` and `inherit` are *not*
 /// resolved here: the caller deals with them (they need the style stack).
@@ -83,7 +84,10 @@ bool parsePaint(string s, out Color res)
         return true;
     }
 
-    auto p = toLower(s) in colorKeywords;
+    auto lower = toLower(s);
+    auto p = lower in colorKeywords;
+    if (p is null)
+        p = lower in systemColors; // CSS2 system colors, via SVG 1.1 §6.2
     if (p is null)
         return false;
     res = *p;
@@ -275,6 +279,59 @@ immutable Color[string] colorKeywords = [
     "yellowgreen": color(0xFF, 0x9A, 0xCD, 0x32),
 ];
 
+// The CSS2 system colors, which SVG 1.1 §6.2 makes part of SVG's color
+// keywords too: "The color keywords from CSS2 that correspond to the colors
+// used by objects in the user's environment. (The normative reference is CSS2
+// system colors; in [CSS2], section 18.2.)" §18.2 settles the twenty-eight
+// names and what each is the color *of*, and hands the values to the UA:
+// "For systems that do not have a corresponding value, the specified value
+// should be mapped to the nearest system value, or to a default color."
+//
+// There is no desktop theme to sample here, so these are our defaults: the
+// flat gray/navy/teal theme the W3C SE reference images were captured with
+// (measured off `color-prop-04-t.png`, the one test that uses them - teal
+// desktop, `#DFDFDF` faces, `#C4C4C4` menus and frames, navy caption,
+// `#4A4A4A` shadows, black labels). The alternative is the palette MSDN
+// documents as its `GetSysColor` defaults, measured on the same test at
+// 18,755 AE against these values' 922; the reason for picking the reference
+// theme is the same one already used for fonts, where a host face stands in
+// for the suite's `SVGFreeSans*`: where the spec leaves a value to the UA,
+// the harness should measure the drawing, not the palette choice.
+//
+// Lower-case keys like the registry above, because the lookup lowercases.
+// None of these names is a CSS3 color keyword, so the two tables cannot
+// collide.
+immutable Color[string] systemColors = [
+    "activeborder": color(0xFF, 0xC4, 0xC4, 0xC4),
+    "activecaption": color(0xFF, 0x00, 0x00, 0x80),
+    "appworkspace": color(0xFF, 0x00, 0x5C, 0x5C),
+    "background": color(0xFF, 0x00, 0x5C, 0x5C),
+    "buttonface": color(0xFF, 0xDF, 0xDF, 0xDF),
+    "buttonhighlight": color(0xFF, 0xFF, 0xFF, 0xFF),
+    "buttonshadow": color(0xFF, 0x4A, 0x4A, 0x4A),
+    "buttontext": color(0xFF, 0x00, 0x00, 0x00),
+    "captiontext": color(0xFF, 0x00, 0x00, 0x00),
+    "graytext": color(0xFF, 0x4A, 0x4A, 0x4A),
+    "highlight": color(0xFF, 0x00, 0x00, 0x80),
+    "highlighttext": color(0xFF, 0xC4, 0xC4, 0xC4),
+    "inactiveborder": color(0xFF, 0xC4, 0xC4, 0xC4),
+    "inactivecaption": color(0xFF, 0xC4, 0xC4, 0xC4),
+    "inactivecaptiontext": color(0xFF, 0x00, 0x00, 0x00),
+    "infobackground": color(0xFF, 0xDF, 0xDF, 0xDF),
+    "infotext": color(0xFF, 0x00, 0x00, 0x00),
+    "menu": color(0xFF, 0xC4, 0xC4, 0xC4),
+    "menutext": color(0xFF, 0x00, 0x00, 0x00),
+    "scrollbar": color(0xFF, 0xC4, 0xC4, 0xC4),
+    "threeddarkshadow": color(0xFF, 0x4A, 0x4A, 0x4A),
+    "threedface": color(0xFF, 0xDF, 0xDF, 0xDF),
+    "threedhighlight": color(0xFF, 0xFF, 0xFF, 0xFF),
+    "threedlightshadow": color(0xFF, 0xFF, 0xFF, 0xFF),
+    "threedshadow": color(0xFF, 0x4A, 0x4A, 0x4A),
+    "window": color(0xFF, 0xDF, 0xDF, 0xDF),
+    "windowframe": color(0xFF, 0xC4, 0xC4, 0xC4),
+    "windowtext": color(0xFF, 0x00, 0x00, 0x00),
+];
+
 unittest
 {
     Color c;
@@ -285,6 +342,18 @@ unittest
     assert(parsePaint("FUCHSIA", c) && c.argb == 0xFFFF00FF);
     assert(parsePaint(" darkblue ", c) && c.argb == 0xFF00008B);
     assert(parsePaint("royalblue", c) && c.argb == 0xFF4169E1);
+
+    // The CSS2 system colors SVG 1.1 §6.2 inherits: the names are keywords,
+    // the values are the UA's, and they follow the same case-insensitive
+    // spelling as every other SVG keyword.
+    assert(parsePaint("Window", c) && c.argb == 0xFFDFDFDF);
+    assert(parsePaint("THREEDFACE", c) && c.argb == 0xFFDFDFDF);
+    assert(parsePaint("ActiveCaption", c) && c.argb == 0xFF000080);
+    assert(parsePaint("background", c) && c.argb == 0xFF005C5C);
+    // A name in neither registry still fails, so the attribute is dropped
+    // rather than guessed at.
+    assert(!parsePaint("windows", c));
+    assert(!parsePaint("threedfacez", c));
 
     assert(parsePaint("#f00", c) && c == Color.Red);
     assert(parsePaint("#0000ff", c) && c == Color.Blue);
