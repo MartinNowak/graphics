@@ -441,6 +441,24 @@ private string baseJoin(string base, string v)
 // Only base64 payloads are in play; the bytes go to gamut (the codec
 // behind guip.Bitmap.load) and the decoded pixels are copied into a
 // GC buffer the Bitmap owns, exactly as Bitmap.load now does.
+// A data: URL's base64 payload, without the line-wrapping it ships with.
+// RFC 2397 spells the payload as MIME base64, which folds at 76 characters,
+// and that is how the suite writes it - all thirteen of coords-viewattr-02-b's
+// JPEGs are folded inside the href attribute. XML §3.3.3 normalizes an
+// attribute value's newlines to spaces on the way to us, RFC 4648 §3 does
+// not count whitespace as part of the encoding, and every UA that captured a
+// reference image skipped it; Base64.decode does not, which left thirteen
+// images blank.
+private string base64Payload(string s)
+{
+    char[] kept;
+    kept.reserve(s.length);
+    foreach (dchar ch; s)
+        if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n')
+            kept ~= ch;
+    return cast(string) kept;
+}
+
 private Bitmap loadDataURL(string url)
 {
     auto semi = indexOf(url, ';');
@@ -448,9 +466,11 @@ private Bitmap loadDataURL(string url)
         && url[semi + 1 .. semi + 8] == "base64,",
         "only base64 data: URLs load");
 
+    auto payload = base64Payload(url[semi + 8 .. $]);
+
     Bitmap bmp;
     Image image;
-    enforce(image.loadFromMemory(Base64.decode(url[semi + 8 .. $]),
+    enforce(image.loadFromMemory(Base64.decode(payload),
         LOAD_RGB | LOAD_ALPHA | LOAD_8BIT | LOAD_NO_PREMUL
         | LAYOUT_GAPLESS | LAYOUT_VERT_STRAIGHT),
         "undecodable data: image");
@@ -6309,6 +6329,21 @@ unittest
     assert(dot.r == 255 && dot.g == 0 && dot.b == 0 && dot.a == 255,
         "data: URIs decode and draw like files");
     assert(bmp.getLine!PMColor(0)[9].a == 255, "the 1x1 tile upscales edge-to-edge");
+
+    // ...and the payload may arrive folded. RFC 2397 spells a data: URL's
+    // base64 as MIME base64, which folds at 76 characters, and the suite
+    // writes it that way - all thirteen of coords-viewattr-02-b's JPEGs are
+    // folded inside the href. XML §3.3.3 normalizes an attribute value's
+    // newlines to spaces on the way to the decoder, so a folded payload has
+    // to decode as the same bytes.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10">
+        <image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12P4z8Dw
+            HwAFAAH/cpxSZwAAAABJRU5ErkJggg=="
+            x="10" width="10" height="10"/>
+        </svg>`, 1.0f, imgBase);
+    immutable folded = bmp.getLine!PMColor(5)[15];
+    assert(folded.r == 255 && folded.g == 0 && folded.b == 0 && folded.a == 255,
+        "a line-folded base64 payload decodes like the same payload unwrapped");
 
     // xml:base (§5.1.2) rebases the subtree's hrefs.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">

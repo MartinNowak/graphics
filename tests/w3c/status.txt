@@ -36,7 +36,7 @@ animate-elem-36-t.svg OK 2157
 animate-elem-37-t.svg OK 2063
 animate-elem-38-t.svg OK 321
 animate-elem-39-t.svg OK 2384
-animate-elem-40-t.svg OK 4573
+animate-elem-40-t.svg OK 2324
 animate-elem-41-t.svg OK 1517
 animate-elem-44-t.svg OK 587
 animate-elem-46-t.svg OK 824
@@ -114,7 +114,7 @@ coords-units-01-b.svg OK 1336
 coords-units-02-b.svg OK 2311
 coords-units-03-b.svg OK 5388
 coords-viewattr-01-b.svg OK 3618
-coords-viewattr-02-b.svg OK 10977
+coords-viewattr-02-b.svg OK 531
 coords-viewattr-03-b.svg OK 1809
 coords-viewattr-04-f.svg OK 5941
 extend-namespace-01-f.svg OK 23580

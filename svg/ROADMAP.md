@@ -62,6 +62,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 22               | a radial focus snapped onto the end circle     | 3.11 M     |
 |                       | leaves a degenerate quadratic, so its roots    |            |
 |                       | are solved without cancellation (§13.2.3)      |            |
+| step 23               | a data: URI payload folded across lines is     | 3.10 M     |
+|                       | the same bytes: XML §3.3.3 makes the fold a    |            |
+|                       | space the base64 decoder has to skip           |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -413,19 +416,60 @@ only four gradient tests that mention `stop-opacity` at all - 05-b, 13-b,
 colour constant and so cancel the term, fell to the floor as soon as the focus
 solve was fixed.
 
-Up next - step 23, and the same sweep picked the target up for free:
-coords-viewattr-02-b (10,977) paints *nothing* at any of its thirteen
-`<image>` boxes, and it is not a decoder gap - the same blob written as one
-line loads yellow both from a `probe.jpg` href and from a data href, in the
-same render. The difference is that the suite wraps its base64 at 76 columns,
-XML §3.3.3 normalizes an attribute value's newlines to spaces, and
-`loadDataURL` hands that string to `Base64.decode`, which refuses: enforce,
-empty `Bitmap`, blank box. §7.4's href is a URI-reference and RFC 4648
-§3 / MIME base64 both allow line breaks in the payload, so tolerating
-whitespace there is the feature - a few lines. Rows carrying a data URI with a
-break in it: 02-b's thirteen JPEGs (10,977) and animate-elem-40-t's two
-`image/jpg` (4,573); the rest of the data-URI rows keep their payload on one
-line already, so the win is measured, not assumed.
+Step 23 read §7.3/§7.4's `<image>` at the place the step-22 sweep had
+pointed at, and it takes the suite's largest un-triaged row almost to nothing:
+coords-viewattr-02-b 10,977 -> 531 and animate-elem-40-t 4,573 -> 2,324, with
+no other row moving; the baseline rebases 3,108,732 -> 3,096,037. 02-b draws one
+100x100 JPEG thirteen times under thirteen `preserveAspectRatio` values and
+painted none of them - every image box was transparent - while the same blob
+written on one source line loads yellow in the same render, from a `probe.jpg`
+href and from a data href alike. So the codec was never the question; the
+source's line length was. RFC 2397 spells a data: URL's payload as MIME base64,
+which folds at 76 characters, and the suite folds all thirteen payloads inside
+the href attribute. XML §3.3.3 normalizes an attribute value's newlines to
+spaces on the way to us, so `loadDataURL` received a base64 string with spaces
+in the middle of it, `Base64.decode` refused it, and §9.8's broken-reference
+rule turned that into a cached empty `Bitmap` - blank box, thirteen times. §7.4's
+href is a URI-reference, but this whitespace belongs to the payload, not to the
+URI, and RFC 4648 §3 does not count whitespace as part of the encoding: every
+UA that captured a reference image skipped it. `base64Payload` now strips the
+four XML whitespace characters from the payload alone, leaving a space in a path
+or a query the error it is. Both directions are pinned in unittests: the
+unwrapped 1x1 PNG still decodes edge-to-edge, and the same payload folded across
+two lines, indentation and all, paints the same red 10x10 tile.
+
+What the two rows keep is the compare's floor, not the row's. 02-b now has no
+strong delta anywhere - a 20%-threshold connected-components pass finds nothing
+but the background - so its 531 is the label text band plus JPEG decode drift
+under the fuzz. 40-t's two 82x82 image boxes each hold 163 strong pixels of
+interior drift, and a 202-pixel label band plus a handful of smaller runs carry
+the rest of its 1,515. The negative control is worth recording
+for the next time an `<image>` row looks broken: eleven suite rows carry a data
+URI whose payload is already on one line, and not one of them moved.
+
+Up next - step 24, §7.10's unit table, which the same sweep found by asking
+the engine what it makes of a length. A scratch document asking for one stroke
+width eight ways answers unit-less, `20px` and `2em` correctly, and then paints
+`0.25in` 18 px wide, `16pt` 16, `2pc` 24, `0.5cm` and `5mm` both 14.17. That is
+one basis, not three: `enum dpi = 72` in `parseLength`, so 1in = 72px, 1pt = 1px,
+1pc = 12px, 1cm = 28.35px, 1mm = 2.835px - and because the `<style>` rules and
+the presentation attributes both run through that one function, the CSS side and
+the attribute side agree, which means the constant is the feature. §7.10 defines
+the absolute identifiers as "an appropriate multiple of one px unit ... based on
+what the user agent knows about its viewing environment", works its example at 90
+dpi ("1pt equals 1.25px", "1in equals 90px"), and then states the number the
+harness cares about: "The reference image above was generated on a 96dpi system
+(i.e., 1 inch = 96 pixels)". At 96 dpi the same lengths are 24, 21.33, 32 and
+18.9 - every absolute length we paint is a quarter short. coords-units-03-b
+(5,388) is the table's own test, and the interesting part of it is that our
+basis is self-consistent: the five lines it draws as `1in`, `2.54cm`, `25.4mm`,
+`72pt`, `6pc` are already equal to each other, at 72 px where the references were
+captured at 96. The suite's reach is narrow - three rows carry an in/cm/mm/pt/pc
+length at all, 03-b, coords-units-02-b (2,311, one `font-size="13pt"`, because
+that test deliberately leaves the CSS-unit-to-px conversion out) and
+filters-morph-01-f (8,527, one `12pt`) - and twelve carry an em or ex, 480 K of
+AE of which 450 K is three deferred filter rows. `ex`'s x-height (we use half an
+em) and what a `%` normalizes against are the table's two remaining questions.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -434,6 +478,11 @@ line already, so the win is measured, not assumed.
   struct-image-11-b (22 K) belongs here too: the references were captured
   after the W3C checker clicked every `<image>` (`onclick` makeGreen), so
   the correct static (blue) state can never match.
+  extend-namespace-01-f (23.6 K) is the same class: its pie chart is built
+  at load by ECMAScript from the `bd:` business data (`getElementsByTagNameNS`,
+  then `createElementNS` arcs), so the reference is a post-script state no
+  static render reaches - the foreign-namespace half of it, ignoring the
+  `bd:` elements, is already right.
 - `conform-viewers` (14 K): references captured after script-driven viewer
   zoom/pan (`onload` handlers, `viewport.zoomAndPan`) — scripting end-states
   again; step 8's viewport sizing did not move them.
@@ -484,6 +533,14 @@ line already, so the win is measured, not assumed.
   test that contains no green. Matching those would mean re-breaking
   visibility !important, the CSS case rules, and presentation-attr
   precedence.
+- types-basic-02-f (8.2 K), from the step-23 sweep: its pass criteria ask for
+  "six circles with the same thick green stroke visible, and no red", which is
+  what we paint, and the archived PNG is the state its own description carves
+  out - "if the SVG user agent doesn't support CSS styling then this test does
+  not apply". Three of the six positions (the ones styled by the `<style>`
+  element's `#id` rules) show the red reference ring instead of the green one
+  there, 5.1 K strong-delta pixels per ring band, and the other three, styled by
+  presentation attribute and inline `style`, are green in both.
 - `filters-turb` (163 K) / `filters-conv` (172 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
 - Gradient ramps that change colour across a `stop-opacity` change
