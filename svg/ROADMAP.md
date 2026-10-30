@@ -105,6 +105,22 @@ Impact). A unittest pins the four image cases: userSpaceOnUse clip,
 objectBoundingBox clip (basis = the viewport rect, not the natural-pixel
 path), broken reference (paint dropped) and `mask`.
 
+Up next - step 14, internal-subset general entities. Four tests declare
+entities in their DOCTYPE's internal subset and reference them as markup:
+`render-elems-03-t`'s `&shape;` octagon, and `coords-viewattr-01-b`/`-02-b`/
+`-04-f`'s `&Smile;`, `&Viewport1;` and `&Viewport2;` rects. XML 1.0 §4.4.2
+replaces a reference to an internal general entity with its declaration's
+content before the document is parsed, and SVG makes the document XML -
+§G.2 requires a conforming fragment to "be XML well-formed ([XML10], section
+2.1)"; §1.3 is why the *external* subset stays unfetched ("It is not
+recommended that a DOCTYPE declaration be included in SVG documents"). The
+parser drops the DTD noise and leaves `&shape;` sitting in the text node, so
+the octagon never paints. Pre-expanding the four documents with a throwaway
+script and re-rendering measures the win: render-elems-03-t 31,974 -> 740,
+coords-viewattr-01-b 8,286 -> 3,617, -02-b 11,433 -> 10,976, -04-f 6,342 ->
+5,940; -36.8 K from one mechanism, and the other 522 documents - no
+`<!ENTITY` - pay nothing.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -156,6 +172,19 @@ path), broken reference (paint dropped) and `mask`.
   are missing (`fc-match Impact` answers Noto Sans here).
   `text-intro-03-b/-06-t/-07-t` (480 K) are a different lever:
   Arabic shaping with host Noto against Kayrawan/Scheherezade references.
+- White-page references (~1.46 M, 44% of the 3.33 M baseline): ten tests'
+  reference PNGs were captured over an *opaque white page* while our canvas
+  is transparent, so their AE is page background, not content. Re-comparing
+  our own renderings after `magick -background white -flatten` (a one-off
+  script; the harness composites nothing) collapses them: animate-elem-77-t
+  166.2 K -> 1.3 K, text-intro-03-b 164.5 K -> 11.0 K, filters-turb-02-f
+  161.6 K -> 5.1 K, filters-conv-05-f 153.9 K -> 7.6 K, struct-image-
+  13/14/15-f 151 K each -> 5.3/5.3/6.4 K, filters-light-02-f 134.8 K -> 66,
+  text-intro-06-t/-07-t 158 K each -> 22.2/22.7 K. Compositing over white
+  suite-wide is the wrong lever: 3.33 M -> 73.7 M, because the other 515
+  references do keep their alpha. Better of the two readings per test puts
+  the suite's content floor near 1.86 M - everything still worth chasing,
+  including the ceilings above, lives there.
 
 ## Backlog (small, opportunistic)
 
