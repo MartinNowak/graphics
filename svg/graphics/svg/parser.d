@@ -1,9 +1,10 @@
 module graphics.svg.parser;
 
-import std.algorithm : countUntil;
+import std.algorithm : canFind, countUntil, startsWith;
 import std.exception;
 import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser;
 import std.experimental.xml.interfaces : isCursor, XMLKind;
+import std.range : empty;
 
 enum xlinkNS = "http://www.w3.org/1999/xlink";
 
@@ -81,12 +82,271 @@ struct Document
     }
 }
 
+/// The five entities every XML document has (XML 1.0 §4.4.7); a document may
+/// not redeclare them (§4.2), so they never enter the entity table and a
+/// reference to one keeps its spelling for whatever decodes it later.
+private enum xmlBuiltins = ["amp", "lt", "gt", "quot", "apos"];
+
+/// XML 1.0 §4.4.2: a reference to an internal general entity is replaced by
+/// the content of its declaration before the document is parsed. SVG makes
+/// the document XML - §G.2 requires a conforming fragment to "be XML
+/// well-formed ([XML10], section 2.1)" - so `<g>&shape;</g>` is a `<g>`
+/// containing the octagon `<path>` the test suite declares in its DOCTYPE.
+/// The expansion runs over the source text, which is the only place where a
+/// replacement that is *markup* can become markup: the token walk below sees
+/// the elements exactly where the reference stood, and a replacement that is
+/// text still ends up in a text node.
+///
+/// Only the internal subset is read. The external subset is never fetched,
+/// as §1.3 advises ("While a DTD is provided in this specification, the use
+/// of DTDs for validating XML documents is known to be problematic ... It is
+/// not recommended that a DOCTYPE declaration be included in SVG documents");
+/// a document that relies on `&external;` therefore keeps its reference
+/// written out, and an undeclared reference is left alone too - dropping
+/// content is worse than showing what was typed. Documents without entity
+/// declarations, which is nearly all of them, are returned unchanged.
+private string expandEntities(string src)
+{
+    auto at = countUntil(src, "<!DOCTYPE");
+    if (at < 0)
+        return src;
+    immutable subset = internalSubset(src, cast(size_t) at);
+    if (subset[0] is size_t.max)
+        return src; // `<!DOCTYPE svg PUBLIC "..." "...">`: nothing declared here
+
+    auto table = internalEntities(src[subset[0] .. subset[1]]);
+    if (table.empty)
+        return src;
+
+    // Declarations may reference other declarations. Resolve them first, so
+    // one pass over the document suffices; XML forbids an entity from
+    // referencing itself (§4.4.2), and the guard below makes such a cycle
+    // leave the nested reference written out instead of spinning.
+    bool[string] active;
+    string resolve(string name)
+    {
+        auto p = name in table;
+        if (p is null || name in active)
+            return null; // unknown, or a cycle: the caller keeps `&name;`
+        active[name] = true;
+        immutable expanded = replaceRefs(*p, &resolve);
+        active.remove(name);
+        return expanded;
+    }
+    foreach (name; table.keys)
+    {
+        auto value = resolve(name);
+        if (value !is null)
+            table[name] = value;
+    }
+
+    // Everything from the subset's `]` on is document text. The declaration
+    // itself is left byte-for-byte as it was, so the XML lexer still sees a
+    // complete (and still ignorable) DOCTYPE.
+    return src[0 .. subset[1]] ~ replaceRefs(src[subset[1] .. $], &resolve);
+}
+
+/// `[begin, end)` of the internal subset of the `<!DOCTYPE` at `dtd`, or
+/// `[size_t.max, size_t.max]` when the declaration has none. `>` and `]`
+/// inside a comment or an entity's replacement text mean nothing to the
+/// declaration around them, so both are stepped over.
+private size_t[2] internalSubset(string src, size_t dtd)
+{
+    size_t i = dtd + "<!DOCTYPE".length;
+    for (; i < src.length; )
+    {
+        immutable next = skipMarkup(src, i);
+        if (next != i)
+            i = next;
+        else if (src[i] == '[')
+            break;
+        else if (src[i] == '>')
+            return [size_t.max, size_t.max];
+        else
+            ++i;
+    }
+    if (i >= src.length)
+        return [size_t.max, size_t.max];
+
+    immutable begin = i + 1;
+    for (++i; i < src.length; )
+    {
+        immutable next = skipMarkup(src, i);
+        if (next != i)
+            i = next;
+        else if (src[i] == ']')
+            return [begin, i];
+        else
+            ++i;
+    }
+    return [size_t.max, size_t.max];
+}
+
+/// The subset's general entity declarations as `name => replacement text`.
+/// Parameter entities (`<!ENTITY % name ...>`, §4.2) are not general
+/// entities and never appear as `&name;`; external-entity declarations
+/// (`SYSTEM`/`PUBLIC`) and unparsed ones (an `NDATA` marker, §4.7) carry no
+/// replacement text. None of them is collected.
+private string[string] internalEntities(string subset)
+{
+    string[string] res;
+    for (size_t i = 0; i < subset.length; )
+    {
+        immutable next = skipMarkup(subset, i);
+        if (next != i)
+        {
+            i = next;
+            continue;
+        }
+        if (!subset[i .. $].startsWith("<!ENTITY"))
+        {
+            ++i;
+            continue;
+        }
+
+        string name, value;
+        bool general;
+        size_t j = skipSpace(subset, i + "<!ENTITY".length);
+        if (j < subset.length && subset[j] != '%')
+        {
+            immutable begin = j;
+            while (j < subset.length && isNameChar(subset[j]))
+                ++j;
+            name = subset[begin .. j];
+            j = skipSpace(subset, j);
+            if (!name.empty && j < subset.length && (subset[j] == '"' || subset[j] == '\''))
+            {
+                immutable after = skipMarkup(subset, j); // just past the literal
+                immutable end = pastGT(subset, after);   // just past the '>'
+                value = subset[j + 1 .. after - 1];
+                general = !canFind(subset[after .. end], "NDATA");
+            }
+        }
+
+        i = skipDecl(subset, i);
+        if (general && !canFind(xmlBuiltins, name))
+            res[name] = value;
+    }
+    return res;
+}
+
+/// Replace each `&name;` in `text` that `lookup` has a replacement for; a
+/// null answer leaves the reference exactly as written. Character references
+/// begin with `#`, so they never reach a name, and comment and CDATA content
+/// holds no references (§2.2, §2.7) - both are copied through untouched.
+private string replaceRefs(string text, scope string delegate(string) lookup)
+{
+    string res;
+    res.reserve(text.length);
+    for (size_t i = 0; i < text.length; )
+    {
+        if (text[i .. $].startsWith("<!--"))
+        {
+            immutable end = countUntil(text[i + 4 .. $], "-->");
+            immutable stop = end < 0 ? text.length : i + 4 + cast(size_t) end + 3;
+            res ~= text[i .. stop];
+            i = stop;
+            continue;
+        }
+        if (text[i .. $].startsWith("<![CDATA["))
+        {
+            immutable end = countUntil(text[i + 9 .. $], "]]>");
+            immutable stop = end < 0 ? text.length : i + 9 + cast(size_t) end + 3;
+            res ~= text[i .. stop];
+            i = stop;
+            continue;
+        }
+
+        if (text[i] != '&')
+        {
+            res ~= text[i];
+            ++i;
+            continue;
+        }
+
+        size_t j = i + 1;
+        while (j < text.length && isNameChar(text[j]))
+            ++j;
+        immutable value = j > i + 1 && j < text.length && text[j] == ';'
+            ? lookup(text[i + 1 .. j]) : null;
+        if (value is null)
+            res ~= text[i++]; // not a reference we know
+        else
+        {
+            res ~= value;
+            i = j + 1;
+        }
+    }
+    return res;
+}
+
+/// Step over a comment or a quoted literal starting at `i`; returns `i`
+/// itself when neither starts there.
+private size_t skipMarkup(string s, size_t i)
+{
+    if (s[i .. $].startsWith("<!--"))
+    {
+        immutable end = countUntil(s[i + 4 .. $], "-->");
+        return end < 0 ? s.length : i + 4 + cast(size_t) end + 3;
+    }
+    if (s[i] == '"' || s[i] == '\'')
+    {
+        immutable end = countUntil(s[i + 1 .. $], s[i .. i + 1]);
+        return end < 0 ? s.length : i + 1 + cast(size_t) end + 1;
+    }
+    return i;
+}
+
+/// Index just past the `>` that closes the markup declaration at `i`.
+private size_t skipDecl(string s, size_t i)
+{
+    return pastGT(s, i + 1);
+}
+
+/// Index just past the first `>` at or after `p` that is neither quoted nor
+/// commented. A replacement text is full of them - `&shape;` is a `<path/>` -
+/// so every DTD scan has to step over the literals to find the `>` that
+/// actually ends the declaration.
+private size_t pastGT(string s, size_t p)
+{
+    for (; p < s.length; )
+    {
+        immutable next = skipMarkup(s, p);
+        if (next != p)
+            p = next;
+        else if (s[p] == '>')
+            return p + 1;
+        else
+            ++p;
+    }
+    return s.length;
+}
+
+size_t skipSpace(string s, size_t i)
+{
+    while (i < s.length && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r'))
+        ++i;
+    return i;
+}
+
+/// True for the XML Name characters (§2.13) an entity name is built of.
+private bool isNameChar(char ch)
+{
+    return ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
+        || ch >= '0' && ch <= '9' || ch == '.' || ch == '-'
+        || ch == '_' || ch == ':';
+}
+
 /// Parse `source` into a `Document`. Tolerates documents without an XML
 /// declaration (SVG does not require one); XML errors are reported to the
 /// parser's error sink and the best-effort tree is kept, as before.
 /// Throws if the document contains no <svg> element.
 Document parseSVG(string source)
 {
+    // Internal general entities are markup by the time anything looks at the
+    // document (XML 1.0 §4.4.2), so they are already expanded for the walk.
+    auto text = expandEntities(source);
+
     // The cursor tree-walk, not std.experimental.xml's saxParser wrapper:
     // 0.1.7's wrapper drives the document with enter/next/exit but relies
     // on the handler popping its stack at every onElementEnd - while the
@@ -98,8 +358,8 @@ Document parseSVG(string source)
     // (masking-path-08-b's `<clipPath id="emptyclip">` ate the rest of
     // its <defs>, everything behind it with it). The cursor's own
     // enter/next/exit semantics are correct, so the walk lives here.
-    auto c = source.lexer.parser.cursor((CursorError e) {});
-    c.setSource(source);
+    auto c = text.lexer.parser.cursor((CursorError e) {});
+    c.setSource(text);
 
     Element[] nodes = [Element.init]; // nodes[0]: the document pseudo-root
     size_t[string] ids;
@@ -335,4 +595,75 @@ unittest
             hrefs ~= *p;
     assert(hrefs == ["norm.png", "good.png"],
         "XLink attributes follow their namespace binding");
+}
+
+unittest
+{
+    // Internal general entities (XML 1.0 §4.4.2) are content, not text: the
+    // suite's render-elems-03-t draws its octagon as `&shape;`, a whole
+    // <path> declared in the DOCTYPE's internal subset, and the
+    // coords-viewattr tests place their marker rects the same way. A
+    // replacement that is markup becomes markup, in place; parameter
+    // entities (§4.2) and unparsed ones (NDATA, §4.7) carry no replacement
+    // text; a cycle - which §4.4.2 forbids - stays as written.
+    auto doc = parseSVG(`<!DOCTYPE svg [
+        <!ENTITY % paint "fill='red'">
+        <!ENTITY shape "<path id='P' d='M0,0 l9,0 l0,9 z'/>">
+        <!ENTITY w "7">
+        <!ENTITY row "w=&w;">
+        <!ENTITY loop "&loop;">
+        <!ENTITY raster "photo.png" NDATA png>
+        <!ENTITY ext SYSTEM "logo.svg">
+    ]>
+    <svg width="10" height="10">
+        <g id="g">&shape;</g>
+        <rect id="r" width="&w;"/>
+        <image id="i" xlink:href="&ext;"/>
+        <text id="t">&row; &raster; &loop; &undeclared; %paint;</text>
+        <text id="b">R&amp;D &#65;</text>
+        <!-- &shape; -->
+        <svg id="c"><![CDATA[&shape;]]></svg>
+    </svg>`);
+
+    // Markup in, markup out: the path is a child of the <g>, in place.
+    auto g = doc.byId("g");
+    assert(doc.nodes[g].name == "g");
+    size_t paths, kids;
+    foreach (ch; doc.nodes[g].children)
+        if (!doc.nodes[ch].name.empty)
+            ++kids, assert(doc.nodes[ch].name == "path" && ch == doc.byId("P"));
+    assert(kids == 1, "the entity's path is the group's only element child");
+
+    // Attribute values expand too, and a declaration may reference another
+    // declaration: the rect's width is `7`, the text starts `w=7`.
+    assert(doc.nodes[doc.byId("r")].attrs["width"] == "7");
+
+    string allText(size_t i)
+    {
+        string s = doc.nodes[i].text;
+        foreach (ch; doc.nodes[i].children)
+            if (doc.nodes[ch].name.empty)
+                s ~= allText(ch);
+        return s;
+    }
+    assert(allText(doc.byId("t")) == `w=7 &raster; &loop; &undeclared; %paint;`,
+        "unparsed, cyclic, undeclared and parameter references stay written out");
+
+    // Predefined entities and character references are not the expander's
+    // business: neither name is in the table (`#` is not a Name character),
+    // so both reach the text node as written.
+    import std.format : format;
+    assert(allText(doc.byId("b")) == `R&amp;D &#65;`,
+        format("built-ins and character references reach text as written: %s",
+            allText(doc.byId("b"))));
+
+    // An external-entity reference names a file, not replacement text, and
+    // neither comments nor CDATA hold references (§2.2, §2.7): exactly one
+    // <path> exists in the whole document.
+    assert(doc.nodes[doc.byId("i")].attrs["xlink:href"] == "&ext;");
+    assert(allText(doc.byId("c")) == "&shape;");
+    foreach (n; doc.nodes)
+        if (n.name == "path")
+            ++paths;
+    assert(paths == 1, "only the expanded reference is a path");
 }

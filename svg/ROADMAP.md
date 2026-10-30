@@ -39,7 +39,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 12               | static-profile feature strings (Annex I) + the switch's     | 3.34 M     |
 |                       | own transform (§5.8.2/§5.8.3)                               |            |
 | step 13               | clip-path/mask on `<image>`: the paint goes offscreen      | 3.33 M     |
-|                       | with the element's box + user-space CTM (§14.3.5/§14.4)     |            |
+|                       | with the element's box + user-space CTM (§14.3.5/§14.4)     |
+| step 14               | internal-subset general entities expanded over the    | 3.29 M     |
+|                       | source text before the walk (XML 1.0 §4.4.2, §G.2/§1.3)  |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -105,21 +107,25 @@ Impact). A unittest pins the four image cases: userSpaceOnUse clip,
 objectBoundingBox clip (basis = the viewport rect, not the natural-pixel
 path), broken reference (paint dropped) and `mask`.
 
-Up next - step 14, internal-subset general entities. Four tests declare
-entities in their DOCTYPE's internal subset and reference them as markup:
-`render-elems-03-t`'s `&shape;` octagon, and `coords-viewattr-01-b`/`-02-b`/
-`-04-f`'s `&Smile;`, `&Viewport1;` and `&Viewport2;` rects. XML 1.0 §4.4.2
-replaces a reference to an internal general entity with its declaration's
-content before the document is parsed, and SVG makes the document XML -
-§G.2 requires a conforming fragment to "be XML well-formed ([XML10], section
-2.1)"; §1.3 is why the *external* subset stays unfetched ("It is not
-recommended that a DOCTYPE declaration be included in SVG documents"). The
-parser drops the DTD noise and leaves `&shape;` sitting in the text node, so
-the octagon never paints. Pre-expanding the four documents with a throwaway
-script and re-rendering measures the win: render-elems-03-t 31,974 -> 740,
-coords-viewattr-01-b 8,286 -> 3,617, -02-b 11,433 -> 10,976, -04-f 6,342 ->
-5,940; -36.8 K from one mechanism, and the other 522 documents - no
-`<!ENTITY` - pay nothing.
+Step 14 (internal-subset general entities) landed: `parseSVG` expands the
+DOCTYPE's internal subset over the source text before the token walk, so
+`render-elems-03-t`'s `&shape;` becomes the octagon `<path>` it declares and
+the `coords-viewattr` tests' `&Smile;`/`&Viewport1;`/`&Viewport2;` marker
+rects appear exactly where they were referenced. The source text is the only
+place where a replacement that is *markup* can become markup, and a
+replacement that is text still lands in a text node - with attribute values
+covered by the same pass. Parameter entities (`%name`, §4.2) and the
+external (`SYSTEM`/`PUBLIC`) and unparsed (`NDATA`, §4.7) forms carry no
+replacement text and are not collected, and the five predefined entities a
+document may not redeclare (§4.4.7) are never in the table; a reference to an
+undeclared name - or a cycle, which §4.4.2 forbids - stays written out,
+because showing what was typed beats dropping content. The external subset is
+never fetched, which is what §1.3 advises. render-elems-03-t fell
+31,974 -> 740, coords-viewattr-01-b 8,286 -> 3,618, -02-b 11,433 -> 10,977,
+-04-f 6,342 -> 5,941; the other 522 documents carry no `<!ENTITY` and reach
+the lexer unchanged. A unittest pins markup and attribute expansion, a
+declaration that references another declaration, and the five cases that must
+stay as written.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -188,6 +194,14 @@ coords-viewattr-01-b 8,286 -> 3,617, -02-b 11,433 -> 10,976, -04-f 6,342 ->
 
 ## Backlog (small, opportunistic)
 
+- Decode the five predefined entities and the character references (§4.1,
+  §4.3.7) where they belong: on the node, after tokenizing. Today `&amp;` and
+  `&#65;` reach a text node written out and get painted as typed - step 14's
+  unittest pins that pass-through - and attribute values are the same;
+  `css.d`'s `xmlUnescape` already does the job for stylesheet text. Doing it
+  textually instead would turn a label into markup: that variant lost 4.7 K
+  on `animate-elem-40-t` (`&lt;animate&gt;` descriptions became elements)
+  while gaining 2 K on `text-ws-01-t`/`-02-t`.
 - Fix stale § numbers in source comments (text-area refs went with step
   6): `render.d` still cites `§6.1/§6.1.2/§6.1.3/§6.2/§7.1` around text
   layout, `§11.4` markers, `§9.8` image; `css.d`/`filter.d` unchecked.

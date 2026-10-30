@@ -113,10 +113,10 @@ coords-transformattr-05-f.svg OK 556
 coords-units-01-b.svg OK 1336
 coords-units-02-b.svg OK 2311
 coords-units-03-b.svg OK 5388
-coords-viewattr-01-b.svg OK 8286
-coords-viewattr-02-b.svg OK 11433
+coords-viewattr-01-b.svg OK 3618
+coords-viewattr-02-b.svg OK 10977
 coords-viewattr-03-b.svg OK 1809
-coords-viewattr-04-f.svg OK 6342
+coords-viewattr-04-f.svg OK 5941
 extend-namespace-01-f.svg OK 23580
 filters-background-01-f.svg OK 4968
 filters-blend-01-b.svg OK 7422
@@ -322,7 +322,7 @@ pservers-pattern-08-f.svg OK 605
 pservers-pattern-09-f.svg OK 604
 render-elems-01-t.svg OK 418
 render-elems-02-t.svg OK 740
-render-elems-03-t.svg OK 31974
+render-elems-03-t.svg OK 740
 render-elems-06-t.svg OK 418
 render-elems-07-t.svg OK 1220
 render-elems-08-t.svg OK 1164
