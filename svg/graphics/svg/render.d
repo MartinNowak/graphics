@@ -773,8 +773,12 @@ private struct Renderer
         Color cstroke, cfill=Color.Black;
         float strokeWidth=1, opacity=1, fillOpacity=1, strokeOpacity=1;
 
-        // Paint model: `none` becomes a zero-alpha color (never painted);
-        // currentColor is resolved at paint time from the `color` property.
+        // Paint model: `none` becomes a zero-alpha color (never painted).
+        // `color` is the currentColor base (§12.2). The two flags are
+        // cascade scratch: a `fill`/`stroke` declaration that *names*
+        // currentColor sets one, and the binding at the end of pushStyle
+        // turns it into a plain color, so the keyword itself is never
+        // inherited (§11.2, color-prop-05-t).
         Color curColor=Color.Black;
         bool fillIsCurrent, strokeIsCurrent;
         bool visible=true; // visibility
@@ -941,7 +945,7 @@ private struct Renderer
                     break;
                 }
                 if (equalCase(v, "currentColor"))
-                    style.fillIsCurrent = true;
+                    style.fillIsCurrent = true; // bound at the cascade end
                 else
                 {
                     Color c;
@@ -967,7 +971,7 @@ private struct Renderer
                     break;
                 }
                 if (equalCase(v, "currentColor"))
-                    style.strokeIsCurrent = true;
+                    style.strokeIsCurrent = true; // bound at the cascade end
                 else
                 {
                     Color c;
@@ -1363,6 +1367,31 @@ private struct Renderer
             style.effBaseline = style.dominantBaseline;
         style.ownAlign = style.alignmentBaseline;
 
+        // Bind currentColor once, here: §11.2 defines it as "the current
+        // animated value of the color specified by the 'color' property",
+        // and the suite pins whose color that is - color-prop-05-t puts
+        // fill="currentColor" on a group with color="lime" and a
+        // color="red" child, and its pass criterion is "the user agent
+        // renders the rectangle with a green fill". So the color belongs
+        // to the element that *wrote* the paint value and travels with
+        // the inherited property afterwards; resolving the keyword at
+        // paint time instead would re-bind it on every descendant.
+        // A flag reaching this point always means "named here": the
+        // parent's copy was already bound, so nothing inherits the
+        // keyword. And a use instance still follows the use site (§5.6),
+        // because its walk starts from the use element's style and the
+        // target's own declaration is re-applied inside it.
+        if (style.fillIsCurrent)
+        {
+            style.cfill = style.curColor;
+            style.fillIsCurrent = false;
+        }
+        if (style.strokeIsCurrent)
+        {
+            style.cstroke = style.curColor;
+            style.strokeIsCurrent = false;
+        }
+
         styles ~= style;
         return style;
     }
@@ -1503,8 +1532,9 @@ private struct Renderer
             fb.a = to!ubyte(round(fb.a * clamp(alpha, 0f, 1f)));
             return Paint(fb);
         }
-        Color c = isFill ? (s.fillIsCurrent ? s.curColor : s.cfill)
-            : (s.strokeIsCurrent ? s.curColor : s.cstroke);
+        // No keyword reaches this point: currentColor is already bound
+        // into cfill/cstroke by the cascade (pushStyle).
+        Color c = isFill ? s.cfill : s.cstroke;
         c.a = to!ubyte(round(c.a * clamp(alpha, 0f, 1f)));
         return Paint(c);
     }
@@ -4918,6 +4948,34 @@ unittest
     assert(px.r == 0 && px.g == 0 && px.b == 0, to!string(px));
     px = bmp.getLine!PMColor(4)[2]; // on the stroke
     assert(px.r == 255, to!string(px));
+}
+
+unittest
+{
+    // currentColor binds where the paint value is *written*, not where the
+    // inherited value lands (§11.2's "value of the color specified by the
+    // 'color' property"; color-prop-05-t's pass criterion asks for the
+    // group's lime, not the child's red).
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <g fill="currentColor" color="lime"><rect x="0" y="0" width="10" height="10" color="red" stroke="none"/></g>
+        </svg>`);
+    auto px = bmp.getLine!PMColor(5)[5];
+    assert(px.g == 255 && px.r == 0, to!string(px)); // the group's lime, inherited
+
+    // `stroke` follows the same rule.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <g stroke="currentColor" fill="none" color="lime"><rect x="2" y="2" width="6" height="6" color="red" stroke-width="2"/></g>
+        </svg>`);
+    px = bmp.getLine!PMColor(5)[2]; // the ring's left edge
+    assert(px.g == 255 && px.r == 0, to!string(px));
+
+    // ...while a declaration the element writes itself still sees its own
+    // color: same document shape, keyword moved down one level.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
+        <g color="lime"><rect x="0" y="0" width="10" height="10" color="red" fill="currentColor" stroke="none"/></g>
+        </svg>`);
+    px = bmp.getLine!PMColor(5)[5];
+    assert(px.r == 255 && px.g == 0, to!string(px));
 }
 
 unittest

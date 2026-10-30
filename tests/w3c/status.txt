@@ -81,7 +81,7 @@ color-prop-01-b.svg OK 5243
 color-prop-02-f.svg OK 442
 color-prop-03-t.svg OK 442
 color-prop-04-t.svg OK 922
-color-prop-05-t.svg OK 11680
+color-prop-05-t.svg OK 430
 conform-viewers-01-t.svg OK 3014
 conform-viewers-02-f.svg OK 7817
 conform-viewers-03-f.svg OK 3540

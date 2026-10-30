@@ -48,6 +48,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | keeps its own x/y as the viewport origin (§5.6/§7.9)    |            |
 | step 17               | render by namespace, not prefix: only SVG-        | 3.18 M     |
 |                       | namespace elements reach the arena (§23.1, XML NS)  |            |
+| step 18               | currentColor binds at the element that writes  | 3.17 M     |
+|                       | the paint value, not the one inheriting it     |            |
+|                       | (§11.2/§12.2)                                 |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -203,32 +206,35 @@ struct-frag-05-t was the only file painting a foreign element with an SVG
 local name - every other hit is xhtml inside `<d:testDescription>`, which
 painted nothing - and the gate agrees: no other row moves.
 
-Up next - step 18, `color-prop-05-t` (11.7 K, the entire content of a
-one-rectangle test). Its body is `<g fill="currentColor" color="lime"><rect
-width="150" height="150" color="red"/></g>`; the reference paints the square
-lime (`#00FF00` at 195,135), we paint the rect's own red (`#FF0000`), and the
-pass criterion is unambiguous: "the user agent renders the rectangle with a
-green fill". The REC does not decide it - §11.2 only says currentColor paints
-"using the current animated value of the color specified by the 'color'
-property" and §12.2 gives the 'color' table (Inherited: yes) without saying
-whose color an *inherited* `fill: currentColor` carries - so the suite's
-criterion is the oracle, and it wants the color bound where the paint value
-is written and travelling with it afterwards. Today `pushStyle` stores the
-keyword as `fillIsCurrent`/`strokeIsCurrent` and `paintOf` resolves it at
-paint time against the element's own `color`, so the keyword re-binds on
-every descendant. Resolving it at the end of `pushStyle` instead is enough:
-the flag is only ever set on the element that named it, so that element's
-color freezes into `cfill`/`cstroke` and inheritance carries a plain color.
-A `use` instance keeps following the use site, because the instance walks
-with the use element's style stack and re-applies the target's own
-declarations inside it (§5.6; render.d already asserts it), and animated
-values ride the same cascade replay, so animate-elem-85-t subtest_2 -
-animated `color` plus `to="currentColor"`, already cyan - still resolves.
-A namespace-aware scan finds exactly one document in the suite where a
+Step 18 (currentColor binds where the paint value is written) landed:
+`color-prop-05-t` is a single rectangle under a group - `<g fill="currentColor"
+color="lime"><rect width="150" height="150" color="red"/></g>` - and the square
+came out the rect's own red where the reference is lime (`#FF0000` against
+`#00FF00` at 195,135), against a pass criterion that reads "the user agent
+renders the rectangle with a green fill". The REC does not decide it: §11.2
+only says currentColor paints "using the current animated value of the color
+specified by the 'color' property", and §12.2 gives the 'color' table
+(Inherited: yes) without saying whose color an *inherited* `fill:
+currentColor` carries - so the criterion is the oracle, and the rule is that
+the color belongs to the element that wrote the paint value and then travels
+with the inherited property. `pushStyle` used to store the keyword as
+`fillIsCurrent`/`strokeIsCurrent` for `paintOf` to resolve at paint time,
+which re-binds it on every descendant; the flags are now cascade scratch that
+the end of `pushStyle` resolves into a plain `cfill`/`cstroke`, so no style
+inherits the keyword and paint time only ever sees colors. Nothing else had
+to change: a flag reaching that point always means "named by this element",
+and a `use` instance still follows the use site because its walk starts from
+the use element's style and re-applies the target's own declaration inside it
+(§5.6, struct-use-05-b unmoved), while animated values ride the same cascade
+replay, so animate-elem-85-t's animated `color` with `to="currentColor"`
+keeps resolving cyan. The scan's prediction held exactly: 11,680 -> 430 and
+no other row moves, this being the only document in the suite where a
 currentColor paint declaration is inherited into an element that sets
-`color`: this one.
+`color`. A unittest pins the group's lime travelling with the inherited
+`fill`, the same rule for `stroke`, and the keyword one level down, where
+the child's own red is the right answer.
 
-Step 19, same rule on the other side of a paint server: `stop-color`
+Up next - step 19, same rule on the other side of a paint server: `stop-color`
 resolves in the *gradient definition's* scope, not the referencing element's.
 pservers-grad-18-b states it - "the stop-color is inherited from the
 location of the gradient definition" - which is §13.2.4's inheritance from
