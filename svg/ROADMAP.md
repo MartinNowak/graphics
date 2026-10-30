@@ -68,6 +68,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 24               | an absolute length resolves on the 96 dpi      | 3.09 M     |
 |                       | basis the W3C references were captured on      |            |
 |                       | (SVG 1.1 §7.10)                                |            |
+| step 25               | paint composites in linear light when          | 3.09 M     |
+|                       | color-interpolation says linearRGB             |            |
+|                       | (SVG 1.1 §11.3)                                |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -501,24 +504,65 @@ referenced by other elements (such as via a `use`)", which is what we do - three
 black `use` clones cover the red decoys at x=200 - while the reference shows the
 red decoys, the state the test exists to forbid.
 
-Up next - step 25, the `clip` property, which the same sweep turned up.
-masking-path-06-b (7,905) is the only row in the suite that uses it, and its
-whole delta is that one mechanism. Two `<image>` elements carry
-`clip="rect(10,10,10,10)" overflow="hidden"`, and the test draws a blue guide
-rect at the image bounds and a red one ten units inside. Where the two agree the
-JPEG decodes to within a level of the reference - (130,100) is (108,157,107) for
-us against (109,158,108) there - and where they differ we paint image and the
-reference paints nothing: (40,50), (40,110) and (228,110) are image pixels in
-ours, `(0,0,0,0)` in the reference, and the second image repeats it at (250,185)
-and (250,295). The strong-delta components are the image boxes themselves,
-200x120+35+45 with 5,967 pixels and the two 99x60 pieces of the other box. The
-engine has no handler for `clip` at all. §14.3.3 gives the semantics: the same
-parameter values as CSS2 §11.1.2, "unitless values, which indicate current user
-coordinates", it applies to "elements which establish a new viewport" - which an
-`<image>` does - and `auto` is the viewport's own bounds. So the feature is a
-rect inset in user units against the element's own viewport, clipping the way
-`clip-path` already clips shapes, and the pass criteria, "two images inside the
-red rectangles", is the before/after check the corner samples above measure.
+Step 25 landed the paint half of `color-interpolation` (SVG 1.1 §11.3). The
+engine had no handler for the property, so every composite ran in the storage
+space - which is what the initial `sRGB` value asks for, and 525 rows never name
+the property. painting-render-02-b is the row that does: five identical white-50%
+rects over black, labelled `dark` and `light` against the `#7F7F7F` and
+`#BBBBBB` chips above them, and the two readings of the property differ by one
+number - the sRGB-domain blend gives 127, a linear mix gives
+srgbEncode(0.502) = 188, and the `light` chip is 187. The rects that name
+`linearRGB`, and the one that reaches it through `inherit` from its
+`<g color-interpolation='linearRGB'>`, were flat-out wrong; the initial-value,
+`sRGB` and `auto` rects already sat under the fuzz.
+
+The blend is `blendPMlin`, blendPM's neighbour: the element's paint goes to a
+full-canvas scratch first (the maskedPaint and filteredElement convention), then
+both sides are un-premultiplied with filter.d's own rounding, decoded through the
+piecewise sRGB curve the §15.4 chain already works in, mixed, and re-encoded on
+the way out. Two identities keep the detour cheap and regression-safe: an opaque
+source, or a transparent destination, composites the same in either space, so
+`flushPath` skips the scratch outright when the element's paint is solid, and the
+`<mask>` and `<clipPath>` content that inherits the property while painting
+opaquely is untouched by it. painting-render-02-b 5,086 -> 1,184, and what is
+left is exactly the seven `dark`/`light` labels inside the boxes: bands of
+98x98 to 149x99, 195-489 strong-delta pixels each, host-font AA. Nothing else in
+the suite moves.
+
+`clip` (§14.3.3), which the previous sweep lined up as this step, turned out not
+to be a feature. §14.3.3 imports CSS 2.1 §11.1.2's
+`rect(<top>,<right>,<bottom>,<left>)`, and there the four values are the
+offsets from the top and the *left* border edges - all four measured from one
+point, which CSS 2.1 still spells out: "future updates may also reintroduce a
+syntax for offsetting shapes from each edge instead of offsetting from a point".
+`rect(10,10,10,10)` is therefore zero-area, so a conformant render paints *no*
+image, while the archived PNG and the pass criteria ("two images inside the red
+rectangles") show Batik's from-each-edge inset. Deferred.
+
+filters-composite-03-f (9,647) looked like the next §15 feature and is the same
+alpha question instead. Its FillPaint/StrokePaint inputs and the arithmetic are
+already right: the identical and clamped squares compare at AE 0. The two that
+miss are the semi-transparent results - `2F - 1.5F` leaves alpha 0.5 where the
+reference is (127,255,127) opaque, `-0.5F - 0.1` leaves 0.6 black where it is
+(102,102,102) opaque - and each reference pixel is ours composited over white.
+Flattening *both* sides over white collapses the row 9,647 -> 2,386, which is the
+AA of the three guide rings. Also deferred.
+
+Up next - step 26, the other half of §11.3: `color-interpolation` on a paint
+server. painting-render-01-b (2,354) paints three bars from the same
+white-blue-red-yellow stops - default value, `sRGB`, `linearRGB` - and only the
+linearRGB bar at translate(40,240) disagrees: strong components 97x40+40+240
+(2,097 pixels, mean delta 33) and 99x40+241+240 (856, mean 81), the bar's
+white->blue and red->yellow segments. The file carries its own oracle: the sRGB
+bar's midpoint chips are rgb(128,128,255) at x=50 and rgb(255,128,0) at x=250,
+and a ramp interpolated in linear light puts encode(0.5) = 188 in both places -
+(188,188,255) and (255,188,0). Nothing reads the property today: the ramp is
+guip's, which interpolates stops linearly in 8-bit sRGB, so the property on a
+`<linearGradient>` reaches nothing. The route is to make the shader see the
+curve - either densify each stop interval with linear-space midpoints before the
+stops are handed down, or build the ramp into a raster and paint that. The first
+keeps the existing shader path and is where to start. painting-render-01-b is
+the only suite row that names the property on a gradient.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -633,6 +677,21 @@ red rectangles", is the before/after check the corner samples above measure.
   references do keep their alpha. Better of the two readings per test puts
   the suite's content floor near 1.86 M - everything still worth chasing,
   including the ceilings above, lives there.
+- `masking-path-06-b` (7,905): the suite's only `clip="rect(...)"` row, and its
+  reference is Batik's from-each-edge inset rather than the CSS 2.1 §11.1.2
+  geometry §14.3.3 imports. There `rect(<top>,<right>,<bottom>,<left>)` are
+  offsets from the top and left border edges, all four from one point, so
+  `rect(10,10,10,10)` is zero-area and a conformant render paints no image at
+  all. Census: we paint 68,317 opaque pixels, the reference 54,772, and the gap
+  is exactly the 10-unit border of the two 200x120 image boxes; the spec's
+  reading would drop all 48,000 image pixels and put the row near 35 K.
+- `filters-composite-03-f` (9,647): arithmetic feComposite, including its
+  FillPaint/StrokePaint inputs, is right - the identical and clamped squares
+  compare at AE 0. The two that miss are semi-transparent (alpha 0.5 for
+  `2F - 1.5F`, 0.6 black for `-0.5F - 0.1`) and each reference pixel is ours
+  composited over white: (127,255,127) and (102,102,102), opaque. Flattening
+  both sides over white collapses the row to 2,386, the AA of the three guide
+  rings; the harness composites nothing, so the alpha gap stays as the AE.
 
 ## Backlog (small, opportunistic)
 
@@ -660,3 +719,7 @@ red rectangles", is the before/after check the corner samples above measure.
 - `tref` / `altGlyph` text content elements (§10.6/§10.14.1).
 - Round/square caps as dots on zero-length subpaths (browsers paint them;
   the wavelet stroker asserts today — see the `<line>` commit).
+- `color-interpolation`'s third reading: §14.4 takes a mask's luminance in the
+  space the property names. masking-mask-01-b (845) and masking-intro-01-f (611)
+  set `linearRGB` on their `<mask>` elements, whose content paints opaque, so
+  only the luminance read differs - and both rows already sit near their floors.

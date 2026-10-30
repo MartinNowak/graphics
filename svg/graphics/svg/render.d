@@ -810,6 +810,15 @@ private struct Renderer
         bool fillIsCurrent, strokeIsCurrent;
         bool visible=true; // visibility
 
+        // color-interpolation (§11.3): the colour space alpha compositing
+        // runs in. `auto` and `sRGB` both mean the sRGB blend the canvas
+        // already does, and sRGB is the property's initial value, so only
+        // linearRGB changes anything - see flushPath and blendPMlin. The
+        // property inherits (painting-render-02-b's `inherit` rect takes
+        // linearRGB from its ancestor <g>), and the `inherit` keyword is
+        // just "keep the parent's answer".
+        bool linInterp;
+
         // Paint servers: fill/stroke="url(#id)" with the optional
         // `) fallback` paint (SVG 1.1 §13.2). A non-empty id replaces the
         // plain color; an unresolvable server paints the fallback or
@@ -1043,6 +1052,27 @@ private struct Renderer
                     break;
                 case "nonzero":
                     style.clipRule = Path.FillRule.NonZero;
+                    break;
+                default: // "inherit" and friends: keep the parent value
+                    break;
+                }
+                break;
+
+            case "color-interpolation":
+                // The colour space of compositing and gradient
+                // interpolation (§11.3). auto resolves to sRGB - the
+                // property's initial value - so only linearRGB switches
+                // anything on; anything else (inherit included) keeps the
+                // inherited answer. The gradient-interpolation half of the
+                // property is a paint-server matter and stays where it is.
+                switch (toLower(v))
+                {
+                case "linearrgb":
+                    style.linInterp = true;
+                    break;
+                case "srgb":
+                case "auto":
+                    style.linInterp = false;
                     break;
                 default: // "inherit" and friends: keep the parent value
                     break;
@@ -1740,6 +1770,64 @@ private struct Renderer
         }
     }
 
+    // §11.3 color-interpolation: linearRGB. The same PM src-over as blendPM,
+    // except the mix runs in linear light: both sides are un-premultiplied
+    // and decoded with the piecewise sRGB curve the filter chain already
+    // works in, mixed, and re-encoded on the way out. White at 50% over
+    // black lands on srgbEncode(0.502) = 188 where the sRGB-domain blend
+    // gives 128, which is exactly what painting-render-02-b's five rects
+    // compare. An opaque source or a transparent destination is the
+    // identity in either space, so mask and clip content - which inherits
+    // the property but paints opaquely - is untouched by the detour.
+    void blendPMlin(in Bitmap scratch)
+    {
+        immutable lut = srgbDecodeLUT();
+        foreach (y; 0 .. bmp.height)
+        {
+            auto d = bmp.getLine!PMColor(y);
+            foreach (x, ref px; scratch.getLine!PMColor(y))
+            {
+                if (px.a == 255)
+                    d[x]._color = px;
+                else if (px.a)
+                {
+                    if (d[x]._color.a == 0)
+                        d[x]._color = px; // nothing behind: src-over is src
+                    else
+                        d[x]._color = blendLinear(px, d[x]._color, lut);
+                }
+            }
+        }
+    }
+
+    // One linear-light src-over of premultiplied 8-bit pixels. Alpha is
+    // linear by definition and takes no curve; the channels do (the same
+    // convention as filter.d's straightByte, whose rounding is what keeps
+    // an unchanged pixel byte-identical).
+    static PMColor blendLinear(in PMColor src, in Color dst, in float[256] lut)
+    {
+        immutable sa = src.a / 255.0f;
+        immutable da = dst.a / 255.0f;
+        immutable oa = sa + da * (1 - sa);
+        Color res;
+        res.a = cast(ubyte)(oa * 255.0f + 0.5f);
+        if (!res.a)
+            return PMColor(res);
+        foreach (c; 0 .. 3)
+        {
+            immutable sv = c == 0 ? src.r : c == 1 ? src.g : src.b;
+            immutable dv = c == 0 ? dst.r : c == 1 ? dst.g : dst.b;
+            immutable sb = src.a ? min((cast(int) sv * 255 + src.a / 2) / src.a, 255) : 0;
+            immutable db = dst.a ? min((cast(int) dv * 255 + dst.a / 2) / dst.a, 255) : 0;
+            immutable mixed = lut[sb] * sa + lut[db] * da * (1 - sa);
+            immutable v = srgbEncode(mixed / oa);
+            if (c == 0) res.r = v;
+            else if (c == 1) res.g = v;
+            else res.b = v;
+        }
+        return PMColor(res);
+    }
+
     // Rasterise the clipPath `id` as a mask (same user-space CTM as the
     // paint) and multiply its coverage into `scratch`. Returns false on
     // a broken reference or an empty mask - either way the painted
@@ -2279,27 +2367,56 @@ private struct Renderer
             immutable doMarkers = (doFill || doStroke) && !markerMode
                 && (s.markerStart.length || s.markerMid.length
                     || s.markerEnd.length);
+            // Opaque paint is the identity blend in either colour space,
+            // so a linearRGB document whose paint is solid never pays for
+            // the offscreen; a paint server always counts as possibly
+            // transparent, since its alpha is per-pixel.
+            immutable solid = (!doFill || (fillP.shader is null && fillP.color.a == 255))
+                && (!doStroke || (strokeP.shader is null && strokeP.color.a == 255));
+
             if (s.clipUrls.length || s.maskUrls.length)
                 maskedPaint(s, fillP, strokeP, doFill, doStroke, stroked,
                     bbox, canvas.matrix, doMarkers);
-            else
+            else if (s.linInterp && !solid)
             {
-                if (doFill)
-                {
-                    // Subpaths are implicitly closed at raster time
-                    // (Path.applyFilled); no path.close() needed here.
-                    // path.reset() does not clear fillRule, so assign
-                    // per flush; clip masks fill under clip-rule (§14.4).
-                    path.fillRule = clipMode ? s.clipRule : s.fillRule;
-                    canvas.drawPath(path, fillP);
-                }
-                if (doStroke)
-                    canvas.drawPath(stroked, strokeP);
-                if (doMarkers)
-                    drawMarkers(s, canvas, bmp);
+                // §11.3: this element's paint lands on the device through a
+                // linear-light src-over. As in maskedPaint, the paint goes
+                // to a full-canvas scratch first - the two colour spaces
+                // differ only in the blend back down.
+                auto scratch = Bitmap(Bitmap.Config.ARGB_8888,
+                    bmp.width, bmp.height);
+                scratch.eraseColor(Color(0));
+                Canvas oc = new Canvas(scratch);
+                oc.matrix = canvas.matrix;
+                paintOnto(oc, scratch, s, fillP, strokeP, doFill, doStroke,
+                    stroked, doMarkers);
+                blendPMlin(scratch);
             }
+            else
+                paintOnto(canvas, bmp, s, fillP, strokeP, doFill, doStroke,
+                    stroked, doMarkers);
         }
         path.reset();
+    }
+
+    // The three draws every paint ends with, so the ordinary canvas and a
+    // §11.3 linearRGB offscreen share one copy.
+    void paintOnto(Canvas target, Bitmap dev, in Style s, Paint fillP,
+        Paint strokeP, bool doFill, bool doStroke, in Path stroked, bool doMarkers)
+    {
+        if (doFill)
+        {
+            // Subpaths are implicitly closed at raster time
+            // (Path.applyFilled); no path.close() needed here.
+            // path.reset() does not clear fillRule, so assign
+            // per flush; clip masks fill under clip-rule (§14.4).
+            path.fillRule = clipMode ? s.clipRule : s.fillRule;
+            target.drawPath(path, fillP);
+        }
+        if (doStroke)
+            target.drawPath(stroked, strokeP);
+        if (doMarkers)
+            drawMarkers(s, target, dev);
     }
 
     // Resolve the face from the (inherited) family/weight/slant.
@@ -6508,4 +6625,47 @@ unittest
         `SVG-static claimed through the switch's transform: red wins: ${to!string(mid)}`);
     assert(bot.a == 255 && bot.r < 5 && bot.g < 5 && bot.b > 250,
         `SVGDOM-dynamic unclaimed: blue fallback: ${to!string(bot)}`);
+}
+
+unittest
+{
+    // color-interpolation (§11.3): under the initial sRGB value the blend
+    // runs in the storage space, so white at 50% over black is the plain
+    // 128. Under linearRGB the same paint mixes in linear light and lands
+    // on srgbEncode(0.502) = 188, which is why painting-render-02-b's
+    // "light" chips are #BBBBBB. The property inherits to the child that
+    // never names it, and sRGB or auto on that child switches back.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="10">
+        <rect width="40" height="10" fill="black"/>
+        <rect width="10" height="10" fill="white" fill-opacity="0.5"/>
+        <g color-interpolation="linearRGB">
+            <rect x="10" width="10" height="10" fill="white" fill-opacity="0.5"/>
+            <rect x="20" width="10" height="10" fill="white" fill-opacity="0.5"
+              color-interpolation="sRGB"/>
+        </g>
+        <rect x="30" width="10" height="10" fill="white" fill-opacity="0.5"
+          color-interpolation="auto"/>
+        </svg>`);
+    immutable plain = bmp.getLine!PMColor(5)[5];
+    immutable lin = bmp.getLine!PMColor(5)[15];
+    immutable over = bmp.getLine!PMColor(5)[25];
+    immutable autoVal = bmp.getLine!PMColor(5)[35];
+    assert(plain.a == 255 && lin.a == 255, "an opaque backdrop stays opaque");
+    assert(plain.r > 124 && plain.r < 131, `initial value composites in sRGB: ${to!string(plain)}`);
+    assert(lin.r > 184 && lin.r < 192, `linearRGB reaches the #BBBBBB chip: ${to!string(lin)}`);
+    assert(over.r > 124 && over.r < 131, `the element's sRGB undoes the group: ${to!string(over)}`);
+    assert(autoVal.r > 124 && autoVal.r < 131, `auto resolves to sRGB: ${to!string(autoVal)}`);
+
+    // Nothing behind the paint: src-over is the identity whatever the
+    // colour space, so a lone translucent rect is byte-identical with the
+    // flag and without it.
+    immutable one = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+        <rect width="10" height="10" fill="white" fill-opacity="0.5"%s/>
+        </svg>`;
+    immutable overNothing = renderSVG(format(one, "")).getLine!PMColor(5)[5];
+    immutable alsoLinear = renderSVG(
+        format(one, ` color-interpolation="linearRGB"`)).getLine!PMColor(5)[5];
+    assert(overNothing.r == alsoLinear.r && overNothing.g == alsoLinear.g
+        && overNothing.b == alsoLinear.b && overNothing.a == alsoLinear.a,
+        `over nothing the two spaces agree: ${to!string(overNothing)} / ${to!string(alsoLinear)}`);
 }
