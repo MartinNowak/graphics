@@ -1,9 +1,11 @@
 module graphics.svg.gradient;
 
 import std.algorithm, std.conv, std.exception, std.math, std.range, std.string;
+import graphics.core.matrix;
 import graphics.core.pmcolor;
 import graphics.core.shader;
 import graphics.svg.color;
+import graphics.svg.core : transformSVG;
 import graphics.svg.parser;
 import graphics.svg.pserver;
 import guip.point, guip.rect;
@@ -34,17 +36,53 @@ struct GradientStop
 // in a non-square box an ellipse (§13.2.3) and keeps a linear ramp's iso-lines
 // perpendicular to the axis in gradient space. userSpaceOnUse keeps it the
 // identity.
+//
+// §13.2.2's gradientTransform rides underneath that: it maps the gradient's
+// own coordinates into the space its numbers are authored in - the bbox unit
+// square for objectBoundingBox units, user space for userSpaceOnUse - so once
+// one is present the map is a general affine and not just a pair of per-axis
+// scales.
 struct GradSpace
 {
-    double x0, y0; // gradient-space origin, in user units
-    double sx, sy; // per-axis extent, never zero (a flat bbox is an error)
+    // The map runs gradient -> user, laid out as graphics.core.matrix.Matrix
+    // is: x' = a*x + c*y + e, y' = b*x + d*y + f. The per-axis extents are
+    // never zero (a flat bbox is an error, and a gradientTransform that
+    // collapses the plane cannot be undone); the origin stays in user units.
+    double a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
 
     this(double x0, double y0, double sx, double sy)
     {
-        this.x0 = x0;
-        this.y0 = y0;
-        this.sx = sx;
-        this.sy = sy;
+        this.e = x0;
+        this.f = y0;
+        this.a = sx;
+        this.d = sy;
+    }
+
+    /// Append a gradientTransform, which the gradient's own coordinates go
+    /// through first: the product stays left-to-right, the same way
+    /// transformSVG accumulates a transform list.
+    void compose(in Matrix gt)
+    {
+        immutable double
+            na = a * gt[0][0] + c * gt[1][0],
+            nb = b * gt[0][0] + d * gt[1][0],
+            nc = a * gt[0][1] + c * gt[1][1],
+            nd = b * gt[0][1] + d * gt[1][1],
+            ne = a * gt[0][2] + c * gt[1][2] + e,
+            nf = b * gt[0][2] + d * gt[1][2] + f;
+        a = na;
+        b = nb;
+        c = nc;
+        d = nd;
+        e = ne;
+        f = nf;
+    }
+
+    /// Sampling means walking the map backwards, so a gradient that cannot be
+    /// undone cannot paint (see makeGradient's @return).
+    @property bool invertible() const
+    {
+        return b == 0 && c == 0 ? (a != 0 && d != 0) : (a * d - b * c != 0);
     }
 
     // The sample point in the gradient's own coordinates, in double. Two
@@ -56,7 +94,15 @@ struct GradSpace
     // whole pixel column.
     Point!double op(in FPoint p) const
     {
-        return Point!double((p.x - x0) / sx, (p.y - y0) / sy);
+        // Translate/scale only (every gradient in the suite without a
+        // gradientTransform, and most with one): stay on the plain divides.
+        // The general form below is equivalent algebra but not the same bits,
+        // and those boundary columns are decided in the last bits.
+        if (b == 0 && c == 0)
+            return Point!double((p.x - e) / a, (p.y - f) / d);
+        immutable det = a * d - b * c; // invertible() promised it non-zero
+        return Point!double((d * (p.x - e) - c * (p.y - f)) / det,
+            (a * (p.y - f) - b * (p.x - e)) / det);
     }
 }
 
@@ -265,7 +311,8 @@ class RadialGradientShader : MappingShader
 ///
 /// Returns null - caller paints as if the paint were none (or applies the
 /// `url(...) paint` fallback) - when the server cannot paint: unknown id,
-/// an xlink:href leading outside the gradient elements or cycling, no
+/// an xlink:href leading outside the gradient elements or cycling, a
+/// gradientTransform that does not parse or cannot be undone, no
 /// stops anywhere in the chain, a flat bbox with objectBoundingBox units
 /// (§7.11's supplemental mapping is degenerate), or a negative r. Per
 /// §13.2 a zero-length linear vector and an r=0 radial are NOT errors:
@@ -354,6 +401,30 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
         space = GradSpace(0, 0, 1, 1); // the identity
     else
         space = GradSpace(bbox.left, bbox.top, bbox.width, bbox.height);
+
+    // §13.2.2: gradientTransform establishes the coordinate system the
+    // geometry numbers are authored in, so it goes under the map above and
+    // not over it - for objectBoundingBox units the whole transformed unit
+    // square is then carried onto the bbox, per-axis scales last. It inherits
+    // along the href chain like the other gradient attributes. A malformed
+    // list puts the server in error (pattern.d's patternTransform rule), and
+    // so does a transform that turns the plane inside out: a matrix(0 0 0 0)
+    // stops rendering, and anything else with a zero determinant leaves
+    // nothing to sample, because the shaders walk this map backwards.
+    if (auto t = strAttr(chain, "gradientTransform"))
+    {
+        Matrix gt;
+        try
+        {
+            if (!transformSVG(gt, t))
+                return null;
+        }
+        catch (Exception)
+            return null;
+        space.compose(gt);
+    }
+    if (!space.invertible)
+        return null;
 
     if (radial)
     {
@@ -637,6 +708,109 @@ unittest
     assert(c.r == mid.r && c.g == mid.g && c.b == mid.b, "repeat tiles the ramp");
     c = LinearGradientShader.colorAt(sh, FPoint(10, 5)); // t=-1 repeats to 0
     assert(c.r == 0, "repeat tile starts at stop[0]");
+}
+
+unittest
+{
+    // §13.2.2: gradientTransform establishes the system that x1/y1/x2/y2 are
+    // authored in, so translate(20 5) scale(2) moves the (0,0)-(10,0) vector
+    // onto user (20,5)-(40,5) - pservers-grad-06-b's top bar at half scale.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0"
+            gradientTransform="translate(20 5) scale(2)">
+            <stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/>
+        </linearGradient>
+        </svg>`);
+    auto sh = cast(LinearGradientShader) makeGradient(doc, "g", FRect(0, 0, 10, 10), 10, 10, 1.0f);
+    assert(sh !is null, "a valid transform list is no error");
+    auto c = LinearGradientShader.colorAt(sh, FPoint(20, 5));
+    assert(c.r == 255, "the ramp starts where the transform puts x1");
+    c = LinearGradientShader.colorAt(sh, FPoint(40, 5));
+    assert(c.b == 255, "and ends where it puts x2");
+    c = LinearGradientShader.colorAt(sh, FPoint(50, 5));
+    assert(c.b == 255, "pad holds past the end");
+    c = LinearGradientShader.colorAt(sh, FPoint(30, 5));
+    assert(c.r >= 124 && c.r <= 128 && c.b >= 124 && c.b <= 128, "half-way along the span");
+    c = LinearGradientShader.colorAt(sh, FPoint(30, 25)); // a scaled unit off the axis
+    assert(c.r >= 124 && c.r <= 128 && c.b >= 124 && c.b <= 128,
+        "iso-lines stay perpendicular in gradient space");
+}
+
+unittest
+{
+    // A skew is where the inverse map stops being a pair of divides:
+    // translate(240,155) skewX(45) on an r=60 radial (pservers-grad-06-b's
+    // middle bar) sends gradient (x,y) to user (x+y+240, y+155), so the
+    // circle paints as a tilted ellipse - user (270,185) sits 42 user px
+    // from the centre but only 30 gradient units out, i.e. mid-ramp.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <radialGradient id="g" gradientUnits="userSpaceOnUse" cx="0" cy="0" fx="0" fy="0" r="60"
+            gradientTransform="translate(240,155) skewX(45)">
+            <stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/>
+        </radialGradient>
+        </svg>`);
+    auto sh = cast(RadialGradientShader) makeGradient(doc, "g", FRect(0, 0, 10, 10), 10, 10, 1.0f);
+    assert(sh !is null);
+    auto c = RadialGradientShader.colorAt(sh, FPoint(240, 155));
+    assert(c.r == 255, "the focus rides along with the transform");
+    c = RadialGradientShader.colorAt(sh, FPoint(300, 215)); // gradient (0,60): on the circle
+    assert(c.b == 255 && c.r == 0, "the sheared edge is stop[1]");
+    c = RadialGradientShader.colorAt(sh, FPoint(270, 185)); // gradient (0,30)
+    assert(c.r >= 124 && c.r <= 128 && c.b >= 124 && c.b <= 128,
+        "measured in gradient units, not user ones");
+}
+
+unittest
+{
+    // §7.11's bbox map composes *over* gradientTransform, never under it:
+    // objectBoundingBox units with rotate(90) on a 20x10 box put the default
+    // unit-square ramp (0,0)-(1,0) on user (0,0)-(0,10). The other order
+    // would run it along the bottom edge, out to (20,0).
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <linearGradient id="g" gradientTransform="rotate(90)">
+            <stop offset="0" stop-color="#000000"/><stop offset="1" stop-color="#ffffff"/>
+        </linearGradient>
+        </svg>`);
+    auto sh = cast(LinearGradientShader) makeGradient(doc, "g", FRect(0, 0, 20, 10), 20, 10, 1.0f);
+    assert(sh !is null);
+    auto c = LinearGradientShader.colorAt(sh, FPoint(0, 10));
+    assert(c.r > 250, "up the left edge, in box fractions");
+    c = LinearGradientShader.colorAt(sh, FPoint(20, 0));
+    assert(c.r == 0, "not along the bottom edge");
+}
+
+unittest
+{
+    // A gradientTransform that cannot be read or cannot be undone puts the
+    // server in error, matching pattern.d's patternTransform rule, and the
+    // attribute inherits along the href chain like the geometry ones.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        xmlns:xlink="http://www.w3.org/1999/xlink">
+        <linearGradient id="junk" gradientTransform="translate(abc)">
+            <stop offset="0" stop-color="lime"/><stop offset="1" stop-color="red"/>
+        </linearGradient>
+        <linearGradient id="singular" gradientTransform="scale(0)">
+            <stop offset="0" stop-color="lime"/><stop offset="1" stop-color="red"/>
+        </linearGradient>
+        <linearGradient id="off" gradientTransform="matrix(0 0 0 0 5 5)">
+            <stop offset="0" stop-color="lime"/><stop offset="1" stop-color="red"/>
+        </linearGradient>
+        <linearGradient id="par" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0"
+            gradientTransform="translate(20)">
+            <stop offset="0" stop-color="lime"/><stop offset="1" stop-color="red"/>
+        </linearGradient>
+        <linearGradient id="child" xlink:href="#par"/>
+        </svg>`);
+    immutable r10 = FRect(0, 0, 10, 10);
+    assert(makeGradient(doc, "junk", r10, 10, 10, 1.0f) is null, "unparsable list");
+    assert(makeGradient(doc, "singular", r10, 10, 10, 1.0f) is null, "scale(0) cannot be undone");
+    assert(makeGradient(doc, "off", r10, 10, 10, 1.0f) is null, "matrix(0 0 0 0) disables it");
+    auto sh = cast(LinearGradientShader) makeGradient(doc, "child", r10, 10, 10, 1.0f);
+    assert(sh !is null, "the transform travels down the href chain");
+    auto c = LinearGradientShader.colorAt(sh, FPoint(20, 0));
+    assert(c.g == 255, "and sits under the geometry numbers it establishes");
+    c = LinearGradientShader.colorAt(sh, FPoint(30, 0));
+    assert(c.r == 255, "so the ramp ends at user x=30");
 }
 
 unittest

@@ -56,6 +56,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 20               | objectBoundingBox gradients keep their own     | 3.12 M     |
 |                       | space: the bbox map is a matrix, so a radial   |          |
 |                       | in a non-square box is an ellipse (§7.11)      |          |
+| step 21               | gradientTransform rides under the gradient's   | 3.11 M     |
+|                       | own space: the bbox map composes over it, so   |            |
+|                       | a skewed radial paints an ellipse (§13.2.2)    |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -320,19 +323,58 @@ else's question. Unittests pin the ellipse on a 120x90 box - the `t=0.5` pair
 meets the box - and the sheared ramp, where (90,0) and (0,67.5) share
 `t=0.375` while a user-space projection would split them at 0.48 and 0.27.
 
-Up next - step 21, `gradientTransform` (§13.2.2/§13.2.3): the last
-attribute of the gradient geometry chapter that the reader ignores. It sits
-*under* step 20's map - the gradient's own matrix carries the authored
-coordinates into user space - so `GradSpace` grows from an origin plus two
-extents into a matrix that gets inverted, which is exactly the shape
-`pattern.d` already carries as `Matrix pt` for `patternTransform`. Two suite
-rows pin it, both `userSpaceOnUse`, so it is geometry the tests ask for and
-nothing else: 06-b's 2,860 (`translate(25 35) scale(0.5)`, and a second
-server at `translate(240,155) skewX(45)`) plus 22-b's 1,275 (`rotate(-37)
-scale(0.89 1)` and `rotate(-20)`) - 4,135 AE, small, but the whole of it is
-the transform. Then the gradient family's residuals deserve a probe before
-the next feature: 11-b 5,323 (all `userSpaceOnUse`, `fx` on the centre, so a
-shader-side question), 21-b 4,940, 13-b 3,782, 20-b 1,446.
+Step 21 landed: `gradientTransform` (§13.2.2) was the last attribute of the
+gradient geometry chapter the reader ignored. It establishes the coordinate
+system that `x1/y1/x2/y2`, `cx/cy/r` and `fx/fy` are authored in, so it rides
+*under* step 20's bbox map rather than over it: with objectBoundingBox units
+the transformed unit square is what gets carried onto the box, per-axis scales
+last, i.e. `user = bbox · gradientTransform · gradient`. `GradSpace` therefore
+grows from an origin plus two extents into the six doubles of an affine, laid
+out the way `Matrix` is, and `pattern.d`'s `patternTransform` rule is reused
+whole: `strAttr` along the href chain, `transformSVG` into a `Matrix`, a
+malformed list puts the server in error, and so does the `matrix(0 0 0 0 ..)`
+that disables rendering. A transform that cannot be undone is an error too -
+the shaders sample by walking this map backwards, so `scale(0)` gives them
+nothing to walk - hence `invertible()` and the divide by a determinant `op`
+may assume non-zero. Composing in double keeps the transform's float parse as
+the only 24-bit step on the path.
+
+`op` keeps two forms, and that is a precision call, not a shortcut. An
+axis-aligned map - no transform, or translate/scale only, which is most of
+what authors write - stays on the plain divides step 20's boundary pins are
+measured against; the general inverse is the same algebra in different last
+bits, and pservers-grad-10-b is decided in those bits. Only a skewed or
+rotated map takes the general path, which is also where the feature shows
+best: a skew turns a radial's circle into a tilted ellipse and stops a
+linear ramp's iso-lines from being perpendicular to the axis in *user* space,
+so no amount of folding the geometry into user-space numbers would do it.
+
+Measured: 06-b 2,860 -> 765 and 22-b 1,275 -> 462 - 2,908 AE, and those are
+the only two rows in the suite that set the attribute, so nothing else moved.
+Unittests pin the moved ramp (`translate(20 5) scale(2)` puts the
+(0,0)-(10,0) vector on user (20,5)-(40,5), and the iso-line one scaled unit
+off the axis is still mid-ramp), the sheared radial (user (270,185) is 42 user
+px from the centre but only 30 gradient units out, so mid-ramp and not
+t = 0.71), the composition order (objectBoundingBox plus `rotate(90)` on a
+20x10 box runs the default ramp up the left edge to (0,10); the other order
+would run it along the bottom to (20,0)), and the error states - an
+unparsable list, `scale(0)`, `matrix(0 0 0 0 5 5)` - plus the attribute
+travelling down an href chain.
+
+Up next - step 22, a probe of the gradient family's residuals instead of a new
+chapter, now that the family is read end to end. Start with what pservers-
+grad-11-b (5,323) is *not*: crop its first rect's band and it reads 0 AE,
+`fx` on `cx` and all, so the radial math there is already right; the 5,323
+sits in the 40 px gradient stroke (282) and in the two Arial text bands below
+(1,688 and 2,162), which is the host-font class the roadmap declines. That
+leaves 21-b (4,940), whose pass criteria is that an href-inherited
+`cx/cy/r`/`fx` triple paints identically to the same triple spelled out, over
+a `stop-opacity="0"` fade; and 13-b (3,782), thirty 100x60 boxes walking the
+focal point across `fx` - §13.2.3's clamp inside the ellipse step 20 made
+real. Both are shader-side questions with a self-checking reference image,
+which is what a probe wants. And one pattern row picked up on the way: 06-b's
+bottom bar still carries 306 AE inside its own band, with `patternTransform`
+implemented two steps back, so the lattice itself has an edge to find.
 
 ## Deferred / accepted ceilings (do not chase)
 

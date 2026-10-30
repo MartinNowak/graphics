@@ -292,7 +292,7 @@ pservers-grad-02-b.svg OK 459
 pservers-grad-03-b.svg OK 608
 pservers-grad-04-b.svg OK 459
 pservers-grad-05-b.svg OK 1018
-pservers-grad-06-b.svg OK 2860
+pservers-grad-06-b.svg OK 765
 pservers-grad-07-b.svg OK 845
 pservers-grad-08-b.svg OK 1641
 pservers-grad-09-b.svg OK 439
@@ -307,7 +307,7 @@ pservers-grad-17-b.svg OK 1455
 pservers-grad-18-b.svg OK 1120
 pservers-grad-20-b.svg OK 1446
 pservers-grad-21-b.svg OK 4940
-pservers-grad-22-b.svg OK 1275
+pservers-grad-22-b.svg OK 462
 pservers-grad-23-f.svg OK 604
 pservers-grad-24-f.svg OK 604
 pservers-grad-stops-01-f.svg OK 938
