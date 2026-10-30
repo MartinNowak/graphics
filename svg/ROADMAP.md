@@ -127,6 +127,29 @@ the lexer unchanged. A unittest pins markup and attribute expansion, a
 declaration that references another declaration, and the five cases that must
 stay as written.
 
+Up next - step 15, `color-prop-04-t` (49.4 K, the largest contributor that is
+not a deferred ceiling). It is the only suite test that uses the CSS2 system
+colors - `fill="Background"`, `Menu`, `ThreeDFace`, `ActiveCaption` and
+fourteen more - and none of those names is in the keyword registry, so
+`parsePaint` fails, SVG's error handling drops the whole attribute, and the
+desktop, window, menu and caption of the picture all paint default black:
+49,423 AE out of 172,800 px, with 138,778 of them flat `#000000`.
+SVG 1.1 §6.2 makes these names part of SVG's colour keywords ("The normative
+reference is CSS2 system colors; in [CSS2], section 18.2"), and §18.2 fixes
+the twenty-eight names and what they mean while leaving the values to the UA:
+"For systems that do not have a corresponding value, the specified value
+should be mapped to the nearest system value, or to a default color." So the
+mechanism is the keyword list, and the palette is ours to pick. Substituting
+values into a scratch copy measured three answers: the theme the reference
+PNG was captured with (teal desktop `#005C5C`, faces `#DFDFDF`, menus
+`#C4C4C4`, caption `#000080`, shadows `#4A4A4A`) lands 2,789 AE, the palette
+MSDN documents as its `GetSysColor` defaults 18,755, an ad-hoc classic set
+10,001. A headless renderer has no desktop theme to sample, so the values we
+ship are a documented default, and matching the reference environment is the
+same call already made for fonts, where host faces stand in for the suite's
+`SVGFreeSans*`: where the spec leaves the value to the UA, the gate should
+measure the drawing, not the palette.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
