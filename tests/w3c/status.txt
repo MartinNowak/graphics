@@ -254,7 +254,7 @@ painting-marker-05-f.svg OK 1295
 painting-marker-06-f.svg OK 544
 painting-marker-07-f.svg OK 418
 painting-marker-properties-01-f.svg OK 604
-painting-render-01-b.svg OK 2354
+painting-render-01-b.svg OK 1571
 painting-render-02-b.svg OK 1184
 painting-stroke-01-t.svg OK 721
 painting-stroke-02-t.svg OK 1108

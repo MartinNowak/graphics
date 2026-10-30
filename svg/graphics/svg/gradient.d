@@ -6,6 +6,7 @@ import graphics.core.pmcolor;
 import graphics.core.shader;
 import graphics.svg.color;
 import graphics.svg.core : transformSVG;
+import graphics.svg.filter : srgbDecodeLUT, srgbEncode;
 import graphics.svg.parser;
 import graphics.svg.pserver;
 import guip.point, guip.rect;
@@ -119,9 +120,66 @@ private PMColor lerp(in PMColor a, in PMColor b, float u)
     return res;
 }
 
+// The same blend with the mix in linear light, which is what §11.3 asks of a
+// server that says color-interpolation="linearRGB". Both sides leave storage
+// space by un-premultiplying the way filter.d's straightByte does and decode
+// through the same piecewise sRGB curve the §15 chain works in; the mix is
+// still over premultiplied values, because §13.2.3's rule is about the space
+// being premultiplied and that survives the change of space. Alpha is linear
+// by definition and takes no curve, so its interpolation is the same either
+// way - which is also why the two spaces agree at both ends of every stop
+// interval and only part company in the middle.
+private PMColor lerpLinear(in PMColor a, in PMColor b, float w)
+{
+    immutable ua = clamp(w, 0.0f, 1.0f);
+    immutable aa = a.a / 255.0f, ab = b.a / 255.0f;
+    immutable oa = aa + (ab - aa) * ua;
+    if (oa <= 0)
+        return PMColor.init; // both sides empty
+    Color res;
+    res.a = cast(ubyte)(oa * 255.0f + 0.5f);
+
+    foreach (c; 0 .. 3)
+    {
+        immutable av = c == 0 ? a.r : c == 1 ? a.g : a.b;
+        immutable bv = c == 0 ? b.r : c == 1 ? b.g : b.b;
+        immutable as = a.a ? min((cast(int) av * 255 + a.a / 2) / a.a, 255) : 0;
+        immutable bs = b.a ? min((cast(int) bv * 255 + b.a / 2) / b.a, 255) : 0;
+        immutable pm = decodeLUT[as] * aa * (1 - ua) + decodeLUT[bs] * ab * ua;
+        immutable enc = encodeLUT[cast(size_t) (min(pm / oa, 1.0f)
+            * encodeSteps + 0.5f)];
+        if (c == 0)
+            res.r = enc;
+        else if (c == 1)
+            res.g = enc;
+        else
+            res.b = enc;
+    }
+    return PMColor(res); // the constructor takes it back to storage space
+}
+
+// The curve tables above. Decode is filter.d's own, and 8-bit input needs no
+// table of its own beyond that; encode is tabled because the shader runs this
+// per pixel and a powf per channel per pixel is not a gradient's budget. The
+// 4096 steps are worth far less than a level everywhere: the steepest part of
+// the curve is the linear segment near black, at 12.92 levels a step.
+private enum encodeSteps = 4095.0f; // encodeLUT.length - 1
+private immutable float[256] decodeLUT = srgbDecodeLUT();
+private immutable ubyte[4096] encodeLUT = encodeTable();
+
+private ubyte[4096] encodeTable()
+{
+    ubyte[4096] t;
+    foreach (i; 0 .. t.length)
+        t[i] = srgbEncode(i / encodeSteps);
+    return t;
+}
+
 // spreadMethod maps t into the [0,1] stop ramp (§13.2.4), then the stop
-// list - sorted-at-build, offsets already forced monotonic - is sampled.
-private PMColor sampleStops(const GradientStop[] stops, Spread spread, float t)
+// list - sorted-at-build, offsets already forced monotonic - is sampled, in
+// whichever of the two spaces §11.3 puts this server.
+private PMColor sampleStops(const GradientStop[] stops, Spread spread,
+    float t, bool lin)
 {
     assert(!stops.empty);
 
@@ -151,8 +209,9 @@ private PMColor sampleStops(const GradientStop[] stops, Spread spread, float t)
             immutable span = stops[i + 1].offset - stops[i].offset;
             if (span <= 0) // zero-width ramp: the last stop listed wins
                 return stops[i + 1].color;
-            return lerp(stops[i].color, stops[i + 1].color,
-                (t - stops[i].offset) / span);
+            immutable u = (t - stops[i].offset) / span;
+            return lin ? lerpLinear(stops[i].color, stops[i + 1].color, u)
+                : lerp(stops[i].color, stops[i + 1].color, u);
         }
     return stops[$ - 1].color; // unreachable
 }
@@ -163,8 +222,9 @@ private PMColor sampleStops(const GradientStop[] stops, Spread spread, float t)
 class LinearGradientShader : MappingShader
 {
     this(Point!double p0, Point!double p1, GradientStop[] stops,
-        Spread spread, GradSpace space)
+        Spread spread, GradSpace space, bool lin)
     {
+        this.lin = lin;
         this.p0 = p0;
         this.p1 = p1;
         this.stops = stops;
@@ -197,13 +257,14 @@ class LinearGradientShader : MappingShader
         immutable vx = pthis.p1.x - pthis.p0.x, vy = pthis.p1.y - pthis.p0.y;
         immutable t = ((pt.x - pthis.p0.x) * vx + (pt.y - pthis.p0.y) * vy)
             / pthis.denom;
-        return sampleStops(pthis.stops, pthis.spread, cast(float) t);
+        return sampleStops(pthis.stops, pthis.spread, cast(float) t, pthis.lin);
     }
 
     Point!double p0, p1;
     GradientStop[] stops;
     Spread spread;
     GradSpace space;
+    bool lin; // §11.3: the space the ramp interpolates in
     private double denom;
 }
 
@@ -213,8 +274,9 @@ class LinearGradientShader : MappingShader
 class RadialGradientShader : MappingShader
 {
     this(Point!double c, double r, Point!double f, GradientStop[] stops,
-        Spread spread, GradSpace space)
+        Spread spread, GradSpace space, bool lin)
     {
+        this.lin = lin;
         this.c = c;
         this.r = r;
         // §13.2.3: a focal point outside the end circle snaps to the
@@ -260,7 +322,7 @@ class RadialGradientShader : MappingShader
         immutable Dx = pthis.f.x - pt.x, Dy = pthis.f.y - pt.y;
 
         if (Dx == 0 && Dy == 0) // at the focus: t = 0
-            return sampleStops(pthis.stops, pthis.spread, 0);
+            return sampleStops(pthis.stops, pthis.spread, 0, pthis.lin);
 
         // The gradient lives on the circles centred f + t*(c - f) with
         // radius r*t; |pt - centre(t)| = r*t expands, with D = f - pt and
@@ -273,14 +335,14 @@ class RadialGradientShader : MappingShader
         if (a == 0) // focus exactly on the end circle: the t^2 term goes,
         {           // and with it the far side of that circle
             if (b >= 0) // b == 0 asks cq = 0 of a point that is not the
-                return sampleStops(pthis.stops, pthis.spread, 1); // focus
+                return sampleStops(pthis.stops, pthis.spread, 1, pthis.lin); // focus
             t = -cq / b;
         }
         else
         {
             auto disc = b * b - 4 * a * cq;
             if (disc < 0) // no circle of the family reaches this point
-                return sampleStops(pthis.stops, pthis.spread, 1);
+                return sampleStops(pthis.stops, pthis.spread, 1, pthis.lin);
             disc = sqrt(disc);
             // Roots the last bits can be trusted with. The textbook pair is
             // not merely inelegant here: §13.2.3's focal snap leaves |L| == r
@@ -299,10 +361,10 @@ class RadialGradientShader : MappingShader
             // zero and the positive one is it, while both negative means the
             // family points the other way and the point is outside it.
             if (t1 < 0 && t2 < 0)
-                return sampleStops(pthis.stops, pthis.spread, 1);
+                return sampleStops(pthis.stops, pthis.spread, 1, pthis.lin);
             t = t1 < 0 ? t2 : (t2 < 0 ? t1 : min(t1, t2));
         }
-        return sampleStops(pthis.stops, pthis.spread, cast(float) t);
+        return sampleStops(pthis.stops, pthis.spread, cast(float) t, pthis.lin);
     }
 
     Point!double c, f;
@@ -310,6 +372,7 @@ class RadialGradientShader : MappingShader
     GradientStop[] stops;
     Spread spread;
     GradSpace space;
+    bool lin; // §11.3: the space the ramp interpolates in
 }
 
 /// Resolve `fill/stroke="url(#id)"` into a paint shader.
@@ -397,6 +460,23 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
     if (stops.empty)
         return null; // no stops in the chain: gradient is an error state
 
+    // §11.3 on a paint server: the space the ramp interpolates in. The
+    // property is inherited, and §13.2.4's scope rule puts the definition's
+    // own place in the tree in charge - nothing of the referencing shape
+    // reaches the ramp either, exactly as with the stops. An href template's
+    // declaration rides over it the way the other gradient attributes do,
+    // `inherit` aside: that one asks for the inherited value, which is what
+    // leaving the scope's answer alone does.
+    bool lin = scopeFor(doc, idx).linInterp;
+    if (auto v = strAttr(chain, "color-interpolation"))
+    {
+        immutable ci = toLower(v);
+        if (ci == "linearrgb")
+            lin = true;
+        else if (ci == "srgb" || ci == "auto")
+            lin = false;
+    }
+
     // cx/cy/r default to "50%" (§7.5: in userSpaceOnUse the r basis is the
     // normalized diagonal; with objectBoundingBox every one of these is a
     // fraction), fx/fy to cx/cy - all resolved per unit system already.
@@ -451,7 +531,7 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
         // clamp belongs to the same space as the end circle, so it happens
         // inside the shader.
         return new RadialGradientShader(Point!double(cx, cy), r,
-            Point!double(fx, fy), stops, spread, space);
+            Point!double(fx, fy), stops, spread, space, lin);
     }
 
     immutable x1 = attr(chain, "x1", 0.0, pxScale);
@@ -461,7 +541,7 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
     // A zero-length vector is not an error: §13.2.2 paints the last stop
     // solid (the shader's colourAt handles it).
     return new LinearGradientShader(Point!double(x1, y1), Point!double(x2, y2),
-        stops, spread, space);
+        stops, spread, space, lin);
 }
 
 private:
@@ -476,6 +556,7 @@ private struct StopScope
     Color color;      // the currentColor base
     Color stopColor;
     float stopOpacity;
+    bool linInterp;   // §11.3, read here because the walk is already running
 }
 
 // The arena keeps children only, so a <defs> element's ancestors are
@@ -520,6 +601,16 @@ private void cascadeProps(ref StopScope sc, in Element e)
                 sc.stopColor = c;
         }
     }
+    if (auto p = "color-interpolation" in e.attrs)
+    {
+        immutable v = toLower(strip(*p));
+        if (v == "linearrgb")
+            sc.linInterp = true;
+        else if (v == "srgb" || v == "auto")
+            sc.linInterp = false;
+        // auto is §11.3's other name for the initial value, and `inherit` is
+        // what the walk already carries.
+    }
     if (auto p = "stop-opacity" in e.attrs)
     {
         immutable v = strip(*p);
@@ -535,7 +626,7 @@ private void cascadeProps(ref StopScope sc, in Element e)
 // declarations top-down, then the element's own (§13.2.4).
 private StopScope scopeFor(ref const(Document) doc, size_t idx)
 {
-    StopScope sc = StopScope(Color.Black, Color.Black, 1.0f);
+    StopScope sc = StopScope(Color.Black, Color.Black, 1.0f, false);
     size_t[] path;
     if (!descend(doc, doc.root, idx, path))
         return sc; // the node is not in this document: initial values
@@ -1181,4 +1272,91 @@ unittest
     immutable far = RadialGradientShader.colorAt(sb, FPoint(40, 45));
     assert(far.a == 0 && far.r == 0 && far.g == 0 && far.b == 0,
         "past the end circle pads at stop[1], not stop[0]");
+}
+
+unittest
+{
+    // §11.3 read on the server: color-interpolation="linearRGB" moves the
+    // ramp between stops and nothing else. painting-render-01-b is the suite's
+    // own oracle - its three bars carry chips at the midpoints, rgb(128,128,255)
+    // for the sRGB pair and rgb(188,188,255) for the linear one, because
+    // encode(0.5) = 188. The 8-bit premultiplied blend of the sRGB pair lands
+    // one level off its chip either way - 127 where the chip says 128, 128
+    // where it says 128 - which is the ramp rounding already on the deferred
+    // list; the 60 levels between the two readings are what this pins.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <linearGradient id="srgb" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0">
+            <stop offset="0" stop-color="#fff"/>
+            <stop offset="1" stop-color="#00f"/>
+        </linearGradient>
+        <linearGradient id="lin" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0"
+            color-interpolation="linearRGB">
+            <stop offset="0" stop-color="#fff"/>
+            <stop offset="1" stop-color="#00f"/>
+        </linearGradient>
+        <linearGradient id="warm" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0"
+            color-interpolation="linearRGB">
+            <stop offset="0" stop-color="red"/>
+            <stop offset="1" stop-color="yellow"/>
+        </linearGradient>
+        <linearGradient id="warmSRGB" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0"
+            color-interpolation="sRGB">
+            <stop offset="0" stop-color="red"/>
+            <stop offset="1" stop-color="yellow"/>
+        </linearGradient>
+        <g color-interpolation="linearRGB">
+            <linearGradient id="glin" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0">
+                <stop offset="0" stop-color="#fff"/>
+                <stop offset="1" stop-color="#00f"/>
+            </linearGradient>
+            <linearGradient id="gown" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0"
+                color-interpolation="sRGB">
+                <stop offset="0" stop-color="#fff"/>
+                <stop offset="1" stop-color="#00f"/>
+            </linearGradient>
+        </g>
+        <linearGradient id="fade" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="10" y2="0"
+            color-interpolation="linearRGB">
+            <stop offset="0" stop-color="white" stop-opacity="0"/>
+            <stop offset="1" stop-color="white"/>
+        </linearGradient>
+        </svg>`);
+
+    PMColor at(string id, float x, in FRect box = FRect(0, 0, 10, 10))
+    {
+        auto sh = cast(LinearGradientShader) makeGradient(doc, id, box, 10, 10, 1.0f);
+        assert(sh !is null, id);
+        return LinearGradientShader.colorAt(sh, FPoint(x, 5));
+    }
+
+    auto c = at("srgb", 5);
+    assert(c == PMColor(color(255, 127, 127, 255)), to!string(c.argb));
+    c = at("lin", 5);
+    assert(c == PMColor(color(255, 188, 188, 255)), to!string(c.argb));
+    c = at("warm", 5);
+    assert(c == PMColor(color(255, 255, 188, 0)), to!string(c.argb));
+    c = at("warmSRGB", 5);
+    assert(c == PMColor(color(255, 255, 128, 0)), to!string(c.argb));
+
+    // Ends of the interval are stops, and a stop is the same bytes in either
+    // space; the two readings only part company in between.
+    assert(at("lin", 0) == PMColor(Color.White) && at("lin", 10) == PMColor(Color.Blue));
+    assert(at("lin", -4) == PMColor(Color.White)); // pad outside the vector
+    assert(at("lin", 2) != at("srgb", 2)); // ... and the readings differ inside
+
+    // The property is inherited, and §13.2.4's scope rule means the gradient's
+    // own place in the tree decides - an ancestor's linearRGB reaches the ramp,
+    // and the element's own sRGB declaration overrides it back.
+    c = at("glin", 5);
+    assert(c == PMColor(color(255, 188, 188, 255)), to!string(c.argb));
+    c = at("gown", 5);
+    assert(c == PMColor(color(255, 127, 127, 255)), to!string(c.argb));
+
+    // Alpha is linear by definition, so a stop-opacity fade is identical in the
+    // two spaces: only the colour term ever carries the curve.
+    immutable f1 = at("fade", 5);
+    assert(f1.a >= 127 && f1.a <= 128, to!string(f1.a));
+    // Straight white, so every premultiplied channel equals the alpha.
+    assert(f1.r == f1.g && f1.g == f1.b && f1.b == f1.a,
+        to!string([f1.a, f1.r, f1.g, f1.b]));
 }

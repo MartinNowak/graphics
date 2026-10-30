@@ -71,6 +71,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 25               | paint composites in linear light when          | 3.09 M     |
 |                       | color-interpolation says linearRGB             |            |
 |                       | (SVG 1.1 §11.3)                                |            |
+| step 26               | a gradient ramp interpolates in the space the  | 3.09 M     |
+|                       | property names: linearRGB mixes the stops as   |            |
+|                       | light, sRGB as bytes (SVG 1.1 §11.3.3)         |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -548,21 +551,67 @@ reference is (127,255,127) opaque, `-0.5F - 0.1` leaves 0.6 black where it is
 Flattening *both* sides over white collapses the row 9,647 -> 2,386, which is the
 AA of the three guide rings. Also deferred.
 
-Up next - step 26, the other half of §11.3: `color-interpolation` on a paint
-server. painting-render-01-b (2,354) paints three bars from the same
+Step 26 landed the ramp half of `color-interpolation` (SVG 1.1 §11.3.3), and
+painting-render-01-b went 2,354 -> 1,571. The property had its §15 reading from
+step 25; a paint server is the other place the spec names it, for the space the
+stops are interpolated in. The row paints three bars from the same
 white-blue-red-yellow stops - default value, `sRGB`, `linearRGB` - and only the
-linearRGB bar at translate(40,240) disagrees: strong components 97x40+40+240
-(2,097 pixels, mean delta 33) and 99x40+241+240 (856, mean 81), the bar's
-white->blue and red->yellow segments. The file carries its own oracle: the sRGB
-bar's midpoint chips are rgb(128,128,255) at x=50 and rgb(255,128,0) at x=250,
-and a ramp interpolated in linear light puts encode(0.5) = 188 in both places -
-(188,188,255) and (255,188,0). Nothing reads the property today: the ramp is
-guip's, which interpolates stops linearly in 8-bit sRGB, so the property on a
-`<linearGradient>` reaches nothing. The route is to make the shader see the
-curve - either densify each stop interval with linear-space midpoints before the
-stops are handed down, or build the ramp into a raster and paint that. The first
-keeps the existing shader path and is where to start. painting-render-01-b is
-the only suite row that names the property on a gradient.
+linearRGB bar disagreed: strong components 97x40+40+240 (2,097 pixels, mean
+delta 33) and 99x40+241+240 (856, mean 81). Nothing read the property, because
+the ramp is `sampleStops`'s own `lerp` over premultiplied stop bytes, and a mix
+of bytes is a mix in whichever space the bytes live in - sRGB, whatever the
+property says.
+
+`lerpLinear` is `lerp`'s neighbour: both sides un-premultiply the way
+`straightByte` does, decode through `srgbDecodeLUT` - the same piecewise curve
+the §15 chain works in, not another approximation of it - premultiply by their
+own alphas, mix, and divide by the interpolated alpha on the way back to a byte,
+re-encoding through a 4096-entry table because the shader samples per pixel and
+a `powf` per channel per pixel is not a gradient's budget; 1/4095 of a linear
+step is worth at most 0.003 of a byte, where the curve is steepest. Alpha is
+linear by definition and takes no curve, which is why the two readings meet at
+both ends of every stop interval and only part company in the middle, and why a
+`stop-opacity` fade comes out identical either way - a unittest pins that.
+
+The value comes from the gradient's own place in the tree, which is the rule
+`stopsOf` already states for `stop-color` and `stop-opacity`: nothing of the
+referencing shape reaches the ramp. So the flag rides `StopScope` and
+`cascadeProps` learns one property name - `linearRGB` on an ancestor reaches the
+ramp, the element's own `sRGB` overrides it back - while an href template's
+declaration rides over that through `strAttr` and the chain walk, the way every
+other gradient attribute does. That is how the third bar here is driven: its
+gradient sits in the `<defs>` of a translated group, whose translate is also
+what puts the ramp where it is.
+
+That bar is now pixel-equal to the reference wherever the file's own marker
+lines do not cover it: device x=65 (224,224,255), x=130 (85,85,255) and x=255
+(255,113,0) read the same on both sides, where the sRGB bars give (191,191,255),
+(23,23,255) and (255,42,0). Per bar the row measures 247 / 247 / 277 of AE, so
+771 of its 1,571 is inside the bars and the other 800 sits outside them in the
+title and the labels. Inside, what is left is the connected components this step
+leaves behind - 96x40+244+240 (229) and 89x40+40+240 (214) on the linear bar,
+75x40+265+80 and 64x40+40+80 (186 and 164) identically on each sRGB bar - which
+is one-level ramp rounding and the anti-aliasing of the marker lines; that sRGB
+pair is the 127-versus-128 midpoint class already on the deferred list. No
+other row moves anywhere: this is the only suite row naming the property on a
+gradient.
+
+Up next - step 27, back in §11.2: a zero-length subpath still gets its line
+cap. painting-control-04-f (8,644) asks in the plainest way there is - three
+subpaths of no length at all, `M 96 96 L 96 96` and its two brothers, at
+stroke-width 96 with the three `stroke-linecap` values in turn - and the
+reference paints exactly what §11.2 promises: nothing for `butt`, and for the
+other two a dot exactly one stroke width across, the file's own comment giving
+the areas as pi*r^2 = 7,238 for `round` and 4r^2 = 9,216 for `square`. We paint
+nothing for all three: device (196,96) and (296,96) read (0,0,0,0) in our render
+where the reference reads pure blue, and those two dots are the row's whole
+difference - once the `butt` case is taken out, the mean difference is exactly
+(0,0,240). The 20%-gray pass used for localising rows misses it completely,
+because that threshold puts blue against white at about 11% gray; what that pass
+shows instead is a 246x107 watermark band and a 13x13 one, neither of them the
+content, which is why the row has sat untriaged. The work is in the stroker, in
+front of whatever the wavelet path asserts for a degenerate subpath, and it is
+one of the last rows in that band with no host font and no filter chain in it.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -717,8 +766,6 @@ the only suite row that names the property on a gradient.
 - `color-interpolation-filters="linearRGB"` pass for the filter chain
   (ch. 15; feeds `filters-conv-03-f` and friends).
 - `tref` / `altGlyph` text content elements (§10.6/§10.14.1).
-- Round/square caps as dots on zero-length subpaths (browsers paint them;
-  the wavelet stroker asserts today — see the `<line>` commit).
 - `color-interpolation`'s third reading: §14.4 takes a mask's luminance in the
   space the property names. masking-mask-01-b (845) and masking-intro-01-f (611)
   set `linearRGB` on their `<mask>` elements, whose content paints opaque, so
