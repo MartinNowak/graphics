@@ -46,6 +46,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the reference images were captured with (§6.2, CSS2 §18.2) |            |
 | step 16               | `use` of a positioned nested `<svg>`: the clone   | 3.21 M     |
 |                       | keeps its own x/y as the viewport origin (§5.6/§7.9)    |            |
+| step 17               | render by namespace, not prefix: only SVG-        | 3.18 M     |
+|                       | namespace elements reach the arena (§23.1, XML NS)  |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -171,6 +173,35 @@ a `<symbol>` that carries x/y attributes painting as if it did not. The
 was simply covered by the misplaced blue box. Nothing else in the suite
 moved - the only other `use` of an `<image>` or nested `<svg>` is
 animate-elem-30-t (unchanged) and two deferred tests.
+
+Step 17 (namespace-aware rendering) landed: `parseSVG` now resolves every
+element name through the bindings in scope - the `xmlns:P` prefixes *and*
+the `xmlns=` default, tracked over the subtree as the XLink map already was
+- and only elements resolving to the SVG namespace reach the arena, under
+their *local* name; a foreign element is skipped together with its whole
+subtree, ids included. §23.1: "the SVG user agent will include the unknown
+elements in the DOM but will otherwise ignore unknown elements", and the
+viewer's conformance clause spells out the second half - "data from non-SVG
+namespaces are included in the DOM but are otherwise ignored"; there is no
+DOM here, so inert means absent. struct-frag-05-t is the test the rule
+exists for, and both halves of it were broken: the pale-yellow `<s:circle>`
+(a prefix bound to the SVG namespace) never matched because the arena kept
+the *qualified* name, while the blue `<circle>` under
+`xmlns="http://www.example.org/notsvg"` matched because only the local name
+was ever consulted - wrong disc, and two elements later "Invalid" instead
+of "Valid". 30,718 -> 688, the rest being the `Valid` glyphs and the
+revision line's metrics. The library's own `prefix()`/`localName()` are
+unusable: 0.1.7 memoizes the colon per node and misses it on empty
+elements, so `<s:circle/>` reported no prefix at all; the split lives in the
+parser, the way `attrs()` already splits qualified attribute names. The
+default binding is *seeded* to the SVG namespace exactly as `xlink` was, so
+documents that never declare one keep rendering while `xmlns=""` (no
+namespace) does not, and dropping foreign subtrees wholesale is also what
+keeps text-tref-02-b's `<tref xlink:href="#world">` from pulling its text
+out of a foreign `<bar>`. A namespace-aware scan of the suite came first:
+struct-frag-05-t was the only file painting a foreign element with an SVG
+local name - every other hit is xhtml inside `<d:testDescription>`, which
+painted nothing - and the gate agrees: no other row moves.
 
 ## Deferred / accepted ceilings (do not chase)
 

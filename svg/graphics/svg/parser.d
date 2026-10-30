@@ -7,6 +7,7 @@ import std.experimental.xml.interfaces : isCursor, XMLKind;
 import std.range : empty;
 
 enum xlinkNS = "http://www.w3.org/1999/xlink";
+enum svgNS = "http://www.w3.org/2000/svg";
 
 // Flatten the attributes of the cursor's current element into a map,
 // resolving namespace prefixes against `ns`. XLink attributes are
@@ -46,11 +47,12 @@ string[string] attrs(CursorType)(ref CursorType cursor, in string[string] ns)
 
 /// One node of the parsed document arena (see `parseSVG`).
 ///
-/// Element nodes have a `name`; text nodes (character data *and* CDATA
-/// sections, the two ways SVG carries text into `<text>`) have an empty
-/// name and carry the raw (not whitespace-normalized) content in `text`.
-/// `children` are arena indices, so the tree stays pointer-stable while
-/// the arena grows and after it is sealed.
+/// Element nodes have a `name`, the *local* name of an element that the
+/// parser resolved to the SVG namespace; text nodes (character data *and*
+/// CDATA sections, the two ways SVG carries text into `<text>`) have an
+/// empty name and carry the raw (not whitespace-normalized) content in
+/// `text`. `children` are arena indices, so the tree stays pointer-stable
+/// while the arena grows and after it is sealed.
 struct Element
 {
     string name;         // empty -> text node
@@ -339,8 +341,10 @@ private bool isNameChar(char ch)
 
 /// Parse `source` into a `Document`. Tolerates documents without an XML
 /// declaration (SVG does not require one); XML errors are reported to the
-/// parser's error sink and the best-effort tree is kept, as before.
-/// Throws if the document contains no <svg> element.
+/// parser's error sink and the best-effort tree is kept, as before. Only
+/// elements that resolve to the SVG namespace are collected; everything
+/// else the document carries is foreign data, ignored (§23.1). Throws if
+/// the document contains no <svg> element *in that namespace*.
 Document parseSVG(string source)
 {
     // Internal general entities are markup by the time anything looks at the
@@ -366,9 +370,12 @@ Document parseSVG(string source)
     size_t root = Document.unknown;
 
     // Prefix -> namespace URIs, live for the subtree currently being
-    // walked. `xlink` starts out bound so documents that never declare
-    // it still render (as before); an explicit rebinding shadows it.
-    string[string] ns = ["xlink": xlinkNS,
+    // walked. The empty prefix - the *default* namespace, XML Namespaces
+    // in XML §2.2 - and `xlink` start out bound to their SVG meaning so
+    // documents that never declare a namespace still render (as before);
+    // an explicit rebinding shadows the seed, which is the whole point of
+    // struct-frag-05-t's `<s:g xmlns="http://www.example.org/notsvg">`.
+    string[string] ns = ["": svgNS, "xlink": xlinkNS,
         "xml": "http://www.w3.org/XML/1998/namespace"];
 
     struct Binding
@@ -376,9 +383,9 @@ Document parseSVG(string source)
         string prefix, old; // old == null: the prefix had no binding
     }
 
-    // Apply the current element's own xmlns: declarations (they cover
-    // its attributes too, so this runs before attrs()); returns what
-    // to undo after the subtree.
+    // Apply the current element's own xmlns: and xmlns= declarations
+    // (they cover its attributes and its whole subtree, so this runs
+    // before attrs()); returns what to undo after the subtree.
     Binding[] bindNs()
     {
         Binding[] changed;
@@ -389,6 +396,12 @@ Document parseSVG(string source)
                 auto p = prefix in ns;
                 changed ~= Binding(prefix, p ? *p : null);
                 ns[prefix] = a.value;
+            }
+            else if (a.name == "xmlns")
+            {
+                auto p = "" in ns;
+                changed ~= Binding("", p ? *p : null);
+                ns[""] = a.value; // xmlns="" sets the default to *none*
             }
         return changed;
     }
@@ -402,17 +415,57 @@ Document parseSVG(string source)
                 ns[b.prefix] = b.old;
     }
 
-    void addElement(size_t parent)
+    struct QName
     {
+        string uri;  // null: the element's prefix is not bound at all
+        string local;
+    }
+
+    // The namespace an element name resolves to, plus its local name:
+    // `P:local` follows P's binding, an unprefixed name the default one
+    // (Namespaces in XML §2.2/§3). The library's cursor does offer
+    // prefix() and localName(), but 0.1.7 memoizes the colon per node and
+    // misses it on empty elements - `<s:circle/>` reports no prefix and a
+    // local name of `s:circle` - so the qualified name is split here,
+    // exactly as attrs() splits the qualified names of attributes.
+    QName elementName()
+    {
+        immutable name = c.name;
+        immutable col = countUntil(name, ':');
+        immutable prefix = col < 0 ? "" : name[0 .. cast(size_t) col];
+        auto p = prefix in ns;
+        immutable local = col < 0 ? name : name[cast(size_t) col + 1 .. $];
+        return QName(p ? *p : null, local);
+    }
+
+    // The arena keeps an element under its local name when the namespace
+    // its name resolves to is the SVG namespace. An element in any other
+    // namespace is left out with its whole subtree: a viewer's job with
+    // foreign content is to ignore it - §23.1 "the SVG user agent will
+    // include the unknown elements in the DOM but will otherwise ignore
+    // unknown elements", and the viewer conformance clause spells out
+    // "data from non-SVG namespaces are included in the DOM but are
+    // otherwise ignored". There is no DOM here, so inert means absent:
+    // their ids, text and subtrees carry no rendering meaning either,
+    // which is what text-tref-02-b's `<tref xlink:href="#world">` proves
+    // (its foreign `<bar id="world">` must not supply text).
+    // Returns the arena index, or `Document.unknown` for a foreign
+    // element - the walk then skips the subtree without entering it.
+    size_t addElement(size_t parent)
+    {
+        immutable n = elementName();
+        if (n.uri != svgNS)
+            return Document.unknown;
         immutable idx = nodes.length;
         auto a = attrs(c, ns);
-        nodes ~= Element(c.name, a);
+        nodes ~= Element(n.local, a);
         nodes[parent].children ~= idx;
         auto idp = "id" in a;
         if (idp && !(*idp in ids))
             ids[*idp] = idx;
-        if (root is Document.unknown && c.name == "svg")
+        if (root is Document.unknown && n.local == "svg")
             root = idx;
+        return idx;
     }
 
     void addText(size_t parent)
@@ -434,9 +487,11 @@ Document parseSVG(string source)
         case XMLKind.elementStart:
             {
                 auto declared = bindNs();
-                addElement(parent);
-                if (c.enter())
-                    walkChildren(nodes.length - 1);
+                immutable el = addElement(parent);
+                // A foreign element never enters: the loop's next() steps
+                // over its whole subtree to the next sibling.
+                if (el != Document.unknown && c.enter())
+                    walkChildren(el);
                 unbindNs(declared);
             }
             break;
@@ -595,6 +650,52 @@ unittest
             hrefs ~= *p;
     assert(hrefs == ["norm.png", "good.png"],
         "XLink attributes follow their namespace binding");
+}
+
+unittest
+{
+    // Local name + namespace, never the prefix, decides what renders
+    // (§23.1: unknown elements are "otherwise ignored"; the viewer clause:
+    // "data from non-SVG namespaces are included in the DOM but are
+    // otherwise ignored"). So a prefix bound to the SVG namespace paints
+    // under its local name, an unprefixed name under a foreign default
+    // binding does not, and a binding unwinds with its subtree.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:s="http://www.w3.org/2000/svg">
+        <s:g id="mix" xmlns="http://example.org/notsvg"
+            xmlns:u="http://example.org/x">
+            <s:circle id="keep" r="5"/>
+            <circle id="drop" r="7"/>
+            <u:g id="drop2"><rect id="drop3" width="1" height="1"/></u:g>
+        </s:g>
+        <rect id="after" width="1" height="1"/>
+        <g xmlns=""><rect id="none" width="1" height="1"/></g>
+        </svg>`);
+
+    auto keep = doc.byId("keep");
+    assert(keep != Document.unknown && doc.nodes[keep].name == "circle",
+        "an SVG-namespace element keeps its local name, not its prefix");
+    assert(doc.byId("drop") == Document.unknown,
+        "a foreign default namespace reaches its unprefixed children");
+    assert(doc.byId("drop2") == Document.unknown
+        && doc.byId("drop3") == Document.unknown,
+        "a foreign subtree is skipped whole, not just its root");
+    assert(doc.byId("none") == Document.unknown,
+        `xmlns="" sets the default to no namespace, which is not the SVG one`);
+
+    // The walk stays honest around a subtree it skipped: the rebinding is
+    // gone, so the sibling after the foreign group is in the SVG namespace
+    // again, and the foreign elements left no children behind inside the
+    // group that *is* rendered.
+    auto after = doc.byId("after");
+    assert(after != Document.unknown && doc.nodes[after].name == "rect",
+        "the skipped subtree does not swallow its following sibling");
+    immutable mix = doc.byId("mix");
+    size_t kids;
+    foreach (ch; doc.nodes[mix].children)
+        if (!doc.nodes[ch].name.empty)
+            ++kids, assert(doc.nodes[ch].name == "circle");
+    assert(kids == 1, "the foreign circle and group left nothing behind");
 }
 
 unittest

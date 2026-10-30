@@ -386,7 +386,7 @@ struct-frag-01-t.svg OK 0
 struct-frag-02-t.svg OK 201
 struct-frag-03-t.svg OK 270
 struct-frag-04-t.svg OK 463
-struct-frag-05-t.svg OK 30718
+struct-frag-05-t.svg OK 688
 struct-frag-06-t.svg OK 1358
 struct-group-01-t.svg OK 359
 struct-group-02-b.svg OK 435
