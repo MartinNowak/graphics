@@ -48,7 +48,8 @@ const(Element)[] hrefChain(ref const(Document) doc, size_t start,
 
 // First value found walking own-then-inherited (the href chain).
 // Percentages scale by pctScale; the caller passes already-scaled defaults.
-float attr(const(Element)[] chain, string key, float def, float pctScale)
+// The number type follows the defaults: gradient geometry asks for double.
+T attr(T = float)(const(Element)[] chain, string key, T def, T pctScale)
 {
     foreach (ref e; chain)
         if (auto p = key in e.attrs)
@@ -59,8 +60,8 @@ float attr(const(Element)[] chain, string key, float def, float pctScale)
             try
             {
                 if (v.endsWith("%"))
-                    return to!float(v[0 .. $ - 1]) / 100 * pctScale;
-                return to!float(v);
+                    return to!T(v[0 .. $ - 1]) / 100 * pctScale;
+                return to!T(v);
             }
             catch (ConvException)
                 continue; // malformed value: attribute is ignored

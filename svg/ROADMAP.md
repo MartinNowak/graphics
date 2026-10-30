@@ -53,6 +53,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | (§11.2/§12.2)                                 |            |
 | step 19               | gradient stops read the definition's place in  | 3.16 M     |
 |                       | the tree, not the referencing shape's (§13.2.4) |           |
+| step 20               | objectBoundingBox gradients keep their own     | 3.12 M     |
+|                       | space: the bbox map is a matrix, so a radial   |          |
+|                       | in a non-square box is an ellipse (§7.11)      |          |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -272,26 +275,64 @@ are black. All eight of 18-b's stop samples now sit on the reference; its
 pin the four cases and the gradient's own `color="#700"`, and that the
 referencing rect's `color`/`stop-color`/`stop-opacity` cannot reach a stop.
 
-Up next - step 20, the other half of §13.2.3: objectBoundingBox radial
-geometry. The bbox mapping is non-uniform, so a radial gradient in a
-non-square box is an *ellipse* - pservers-grad-21-b draws the extent itself,
-`rx="24" ry="18"` for `r="20%"` on a 120x90 rect, and asks that "the
-gradient fills don't extend outside the blue ellipses"; styling-inherit-01-b
-draws `<ellipse rx="90" ry="60">` beside its default-geometry radial rect
-(180x120, r=50%) making the same point. We draw a circle: `makeGradient`
-folds objectBoundingBox `r` through `brScale = sqrt((w²+h²)/2)`, so 21-b
-sits at 10,196 with its whole rect off, and the family is 13-b 9,812, 04-b
-7,039, 05-b 5,584, 11-b 5,323, 14-b 3,574 plus styling-inherit-01-b's
-residual 2,750 - an X across both default rects. The href side is already
-right: a probe (since deleted) rendering `<radialGradient xlink:href="#g1"
-cx="0%">` against the explicit equivalent measured AE 0, and in 21-b the
-windows over the two explicit `fx` rows differ (704 and 1,510 of 6,400)
-where the no-`fx` row is at noise level (56). So the step is the ellipse
-plus §13.2.3's focal rule - "the 0% gradient stop is mapped to (fx, fy)",
-`fx` coinciding with `cx` unless an href template gives it, and a focal
-point outside the circle pulled back to the perimeter - and
-`RadialGradientShader`'s `FPoint c, float r, FPoint f` (a circle) suggests
-the fix goes through the shader matrix rather than the geometry.
+Step 20 landed (objectBoundingBox gradient geometry, §7.11): §7.11's
+supplemental transformation is a *matrix*, so it belongs between the sample
+point and the numbers, not folded into them. Both shaders now hold their
+geometry as authored - fractions of the unit square - and `colorAt` starts by
+carrying the device sample back through `GradSpace` (origin at the bbox
+corner, per-axis extent the bbox size; the identity for
+`gradientUnits="userSpaceOnUse"`). Everything after that first line measures
+in the gradient's own space: §13.2.3's focal clamp pulls the focus back to
+the end *circle* there, because the ellipse is the map's doing and the clamp
+has to precede it, and a linear ramp's iso-lines are perpendicular to its
+axis there. `brScale = sqrt((w²+h²)/2)`, which made objectBoundingBox `r`
+the shape's normalized diagonal, is gone; the percentage basis for a
+userSpaceOnUse `r` stays, because that really is §7.5's normalized diagonal.
+With the map, `r="20%"` on a 120x90 rect reaches 24 px along x and 18 along y
+- the guide ellipses 21-b draws itself (`rx="24" ry="18"`), and the four
+rects it checks now sit inside them.
+
+Fractions change the arithmetic budget: the map divides by a box extent that
+runs to hundreds of user units, and `spreadMethod` folds `t` at hard
+discontinuities. pservers-grad-10-b is the pin. `x1=".4" x2=".6"` on a
+460-wide rect puts every `repeat` period boundary on a whole pixel column, so
+the sample there is exactly `t = 0`, and a ramp built from `0.4f`
+(0.40000000596) lands a hair the wrong side of it and paints the previous
+period's last stop - pure lime where the reference paints pure blue, one
+column of it, 55 px tall, twice over: 83 pixels. So the geometry is double
+end to end: `GradSpace`, the shaders' stored points (`Point!double p0/p1`,
+`c/f`, `double r`) and the attribute read, for which `pserver.d`'s `attr` is
+now a template whose type follows the defaults. `to!double(".4")` and
+`(194.0 - 10.0) / 460.0` are the same double, so the boundary comes back;
+the float map costs +28 on that row and the double map 0.
+
+Measured: 21-b 10,196 -> 4,940, 13-b 9,812 -> 3,782, 04-b 7,039 -> 459, 05-b
+5,584 -> 1,018, 02-b 2,302 -> 459, 12-b 3,127 -> 490, 14-b 3,574 -> 517, 15-b
+2,884 -> 434, styling-inherit-01-b 2,750 -> 620 and struct-use-05-b 7,510 ->
+600, 41,459 AE over ten rows and nothing else moved - 10-b back on its
+baseline 459. struct-use-05-b is the shear case: `x1=0,y1=0,x2=1,y2=1` on
+`<use>` boxes that are not square, so its iso-lines follow the unit square's
+diagonal rather than the box's. pservers-grad-11-b (5,323) is the control
+that says the change is the map and nothing else: every gradient in it is
+`userSpaceOnUse`, its map is the identity, and its residual is somebody
+else's question. Unittests pin the ellipse on a 120x90 box - the `t=0.5` pair
+30 px right and 22.5 px up, the end stop at both points where the ellipse
+meets the box - and the sheared ramp, where (90,0) and (0,67.5) share
+`t=0.375` while a user-space projection would split them at 0.48 and 0.27.
+
+Up next - step 21, `gradientTransform` (§13.2.2/§13.2.3): the last
+attribute of the gradient geometry chapter that the reader ignores. It sits
+*under* step 20's map - the gradient's own matrix carries the authored
+coordinates into user space - so `GradSpace` grows from an origin plus two
+extents into a matrix that gets inverted, which is exactly the shape
+`pattern.d` already carries as `Matrix pt` for `patternTransform`. Two suite
+rows pin it, both `userSpaceOnUse`, so it is geometry the tests ask for and
+nothing else: 06-b's 2,860 (`translate(25 35) scale(0.5)`, and a second
+server at `translate(240,155) skewX(45)`) plus 22-b's 1,275 (`rotate(-37)
+scale(0.89 1)` and `rotate(-20)`) - 4,135 AE, small, but the whole of it is
+the transform. Then the gradient family's residuals deserve a probe before
+the next feature: 11-b 5,323 (all `userSpaceOnUse`, `fx` on the centre, so a
+shader-side question), 21-b 4,940, 13-b 3,782, 20-b 1,446.
 
 ## Deferred / accepted ceilings (do not chase)
 

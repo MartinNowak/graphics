@@ -9,11 +9,13 @@ import graphics.svg.pserver;
 import guip.point, guip.rect;
 
 // SVG 1.1 §13.2 gradients: linear/radial paint servers built from the
-// document's <linearGradient>/<radialGradient> elements. The shaders sample
-// in *user space* - Blitter.Choose hands a MappingShader the CTM inverse,
-// so mapPt(device) lands in the coordinate system the gradient geometry was
-// authored in (gradientUnits="userSpaceOnUse"); objectBoundingBox units -
-// the default - are resolved against the shape's bbox at build time.
+// document's <linearGradient>/<radialGradient> elements. Blitter.Choose hands
+// a MappingShader the CTM inverse, so mapPt(device) lands in user space; the
+// shaders then do one more step of their own - the sample point is carried
+// into the gradient's coordinate system, which is user space for
+// gradientUnits="userSpaceOnUse" and the shape's bbox for objectBoundingBox
+// units (the default). See GradSpace below for why that step is a map and
+// not something folded into the geometry.
 
 enum Spread { pad, reflect, repeat }
 
@@ -21,6 +23,41 @@ struct GradientStop
 {
     float offset;
     PMColor color; // premultiplied, with stop-opacity folded in
+}
+
+// §7.11: gradientUnits="objectBoundingBox" (the default) installs a
+// supplemental matrix taking the gradient's unit square onto the referencing
+// shape's bbox - and that matrix is *non-uniform* unless the box is square.
+// Both shaders therefore keep their geometry in the gradient's own coordinate
+// system and carry the sample point back through this map instead of folding
+// the per-axis scales into the numbers: that is what makes a radial gradient
+// in a non-square box an ellipse (§13.2.3) and keeps a linear ramp's iso-lines
+// perpendicular to the axis in gradient space. userSpaceOnUse keeps it the
+// identity.
+struct GradSpace
+{
+    double x0, y0; // gradient-space origin, in user units
+    double sx, sy; // per-axis extent, never zero (a flat bbox is an error)
+
+    this(double x0, double y0, double sx, double sy)
+    {
+        this.x0 = x0;
+        this.y0 = y0;
+        this.sx = sx;
+        this.sy = sy;
+    }
+
+    // The sample point in the gradient's own coordinates, in double. Two
+    // reasons, and they compound: objectBoundingBox numbers are fractions,
+    // so the map divides by a length that runs to hundreds of user units;
+    // and spreadMethod's folding is discontinuous, so a sample the spec
+    // places exactly on a period boundary lands on the other colour if the
+    // arithmetic is 24-bit - the reference renders put that boundary on a
+    // whole pixel column.
+    Point!double op(in FPoint p) const
+    {
+        return Point!double((p.x - x0) / sx, (p.y - y0) / sy);
+    }
 }
 
 // Premultiplied interpolation (SVG 1.1 §13.2.3 requires premultiplied
@@ -79,13 +116,15 @@ private PMColor sampleStops(const GradientStop[] stops, Spread spread, float t)
 // solid (§13.2.2), handled in colourAt.
 class LinearGradientShader : MappingShader
 {
-    this(FPoint p0, FPoint p1, GradientStop[] stops, Spread spread)
+    this(Point!double p0, Point!double p1, GradientStop[] stops,
+        Spread spread, GradSpace space)
     {
         this.p0 = p0;
         this.p1 = p1;
         this.stops = stops;
         this.spread = spread;
-        immutable dx = p1.x - p0.x, dy = p1.y - p0.y;
+        this.space = space;
+        immutable double dx = p1.x - p0.x, dy = p1.y - p0.y;
         this.denom = dx * dx + dy * dy;
     }
 
@@ -102,20 +141,24 @@ class LinearGradientShader : MappingShader
         return mapLine!colorAt(this, x, y, data);
     }
 
-    static PMColor colorAt(LinearGradientShader pthis, in FPoint pt)
+    static PMColor colorAt(LinearGradientShader pthis, in FPoint p)
     {
         if (pthis.denom == 0) // §13.2.2: a degenerate vector paints the
             return pthis.stops[$ - 1].color; // last stop's color solid
+        // §7.11: the vector, and the iso-lines perpendicular to it, belong to
+        // the gradient's own space, so the sample point comes through the map.
+        immutable pt = pthis.space.op(p);
         immutable vx = pthis.p1.x - pthis.p0.x, vy = pthis.p1.y - pthis.p0.y;
         immutable t = ((pt.x - pthis.p0.x) * vx + (pt.y - pthis.p0.y) * vy)
             / pthis.denom;
-        return sampleStops(pthis.stops, pthis.spread, t);
+        return sampleStops(pthis.stops, pthis.spread, cast(float) t);
     }
 
-    FPoint p0, p1;
+    Point!double p0, p1;
     GradientStop[] stops;
     Spread spread;
-    private float denom;
+    GradSpace space;
+    private double denom;
 }
 
 // <radialGradient> (§13.2.1/§13.2.4): the ramp runs over the family of
@@ -123,22 +166,25 @@ class LinearGradientShader : MappingShader
 // focus f). Solving |pt - centre(t)| = r*t is the spec's suggested t-finder.
 class RadialGradientShader : MappingShader
 {
-    this(FPoint c, float r, FPoint f, GradientStop[] stops, Spread spread)
+    this(Point!double c, double r, Point!double f, GradientStop[] stops,
+        Spread spread, GradSpace space)
     {
         this.c = c;
         this.r = r;
         // §13.2.3: a focal point outside the end circle snaps to the
-        // intersection of the (c -> f) ray with that circle.
-        immutable Lx = f.x - c.x, Ly = f.y - c.y;
-        immutable d2 = Lx * Lx + Ly * Ly;
+        // intersection of the (c -> f) ray with that circle - in the
+        // gradient's own units, which is where the circle is defined.
+        immutable double Lx = f.x - c.x, Ly = f.y - c.y;
+        immutable double d2 = Lx * Lx + Ly * Ly;
         if (r > 0 && d2 > r * r)
         {
             immutable k = r / sqrt(d2);
-            f = FPoint(c.x + Lx * k, c.y + Ly * k);
+            f = Point!double(c.x + Lx * k, c.y + Ly * k);
         }
         this.f = f;
         this.stops = stops;
         this.spread = spread;
+        this.space = space;
     }
 
     override @property bool opaque() const
@@ -154,12 +200,17 @@ class RadialGradientShader : MappingShader
         return mapLine!colorAt(this, x, y, data);
     }
 
-    static PMColor colorAt(RadialGradientShader pthis, in FPoint pt)
+    static PMColor colorAt(RadialGradientShader pthis, in FPoint p)
     {
         if (pthis.r <= 0) // §13.2.3: r=0 paints the last stop's colour solid
             return pthis.stops[$ - 1].color;
 
-        immutable Lx = pthis.c.x - pthis.f.x, Ly = pthis.c.y - pthis.f.y;
+        // Everything below measures in the gradient's own space, where an
+        // objectBoundingBox circle is a circle and the shape's non-uniform
+        // bbox map waits outside (§7.11) - in double, for the same reason
+        // the map itself is double.
+        immutable pt = pthis.space.op(p);
+        immutable double Lx = pthis.c.x - pthis.f.x, Ly = pthis.c.y - pthis.f.y;
         immutable Dx = pthis.f.x - pt.x, Dy = pthis.f.y - pt.y;
 
         if (Dx == 0 && Dy == 0) // at the focus: t = 0
@@ -172,7 +223,7 @@ class RadialGradientShader : MappingShader
         immutable b = 2 * (Dx * Lx + Dy * Ly);
         immutable cq = Dx * Dx + Dy * Dy;
 
-        float t;
+        double t;
         if (a == 0) // focus exactly on the end circle: linear equation
             t = b == 0 ? 0 : -cq / b;
         else
@@ -190,13 +241,14 @@ class RadialGradientShader : MappingShader
             if (t < 0)
                 t = 0;
         }
-        return sampleStops(pthis.stops, pthis.spread, t);
+        return sampleStops(pthis.stops, pthis.spread, cast(float) t);
     }
 
-    FPoint c, f;
-    float r;
+    Point!double c, f;
+    double r;
     GradientStop[] stops;
     Spread spread;
+    GradSpace space;
 }
 
 /// Resolve `fill/stroke="url(#id)"` into a paint shader.
@@ -256,10 +308,16 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
     if (!userSpace && (bbox.width <= 0 || bbox.height <= 0))
         return null;
 
-    // percentage bases: fractions of the bbox, or viewport lengths.
-    immutable pxScale = userSpace ? vpW : 1.0f;
-    immutable pyScale = userSpace ? vpH : 1.0f;
-    immutable prScale = userSpace ? sqrt((vpW * vpW + vpH * vpH) / 2.0f) : 1.0f;
+    // percentage bases: fractions of the bbox, or viewport lengths. Double,
+    // along with the numbers read against them: §7.11's map divides those by
+    // the box extent, and spreadMethod folds t at hard discontinuities, so
+    // the reference's answer at a boundary column is decided by whether the
+    // author's 0.4 stays 0.4 or enters as 0.4f (pservers-grad-10-b is that
+    // boundary, twice over).
+    immutable double pxScale = userSpace ? vpW : 1.0;
+    immutable double pyScale = userSpace ? vpH : 1.0;
+    immutable double prScale =
+        userSpace ? sqrt((vpW * vpW + vpH * vpH) / 2.0) : 1.0;
 
     Spread spread = Spread.pad;
     foreach (ref e; chain)
@@ -277,39 +335,47 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
     if (stops.empty)
         return null; // no stops in the chain: gradient is an error state
 
-    // cx/cy/r default to "50%" (§7.5: the r basis is the normalized
-    // diagonal), fx/fy to cx/cy - all resolved per unit system already.
-    immutable cx = attr(chain, "cx", pxScale * 0.5f, pxScale);
-    immutable cy = attr(chain, "cy", pyScale * 0.5f, pyScale);
-    immutable r = attr(chain, "r", prScale * 0.5f, prScale);
+    // cx/cy/r default to "50%" (§7.5: in userSpaceOnUse the r basis is the
+    // normalized diagonal; with objectBoundingBox every one of these is a
+    // fraction), fx/fy to cx/cy - all resolved per unit system already.
+    immutable cx = attr(chain, "cx", pxScale * 0.5, pxScale);
+    immutable cy = attr(chain, "cy", pyScale * 0.5, pyScale);
+    immutable r = attr(chain, "r", prScale * 0.5, prScale);
     immutable fx = attr(chain, "fx", cx, pxScale);
     immutable fy = attr(chain, "fy", cy, pyScale);
 
-    // objectBoundingBox-resolved values are bbox fractions: map them into
-    // the shape's user-space box (§13.2.1; a flat box bailed out above).
-    auto bx = (float v) => userSpace ? v : bbox.left + v * bbox.width;
-    auto by = (float v) => userSpace ? v : bbox.top + v * bbox.height;
-    immutable brScale = userSpace
-        ? 1.0f
-        : sqrt((bbox.width * bbox.width + bbox.height * bbox.height) / 2.0f);
+    // The objectBoundingBox-resolved numbers are bbox fractions, and §7.11's
+    // mapping onto the shape's user-space box goes to the shaders as a map
+    // rather than being folded into them: it is non-uniform whenever the box
+    // is not square, and that is exactly the geometry at stake. A flat box
+    // bailed out above, so the map's per-axis sizes cannot be zero.
+    GradSpace space;
+    if (userSpace)
+        space = GradSpace(0, 0, 1, 1); // the identity
+    else
+        space = GradSpace(bbox.left, bbox.top, bbox.width, bbox.height);
 
     if (radial)
     {
-        immutable ur = userSpace ? r : r * brScale;
-        if (ur < 0)
+        if (r < 0)
             return null; // negative r is a parse error (§13.2.3)
-        return new RadialGradientShader(FPoint(bx(cx), by(cy)), ur,
-            FPoint(bx(fx), by(fy)), stops, spread);
+        // With objectBoundingBox units every number is a fraction - cx/cy/
+        // fx/fy of the matching axis, r of the unit square - so r stays a
+        // single number and the ellipse is the map's doing. §13.2.3's focal
+        // clamp belongs to the same space as the end circle, so it happens
+        // inside the shader.
+        return new RadialGradientShader(Point!double(cx, cy), r,
+            Point!double(fx, fy), stops, spread, space);
     }
 
-    immutable x1 = attr(chain, "x1", 0.0f, pxScale);
-    immutable y1 = attr(chain, "y1", 0.0f, pyScale);
+    immutable x1 = attr(chain, "x1", 0.0, pxScale);
+    immutable y1 = attr(chain, "y1", 0.0, pyScale);
     immutable x2 = attr(chain, "x2", pxScale, pxScale);
-    immutable y2 = attr(chain, "y2", 0.0f, pyScale);
+    immutable y2 = attr(chain, "y2", 0.0, pyScale);
     // A zero-length vector is not an error: §13.2.2 paints the last stop
     // solid (the shader's colourAt handles it).
-    return new LinearGradientShader(FPoint(bx(x1), by(y1)),
-        FPoint(bx(x2), by(y2)), stops, spread);
+    return new LinearGradientShader(Point!double(x1, y1), Point!double(x2, y2),
+        stops, spread, space);
 }
 
 private:
@@ -575,6 +641,65 @@ unittest
 
 unittest
 {
+    // §7.11 + §13.2.3: objectBoundingBox geometry is a circle in the
+    // gradient's own space and the bbox map is non-uniform, so on a
+    // non-square box it paints an *ellipse* - r="50%" of a 120x90 box
+    // reaches 60 px along x and 45 px along y, and pservers-grad-21-b's
+    // guide ellipses (rx=24 ry=18 for r="20%") are exactly that shape.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <radialGradient id="ell">
+            <stop offset="0" stop-color="lime"/>
+            <stop offset="1" stop-color="red"/>
+        </radialGradient>
+        </svg>`);
+    auto sh = cast(RadialGradientShader) makeGradient(doc, "ell",
+        FRect(0, 0, 120, 90), 100, 100, 1.0f);
+    assert(sh !is null, "built the ellipse gradient");
+    auto c = RadialGradientShader.colorAt(sh, FPoint(60, 45));
+    assert(c.g == 255 && c.r == 0, "the 0% stop sits at cx,cy");
+    // Half an end-radius out along either axis: same ramp position, 30 px
+    // of x or 22.5 px of y. Folding the box into a single radius (the old
+    // normalized diagonal) puts these two at different t.
+    immutable midX = RadialGradientShader.colorAt(sh, FPoint(90, 45));
+    immutable midY = RadialGradientShader.colorAt(sh, FPoint(60, 22.5f));
+    assert(midX == midY, "t=0.5 reaches 30 px right and 22.5 px up");
+    assert(midX.r > 100 && midX.r < 200 && midX.g > 100 && midX.g < 200,
+        "t=0.5 really is a blend");
+    // One whole end-radius out, the same holds of the box edges: the ellipse
+    // passes through both, and pad starts there. A 60 px circle would still
+    // be blending at both.
+    immutable edgeX = RadialGradientShader.colorAt(sh, FPoint(120, 45));
+    immutable edgeY = RadialGradientShader.colorAt(sh, FPoint(60, 0));
+    assert(edgeX == edgeY, "the end circle is the ellipse through both");
+    assert(edgeX.r == 255 && edgeX.g == 0, "which is the 100% stop");
+}
+
+unittest
+{
+    // The same map for <linearGradient>: the ramp's iso-lines are
+    // perpendicular to the axis in gradient space, so a diagonal ramp on a
+    // non-square box is sheared - perpendicular to the unit square's
+    // diagonal, not the box's.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <linearGradient id="diag" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="black"/>
+            <stop offset="1" stop-color="white"/>
+        </linearGradient>
+        </svg>`);
+    auto sh = cast(LinearGradientShader) makeGradient(doc, "diag",
+        FRect(0, 0, 120, 90), 100, 100, 1.0f);
+    assert(sh !is null, "built the sheared ramp");
+    // Fractions (0.75,0) and (0,0.75) share t=0.375 - user (90,0) and
+    // (0,67.5). Projection in user space instead would split them at
+    // t=0.48 and t=0.27.
+    immutable left = LinearGradientShader.colorAt(sh, FPoint(90, 0));
+    immutable up = LinearGradientShader.colorAt(sh, FPoint(0, 67.5));
+    assert(left == up, "iso-lines follow the unit square");
+    assert(left.r > 60 && left.r < 130, "t=0.375 is a dark grey");
+}
+
+unittest
+{
     // xlink:href inheritance: stops and unset geometry attributes come
     // from the chain; an href to a different gradient kind, an href
     // cycle, no stops anywhere, or an unknown id all paint nothing.
@@ -739,7 +864,8 @@ unittest
 {
     // Radial: t is found on the family of circles centred f + t*(c-f)
     // with radius r*t; the focus paints stop[0], the rim stop[last];
-    // objectBoundingBox r is the shape's normalized diagonal.
+    // objectBoundingBox r is a fraction of the unit square, mapped by the
+    // shape's box (§7.11).
     auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
         <radialGradient id="r" gradientUnits="userSpaceOnUse" cx="5" cy="5" r="5">
             <stop offset="0" stop-color="white"/><stop offset="1" stop-color="black"/>
@@ -797,13 +923,14 @@ unittest
     c = RadialGradientShader.colorAt(oc, FPoint(3, 5));
     assert(c.r == 0, "opposite side of the r=2 circle reaches t=1");
 
-    // bbox defaults cx=cy=r=50% of a 10x10 box: centre (5,5),
-    // r = sqrt((100+100)/2) = 10 user units.
+    // bbox defaults cx=cy=r=50% of a 10x10 box: centre (5,5), and r is half
+    // the box - 5 user units when the box is square, so (15,5) is past the
+    // rim and pads at the last stop.
     auto sb = cast(RadialGradientShader) makeGradient(doc, "bb", r10, 100, 100, 1.0f);
     c = RadialGradientShader.colorAt(sb, FPoint(5, 5));
     assert(c.r == 255);
     c = RadialGradientShader.colorAt(sb, FPoint(15, 5));
-    assert(c.r <= 3, "bbox r is the box diagonal (10), so (15,5) is the rim");
+    assert(c.r <= 3, "bbox r is half the box, so (15,5) pads at stop[last]");
     assert(makeGradient(doc, "r", FRect(5, 5, 5, 15), 100, 100, 1.0f)
         !is null, "userSpaceOnUse survives a flat bbox");
 
