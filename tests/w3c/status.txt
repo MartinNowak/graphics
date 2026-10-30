@@ -111,8 +111,8 @@ coords-transformattr-03-f.svg OK 481
 coords-transformattr-04-f.svg OK 431
 coords-transformattr-05-f.svg OK 556
 coords-units-01-b.svg OK 1336
-coords-units-02-b.svg OK 2311
-coords-units-03-b.svg OK 5388
+coords-units-02-b.svg OK 570
+coords-units-03-b.svg OK 1733
 coords-viewattr-01-b.svg OK 3618
 coords-viewattr-02-b.svg OK 531
 coords-viewattr-03-b.svg OK 1809
@@ -151,7 +151,7 @@ filters-light-02-f.svg OK 134800
 filters-light-03-f.svg OK 915
 filters-light-04-f.svg OK 882
 filters-light-05-f.svg OK 2768
-filters-morph-01-f.svg OK 8527
+filters-morph-01-f.svg OK 8369
 filters-offset-01-b.svg OK 435
 filters-offset-02-b.svg OK 4176
 filters-overview-01-b.svg OK 3540

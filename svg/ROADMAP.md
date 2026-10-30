@@ -65,6 +65,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 23               | a data: URI payload folded across lines is     | 3.10 M     |
 |                       | the same bytes: XML §3.3.3 makes the fold a    |            |
 |                       | space the base64 decoder has to skip           |            |
+| step 24               | an absolute length resolves on the 96 dpi      | 3.09 M     |
+|                       | basis the W3C references were captured on      |            |
+|                       | (SVG 1.1 §7.10)                                |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -447,29 +450,75 @@ the rest of its 1,515. The negative control is worth recording
 for the next time an `<image>` row looks broken: eleven suite rows carry a data
 URI whose payload is already on one line, and not one of them moved.
 
-Up next - step 24, §7.10's unit table, which the same sweep found by asking
-the engine what it makes of a length. A scratch document asking for one stroke
-width eight ways answers unit-less, `20px` and `2em` correctly, and then paints
-`0.25in` 18 px wide, `16pt` 16, `2pc` 24, `0.5cm` and `5mm` both 14.17. That is
-one basis, not three: `enum dpi = 72` in `parseLength`, so 1in = 72px, 1pt = 1px,
-1pc = 12px, 1cm = 28.35px, 1mm = 2.835px - and because the `<style>` rules and
-the presentation attributes both run through that one function, the CSS side and
-the attribute side agree, which means the constant is the feature. §7.10 defines
-the absolute identifiers as "an appropriate multiple of one px unit ... based on
-what the user agent knows about its viewing environment", works its example at 90
-dpi ("1pt equals 1.25px", "1in equals 90px"), and then states the number the
-harness cares about: "The reference image above was generated on a 96dpi system
-(i.e., 1 inch = 96 pixels)". At 96 dpi the same lengths are 24, 21.33, 32 and
-18.9 - every absolute length we paint is a quarter short. coords-units-03-b
-(5,388) is the table's own test, and the interesting part of it is that our
-basis is self-consistent: the five lines it draws as `1in`, `2.54cm`, `25.4mm`,
-`72pt`, `6pc` are already equal to each other, at 72 px where the references were
-captured at 96. The suite's reach is narrow - three rows carry an in/cm/mm/pt/pc
-length at all, 03-b, coords-units-02-b (2,311, one `font-size="13pt"`, because
-that test deliberately leaves the CSS-unit-to-px conversion out) and
-filters-morph-01-f (8,527, one `12pt`) - and twelve carry an em or ex, 480 K of
-AE of which 450 K is three deferred filter rows. `ex`'s x-height (we use half an
-em) and what a `%` normalizes against are the table's two remaining questions.
+Step 24 changes one constant: `enum dpi = 72` in `parseLength` becomes `96`.
+That function is the only place the absolute identifiers are resolved, and both
+the presentation attributes and the `<style>`/inline rules reach it, so the basis
+is shared and the constant really was the feature: a scratch document that asks
+for one stroke width eight ways answers unit-less, `20px` and `2em` correctly and
+then paints `0.25in` 18 px wide, `16pt` 16, `2pc` 24, `0.5cm` and `5mm` both
+14.17 - each exactly three quarters of what §7.10 asks for.
+
+The number comes from §7.10 itself: the identifiers are "an appropriate
+multiple of one px unit ... based on what the user agent knows about its viewing
+environment", its worked example is a 90 dpi system ("1pt equals 1.25px", "1in
+equals 90px"), and the section then pins the environment the harness cares about
+- "The reference image above was generated on a 96dpi system (i.e., 1 inch = 96
+pixels)". Before touching the constant that claim was checked against the suite's
+own pixels rather than the prose. coords-units-03-b draws its five absolute
+lengths as rects one unit high at y=180/200/220/240/260; scanning those rows in
+`suite/png/coords-units-03-b.png` finds ink from x=20 to x=115 on all five, i.e.
+96 px, where ours measured x=20..91, 72 px. The five rows above them (200 user
+units, `200px`, `20em`, `40ex`, `41.67%`) measure x=20..214 in both images, so px,
+em, the half-em x-height and the percentage were already right and only the
+absolute basis was off. That is why the change is one line: 1pt = 96/72, 1pc = 16
+and 1cm = 96/2.54 all follow from the same basis, and the unittests now pin
+`1in` = 96, the five spellings equal to each other, and those three ratios.
+
+Measured: coords-units-03-b 5,388 -> 1,733, coords-units-02-b 2,311 -> 570,
+filters-morph-01-f 8,527 -> 8,369, and no other row moves, which makes the
+sweep's count of three absolute-unit rows exact. -5,554, 3,096,037 -> 3,090,483.
+Most of 03-b's gain is not the five rects: its `units-test` group sets
+`font-size="10pt"`, which rendered 10 px tall where the references set 13.33. The
+residuals are not the unit table either. 02-b has no strong delta anywhere - a
+20%-threshold connected-components pass finds nothing but the background - so its
+570 sits under the compare's fuzz; 03-b's strong runs are the `Arial` title band
+at y=11 and the `$Revision` band at y=317, both host-font debt; and
+filters-morph-01-f keeps 8,369 because its four feMorphology result boxes
+(144x117, 142x117, 130x92, 128x105) hold 10.9 K strong-delta pixels, the
+morphology cousin of the feTurbulence/feConvolveMatrix ceiling.
+
+Two rows that looked like features in the same pass are references no correct
+render reaches, and both are now deferred. struct-use-09-b (8,294) nests five
+`<symbol>`s, each `<use>`ing the next, and its pass criteria ask for "5 nested
+rectangles with different coloured strokes (black, yellow, orange, purple and
+blue)": our render has all five rings, at half-widths 90/80/70/60/50, in exactly
+those colours, while the archived PNG holds no gold, orange, purple or slateblue
+pixel at all - its centre is one 99x99 opaque square and a scattering of red
+pixels. struct-cond-overview-05-f (7,485) is that class pointing the other way:
+§5.8.1 states that "conditional processing attributes only affect the direct
+rendering of elements and do not prevent elements from being successfully
+referenced by other elements (such as via a `use`)", which is what we do - three
+black `use` clones cover the red decoys at x=200 - while the reference shows the
+red decoys, the state the test exists to forbid.
+
+Up next - step 25, the `clip` property, which the same sweep turned up.
+masking-path-06-b (7,905) is the only row in the suite that uses it, and its
+whole delta is that one mechanism. Two `<image>` elements carry
+`clip="rect(10,10,10,10)" overflow="hidden"`, and the test draws a blue guide
+rect at the image bounds and a red one ten units inside. Where the two agree the
+JPEG decodes to within a level of the reference - (130,100) is (108,157,107) for
+us against (109,158,108) there - and where they differ we paint image and the
+reference paints nothing: (40,50), (40,110) and (228,110) are image pixels in
+ours, `(0,0,0,0)` in the reference, and the second image repeats it at (250,185)
+and (250,295). The strong-delta components are the image boxes themselves,
+200x120+35+45 with 5,967 pixels and the two 99x60 pieces of the other box. The
+engine has no handler for `clip` at all. §14.3.3 gives the semantics: the same
+parameter values as CSS2 §11.1.2, "unitless values, which indicate current user
+coordinates", it applies to "elements which establish a new viewport" - which an
+`<image>` does - and `auto` is the viewport's own bounds. So the feature is a
+rect inset in user units against the element's own viewport, clipping the way
+`clip-path` already clips shapes, and the pass criteria, "two images inside the
+red rectangles", is the before/after check the corner samples above measure.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -541,8 +590,21 @@ em) and what a `%` normalizes against are the table's two remaining questions.
   element's `#id` rules) show the red reference ring instead of the green one
   there, 5.1 K strong-delta pixels per ring band, and the other three, styled by
   presentation attribute and inline `style`, are green in both.
+- `struct-use-09-b` (8.3 K) and `struct-cond-overview-05-f` (7.5 K), both triaged
+  during the step-24 unit sweep, are references of the same broken kind. 09-b's
+  pass criteria want five nested rings in black/yellow/orange/purple/blue, and we
+  paint exactly those at half-widths 90/80/70/60/50, while its PNG contains no
+  gold, orange, purple or slateblue pixel anywhere. 05-f is the reverse: we obey
+  §5.8.1 ("conditional processing attributes ... do not prevent elements from
+  being successfully referenced by other elements (such as via a `use`)") so the
+  three black clones hide the red decoys and no red shows, and the PNG is the
+  red-decoy state the test was written to eliminate.
 - `filters-turb` (163 K) / `filters-conv` (172 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
+  filters-morph-01-f (8.4 K) belongs to the same family: its four feMorphology
+  result boxes (144x117, 142x117, 130x92, 128x105) carry 10.9 K strong-delta
+  pixels, and the only unit content in the file, a `12pt` label, was worth the
+  158 AE step 24 took off it.
 - Gradient ramps that change colour across a `stop-opacity` change
   (`pservers-grad-13-b` 2.8 K, `-05-b` 1.0 K, `-18-b` 1.1 K): the archived
   references interpolate `stop-color` and `stop-opacity` separately - step 22

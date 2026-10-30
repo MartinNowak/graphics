@@ -140,7 +140,14 @@ float parseLength(string s, const(LengthCtx) lc = LengthCtx.init)
 {
     auto res = parseNum(s);
     s = strip(s);
-    enum dpi = 72;
+    // §7.10 defines the absolute identifiers as "an appropriate multiple of one
+    // px unit", the multiple coming from what "the user agent knows about its
+    // viewing environment". For this engine the environment is fixed, and it is
+    // the one the harness's references were captured in: the same section notes
+    // "The reference image above was generated on a 96dpi system (i.e., 1 inch =
+    // 96 pixels)" - and coords-units-03-b's five absolute-unit rects really are
+    // 96 px long in every reference image, 72 px long at the old 72 dpi basis.
+    enum dpi = 96;
     switch (toLower(s))
     {
     case "", "px": break;
@@ -4858,11 +4865,21 @@ unittest
     lc.fontSize = 20;
     assert(parseLength("42", lc) == 42);
     assert(parseLength("42px", lc) == 42);
-    assert(parseLength("1in", lc) == 72);
-    assert(parseLength("72pt", lc) == 72);
-    assert(parseLength("6pc", lc) == 72);
-    assert(isClose(parseLength("2.54cm", lc), 72, 1e-3f));
-    assert(isClose(parseLength("25.4mm", lc), 72, 1e-3f));
+    assert(parseLength("1in", lc) == 96);
+    assert(isClose(parseLength("72pt", lc), 96, 1e-3f));
+    assert(isClose(parseLength("6pc", lc), 96, 1e-3f));
+    assert(isClose(parseLength("2.54cm", lc), 96, 1e-3f));
+    assert(isClose(parseLength("25.4mm", lc), 96, 1e-3f));
+    // one length, five spellings: what coords-units-03-b checks with its five
+    // rects, and the equalities hold only if pt/pc/cm/mm share in's basis
+    foreach (u; ["1in", "2.54cm", "25.4mm", "72pt", "6pc"])
+        assert(isClose(parseLength(u, lc), parseLength("1in", lc), 1e-2f));
+    // §7.10's own worked example is a 90 dpi system, so its numbers ("1pt
+    // equals 1.25px", "1pc equals 15px") are the pattern, not the value: scale
+    // them by 96/90 and they are exactly what the switches below produce.
+    assert(isClose(parseLength("1pt", lc), 96.0f / 72.0f, 1e-4f));
+    assert(isClose(parseLength("1pc", lc), 16.0f, 1e-3f));
+    assert(isClose(parseLength("1cm", lc), 96.0f / 2.54f, 1e-3f));
     assert(parseLength("2em", lc) == 40);
     assert(parseLength("1ex", lc) == 10);
     lc.pctRef = lc.vpW;
