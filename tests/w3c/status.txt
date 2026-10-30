@@ -392,7 +392,7 @@ struct-group-01-t.svg OK 359
 struct-group-02-b.svg OK 435
 struct-group-03-t.svg OK 2177
 struct-image-01-t.svg OK 422
-struct-image-02-b.svg OK 27800
+struct-image-02-b.svg OK 406
 struct-image-03-t.svg OK 9296
 struct-image-04-t.svg OK 418
 struct-image-05-b.svg OK 418

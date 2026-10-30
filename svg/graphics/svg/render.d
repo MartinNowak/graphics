@@ -3399,11 +3399,10 @@ private struct Renderer
         {
             // The instance of a <symbol> - or of a referenced <svg>, which
             // behaves as one - is a nested viewport: the use's x/y placed it
-            // above (the svg target's own x/y are overridden), its
-            // width/height size the box - falling back to the target's
-            // width/height attrs, then to 100% of the current viewport -
-            // and the target's viewBox + preserveAspectRatio map user
-            // space into it.
+            // above, its width/height size the box - falling back to the
+            // target's width/height attrs, then to 100% of the current
+            // viewport - and the target's viewBox + preserveAspectRatio map
+            // user space into it.
             float w = inst.attrs.convLen("width", 0.0f, lc, RefAxis.width);
             float h = inst.attrs.convLen("height", 0.0f, lc, RefAxis.height);
             if (w <= 0) w = orig.attrs.convLen("width", vpW, lc, RefAxis.width);
@@ -3423,6 +3422,21 @@ private struct Renderer
 
             pushStyle(orig.attrs, target); // the symbol's presentation attrs (transform included)
             canvas.save();
+            // A <svg> target keeps its own x/y: §5.6 transfers only width
+            // and height from the use ("these values will override the
+            // corresponding attributes on the 'svg' in the generated tree"),
+            // so the clone is still the element establishing this viewport,
+            // and §7.9 puts both new coordinate systems' origin at its (x,
+            // y) - the same translate openViewport applies to an inline
+            // nested <svg>. §5.5 gives <symbol> no x/y at all, so it keeps
+            // none here.
+            if (orig.name == "svg")
+            {
+                immutable sx = orig.attrs.convLen("x", 0.0f, lc, RefAxis.width);
+                immutable sy = orig.attrs.convLen("y", 0.0f, lc, RefAxis.height);
+                if (sx || sy)
+                    canvas.matrix = canvas.matrix.preTranslate(sx, sy);
+            }
             canvas.matrix = canvas.matrix * viewFit(vb, w, h,
                 parsePAR(orig.attrs.get("preserveAspectRatio", "xMidYMid meet")));
             savedViewports ~= FSize(vpW, vpH);
@@ -5131,6 +5145,35 @@ unittest
     assert(bmp.getLine!PMColor(15)[15].g == 255, "scaled clone fills the use box");
     assert(bmp.getLine!PMColor(29)[29].g == 255 && bmp.getLine!PMColor(11)[11].g == 255);
     assert(bmp.getLine!PMColor(5)[5].g == 0, "the original (in defs) stays unpainted");
+
+    // Only width and height travel from the use (§5.6): the clone keeps its
+    // own x/y, and §7.9 puts the new viewport's origin there, so the
+    // instance lands at the use's x/y *plus* the target's - which is how
+    // struct-image-02-b puts its blue quadrant right of its photo.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="40" height="30" viewBox="0 0 40 30">
+        <defs>
+            <svg id="off" x="20" y="5" width="100" height="100">
+                <rect width="10" height="10" fill="#00ff00"/>
+            </svg>
+        </defs>
+        <use xlink:href="#off" x="5" y="5" width="10" height="10"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(15)[30].g == 255, "the clone's own x/y shift its viewport");
+    assert(bmp.getLine!PMColor(15)[20].g == 0 && bmp.getLine!PMColor(10)[10].g == 0,
+        "the use's x/y alone is not where it lands");
+    assert(bmp.getLine!PMColor(18)[33].g == 255 && bmp.getLine!PMColor(21)[36].g == 0,
+        "the use still sizes the box, not the target's 100x100");
+
+    // A <symbol> has no x/y in SVG 1.1 (its attribute list is viewBox and
+    // preserveAspectRatio), so writing them there changes nothing.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="40" height="30" viewBox="0 0 40 30">
+        <symbol id="s" x="20" y="5"><rect width="10" height="10" fill="#00ff00"/></symbol>
+        <use xlink:href="#s" x="5" y="5"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[10].g == 255, "symbol x/y are not SVG 1.1 attributes");
+    assert(bmp.getLine!PMColor(15)[30].g == 0, "and they are not applied either");
 }
 
 unittest

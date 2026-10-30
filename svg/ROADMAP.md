@@ -44,6 +44,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | source text before the walk (XML 1.0 §4.4.2, §G.2/§1.3)  |            |
 | step 15               | CSS2 system-color keywords, values of the theme   | 3.24 M     |
 |                       | the reference images were captured with (§6.2, CSS2 §18.2) |            |
+| step 16               | `use` of a positioned nested `<svg>`: the clone   | 3.21 M     |
+|                       | keeps its own x/y as the viewport origin (§5.6/§7.9)    |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -151,29 +153,24 @@ is the one entry point, and a name in neither registry is still dropped
 rather than guessed at. A unittest pins four spellings across the case range
 and two names that must fail.
 
-Up next - step 16, `struct-image-02-b` (27.8 K, the worst static structure
-contributor left). Its S1 is a `<use>` of an `<image>` held in `<defs>`, its
-S2 a `<use>` of a *positioned* nested `<svg>` (`x="240" y="0" width="240"
-height="225"`) also in `<defs>`, and our render puts one blue slab across the
-whole top half where the photo and the blue quadrant should sit side by side.
-A scratch probe separates the halves: the `use` -> `<image>` clone paints
-correctly, so the photo is missing only because that blue viewport is drawn
-over it. The defect is `useElement`'s `symbol`/`svg` instance branch, which
-takes the use's x/y as a translate and then drops the target's own x/y; the
-comment there claims the spec overrides them, but §5.6 transfers *only*
-width and height from the use - "If attributes 'width' and/or 'height' are
-provided on the 'use' element, then these values will override the
-corresponding attributes on the 'svg' in the generated tree" - and §7.9
-places the origin of both new coordinate systems at (x, y) "on the element
-establishing the viewport". A cloned `<svg>` is still that element, so its
-x/y are a translate inside the use's own, exactly as `openViewport` already
-does for the inline nested `<svg>` whose square3 lands correctly. `<symbol>`
-carries no x/y in 1.1 at all (§5.5 lists only `viewBox` and
-`preserveAspectRatio`), so this belongs to the `svg` target alone. Suite-wide
-the pair is rare: `use` of an `<image>` or nested `<svg>` appears in
-struct-image-02-b (2), animate-elem-30-t (1), struct-dom-07-f (deferred DOM)
-and struct-use-07-b (deferred), so the blast radius is small and the gate
-will show any `symbol` fallout.
+Step 16 (a `use` of a positioned nested `<svg>`) landed: `useElement`'s
+instance branch now takes the *target's* own x/y as a translate inside the
+use's, so a cloned `<svg>` establishes its viewport where its own attributes
+put it, and struct-image-02-b's photo and blue quadrant sit side by side
+again - 27,800 -> 406. §5.6 transfers only width and height from the use to
+the generated tree ("these values will override the corresponding attributes
+on the 'svg' in the generated tree") and §7.9 puts both new coordinate
+systems' origin at the (x, y) of the element establishing the viewport, which
+the clone still is; that is the same translate `openViewport` already applies
+to the inline nested `<svg>` a few elements later in the same test, which is
+why its square3 always landed correctly. `<symbol>` is untouched - §5.5 gives
+it no x/y at all - and the unittest pins both halves: the instance at the
+use's x/y *plus* the target's while the *size* keeps coming from the use, and
+a `<symbol>` that carries x/y attributes painting as if it did not. The
+`<image>` instance beside it needed nothing: the clone painted all along and
+was simply covered by the misplaced blue box. Nothing else in the suite
+moved - the only other `use` of an `<image>` or nested `<svg>` is
+animate-elem-30-t (unchanged) and two deferred tests.
 
 ## Deferred / accepted ceilings (do not chase)
 
