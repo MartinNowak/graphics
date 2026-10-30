@@ -203,6 +203,46 @@ struct-frag-05-t was the only file painting a foreign element with an SVG
 local name - every other hit is xhtml inside `<d:testDescription>`, which
 painted nothing - and the gate agrees: no other row moves.
 
+Up next - step 18, `color-prop-05-t` (11.7 K, the entire content of a
+one-rectangle test). Its body is `<g fill="currentColor" color="lime"><rect
+width="150" height="150" color="red"/></g>`; the reference paints the square
+lime (`#00FF00` at 195,135), we paint the rect's own red (`#FF0000`), and the
+pass criterion is unambiguous: "the user agent renders the rectangle with a
+green fill". The REC does not decide it - §11.2 only says currentColor paints
+"using the current animated value of the color specified by the 'color'
+property" and §12.2 gives the 'color' table (Inherited: yes) without saying
+whose color an *inherited* `fill: currentColor` carries - so the suite's
+criterion is the oracle, and it wants the color bound where the paint value
+is written and travelling with it afterwards. Today `pushStyle` stores the
+keyword as `fillIsCurrent`/`strokeIsCurrent` and `paintOf` resolves it at
+paint time against the element's own `color`, so the keyword re-binds on
+every descendant. Resolving it at the end of `pushStyle` instead is enough:
+the flag is only ever set on the element that named it, so that element's
+color freezes into `cfill`/`cstroke` and inheritance carries a plain color.
+A `use` instance keeps following the use site, because the instance walks
+with the use element's style stack and re-applies the target's own
+declarations inside it (§5.6; render.d already asserts it), and animated
+values ride the same cascade replay, so animate-elem-85-t subtest_2 -
+animated `color` plus `to="currentColor"`, already cyan - still resolves.
+A namespace-aware scan finds exactly one document in the suite where a
+currentColor paint declaration is inherited into an element that sets
+`color`: this one.
+
+Step 19, same rule on the other side of a paint server: `stop-color`
+resolves in the *gradient definition's* scope, not the referencing element's.
+pservers-grad-18-b states it - "the stop-color is inherited from the
+location of the gradient definition" - which is §13.2.4's inheritance from
+the gradient element's ancestors, and it is where `<linearGradient
+color="green">` and `<radialGradient color="#700">` sit in color-prop-01-b
+and styling-inherit-01-b. Measured: 01-b's middle stop is `#008000` in the
+reference against our `#0000FF` (5.2 K), styling-inherit-01-b 4.8 K, and one
+of pservers-grad-18-b's four sub-rects is green-to-yellow `#F2F900` against
+our green-to-blue `#0007F2` (7.6 K; the other three want
+`stop-color="inherit"`/`stop-opacity="inherit"`, also §13.2.4, and belong to
+the same step). `gradient.d` currently receives `curColor` from the
+referencing element's style, and the arena stores no parent pointer, so that
+step needs a scope for gradient content.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -221,6 +261,22 @@ painted nothing - and the gate agrees: no other row moves.
   shows the two event-ended `set` rows back at base — only true after the
   checker's click/accessKey plus 5 s — while an unfired end event leaves
   those runs active forever. Every other state in both tests matches.
+- Operator-activation references: `linking-a-01-b` (23.0 K) /
+  `linking-a-03-b` (21.5 K) references are the *post-click* view of the
+  linked `linkingCircle-f.svg` — the target document replaces the whole test
+  frame — and `animate-elem-20-t` (20.4 K) / `-21-t` (21.1 K) show the
+  frozen result of a `begin="indefinite"` fade the operator starts by
+  clicking the `<a xlink:href="#fadein">` button. Both files render
+  correctly as authored (20-t's white square and both buttons match ours),
+  so the delta is the activation, not the paint.
+- `animate-elem-85-t` (22.3 K): the reference contradicts the file it is
+  scored against. The source documents the freeze state (at t = 10 s both
+  `color` and `fill` are `#00ffff`) and we paint exactly that — cyan rects,
+  circles at their static fills — while the PNG shows yellow rects with
+  red/olive circles and no band for the `<g id="draft-watermark">` the file
+  still carries uncommented (the other watermark-carrying files, e.g.
+  `animate-elem-86-t` and `linking-frag-01-f`, do keep their band). No
+  timing or `currentColor` model reaches that reference.
 - struct-image-13/14/15-f (453 K): the reference PNGs deviate from the
   tile PNGs they composite; our tiles match ground truth at AE 0 — a
   reference-suite defect, documented in the `<image>` commit message.
