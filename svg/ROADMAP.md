@@ -81,6 +81,18 @@ were dropped - struct-cond-03-t places its two branches with
 itself turned out to have worked since step 5b; the selector-types
 trio's 43 K is a defective-reference ceiling (deferred below).
 
+Up next - step 13, `masking-path-04-b` (30.6 K, the worst masking
+contributor). It is the only suite test that puts `clip-path` on an
+`<image>` (masking-path-11-b's mask covers a `<rect>`), and `imageElement`
+paints through `canvas.drawPath` without ever consulting
+`Style.clipUrls`/`Style.maskUrls` - so the bottom row paints the whole
+bluesquid viewport instead of only the "Clip Test" glyph outlines of
+`<clipPath id="sample">`. §14.3.1 makes `clip-path` apply to every element
+that generates paint, `<image>` included, and `mask` (§14.4) goes the same
+way. What is left afterwards is the host-font floor already noted below:
+`fc-match Impact` answers Noto Sans here, so the clip's letterforms - like
+the yellow row's - cannot match the reference.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
