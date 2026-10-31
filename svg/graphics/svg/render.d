@@ -2834,6 +2834,63 @@ private struct Renderer
         return pp;
     }
 
+    // §10.6: what a <tref> contributes is the referenced element's character
+    // data - "all character data within the referenced element, including
+    // character data enclosed within additional markup", which is flattened
+    // textContent, "stripped of all supplemental markup". So a nested tspan's
+    // fill, font-size or dx does not travel with the text, and a nested tref
+    // is markup rather than character data and drops out. The href may name
+    // another document, as <use>'s does (§5.6); that file is parsed only to
+    // read its text. A reference that goes nowhere - no fragment, a dangling
+    // fragment, an unreadable file - contributes nothing.
+    string trefText(in string[string] a, string base)
+    {
+        immutable href = strip(a.get("href", a.get("xlink:href", "")));
+        string frag;
+        bool external;
+        if (href.length && href[0] == '#')
+            frag = href[1 .. $];
+        else if (auto h = find(href, '#'))
+        {
+            if (h.length < 2)
+                return null; // `file#`: an empty fragment names no element
+            external = true;
+            frag = h[1 .. $];
+        }
+        else
+            return null; // no fragment at all: no element is addressed
+        if (frag.length == 0)
+            return null;
+
+        string flat(ref Document d, size_t idx)
+        {
+            string res;
+            foreach (ch; d.nodes[idx].children)
+            {
+                auto n = d.nodes[ch];
+                res ~= n.name.empty ? n.text : flat(d, ch);
+            }
+            return res;
+        }
+
+        if (!external)
+        {
+            immutable src = doc.byId(frag);
+            return src == Document.unknown ? null : flat(doc, src);
+        }
+
+        immutable path = resolveHref(base, href);
+        if (path is null || path.length < 4 || !equalCase(path[$ - 4 .. $], ".svg"))
+            return null; // only SVG documents carry character data to read
+        Document ext;
+        try
+            ext = parseSVG(cast(string) readText(path));
+        catch (Exception)
+            return null; // unreadable: a broken reference
+        immutable src = ext.byId(frag);
+        return src == Document.unknown ? null : flat(ext, src);
+    }
+
     // Measure, position, and paint the whole <text> at its close:
     // §6.1.2 per-glyph x/y/dx/dy lists, §16.3 textLength and §16.4
     // letter/word-spacing feed the advances, and the §6.1.3 anchor
@@ -3629,6 +3686,28 @@ private struct Renderer
             return true;
         }
 
+        case "tref":
+        {
+            // §10.6: "applied as if the tref element was replaced by a
+            // tspan with the referenced character data" - so x/y/dx/dy and
+            // the style are this element's, the run sits where a tspan's
+            // would, and only the text comes from the reference.
+            auto lc = lengthCtx();
+            auto xs = lenList(a, "x", lc, RefAxis.width);
+            auto ys = lenList(a, "y", lc, RefAxis.height);
+            auto dxs = lenList(a, "dx", lc, RefAxis.width);
+            auto dys = lenList(a, "dy", lc, RefAxis.height);
+            const s = pushStyle(a, idx);
+            if (inText)
+            {
+                newRun(a, xs, ys, dxs, dys, openPath);
+                runOpen = true;
+                if (auto txt = trefText(a, s.baseUrl.length ? s.baseUrl : docBase))
+                    appendRunText(txt);
+            }
+            return true;
+        }
+
         case "textPath":
         {
             // §10.8: the run model is the tspan's; what the element adds
@@ -3672,7 +3751,7 @@ private struct Renderer
             popStyle();
             break;
 
-        case "text", "tspan", "textPath":
+        case "text", "tspan", "tref", "textPath":
             if (tag == "text")
             {
                 // All runs are in: measure, anchor, place, paint -
@@ -7187,4 +7266,93 @@ unittest
     }
     assert(inkCount(renderSVG(bad("#nope"))) == 0, "a dangling reference paints nothing");
     assert(inkCount(renderSVG(bad("#r"))) == 0, "a reference to a non-path paints nothing");
+}
+
+// Pixel equality, for the <tref> tests below: a reference that contributes
+// the same character data as literal text has to produce the same raster,
+// whatever the host font makes of the glyphs.
+private bool samePixels(in Bitmap a, in Bitmap b)
+{
+    if (a.width != b.width || a.height != b.height)
+        return false;
+    foreach (y; 0 .. a.height)
+        if (a.getLine!PMColor(y) != b.getLine!PMColor(y))
+            return false;
+    return true;
+}
+
+unittest
+{
+    // §10.6: the run a <tref> opens is the tspan's own, and the referenced
+    // element lends only its character data - "stripped of all supplemental
+    // markup", so the fills, sizes and dx written on the target's tspans drop
+    // out and everything comes out in the tref's style, as one line.
+    string inDoc(string body)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="120" height="40"
+            viewBox="0 0 120 40">
+            <defs>
+                <text id="t">F<tspan fill="#ff0000">l</tspan><tspan font-size="30">a</tspan><tspan fill="#0000ff">tt</tspan><tspan dx="50">e</tspan><tspan font-size="4">n</tspan><tspan>ed</tspan></text>
+                <text id="a">Hello</text><text id="b">World</text>
+            </defs>
+            <text x="4" y="24" font-size="12" fill="#008000">` ~ body ~ `</text>
+            </svg>`;
+    }
+    assert(samePixels(renderSVG(inDoc(`<tref xlink:href="#t"/>`)),
+        renderSVG(inDoc("Flattened"))),
+        "the target's markup is stripped and its text lays out as one run");
+    // Two trefs with whitespace between them: closing a tref's run lets the
+    // text node after it reopen the parent's, exactly as after a </tspan>, so
+    // the two references sit in runs of their own with that whitespace
+    // between - and the render matches the two-tspan spelling. (That gap
+    // carries no advance yet: the XML cursor drops a whitespace-only text
+    // node before the arena ever sees it, which §7.1 asks a text content
+    // element to keep as one space. Tracked apart from <tref>.)
+    assert(samePixels(renderSVG(inDoc(`<tref xlink:href="#a"/> <tref xlink:href="#b"/>`)),
+        renderSVG(inDoc(`<tspan>Hello</tspan> <tspan>World</tspan>`))),
+        "a tref closes its run the way a tspan does");
+    // x, y, dx and dy are the tref's own, exactly as for a tspan.
+    immutable left = inkBox(renderSVG(inDoc(`<tref xlink:href="#a"/>`)));
+    immutable right = inkBox(renderSVG(inDoc(`<tref xlink:href="#a" x="60"/>`)));
+    assert(right[0] - left[0] == 56,
+        `x moves the run: ${to!string(right)} / ${to!string(left)}`);
+    // Nothing referenced, nothing painted - and the target's own text stays
+    // in <defs>, unpainted, which is what makes the empty ink above complete.
+    assert(inkCount(renderSVG(inDoc(`<tref xlink:href="#gone"/>`))) == 0,
+        "a dangling tref paints nothing");
+    assert(inkCount(renderSVG(inDoc(`<tref/>`))) == 0, "an href-less tref paints nothing");
+}
+
+unittest
+{
+    // §10.6 with §5.6: the referenced element may live in another document,
+    // the way <use>'s may. That file is read for its character data only, and
+    // markup inside the target is stripped across the boundary too.
+    import std.file : mkdir, remove, rmdir, tempDir, write;
+    import std.path : buildPath;
+    import std.process : thisProcessID;
+
+    immutable dir = buildPath(tempDir, "gsvg-tref-" ~ to!string(thisProcessID));
+    mkdir(dir);
+    immutable tp = buildPath(dir, "targ.svg");
+    scope (exit) { remove(tp); rmdir(dir); }
+    write(tp, `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+        <defs><text id="x">Plain<tspan fill="#ff0000" font-size="40">bold</tspan>text</text></defs>
+        </svg>`);
+
+    string host(string body)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="140" height="40"
+            viewBox="0 0 140 40">
+            <text x="4" y="24" font-size="12" fill="#008000">` ~ body ~ `</text>
+            </svg>`;
+    }
+    assert(samePixels(renderSVG(host(`<tref xlink:href="targ.svg#x"/>`), 1, dir ~ "/"),
+        renderSVG(host("Plainboldtext"))), "an external target lends its character data");
+    assert(inkCount(renderSVG(host(`<tref xlink:href="gone.svg#x"/>`), 1, dir ~ "/")) == 0,
+        "an unreadable file paints nothing");
+    assert(inkCount(renderSVG(host(`<tref xlink:href="targ.svg"/>`), 1, dir ~ "/")) == 0,
+        "a tref with no fragment paints nothing");
 }

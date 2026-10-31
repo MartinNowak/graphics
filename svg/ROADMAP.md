@@ -80,6 +80,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 28               | text on a path rides a measured reference -    | 3.07 M     |
 |                       | every glyph turns to the chord of its own      |            |
 |                       | advance, centred (SVG 1.1 §10.8, §10.13.3)     |            |
+| step 29               | a <tref> is a tspan whose text is the          | 3.07 M     |
+|                       | referenced element's flattened character       |            |
+|                       | data, markup stripped (SVG 1.1 §10.6)          |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -713,17 +716,61 @@ long run bunches by a percent or two. The straight-path rows show no such
 residue, and separating the two here needs a Georgia this host does not have.
 Recorded, not chased.
 
-Up next - step 29, `<tref>` (§10.6), the last text reference left: three
-rows carry it, text-tref-01-b (948), -02-b (1,025) and -03-b (932), and one
-line of text-align-04-b (2,693). Unlike the path, the machinery is already
-there - a tref contributes the referenced element's text, which is a run
-spliced into the one being laid out; the lookup is `doc.byId`, already used
-by `textPath`, and the external target in `suite/images/` is the file-open
-path step 11 built for `use`. `altGlyph` (§10.14) is the last text element
-family unimplemented - text-altglyph-01-b (4,185) and -03-b (5,716) - and it
-wants glyph data the renderer already reads out of SVG fonts, but selected
-through `altGlyphDef`/`altGlyphItem`/`glyphRef` instead of a face's own
-unicode ranges.
+Step 29 landed `<tref>` (SVG 1.1 §10.6). The element is applied "as if the
+`tref` element was replaced by a `tspan` with the referenced character data
+(stripped of all supplemental markup)", and that is the shape of the code:
+x/y/dx/dy and the style are the tref's own, the run is opened exactly as a
+tspan's - so the text node after `</tref>` reopens the parent's - and only
+the string comes from the reference. That string is flattened textContent:
+every text node in the target's subtree, in document order, no markup carried
+across, so a target painted in six fills at three sizes with a `dx` halfway
+through still lends one plain line in the tref's style. Internal hrefs go
+through `doc.byId`; the `suite/images/` target takes the file-open path step
+11 built for `use` - resolve, read, parse, look the fragment up in that other
+arena. An href-less tref, a bare file name with no fragment, a dangling
+fragment, a non-SVG file and an unreadable file all contribute nothing, and
+the splice never paints the target: that is painted only where the document
+itself puts it - `<defs>` or `display="none"` in these files - which is what
+makes every row hinge on the borrowed string.
+
+Of the five rows: text-tref-01-b 948 -> 602, -02-b 1,025 -> 767, -03-b 932 ->
+462, text-align-04-b 2,693 -> 2,677, and text-ws-03-t 5,626 -> 5,470, which
+threads four trefs through `xml:space`. The borrowed text is normalized under
+the *tref's* `xml:space`, the same reading the run model takes for a tspan.
+-01-b's crop says the external sentence lands where the reference puts it:
+green ink 262x33 at 12,17 against the reference's 261x32 at 13,18, and what
+is left of that 602 is the glyph-shape ceiling every text row pays.
+
+-02-b keeps half its AE, and the reason is honest. Its second href names
+`<bar id="world">World</bar>` inside `<foo xmlns="http://example.org/foo">`,
+and parser.d leaves an element in any other namespace out of the arena with
+its whole subtree - the deliberate reading of §7.4's "included in the DOM but
+otherwise ignored", asserted by the parser's own unittests. A tref is the one
+place where that character data has a rendering meaning, and the test's other
+href, `#hello`, does resolve: the `<text>` inside `<foreignObject><svg>`
+stays in the SVG namespace, so the "outside the SVG document fragment" half
+the test is named for is covered. The `foo:` half wants a second registry,
+ids of dropped subtrees mapped to their flattened text, so they can be found
+without a foreign element ever being walked. Recorded, not chased.
+
+Up next - step 30, the §10.15 whitespace hole the tref tests exposed: the XML
+cursor parses with `No.preserveWhitespace`, so a whitespace-only text node
+between two elements never reaches the arena, and neither does the leading
+whitespace of a text node that starts right after a start tag. Inside a text
+content element §10.15 asks for the opposite - the character data of the
+element as one string, tabs and newlines become spaces, interior sequences
+consolidate into a single space, and only the element's own two bounds are
+trimmed. Measured here at 12 px: `Hello <tspan>outside</tspan>` is 75 px wide
+while `Hello<tspan> outside</tspan>` comes out glued at 72, and
+`<tspan>Hello</tspan> <tspan>World</tspan>` is pixel-identical to the glued
+spelling where one run of "Hello World" is 3 px wider. The fix is parsing
+with `Yes.preserveWhitespace` and filtering the arena afterwards - such a
+node stays out unless its parent is a text content element - which also means
+revisiting the parser unittest that reads a whitespace-only `<clipPath>` as
+no children at all. `altGlyph` (§10.14) follows: text-altglyph-01-b (4,185)
+and -03-b (5,716), glyph data the renderer already reads out of SVG fonts but
+selected through `altGlyphDef`/`altGlyphItem`/`glyphRef` instead of a face's
+own unicode ranges.
 
 ## Deferred / accepted ceilings (do not chase)
 

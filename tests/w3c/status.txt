@@ -450,7 +450,7 @@ svgdom-over-01-f.svg OK 3201
 text-align-01-b.svg OK 1287
 text-align-02-b.svg OK 2537
 text-align-03-b.svg OK 2962
-text-align-04-b.svg OK 2693
+text-align-04-b.svg OK 2677
 text-align-05-b.svg OK 1614
 text-align-06-b.svg OK 2950
 text-align-07-t.svg OK 6338
@@ -498,9 +498,9 @@ text-text-09-t.svg OK 1297
 text-text-10-t.svg OK 590
 text-text-11-t.svg OK 4269
 text-text-12-t.svg OK 2598
-text-tref-01-b.svg OK 948
-text-tref-02-b.svg OK 1025
-text-tref-03-b.svg OK 932
+text-tref-01-b.svg OK 602
+text-tref-02-b.svg OK 767
+text-tref-03-b.svg OK 462
 text-tselect-01-b.svg OK 485
 text-tselect-02-f.svg OK 4667
 text-tselect-03-f.svg OK 3915
@@ -508,7 +508,7 @@ text-tspan-01-b.svg OK 1290
 text-tspan-02-b.svg OK 4005
 text-ws-01-t.svg OK 6112
 text-ws-02-t.svg OK 9712
-text-ws-03-t.svg OK 5626
+text-ws-03-t.svg OK 5470
 types-basic-01-f.svg OK 1070
 types-basic-02-f.svg OK 8207
 types-dom-01-b.svg OK 1503
