@@ -97,10 +97,10 @@ bool patternResolve(ref const(Document) doc, string id, in FRect bbox,
     }
 
     // Content: the pattern's own children, or - if it defines none - the
-    // nearest href ancestor that does.
+    // nearest href ancestor that does. Character data alone is not content.
     ps.chain = chain;
     foreach (ref e; chain)
-        if (e.children.length)
+        if (doc.hasElement(e.children))
         {
             ps.content = e.children;
             break;

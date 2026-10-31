@@ -5,6 +5,7 @@ import std.exception;
 import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser;
 import std.experimental.xml.interfaces : isCursor, XMLKind;
 import std.range : empty;
+import std.typecons : Yes;
 
 enum xlinkNS = "http://www.w3.org/1999/xlink";
 enum svgNS = "http://www.w3.org/2000/svg";
@@ -81,6 +82,22 @@ struct Document
     {
         auto p = id in ids;
         return p ? *p : unknown;
+    }
+
+    /// Does this child list hold an element, rather than only character
+    /// data? Element-content whitespace stays in the arena because §10.15
+    /// defines the whitespace of a text content element over the element's
+    /// whole character data, so `children.length` is not the question the
+    /// href-inheriting containers ask: a clipPath (§14.3.1), mask (§14.4),
+    /// filter (§15.1) or pattern (§14.2) that holds only whitespace defines
+    /// no content, and the template it hrefs is the one whose children
+    /// paint.
+    bool hasElement(const size_t[] kids) const
+    {
+        foreach (ch; kids)
+            if (!nodes[ch].name.empty)
+                return true;
+        return false;
     }
 }
 
@@ -353,16 +370,25 @@ Document parseSVG(string source)
 
     // The cursor tree-walk, not std.experimental.xml's saxParser wrapper:
     // 0.1.7's wrapper drives the document with enter/next/exit but relies
-    // on the handler popping its stack at every onElementEnd - while the
-    // cursor's enter() uses `advanceInput() && kind != elementEnd` to
-    // test for emptiness, *consuming* the close tag when an element's
-    // whole content is whitespace (the parser drops whitespace-only text
-    // by default). That END event never reaches the handler, the stack
-    // shifts, and the unclosed element swallows its following siblings
-    // (masking-path-08-b's `<clipPath id="emptyclip">` ate the rest of
-    // its <defs>, everything behind it with it). The cursor's own
+    // on the handler popping its stack at every onElementEnd, and its
+    // handler is not handed an end event for every element - so one lost
+    // END shifts the stack and an unclosed element swallows its following
+    // siblings (masking-path-08-b's `<clipPath id="emptyclip">` ate the
+    // rest of its <defs>, everything behind it with it). The cursor's own
     // enter/next/exit semantics are correct, so the walk lives here.
-    auto c = text.lexer.parser.cursor((CursorError e) {});
+    //
+    // Yes.preserveWhitespace, the library default being No: element-content
+    // whitespace has to reach the arena, because SVG 1.1 §10.15 defines the
+    // whitespace inside a text content element over the element's whole
+    // character data - "Hello<tspan> outside</tspan>" and "Hello
+    // <tspan>outside</tspan>" are the same space, and under No the second
+    // spelling loses it (the node between two elements is dropped outright,
+    // and so is the leading gap of a node that starts after a start tag).
+    // What the renderer then does with such a node is its own business:
+    // outside a text content element a text node paints nothing, and inside
+    // one §10.15's consolidation and bound-trimming run in appendRunText
+    // and layoutText.
+    auto c = text.lexer.parser!(Yes.preserveWhitespace).cursor((CursorError e) {});
     c.setSource(text);
 
     Element[] nodes = [Element.init]; // nodes[0]: the document pseudo-root
@@ -608,7 +634,9 @@ unittest
     // (cursor.enter() consumes the close tag while testing for
     // emptiness), which used to nest every following sibling inside it
     // - masking-path-08-b's whitespace-only <clipPath> swallowed the
-    // rest of its <defs>. The manual cursor walk keeps siblings siblings.
+    // rest of its <defs>. The manual cursor walk keeps siblings siblings,
+    // and Yes.preserveWhitespace makes that content a text node rather
+    // than nothing at all.
     auto doc = parseSVG(`<svg><defs>
         <clipPath id="e">
         </clipPath><rect id="R" width="1" height="1"/></defs>
@@ -616,7 +644,9 @@ unittest
 
     auto cp = doc.byId("e");
     assert(doc.nodes[cp].name == "clipPath");
-    assert(doc.nodes[cp].children.empty, "whitespace-only clipPath: no children");
+    assert(doc.nodes[cp].children.length == 1
+        && doc.nodes[doc.nodes[cp].children[0]].name.empty,
+        "a whitespace-only clipPath holds one text node, no elements");
 
     size_t defs;
     foreach (ch; doc.nodes[doc.root].children)
@@ -628,6 +658,25 @@ unittest
             rUnderDefs = true;
     assert(rUnderDefs, "the rect following an empty element is its sibling");
     assert(doc.byId("S") != Document.unknown);
+}
+
+unittest
+{
+    // §10.15 works on a text content element's whole character data, so the
+    // arena keeps the whitespace-only node sitting between two elements and
+    // the gap in front of the node that follows them. Consolidating them
+    // into one space, and trimming the element's two bounds, is the
+    // renderer's job (appendRunText, layoutText).
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <text id="t"><tspan>a</tspan>  <tspan>b</tspan>
+        </text></svg>`);
+    auto t = doc.byId("t");
+    assert(doc.nodes[t].children.length == 4, "tspan, gap, tspan, trailing gap");
+    immutable gap = doc.nodes[t].children[1];
+    assert(doc.nodes[gap].name.empty && doc.nodes[gap].text == "  ",
+        "the node between two elements is kept verbatim");
+    immutable tail = doc.nodes[t].children[3];
+    assert(doc.nodes[tail].name.empty, "and so is the one before the end tag");
 }
 
 unittest

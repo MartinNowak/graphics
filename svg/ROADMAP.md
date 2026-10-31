@@ -83,6 +83,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 29               | a <tref> is a tspan whose text is the          | 3.07 M     |
 |                       | referenced element's flattened character       |            |
 |                       | data, markup stripped (SVG 1.1 §10.6)          |            |
+| step 30               | a text content element keeps the white space   | 3.06 M     |
+|                       | the parser used to delete: one string per      |            |
+|                       | element, breaks gone, gaps consolidated once   |            |
+|                       | (SVG 1.1 §10.15)                               |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -753,24 +757,78 @@ the test is named for is covered. The `foo:` half wants a second registry,
 ids of dropped subtrees mapped to their flattened text, so they can be found
 without a foreign element ever being walked. Recorded, not chased.
 
-Up next - step 30, the §10.15 whitespace hole the tref tests exposed: the XML
-cursor parses with `No.preserveWhitespace`, so a whitespace-only text node
-between two elements never reaches the arena, and neither does the leading
-whitespace of a text node that starts right after a start tag. Inside a text
-content element §10.15 asks for the opposite - the character data of the
-element as one string, tabs and newlines become spaces, interior sequences
-consolidate into a single space, and only the element's own two bounds are
-trimmed. Measured here at 12 px: `Hello <tspan>outside</tspan>` is 75 px wide
-while `Hello<tspan> outside</tspan>` comes out glued at 72, and
-`<tspan>Hello</tspan> <tspan>World</tspan>` is pixel-identical to the glued
-spelling where one run of "Hello World" is 3 px wider. The fix is parsing
-with `Yes.preserveWhitespace` and filtering the arena afterwards - such a
-node stays out unless its parent is a text content element - which also means
-revisiting the parser unittest that reads a whitespace-only `<clipPath>` as
-no children at all. `altGlyph` (§10.14) follows: text-altglyph-01-b (4,185)
-and -03-b (5,716), glyph data the renderer already reads out of SVG fonts but
-selected through `altGlyphDef`/`altGlyphItem`/`glyphRef` instead of a face's
-own unicode ranges.
+Step 30 landed the white space a text content element holds (SVG 1.1 §10.15).
+The cursor parsed with `No.preserveWhitespace`, the library default, so a
+whitespace-only text node between two elements never reached the arena and the
+leading gap of a node opening right after a start tag went with it: at 12 px,
+`Hello <tspan>outside</tspan>` came out glued at 72 where the spec's reading
+is 75. §10.15 defines that whitespace over the element's whole character data,
+so the arena keeps the nodes now and `Yes.preserveWhitespace` is what lets
+them through; the renderer already paints nothing for character data outside a
+text content element. Four containers read "has children" as "has content",
+and character data alone is not content once a container can hold nothing
+else: the clip-path, mask and filter href chains in render.d and pattern.d's
+content fallback ask `Document.hasElement`, and the parser's whitespace-only
+`<clipPath>` unittest pins the same distinction.
+
+Two details of the spec's own order of operations carry the step, and each was
+paid for against a row on the way. Newline removal comes *before*
+consolidation: a line break is not a space, so a `<tspan>` closed at the end
+of a line and the next opened at the start of the next, with nothing but a
+break between, are one word, and the gap in the references comes from the
+indentation that surrounds the break. Reading a bare break as a space costs
+text-altglyph-01-b 1,860 AE - its `<altGlyph>` lines are flush left - which is
+why that row still reads 4,185, its value before the step, and not 6,045. And
+consolidation spans the character data as one string, so
+`<tspan>Hello </tspan><tspan> outside</tspan>` is one gap. The two halves
+meet at a run boundary rather than inside a buffer, so `layoutText` carries
+"the concatenation so far ends on a space" from run to run; a run the trim
+consumes whole has to leave that flag set, or the space in front of the run
+after it survives as a second gap. text-tspan-02-b's green sentence - a
+`</tspan>`, a line of indentation, and a `<tspan>` opening on a space - is
+that case.
+
+The rule the plan did not have: a chunk boundary is a line boundary, and the
+white space that trails a line or leads the next renders nothing. A run
+carrying an absolute `x` or `y`, or riding a `textPath`, restarts the chunk
+(§6.2), and SVG's line model with CSS Text's segment adjustment drops the gap
+at one. Left in, the space between two positioned tspans rides in the anchored
+width of the chunk before it, and a centred caption sits half a space left of
+the point that centres its letters; the first attempt at this step paid +17 AE
+on filters-displace-01-f for it.
+
+`xml:space="preserve"` reads the same characters the other way round -
+newlines and tabs become spaces, nothing consolidates, neither bound is
+trimmed - and it is the whole-element reading that makes that visible. Each
+`<tspan>` of text-tspan-02-b's `rotation_values` block opens on a newline, and
+under `No` the newline went with the start tag; the annotation rows sit a
+space further right in the references than they did here.
+
+Twelve rows moved and none moved up: 3,070,400 -> 3,064,573 AE. The two
+whitespace files lead, text-ws-02-t 9,712 -> 7,525 and text-ws-03-t 5,470 ->
+5,046. Then the multi-`tspan` labels the consolidation realigns:
+text-deco-01-b 2,291 -> 1,369, text-align-03-b 2,962 -> 2,270,
+text-align-04-b 2,677 -> 2,214, text-tspan-02-b 4,005 -> 3,741,
+text-tspan-01-b 1,290 -> 1,198 and text-dom-01-f 3,520 -> 3,517. Four rows in
+the interact category move for the same reason, their captions being
+positioned tspans: interact-pevents-08-f 1,034 -> 834, -09-f 1,118 -> 919,
+animate-interact-pevents-03-t 1,108 -> 917 and -04-t 1,193 -> 1,003.
+
+Up next - step 31, `altGlyph` (§10.14). The element names the glyphs it wants
+instead of taking what the face maps for the character: an `altGlyphDef` holds
+`glyphRef`s - by `xlink:href` to a `<glyph>`, which is what the suite writes,
+or by `glyphname` and `format` - optionally grouped into `altGlyphItem`
+candidate sets, and the first item whose every glyph is available wins, with
+the altGlyph's own character data painted unchanged when none is. The
+outlines, `hor-adv-x` and the `unicode` mapping already come out of SVG fonts
+(step 7); what is missing is the selection by name. text-altglyph-01-b (4,185)
+and -03-b (5,716) are the rows, and -02-b's dangling href is already right at
+1,002. Then the `rotate` list (§6.1.2), still unimplemented for text:
+text-text-07-t (1,344) and -09-t (1,297) exist to test it, text-tspan-02-b
+(3,741) is its nested-`tspan` case and text-dom-01-f (3,517) puts
+`<tspan rotate="45,90">` in the middle of a sentence. Its list indexes the
+whitespace-processed string this step just fixed, so the order the two land in
+matters.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -924,7 +982,7 @@ own unicode ranges.
   viewBox/par) is what renders and `<view>` elements stay registered inert.
 - `color-interpolation-filters="linearRGB"` pass for the filter chain
   (ch. 15; feeds `filters-conv-03-f` and friends).
-- `tref` / `altGlyph` text content elements (§10.6/§10.14.1).
+- `altGlyph` text content element (§10.14.1).
 - `color-interpolation`'s third reading: §14.4 takes a mask's luminance in the
   space the property names. masking-mask-01-b (845) and masking-intro-01-f (611)
   set `linearRGB` on their `<mask>` elements, whose content paints opaque, so

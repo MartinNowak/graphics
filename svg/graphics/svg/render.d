@@ -182,15 +182,20 @@ float convLen(in string[string] a, string key, float def, LengthCtx lc, RefAxis 
     return def;
 }
 
-// Collapse whitespace runs to a single space and trim both ends
-// (SVG xml:space="default").
+// §10.15's xml:space="default" processing over one text node: newlines are
+// removed - a line break is not a space, which is why the suite's markup
+// indentation contributes only the spaces that follow it, and two elements
+// split across lines with nothing but a break between them are glued - tabs
+// become spaces, and a run of spaces collapses to one.
 string normalizeText(string s)
 {
     string res;
     bool space = false;
     foreach (c; s)
     {
-        if (isWhite(c))
+        if (c == '\n' || c == '\r')
+            continue;
+        if (c == '\t' || c == ' ')
             space = true;
         else
         {
@@ -1912,7 +1917,7 @@ private struct Renderer
         foreach_reverse (ref e; chain)
             m.pushStyle(e.attrs);
         foreach (ref e; chain)
-            if (e.children.length)
+            if (doc.hasElement(e.children))
             {
                 foreach (ch; e.children)
                     m.renderChild(ch);
@@ -2044,7 +2049,7 @@ private struct Renderer
         foreach_reverse (ref e; chain)
             m.pushStyle(e.attrs);
         foreach (ref e; chain)
-            if (e.children.length)
+            if (doc.hasElement(e.children))
             {
                 foreach (ch; e.children)
                     m.renderChild(ch);
@@ -2323,7 +2328,7 @@ private struct Renderer
         foreach_reverse (ref e; chain)
             m.pushStyle(e.attrs);
         foreach (ref e; chain)
-            if (e.children.length)
+            if (doc.hasElement(e.children))
             {
                 foreach (ch; e.children)
                     m.renderChild(ch);
@@ -2763,7 +2768,14 @@ private struct Renderer
         ref string buf = textRuns[$ - 1].text;
         if (!textRuns[$ - 1].style.preserveWS)
         {
-            buf ~= normalizeText(s);
+            string t = normalizeText(s);
+            // Consolidation belongs to the element's character data as a
+            // whole, not to each text node: "a <tspan> b</tspan>" carries one
+            // gap, and two normalizations meeting at a node boundary would
+            // otherwise leave two spaces behind.
+            if (!t.empty && !buf.empty && buf[$ - 1] == ' ' && t[0] == ' ')
+                t = t[1 .. $];
+            buf ~= t;
             return;
         }
         dchar[] keep;
@@ -2902,15 +2914,87 @@ private struct Renderer
         if (textRuns.empty)
             return;
 
-        // Default whitespace processing trims the element's two
-        // bounds; runs of space inside (including at markup
-        // boundaries) survive as a single gap.
-        if (!textRuns[0].style.preserveWS)
+        // §10.15's consolidation works over the element's character data as
+        // one string, and a chunk boundary is not a place where two spaces
+        // may survive: `<tspan>Hello </tspan><tspan> outside</tspan>` is one
+        // gap, not two. A run carrying no text (a tspan of only positioning)
+        // does not break the chain, and a run under xml:space="preserve" is
+        // never touched - a kept gap is not a consolidation candidate.
+        bool tailSpace;
+        foreach (ref run; textRuns)
         {
-            string t = textRuns[0].text;
-            while (!t.empty && t[0] == ' ')
-                t = t[1 .. $];
-            textRuns[0].text = t;
+            if (run.style.preserveWS)
+            {
+                tailSpace = false;
+                continue;
+            }
+            if (run.text.empty)
+                continue;
+            if (tailSpace && run.text[0] == ' ')
+                run.text = run.text[1 .. $];
+            // A gap consumed here is still a gap: the chain only stops
+            // carrying one when a run ends on a non-space.
+            if (!run.text.empty)
+                tailSpace = run.text[$ - 1] == ' ';
+        }
+
+        // A chunk boundary is also a line boundary, and the white space that
+        // trails a line or leads it is not rendered (SVG 1.1 §6.2's chunk
+        // model - a run carrying an absolute x or y starts a new chunk - with
+        // CSS Text's segment adjustment). Without this a gap left between two
+        // positioned tspans rides in the anchored width of the chunk before
+        // it, and a centred label sits half a space left of the point that
+        // centres its letters (filters-displace-01-f's captions).
+        foreach (i, ref run; textRuns)
+        {
+            if (run.style.preserveWS)
+                continue;
+            immutable fresh = !run.xs.empty || run.onPath != size_t.max;
+            if (fresh)
+            {
+                string t = run.text;
+                while (!t.empty && t[0] == ' ')
+                    t = t[1 .. $];
+                run.text = t;
+                continue;
+            }
+            if (run.text.empty)
+                continue;
+            bool breaks; // does the next run that paints or moves restart?
+            foreach (k; i + 1 .. textRuns.length)
+            {
+                if (!textRuns[k].xs.empty || textRuns[k].onPath != size_t.max)
+                {
+                    breaks = true;
+                    break;
+                }
+                if (!textRuns[k].text.empty)
+                    break;
+            }
+            if (!breaks)
+                continue;
+            string t = run.text;
+            while (!t.empty && t[$ - 1] == ' ')
+                t = t[0 .. $ - 1];
+            run.text = t;
+        }
+
+        // Default whitespace processing strips the character data's leading
+        // and trailing spaces (§10.15). Either bound may sit in a run that is
+        // not the first or last one: an element opening with an empty tspan
+        // puts its leading gap further along the list.
+        foreach (ref run; textRuns)
+        {
+            if (run.text.empty)
+                continue;
+            if (!run.style.preserveWS)
+            {
+                string t = run.text;
+                while (!t.empty && t[0] == ' ')
+                    t = t[1 .. $];
+                run.text = t;
+            }
+            break;
         }
         foreach_reverse (ref run; textRuns)
         {
@@ -7355,4 +7439,68 @@ unittest
         "an unreadable file paints nothing");
     assert(inkCount(renderSVG(host(`<tref xlink:href="targ.svg"/>`), 1, dir ~ "/")) == 0,
         "a tref with no fragment paints nothing");
+}
+
+unittest
+{
+    // §10.15, xml:space="default": the whitespace a text content element
+    // holds is one string, so a gap written at a markup boundary is one gap
+    // wherever the boundary sits, and the glued spelling is another line.
+    // The parser keeps every text node now; appendRunText and layoutText are
+    // where the boundary collapses.
+    string host(string body)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="140" height="30"
+            viewBox="0 0 140 30"><text x="4" y="20" font-size="12"
+            fill="#008000">` ~ body ~ `</text></svg>`;
+    }
+
+    auto after = renderSVG(host("Hello <tspan>outside</tspan>"), 1);
+    assert(samePixels(after, renderSVG(host("Hello<tspan> outside</tspan>"), 1)),
+        "a gap before a tspan and one inside it are the same gap");
+    assert(samePixels(after, renderSVG(host(
+        `<tspan>Hello </tspan><tspan> outside</tspan>`), 1)),
+        "a gap split across two tspans is still one gap");
+    assert(samePixels(after, renderSVG(host(
+        `<tspan>Hello </tspan> <tspan> outside</tspan>`), 1)),
+        "and a gap written on both sides of the boundary is one gap too");
+    assert(samePixels(after, renderSVG(host("Hello<tspan></tspan> outside"), 1)),
+        "an empty element between the halves does not break the chain");
+    assert(!samePixels(after, renderSVG(host("Hello<tspan>outside</tspan>"), 1)),
+        "and a gap is not nothing");
+
+    // Newlines go before the consolidation step: a bare break joins the
+    // words, and the indentation spaces around a break are the gap.
+    assert(samePixels(renderSVG(host("Hello\n<tspan>outside</tspan>"), 1),
+        renderSVG(host("Hello<tspan>outside</tspan>"), 1)),
+        "a line break on its own is not a gap");
+    assert(samePixels(after, renderSVG(host("Hello \n  <tspan>outside</tspan>"), 1)),
+        "the spaces around a break consolidate into one gap");
+
+    // An absolute x restarts the chunk, and the gap that trails the line
+    // before it or leads the new one renders nothing, so a centred label is
+    // centred on its letters (filters-displace-01-f's captions).
+    string label(string gap, string lead = "")
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="140" height="40"
+            viewBox="0 0 140 40"><text font-size="12" text-anchor="middle"
+            fill="#008000"><tspan x="70" y="14">ABC</tspan>` ~ gap
+            ~ `<tspan x="70" y="28">` ~ lead ~ `ABC</tspan></text></svg>`;
+    }
+    assert(samePixels(renderSVG(label(""), 1), renderSVG(label(" "), 1)),
+        "a gap between two positioned tspans rides no width");
+    assert(samePixels(renderSVG(label(""), 1), renderSVG(label("", " "), 1)),
+        "and neither does one inside the positioned tspan");
+
+    // The other mode keeps every character, so the two halves of the gap
+    // stay two characters wide, and a newline becomes a space rather than
+    // disappearing.
+    assert(!samePixels(renderSVG(host(`<tspan xml:space="preserve">Hello </tspan>`
+        ~ `<tspan xml:space="preserve"> outside</tspan>`), 1),
+        renderSVG(host(`<tspan>Hello </tspan><tspan> outside</tspan>`), 1)),
+        "xml:space=\"preserve\" does not consolidate");
+    assert(!samePixels(renderSVG(host(`<tspan xml:space="preserve">Hello`
+        ~ "\n         outside</tspan>"), 1),
+        renderSVG(host(`<tspan xml:space="preserve">Hellooutside</tspan>`), 1)),
+        "xml:space=\"preserve\" keeps a newline as a space");
 }
