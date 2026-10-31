@@ -77,6 +77,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 27               | a zero-length subpath is stroked after all -   |            |
 |                       | every capper needs a terminal direction, and   |            |
 |                       | this kind of subpath has none (SVG 1.1 §11.2)  | 3.07 M     |
+| step 28               | text on a path rides a measured reference -    | 3.07 M     |
+|                       | every glyph turns to the chord of its own      |            |
+|                       | advance, centred (SVG 1.1 §10.8, §10.13.3)     |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -649,22 +652,78 @@ and it is no AE prize either: rolling our rendering half a pixel right and down
 moves shapes-rect-01-t 929 -> 948 and this row 577 -> 573. Recorded, not
 chased.
 
-Up next - step 28, the one whole chapter of text still missing: `<textPath>`
-(§10.8). Eleven occurrences, and the engine has no case for the element name
-at all, so the runs inside it are not painted - an 80x60 map of the black
-pixels of text-path-01-b (2,743) puts the reference's `Text on a path` running
-down Path1 from (199,89), while our render has black only in the file's own
-labels. text-path-02-b (3,882) is the `startOffset` one: +60 and -240 in user
-units, each twice, once as a `tspan dx` inside the textPath and once as the
-attribute. text-align-04-b (2,811) sets `text-anchor="end"` against
-`startOffset="100%"`, and paths-dom-01-f (1,095) asks for a startOffset of 50
-on a closed path and on one carrying a `pathLength`. The measuring half is
-already in place - step 5c's position lists and step 7's glyph advances - so
-what has to be written is the walk along the referenced path's own verbs: the
-arc length each glyph's advance selects, the tangent's rotation at that anchor,
-and the anchor's own offset applied before the walk starts. All four are
-Georgia/host-font rows, so a floor stays under each; the glyphs are still the
-biggest single difference in every one.
+Step 28 landed `<textPath>` (SVG 1.1 §10.8, laid out by §10.13.3). The
+element had no case in the walk at all, and an unknown element still walks
+its children, so its text joined the `<text>`'s run and ran out from the
+text's origin - a baseline at y=0, which leaves next to nothing on the page.
+That is why text-path-01-b (2,743) and text-path-02-b (3,882) looked like
+font rows: the ink they were missing was not in the frame.
+
+The measuring half is the library's. `PathMeasure` already turns a `Path`
+into a distance table - `length`, `getPosAtDistance` - so the renderer adds
+one entry per `<textPath>` under the current `<text>`: measure, total, the
+resolved `startOffset`, and a `bad` flag. Runs refer to it by index
+(`TextRun.onPath`, `size_t.max` meaning the straight pen) rather than by
+pointer, because the run list keeps growing while the walk is still adding
+paths to the array it indexes into. The closer that dashing needed is the
+closer measuring needs too: `expandedCloses` expands the implicit closing
+line into an explicit one, and gained a transform argument on the way, since
+§10.8.1 reads the reference's *data* in the `<text>`'s user space - the
+reference's own `transform` composes onto the geometry, its ancestors' do
+not. paths-dom-01-f runs its text around a rect written as `m h v h v`, where
+the last edge is a close.
+
+The rule that places a glyph is not the one it looks like. §10.13.3 walks
+one charwidth past the startpoint-on-the-path to the endpoint, takes the
+midpoint between them, and requires the *glyph-midline* - the vertical line
+through the midpoint of the glyph's own x axis - to pass through it, and to
+be perpendicular to the line joining those two points. So the outline's
+origin travels half an advance *behind* the midpoint, in the rotated frame,
+and the rotation is the chord across that stretch rather than the tangent at
+one point. A glyph whose midpoint-on-the-path is off either end of the path
+is not rendered at all. For a run on a path, `pen.x` carries the distance
+travelled and `pen.y` is unused; `x` on a nested `tspan` is an absolute
+offset along the path, `y` is ignored, and `dy` moves across it in the
+rotated frame - text-path-01-b's fuchsia `Te` at `dy="-12"` is that offset.
+
+`startOffset` resolves three ways and the suite uses all three: a length, a
+percentage of the measured length, and - if the reference carries a
+`pathLength` - a value in the author's units, scaled by measured/authored.
+Only the offset scales, never the glyph advances, which is what the test's
+own pass criteria say: with `pathLength="100"` on a 300-unit perimeter the
+text starts at the lower-right corner and is "cut off when reaching the end"
+rather than squeezed to fit. `text-anchor` picks the start point before the
+walk, against the run's own width. `method="stretch"` and `spacing="auto"`
+are not implemented; `align` and `exact` are the defaults, and they are what
+the suite asks for. A dangling href, a target that is not a `<path>`, or a
+`d` that will not parse is §10.8.1's error state - the whole subtree stays
+unpainted.
+
+Of the four rows: text-path-02-b 3,882 -> 2,748, paths-dom-01-f 1,095 ->
+876, text-align-04-b 2,811 -> 2,693, and text-path-01-b 2,743 -> 3,079, the
+one the feature makes worse. Cropping the frame says the placement is right:
+the straight `startOffset="33%"` sentence of that same file, on a path that
+is a line, goes 944 -> 453 AE. The other two sentences ride beziers in
+`Georgia`, which resolves here to a substitute face, and AE carries no
+spatial tolerance - ink that is present but mismatched costs about twice
+what absent ink costs. Same ceiling as every other text row. Under it there
+is one more: `PathMeasure` sums chords over flattened pieces, so on a tight
+curve the parameterization comes in a little short of exact arc length and a
+long run bunches by a percent or two. The straight-path rows show no such
+residue, and separating the two here needs a Georgia this host does not have.
+Recorded, not chased.
+
+Up next - step 29, `<tref>` (§10.6), the last text reference left: three
+rows carry it, text-tref-01-b (948), -02-b (1,025) and -03-b (932), and one
+line of text-align-04-b (2,693). Unlike the path, the machinery is already
+there - a tref contributes the referenced element's text, which is a run
+spliced into the one being laid out; the lookup is `doc.byId`, already used
+by `textPath`, and the external target in `suite/images/` is the file-open
+path step 11 built for `use`. `altGlyph` (§10.14) is the last text element
+family unimplemented - text-altglyph-01-b (4,185) and -03-b (5,716) - and it
+wants glyph data the renderer already reads out of SVG fonts, but selected
+through `altGlyphDef`/`altGlyphItem`/`glyphRef` instead of a face's own
+unicode ranges.
 
 ## Deferred / accepted ceilings (do not chase)
 

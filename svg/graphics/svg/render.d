@@ -567,8 +567,10 @@ float[] parseDash(string v)
 
 // The path-measuring machinery only walks explicit segments; the implicit
 // closing line of a closed subpath has no segment, so expand closes into
-// explicit lines before dashing a path.
-Path expandedCloses(in Path path)
+// explicit lines before dashing a path. `xform` maps the geometry on the way
+// out - text on a path needs the referenced path's own transform applied
+// before it is measured (§10.8.1), and measuring wants the closes expanded.
+Path expandedCloses(in Path path, in Matrix xform = Matrix.init)
 {
     Path res;
     FPoint start=void, cur=void;
@@ -578,23 +580,23 @@ Path expandedCloses(in Path path)
         {
         case Path.Verb.Move:
             start = cur = pts[0];
-            res.moveTo(cur);
+            res.moveTo(xform * cur);
             break;
         case Path.Verb.Line:
             cur = pts[1];
-            res.lineTo(cur);
+            res.lineTo(xform * cur);
             break;
         case Path.Verb.Quad:
-            res.quadTo(pts[1], pts[2]);
+            res.quadTo(xform * pts[1], xform * pts[2]);
             cur = pts[2];
             break;
         case Path.Verb.Cubic:
-            res.cubicTo(pts[1], pts[2], pts[3]);
+            res.cubicTo(xform * pts[1], xform * pts[2], xform * pts[3]);
             cur = pts[3];
             break;
         case Path.Verb.Close:
             if (cur != start)
-                res.lineTo(start);
+                res.lineTo(xform * start);
             cur = start;
             break;
         }
@@ -693,11 +695,27 @@ private struct Renderer
         float textLength; // 0: unset
         bool adjSpacing;  // lengthAdjust="spacing" (else scale glyphs)
         float gScale = 1; // spacingAndGlyphs outline scale (layout pass)
+        size_t onPath = size_t.max; // index into textPaths: a <textPath>
+                                    // run rides that path instead of the pen
     }
     TextRun[] textRuns;
     bool inText;
     bool runOpen; // the last run may still receive text nodes
     FPoint textPos; // the <text> x/y chunk origin
+    size_t openPath = size_t.max; // the <textPath> currently open, if any
+
+    // One <textPath> reference, measured out for the runs that ride it
+    // (§10.8). The distance table is the library's path measure; `start`
+    // is the element's startOffset already resolved to a distance along
+    // the measured length.
+    static struct PathOnPath
+    {
+        PathMeasure meas;
+        float total = 0; // .init of a float is NaN, so these are spelled out
+        float start = 0; // ditto: an absent startOffset means 0, not NaN
+        bool bad; // broken reference: §10.8.1 drops the whole subtree
+    }
+    PathOnPath[] textPaths;
 
     // Current viewport in user units (reference for percentages) and the
     // saved stack for nested <svg> viewports.
@@ -2714,14 +2732,16 @@ private struct Renderer
     }
 
     // Open the next run with the style just pushed: snapshot it, so
-    // later popStyle()s cannot disturb earlier runs' paint.
+    // later popStyle()s cannot disturb earlier runs' paint. A run opened
+    // inside a <textPath> carries that path's index (its own, for the
+    // element's run; the open one, for a tspan nested in it).
     void newRun(in string[string] a, float[] xs, float[] ys,
-        float[] dxs, float[] dys)
+        float[] dxs, float[] dys, size_t onPath)
     {
         auto lc = lengthCtx();
         textRuns ~= TextRun(styles.data.back, "", xs, ys, dxs, dys,
             a.convLen("textLength", 0.0f, lc, RefAxis.width),
-            a.get("lengthAdjust", "") == "spacing");
+            a.get("lengthAdjust", "") == "spacing", 1, onPath);
     }
 
     // §7.1 whitespace processing: `default` collapses runs of space
@@ -2735,9 +2755,9 @@ private struct Renderer
             // Text after a </tspan> belongs to the parent element
             // again: a fresh run with the style now on the stack
             // (positioning lists and textLength were the closed
-            // tspan's).
+            // tspan's). Inside a <textPath> it still rides the path.
             textRuns ~= TextRun(styles.data.back, "", null, null, null,
-                null, 0, false);
+                null, 0, false, 1, openPath);
             runOpen = true;
         }
         ref string buf = textRuns[$ - 1].text;
@@ -2751,6 +2771,67 @@ private struct Renderer
             keep ~= (c == '\n' || c == '\r' || c == '\t') ? ' ' : c;
         buf ~= to!string(keep); // proper UTF-8 encode (a bitwise cast of
         // dchar[] would store UTF-32LE: each char trailed by NUL bytes)
+    }
+
+    // Measure the path a <textPath> rides (§10.8.1). The reference has to
+    // name a <path> in this document; any other target is an error state
+    // and the element's whole contents are not rendered. Its data is read
+    // in the current <text>'s user space rather than where the reference
+    // was declared, so the only transform that composes onto it is the
+    // reference's own (`transformSVG` onto an identity, hence).
+    PathOnPath pathUnder(in string[string] a)
+    {
+        PathOnPath pp;
+        pp.bad = true;
+
+        immutable href = strip(a.get("href", a.get("xlink:href", "")));
+        immutable hash = lastIndexOf(href, '#');
+        if (hash < 0)
+            return pp; // no fragment at all: another document, not followed
+        immutable src = doc.byId(href[hash + 1 .. $]);
+        if (src == Document.unknown || doc.nodes[src].name != "path")
+            return pp; // dangling, or a reference to something that is not a path
+
+        Path p;
+        try
+            p.addSVGPath(doc.nodes[src].attrs.get("d", ""));
+        catch (Exception)
+            return pp; // malformed d: the reference is in error
+
+        Matrix t;
+        t.reset();
+        if (auto tr = "transform" in doc.nodes[src].attrs)
+            transformSVG(t, *tr);
+
+        auto meas = PathMeasure(expandedCloses(p, t));
+        pp.total = meas.length;
+        if (!(pp.total > 0))
+            return pp; // nothing to ride
+
+        // startOffset: absent means 0. A percentage is a share of the
+        // measured length, which is what pctRef means here; a plain length
+        // is in the reference's own distance units, and pathLength
+        // redefines those - the author's notion of the length, the same
+        // reading the dash code takes.
+        auto lc = lengthCtx();
+        immutable author = doc.nodes[src].attrs.convLen("pathLength",
+            0.0f, lc, RefAxis.width);
+        if (auto so = "startOffset" in a)
+        {
+            immutable raw = strip(*so);
+            immutable pct = raw.length && raw[$ - 1] == '%';
+            lc.pctRef = pp.total;
+            float v;
+            try
+                v = parseLength(raw, lc);
+            catch (Exception)
+                v = 0.0f; // invalid value: the effect is as if 0
+            pp.start = pct || author <= 0 ? v : v * (pp.total / author);
+        }
+
+        pp.meas = meas;
+        pp.bad = false;
+        return pp;
     }
 
     // Measure, position, and paint the whole <text> at its close:
@@ -2873,11 +2954,37 @@ private struct Renderer
         // carrying an absolute x list opens a new chunk anchored at
         // its own x (every glyph there is already pinned, so the
         // anchor shift is moot). The chunk's pass-1 width decides how
-        // far back from the chunk's x the start moves.
+        // far back from the chunk's x the start moves. A run inside a
+        // <textPath> breaks the chunk instead and is measured along
+        // that path (§10.13.3): the width of everything riding the
+        // path anchors how far back from startOffset the first glyph
+        // starts, and the pen keeps its place, so straight content
+        // before or after the path flows exactly as it did.
         FPoint pen = textPos;
         size_t ri;
         while (ri < textRuns.length)
         {
+            immutable ridden = textRuns[ri].onPath;
+            if (ridden != size_t.max)
+            {
+                size_t j = ri + 1;
+                while (j < textRuns.length && textRuns[j].onPath == ridden)
+                    ++j;
+                if (!textPaths[ridden].bad) // §10.8.1: a broken reference
+                {                          // renders none of its contents
+                    float width = 0; // gdc leaves bare float locals as garbage
+                    foreach (k; ri .. j)
+                        foreach (v; advs[k])
+                            width += v;
+                    FPoint along = pen;
+                    along.x = textPaths[ridden].start
+                            - anchorFrac(textRuns[ri].style.anchor) * width;
+                    foreach (k; ri .. j)
+                        paintRun(textRuns[k], advs[k], along, &textPaths[ridden]);
+                }
+                ri = j;
+                continue;
+            }
             // A lone x value is a chunk origin, not a per-glyph pin:
             // the run flows from it and text-anchor aligns the chunk
             // there (SVG 1.1 §6.2 chunk model). Multi-value lists do
@@ -2888,7 +2995,8 @@ private struct Renderer
                 textRuns[ri].xs = textRuns[ri].xs[1 .. $];
             }
             size_t j = ri + 1;
-            while (j < textRuns.length && textRuns[j].xs.empty)
+            while (j < textRuns.length && textRuns[j].xs.empty
+                && textRuns[j].onPath == size_t.max)
                 ++j;
             float width = 0; // gdc leaves bare float locals as garbage
             foreach (k; ri .. j)
@@ -2907,8 +3015,11 @@ private struct Renderer
     // flushPath, so fill="none" stroke="..." text works. Placement
     // follows §10.4/§10.5: x/y assignments are cumulative for the pen, dx
     // moves this glyph (and the pen follows), dy moves only this
-    // glyph's baseline.
-    void paintRun(ref TextRun run, const float[] va, ref FPoint pen)
+    // glyph's baseline. A run handed a `pp` rides that measured path
+    // instead (§10.8/§10.13.3), and for it pen.x is the distance already
+    // travelled along the path and pen.y is not used at all.
+    void paintRun(ref TextRun run, const float[] va, ref FPoint pen,
+        const PathOnPath* pp = null)
     {
         if (run.text.empty)
             return;
@@ -2932,6 +3043,70 @@ private struct Renderer
             ? svgBaselineHeight(bKind, sf, fs)
             : baselineHeight(bKind, fm.ascent, fm.descent);
 
+        // §10.13.3, the layout rules for text on a path: the glyph's advance
+        // (its charwidth) is a distance along the path, its
+        // endpoint-on-the-path is charwidth further, and the glyph is placed
+        // so its glyph-midline - the vertical line through the midpoint of
+        // the glyph's own x axis - passes through the midpoint between those
+        // two points and is perpendicular to the chord across that stretch.
+        // So the outline's origin travels half an advance *behind* the
+        // midpoint, in the rotated frame. A glyph whose midpoint-on-the-path
+        // is off either end of the path is not rendered. x on a tspan inside
+        // the path is an absolute offset along it, y is ignored, and dy
+        // offsets across the path - which is why the baseline shifts below
+        // are applied in the rotated frame rather than in the page's.
+        bool pathMatrix(size_t gi, out Matrix m)
+        {
+            float d0 = pen.x + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
+            if (gi < run.xs.length)
+                d0 = run.xs[gi];
+            immutable d1 = d0 + (gi < va.length ? va[gi] : 0.0f);
+            pen.x = d1; // the next glyph's startpoint-on-the-path
+
+            immutable mid = (d0 + d1) * 0.5f;
+            if (mid < 0 || mid > pp.total)
+                return false;
+
+            immutable FPoint a = pp.meas.getPosAtDistance(clamp(d0, 0.0f, pp.total));
+            immutable FPoint b = pp.meas.getPosAtDistance(clamp(d1, 0.0f, pp.total));
+            immutable FPoint at = pp.meas.getPosAtDistance(mid);
+            float angle = atan2(b.y - a.y, b.x - a.x) * 180.0f / PI;
+            if (a == b)
+            {
+                // No chord to turn by (a zero advance, or both ends in the
+                // same flattened vertex): read the direction a little way
+                // off either side of the midpoint instead.
+                immutable float e = min(1.0f, pp.total * 0.01f);
+                immutable FPoint ta = pp.meas.getPosAtDistance(max(0.0f, mid - e));
+                immutable FPoint tb = pp.meas.getPosAtDistance(min(pp.total, mid + e));
+                if (ta == tb)
+                    angle = 0.0f; // a path with no shape left at this point
+                else
+                    angle = atan2(tb.y - ta.y, tb.x - ta.x) * 180.0f / PI;
+            }
+
+            m.reset();
+            Matrix tr;
+            tr.setTranslate(at.x, at.y);
+            m = m * tr;
+            if (angle != 0.0f)
+            {
+                Matrix r;
+                r.setRotate(angle); // degrees, clockwise (y is down)
+                m = m * r;
+            }
+            immutable float half = (d1 - d0) * 0.5f; // the glyph-midline offset
+            immutable float rise = (gi < run.dys.length ? run.dys[gi] : 0.0f)
+                                 + bShift - s.baselineShift;
+            if (half != 0.0f || rise != 0.0f)
+            {
+                Matrix q;
+                q.setTranslate(-half, rise); // back half an advance, in the
+                m = m * q;                   // glyph's own rotated frame
+            }
+            return true;
+        }
+
         path.reset();
         size_t gi;
         if (sf)
@@ -2942,17 +3117,29 @@ private struct Renderer
             // measured `va` (advances + spacing + hkern).
             foreach (ref sl; glyphSlots(run.text, sf))
             {
-                float gx = (gi < run.xs.length ? run.xs[gi] : pen.x)
-                         + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
-                float gy = pen.y;
-                if (gi < run.ys.length)
-                    gy = pen.y = run.ys[gi];
-                gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
-                gy += bShift;          // §10.9.2 dominant baseline rides on y/dy
-                gy -= s.baselineShift; // positive raises the baseline (§10.9.2)
-
                 Matrix m;
-                m.setTranslate(gx, gy);
+                if (pp !is null)
+                {
+                    if (!pathMatrix(gi, m))
+                    {
+                        ++gi;
+                        continue; // midpoint off the path: not rendered
+                    }
+                }
+                else
+                {
+                    float gx = (gi < run.xs.length ? run.xs[gi] : pen.x)
+                             + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
+                    float gy = pen.y;
+                    if (gi < run.ys.length)
+                        gy = pen.y = run.ys[gi];
+                    gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
+                    gy += bShift;          // §10.9.2 dominant baseline rides on y/dy
+                    gy -= s.baselineShift; // positive raises the baseline (§10.9.2)
+                    m.setTranslate(gx, gy);
+                    pen.x = gx + (gi < va.length ? va[gi] : 0.0f);
+                }
+
                 if (sl.sf)
                 {
                     // A missing glyph without an outline (or no
@@ -2966,7 +3153,6 @@ private struct Renderer
                             Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
                         appendGlyph(gl.path, m, scale, false, 0.0f, 0.0f, 0.0f);
 
-                pen.x = gx + (gi < va.length ? va[gi] : 0.0f);
                 ++gi;
             }
         }
@@ -2974,20 +3160,30 @@ private struct Renderer
             foreach (gl; cache.glyphStream(run.text,
                     Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
             {
-                float gx = (gi < run.xs.length ? run.xs[gi] : pen.x)
-                         + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
-                float gy = pen.y;
-                if (gi < run.ys.length)
-                    gy = pen.y = run.ys[gi];
-                gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
-                gy += bShift;          // §10.9.2 dominant baseline rides on y/dy
-                gy -= s.baselineShift; // positive raises the baseline (§10.9.2)
-
                 Matrix m;
-                m.setTranslate(gx, gy);
-                appendGlyph(gl.path, m, scale, false, 0.0f, 0.0f, 0.0f);
+                if (pp !is null)
+                {
+                    if (!pathMatrix(gi, m))
+                    {
+                        ++gi;
+                        continue;
+                    }
+                }
+                else
+                {
+                    float gx = (gi < run.xs.length ? run.xs[gi] : pen.x)
+                             + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
+                    float gy = pen.y;
+                    if (gi < run.ys.length)
+                        gy = pen.y = run.ys[gi];
+                    gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
+                    gy += bShift;          // §10.9.2 dominant baseline rides on y/dy
+                    gy -= s.baselineShift; // positive raises the baseline (§10.9.2)
+                    m.setTranslate(gx, gy);
+                    pen.x = gx + (gi < va.length ? va[gi] : gl.advance.x);
+                }
 
-                pen.x = gx + (gi < va.length ? va[gi] : gl.advance.x);
+                appendGlyph(gl.path, m, scale, false, 0.0f, 0.0f, 0.0f);
                 ++gi;
             }
 
@@ -3394,6 +3590,8 @@ private struct Renderer
         {
             inText = true;
             textRuns.length = 0;
+            textPaths.length = 0;
+            openPath = size_t.max;
             auto lc = lengthCtx();
             auto xs = lenList(a, "x", lc, RefAxis.width);
             auto ys = lenList(a, "y", lc, RefAxis.height);
@@ -3406,7 +3604,7 @@ private struct Renderer
             textPos = FPoint(xs.length ? xs[0] : a.convLen("x", 0.0f, lc, RefAxis.width),
                              ys.length ? ys[0] : a.convLen("y", 0.0f, lc, RefAxis.height));
             pushStyle(a, idx);
-            newRun(a, xs, ys, dxs, dys);
+            newRun(a, xs, ys, dxs, dys, size_t.max);
             runOpen = true;
             return true;
         }
@@ -3414,7 +3612,9 @@ private struct Renderer
         case "tspan":
         {
             // Every tspan opens a run of its own; the pen simply
-            // flows on unless its x/y lists pin glyphs.
+            // flows on unless its x/y lists pin glyphs. Inside a
+            // <textPath> it keeps riding that path, where x names an
+            // absolute distance along it (§10.13.3).
             auto lc = lengthCtx();
             auto xs = lenList(a, "x", lc, RefAxis.width);
             auto ys = lenList(a, "y", lc, RefAxis.height);
@@ -3423,7 +3623,26 @@ private struct Renderer
             pushStyle(a, idx);
             if (inText)
             {
-                newRun(a, xs, ys, dxs, dys);
+                newRun(a, xs, ys, dxs, dys, openPath);
+                runOpen = true;
+            }
+            return true;
+        }
+
+        case "textPath":
+        {
+            // §10.8: the run model is the tspan's; what the element adds
+            // is the path the run rides, measured here, once, while the
+            // reference and its attributes are in hand. x/y/dx/dy are not
+            // this element's attributes at all - the distance along the
+            // path comes from startOffset, and the tspans inside adjust it.
+            pushStyle(a, idx);
+            if (inText)
+            {
+                immutable k = textPaths.length;
+                textPaths ~= pathUnder(a);
+                openPath = k;
+                newRun(a, null, null, null, null, k);
                 runOpen = true;
             }
             return true;
@@ -3453,7 +3672,7 @@ private struct Renderer
             popStyle();
             break;
 
-        case "text", "tspan":
+        case "text", "tspan", "textPath":
             if (tag == "text")
             {
                 // All runs are in: measure, anchor, place, paint -
@@ -3464,11 +3683,14 @@ private struct Renderer
                 inText = false;
                 runOpen = false;
                 textRuns.length = 0;
+                textPaths.length = 0; // measured paths were for this element
             }
             else
             {
                 popStyle();
                 runOpen = false; // following text reopens the parent's run
+                if (tag == "textPath")
+                    openPath = size_t.max; // out of the path: the parent flows straight
             }
             break;
 
@@ -6778,4 +7000,191 @@ unittest
     assert(overNothing.r == alsoLinear.r && overNothing.g == alsoLinear.g
         && overNothing.b == alsoLinear.b && overNothing.a == alsoLinear.a,
         `over nothing the two spaces agree: ${to!string(overNothing)} / ${to!string(alsoLinear)}`);
+}
+
+// Painted-pixel bounds, for the text-placement tests below: where the ink
+// landed, whatever the host font made of the glyphs themselves.
+private int[4] inkBox(in Bitmap bmp)
+{
+    int x0 = int.max, y0 = int.max, x1 = int.min, y1 = int.min;
+    foreach (int y; 0 .. int(bmp.height)) // uint rows, signed sentinels
+        foreach (x, p; bmp.getLine!PMColor(y))
+            if (p.a)
+            {
+                immutable int cx = cast(int) x;
+                if (cx < x0)
+                    x0 = cx;
+                if (cx > x1)
+                    x1 = cx;
+                if (y < y0)
+                    y0 = y;
+                if (y > y1)
+                    y1 = y;
+            }
+    return [x0, y0, x1, y1];
+}
+
+private size_t inkCount(in Bitmap bmp)
+{
+    size_t n;
+    foreach (y; 0 .. bmp.height)
+        foreach (p; bmp.getLine!PMColor(y))
+            if (p.a)
+                ++n;
+    return n;
+}
+
+unittest
+{
+    // The measuring the layout rides: closes contribute their return leg
+    // (expandedCloses), and the reference's own transform maps the geometry
+    // before it is measured (§10.8.1 - a supplemental transform in the text's
+    // user space, which is why nothing else composes onto it here).
+    Path p;
+    p.addSVGPath("M 0 0 h 10 z");
+    Matrix t;
+    t.setTranslate(5, 5);
+    auto meas = PathMeasure(expandedCloses(p, t));
+    assert(isClose(meas.length, 20.0f, 0.02f), "the close is measured, not skipped");
+    immutable at = meas.getPosAtDistance(15.0f);
+    assert(isClose(at.x, 10.0f, 0.02f) && isClose(at.y, 5.0f, 0.02f),
+        `the transform maps the geometry: ${to!string(at)}`);
+}
+
+unittest
+{
+    // §10.8/§10.13.3: the glyphs ride the referenced path and turn to it,
+    // with their baseline on it. Laid along a downward path, a run that is
+    // wide and short laid flat comes out tall and narrow - the ink box
+    // transposed, and the baseline sitting where the path is.
+    auto flat = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60">
+        <text x="6" y="40" font-size="24">MMMM</text>
+        </svg>`);
+    auto turned = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        xmlns:xlink="http://www.w3.org/1999/xlink" width="60" height="180">
+        <path id="p" d="M 12 6 v 150" fill="none"/>
+        <text font-size="24"><textPath xlink:href="#p">MMMM</textPath></text>
+        </svg>`);
+    immutable a = inkBox(flat), b = inkBox(turned);
+    assert(a[0] < a[2] && a[1] < a[3], "the flat run painted");
+    immutable ah = a[3] - a[1], aw = a[2] - a[0];
+    immutable bw = b[2] - b[0], bh = b[3] - b[1];
+    assert(bw > ah * 6 / 10 && bw < ah * 14 / 10,
+        `turned, the run is as wide as it was tall: ${to!string(a)} / ${to!string(b)}`);
+    assert(bh > aw * 6 / 10 && bh < aw * 14 / 10,
+        `and as tall as it was wide: ${to!string(a)} / ${to!string(b)}`);
+    assert(a[3] >= 37 && a[3] <= 43, `flat, the baseline is the y: ${to!string(a)}`);
+    assert(b[0] >= 8 && b[0] <= 15, `on the path, the baseline is the path: ${to!string(b)}`);
+}
+
+unittest
+{
+    // startOffset (§10.8.1) is a distance along the path, in the current
+    // user units, as a percentage of the measured length, or in the
+    // reference's own pathLength units.
+    // Built with concatenation, not ${} interpolation: this gdc leaves the
+    // latter literal, and a literal d="${d}" trips addSVGPath's contract.
+    string on(string extra, string d, string pl)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="220" height="50"
+            viewBox="0 0 220 50">
+            <path id="p" d="` ~ d ~ `"` ~ pl ~ ` fill="none"/>
+            <text font-size="24"><textPath xlink:href="#p" ` ~ extra ~ `>M</textPath></text>
+            </svg>`;
+    }
+    immutable start = inkBox(renderSVG(on("", `M 10 30 h 150`, "")));
+    immutable pushed = inkBox(renderSVG(on(`startOffset="60"`, `M 10 30 h 150`, "")));
+    immutable percent = inkBox(renderSVG(on(`startOffset="30%"`, `M 10 30 h 150`, "")));
+    immutable authored = inkBox(renderSVG(on(`startOffset="40"`, `M 10 30 h 150`,
+        ` pathLength="100"`))); // 40 of the author's 100 = 60
+    assert(start[0] > 5 && start[0] < 14, `an unset offset starts at the path: ${to!string(start)}`);
+    immutable moved = pushed[0] - start[0];
+    assert(moved > 55 && moved < 65, `a length offsets along the path: ${moved}`);
+    immutable share = percent[0] - start[0];
+    assert(share > 40 && share < 50, `a percentage shares the measured length: ${share}`);
+    immutable own = authored[0] - start[0];
+    assert(own > 55 && own < 65, `pathLength is the author's notion of length: ${own}`);
+}
+
+unittest
+{
+    // §10.13.3: a glyph whose midpoint-on-the-path is off either end of the
+    // path is not rendered. The path here is twenty-four units long, so of
+    // the eight Ms only the first - its midpoint at half an advance still
+    // inside those twenty-four units - survives.
+    string run(string d)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="220" height="50"
+            viewBox="0 0 220 50">
+            <path id="p" d="` ~ d ~ `" fill="none"/>
+            <text font-size="24"><textPath xlink:href="#p">MMMMMMMM</textPath></text>
+            </svg>`;
+    }
+    auto shortRun = renderSVG(run(`M 10 30 h 24`));
+    auto longRun = renderSVG(run(`M 10 30 h 190`));
+    assert(inkCount(shortRun) * 4 < inkCount(longRun),
+        `only the glyphs whose midpoints are on the path paint: ${inkCount(shortRun)} / ${inkCount(longRun)}`);
+    assert(inkCount(shortRun) > 0, "the first one is painted");
+    immutable b = inkBox(shortRun);
+    assert(b[2] < 60, `nothing trails off the end of the path: ${to!string(b)}`);
+    assert(inkBox(longRun)[2] > 100, "the long path carries them all");
+}
+
+unittest
+{
+    // §10.13.3 anchoring: text-anchor picks how far back from startOffset
+    // the run's total advance is measured, so end + 100% lines the run up
+    // with the end of the path - which is what the same run anchored at the
+    // same x in a straight line does.
+    string on(string anchor)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="220" height="50"
+            viewBox="0 0 220 50">
+            <path id="p" d="M 10 30 h 150" fill="none"/>
+            <text font-size="24" text-anchor="` ~ anchor ~ `">
+                <textPath xlink:href="#p" startOffset="100%">MMMM</textPath>
+            </text>
+            </svg>`;
+    }
+    auto endBmp = renderSVG(on("end"));
+    auto midBmp = renderSVG(on("middle"));
+    immutable onPath = inkBox(endBmp);
+    immutable straight = inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        width="220" height="50" viewBox="0 0 220 50">
+        <text x="160" y="30" font-size="24" text-anchor="end">MMMM</text>
+        </svg>`));
+    assert(onPath[2] > straight[2] - 4 && onPath[2] < straight[2] + 4,
+        `end + 100% finishes at the path's end: ${to!string(onPath)} / ${to!string(straight)}`);
+    assert(onPath[0] > straight[0] - 4 && onPath[0] < straight[0] + 4,
+        `and starts as far back: ${to!string(onPath)} / ${to!string(straight)}`);
+    // middle + 100% hangs half the run past the end of the path, so it starts
+    // further along and loses the glyphs whose midpoints fall off the end.
+    immutable centre = inkBox(midBmp);
+    assert(centre[0] > onPath[0] + 20,
+        `middle starts further along the path: ${to!string(centre)} / ${to!string(onPath)}`);
+    assert(centre[2] < straight[2] + 4,
+        `and nothing is painted past the path's end: ${to!string(centre)}`);
+    assert(inkCount(midBmp) < inkCount(endBmp),
+        `the overhang drops glyphs: ${inkCount(midBmp)} / ${inkCount(endBmp)}`);
+}
+
+unittest
+{
+    // §10.8.1: a <textPath> whose reference is broken is in error, and none
+    // of its contents are rendered - dangling, or a target that is not a
+    // path at all.
+    string bad(string target)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="120" height="60"
+            viewBox="0 0 120 60">
+            <rect id="r" width="10" height="10" fill="none"/>
+            <text font-size="24"><textPath xlink:href="` ~ target ~ `">MMMM</textPath></text>
+            </svg>`;
+    }
+    assert(inkCount(renderSVG(bad("#nope"))) == 0, "a dangling reference paints nothing");
+    assert(inkCount(renderSVG(bad("#r"))) == 0, "a reference to a non-path paints nothing");
 }

@@ -285,7 +285,7 @@ paths-data-17-f.svg OK 666
 paths-data-18-f.svg OK 461
 paths-data-19-f.svg OK 1780
 paths-data-20-f.svg OK 790
-paths-dom-01-f.svg OK 1095
+paths-dom-01-f.svg OK 876
 paths-dom-02-f.svg OK 5525
 pservers-grad-01-b.svg OK 418
 pservers-grad-02-b.svg OK 459
@@ -450,7 +450,7 @@ svgdom-over-01-f.svg OK 3201
 text-align-01-b.svg OK 1287
 text-align-02-b.svg OK 2537
 text-align-03-b.svg OK 2962
-text-align-04-b.svg OK 2811
+text-align-04-b.svg OK 2693
 text-align-05-b.svg OK 1614
 text-align-06-b.svg OK 2950
 text-align-07-t.svg OK 6338
@@ -484,8 +484,8 @@ text-intro-09-b.svg OK 2349
 text-intro-10-f.svg OK 7139
 text-intro-11-t.svg OK 10389
 text-intro-12-t.svg OK 13427
-text-path-01-b.svg OK 2743
-text-path-02-b.svg OK 3882
+text-path-01-b.svg OK 3079
+text-path-02-b.svg OK 2748
 text-spacing-01-b.svg OK 5308
 text-text-01-b.svg OK 5546
 text-text-03-b.svg OK 1740
