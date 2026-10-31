@@ -2313,6 +2313,65 @@ private struct Renderer
             }
     }
 
+    // SVG 11.2: a subpath of zero length takes a cap all the same - butt
+    // paints nothing, round a circle of diameter stroke-width, square a
+    // square of the same side, and a *closed* zero-length subpath is not
+    // stroked at all. The stroker cannot see any of it: each of its cappers
+    // needs the terminal segment's normal, and a subpath that never moves
+    // has none, so stroke.d drops the contour (its finishContour says so
+    // outright). The shapes therefore come from the geometry here and ride
+    // out inside the stroked path, which is what gives them the stroke's
+    // own paint, opacity, clip and mask handling.
+    static void addZeroLengthCaps(ref Path stroked, in Path geometry,
+        float width, CapStyle caps)
+    {
+        if (caps == CapStyle.Butt)
+            return; // the stroker already gets that one right
+
+        immutable r = width * 0.5f;
+        FPoint start, cur;
+        bool open;    // a subpath is under way
+        bool moved;   // it has covered any distance at all
+        bool closed;  // and it closed itself
+
+        void finish()
+        {
+            if (!open || moved || closed)
+                return;
+            immutable box = FRect(start - r, start + r);
+            if (caps == CapStyle.Round)
+                stroked.addOval(box);
+            else
+                stroked.addRect(box);
+        }
+
+        foreach (verb, pts; geometry)
+            switch (verb)
+            {
+            case Path.Verb.Move:
+                finish(); // the subpath before this one
+                start = cur = pts[0];
+                open = true;
+                moved = closed = false;
+                break;
+            case Path.Verb.Line:
+            case Path.Verb.Quad:
+            case Path.Verb.Cubic:
+                foreach (p; pts)
+                    if (p != cur)
+                        moved = true; // a handle out of place still moves
+                cur = pts[$ - 1];
+                break;
+            case Path.Verb.Close:
+                closed = true;
+                cur = start;
+                break;
+            default:
+                break;
+            }
+        finish();
+    }
+
     // Paint the current `path` with the style resolved from `attr`: fill
     // first, then the stroke over it (SVG paint order).
     void flushPath(in string[string] attr, size_t idx = Document.unknown)
@@ -2356,6 +2415,10 @@ private struct Renderer
             }
             else
                 stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
+            // §11.2's zero-length subpaths, which the stroker drops: their
+            // caps come from the element's own geometry (the dash pass above
+            // has already left them out of the geometry it strokes).
+            addZeroLengthCaps(stroked, path, s.strokeWidth, s.caps);
         }
 
         if (doFill || doStroke)
@@ -2960,6 +3023,10 @@ private struct Renderer
             }
             else
                 stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
+            // §11.2's zero-length subpaths, which the stroker drops: their
+            // caps come from the element's own geometry (the dash pass above
+            // has already left them out of the geometry it strokes).
+            addZeroLengthCaps(stroked, path, s.strokeWidth, s.caps);
         }
 
         if (doFill || doStroke)
@@ -3200,16 +3267,15 @@ private struct Renderer
                 immutable p1 = FPoint(a.convLen("x2", 0.0f, lc, RefAxis.width),
                                       a.convLen("y2", 0.0f, lc, RefAxis.height));
 
-                // Zero-length lines are never emitted: they add nothing to
-                // fills, and the wavelet stroker asserts on degenerate
-                // round-cap subpaths. (Browsers paint round/square-cap
-                // zero-length segments as dots; TODO.)
-                if (p0 != p1)
-                {
-                    path.moveTo(p0);
-                    path.lineTo(p1);
-                    flushPath(a, idx);
-                }
+                // A zero-length line is a zero-length subpath: nothing to
+                // fill, and its stroke is nothing but a cap - which is a dot
+                // for round and square, and still nothing for butt (§11.2).
+                // The geometry goes through regardless; flushPath's
+                // addZeroLengthCaps is the half that knows about it, since
+                // the stroker's cappers need a direction this has none of.
+                path.moveTo(p0);
+                path.lineTo(p1);
+                flushPath(a, idx);
             }
             break;
 
@@ -5746,11 +5812,20 @@ unittest
     assert(bmp.getLine!PMColor(2)[9].r == 255
         && bmp.getLine!PMColor(4)[9].a == 0, "stroke-width 2 centred on y1");
 
-    // A zero-length line paints nothing (and must not trip the stroker).
+    // §11.2: a zero-length line is a zero-length subpath, so a round cap
+    // makes it a dot of diameter stroke-width and a butt one still paints
+    // nothing (and neither one trips the stroker).
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">
         <line x1="9" y1="5" x2="9" y2="5" stroke="red" stroke-width="8" stroke-linecap="round"/>
         </svg>`);
-    assert(bmp.getLine!PMColor(5)[9].a == 0, "zero-length line paints nothing");
+    assert(bmp.getLine!PMColor(5)[9].r == 255, "round cap paints the dot");
+    assert(bmp.getLine!PMColor(5)[6].r == 255, "three out, inside r=4");
+    assert(bmp.getLine!PMColor(5)[14].a == 0, "five out, past the dot");
+    assert(bmp.getLine!PMColor(0)[9].a == 0, "the dot stops at y=1, r=4 above the point");
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">
+        <line x1="9" y1="5" x2="9" y2="5" stroke="red" stroke-width="8"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[9].a == 0, "butt paints nothing");
 
     // skewX(45) shears x by +y (affine, not the projective shear the
     // matrix library's w-row would give): mid-stroke lands at x = 30+25.
@@ -5759,6 +5834,41 @@ unittest
         </svg>`);
     assert(bmp.getLine!PMColor(25)[55].r == 255, "skewed segment follows the shear");
     assert(bmp.getLine!PMColor(25)[30].a == 0, "nothing stays at the unskewed x");
+}
+
+unittest
+{
+    // §11.2 on a <path>: a zero-length subpath is stroked after all. The
+    // round cap is a circle of diameter stroke-width, the square cap a
+    // square of that side centred on the point (it has no direction to
+    // point it the way of), butt paints nothing, and a subpath that closes
+    // on itself is not stroked at all. painting-control-04-f is exactly
+    // these, at stroke-width 96.
+    auto round = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="20" viewBox="0 0 24 20">
+        <path d="M 12 10 L 12 10" stroke="blue" stroke-width="8" stroke-linecap="round"/>
+        </svg>`);
+    assert(round.getLine!PMColor(10)[12].b == 255, "the dot's centre");
+    assert(round.getLine!PMColor(10)[9].b == 255, "three units out, inside r=4");
+    assert(round.getLine!PMColor(10)[16].a == 0, "the disc ends at x=16");
+    assert(round.getLine!PMColor(5)[12].a == 0, "and at y=6, one unit above");
+
+    auto square = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="20" viewBox="0 0 24 20">
+        <path d="M 12 10 L 12 10" stroke="blue" stroke-width="8" stroke-linecap="square"/>
+        </svg>`);
+    assert(square.getLine!PMColor(10)[15].b == 255, "the square fills the row to x=16");
+    assert(square.getLine!PMColor(6)[12].b == 255, "and reaches y=6, where the disc only touches");
+    assert(square.getLine!PMColor(10)[17].a == 0, "the square ends at x=16 too");
+    assert(square.getLine!PMColor(5)[12].a == 0, "and at y=6");
+
+    auto butt = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="20" viewBox="0 0 24 20">
+        <path d="M 12 10 L 12 10" stroke="blue" stroke-width="8" stroke-linecap="butt"/>
+        </svg>`);
+    assert(butt.getLine!PMColor(10)[12].a == 0, "butt paints nothing");
+
+    auto closed = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="20" viewBox="0 0 24 20">
+        <path d="M 12 10 L 12 10 Z" stroke="blue" stroke-width="8" stroke-linecap="round"/>
+        </svg>`);
+    assert(closed.getLine!PMColor(10)[12].a == 0, "a closed zero-length subpath is not stroked");
 }
 
 unittest

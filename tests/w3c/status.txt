@@ -55,7 +55,7 @@ animate-elem-69-t.svg OK 990
 animate-elem-70-t.svg OK 1067
 animate-elem-77-t.svg OK 166201
 animate-elem-78-t.svg OK 2434
-animate-elem-80-t.svg OK 3507
+animate-elem-80-t.svg OK 2854
 animate-elem-81-t.svg OK 1564
 animate-elem-82-t.svg OK 2685
 animate-elem-83-t.svg OK 2011
@@ -238,7 +238,7 @@ metadata-example-01-t.svg OK 758
 painting-control-01-f.svg OK 322
 painting-control-02-f.svg OK 1208
 painting-control-03-f.svg OK 538
-painting-control-04-f.svg OK 8644
+painting-control-04-f.svg OK 577
 painting-control-05-f.svg OK 1099
 painting-control-06-f.svg OK 418
 painting-fill-01-t.svg OK 645
@@ -265,7 +265,7 @@ painting-stroke-06-t.svg OK 4058
 painting-stroke-07-t.svg OK 1351
 painting-stroke-08-t.svg OK 1201
 painting-stroke-09-t.svg OK 2299
-painting-stroke-10-t.svg OK 4926
+painting-stroke-10-t.svg OK 629
 paths-data-01-t.svg OK 2657
 paths-data-02-t.svg OK 5496
 paths-data-03-f.svg OK 5109

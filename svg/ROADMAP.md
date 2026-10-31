@@ -74,6 +74,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 26               | a gradient ramp interpolates in the space the  | 3.09 M     |
 |                       | property names: linearRGB mixes the stops as   |            |
 |                       | light, sRGB as bytes (SVG 1.1 §11.3.3)         |            |
+| step 27               | a zero-length subpath is stroked after all -   |            |
+|                       | every capper needs a terminal direction, and   |            |
+|                       | this kind of subpath has none (SVG 1.1 §11.2)  | 3.07 M     |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -596,22 +599,72 @@ pair is the 127-versus-128 midpoint class already on the deferred list. No
 other row moves anywhere: this is the only suite row naming the property on a
 gradient.
 
-Up next - step 27, back in §11.2: a zero-length subpath still gets its line
-cap. painting-control-04-f (8,644) asks in the plainest way there is - three
-subpaths of no length at all, `M 96 96 L 96 96` and its two brothers, at
-stroke-width 96 with the three `stroke-linecap` values in turn - and the
-reference paints exactly what §11.2 promises: nothing for `butt`, and for the
+Step 27 landed the line caps of zero-length subpaths (SVG 1.1 §11.2). The row
+is the plainest statement of the rule in the suite - three subpaths of no
+length at all at stroke-width 96, the three `stroke-linecap` values in turn -
+and the reference paints what §11.2 promises: nothing for `butt`, and for the
 other two a dot exactly one stroke width across, the file's own comment giving
-the areas as pi*r^2 = 7,238 for `round` and 4r^2 = 9,216 for `square`. We paint
-nothing for all three: device (196,96) and (296,96) read (0,0,0,0) in our render
-where the reference reads pure blue, and those two dots are the row's whole
-difference - once the `butt` case is taken out, the mean difference is exactly
-(0,0,240). The 20%-gray pass used for localising rows misses it completely,
-because that threshold puts blue against white at about 11% gray; what that pass
-shows instead is a 246x107 watermark band and a 13x13 one, neither of them the
-content, which is why the row has sat untriaged. The work is in the stroker, in
-front of whatever the wavelet path asserts for a degenerate subpath, and it is
-one of the last rows in that band with no host font and no filter chain in it.
+the areas as pi*r^2 = 7,238 and 4r^2 = 9,216. We painted nothing for all three,
+because a subpath that never moves never reaches a capper: `finishContour` in
+`src/graphics/core/stroke.d` drops a contour whose two ends are the same point,
+and handed one, `ButtCapper`, `RoundCapper` and `SquareCapper` all ask for the
+terminal normal, which this has none of. So the cap gets built where the
+geometry is still legible: `addZeroLengthCaps` walks the same verb stream the
+stroker was fed, and for every subpath that opened, moved nothing and did not
+close it appends the cap as a shape onto the already-stroked `Path` - a disc of
+diameter `stroke-width` for `round`, and for `square` a square of that side
+centred on the point, which is what a square cap comes down to when there is no
+direction to point it the way of. `butt` returns early, and a subpath that
+closes back on itself is not stroked at all.
+
+Riding the already-stroked path is also what keeps the change small: the caps
+inherit the stroke paint, `stroke-opacity`, the clip and mask chain and the
+§11.3 linear-blend scratch path with no second copy of any of it, and they
+arrive at both places a stroke gets painted - `flushPath` for shapes, and the
+text run's. The second of those needed one more loosening: `shape("line")` used
+to skip a `<line>` whose ends coincide, on the theory that the stroker would
+assert on it. The geometry goes through now, because what such a `<line>` asks
+for is a cap and not a ribbon.
+
+painting-control-04-f goes 8,644 -> 577, and two rows nobody aimed at come down
+with it. painting-stroke-10-t (4,926 -> 629) is the same test written twice:
+`M190,170 L190,170` at stroke-width 50 in the three caps, and `M190,240 c0,0
+0,0 0,0` in the row under it. The cubic falls out of the same check for free,
+since a `c` whose control points are all the current point moves nothing.
+animate-elem-80-t (3,507 -> 2,854) marks each of its grey silhouette positions
+with a `<line x1="40" x2="40">` at stroke-width 15 under round caps; those dots
+exist now. Nothing else in the suite has a zero-length subpath in it, which is
+what the gate confirms.
+
+What the 577 leaves behind is not §11.2. Our disc covers device x 148..243
+completely; the reference is half at 148, full 149..243, half at 244 - the same
+96 across, half a pixel right. Its 1-unit frame is fully opaque at device x=1
+where ours splits 50/50 between 0 and 1, and an ordinary stroke reads the same
+way: on shapes-rect-01-t the 8-unit band of `x="30" stroke-width="8"` is
+[26,34], ours full at 26..33, the reference 0.5 at 26, full 27..33, 0.498 at
+34. Fills are not off that way - the same file's fuchsia `x="130" width="50"`
+is crisp at 130..179 on both sides - so what is left is the reference's
+convention for the stroker's offset contours rather than a §11.2 remainder,
+and it is no AE prize either: rolling our rendering half a pixel right and down
+moves shapes-rect-01-t 929 -> 948 and this row 577 -> 573. Recorded, not
+chased.
+
+Up next - step 28, the one whole chapter of text still missing: `<textPath>`
+(§10.8). Eleven occurrences, and the engine has no case for the element name
+at all, so the runs inside it are not painted - an 80x60 map of the black
+pixels of text-path-01-b (2,743) puts the reference's `Text on a path` running
+down Path1 from (199,89), while our render has black only in the file's own
+labels. text-path-02-b (3,882) is the `startOffset` one: +60 and -240 in user
+units, each twice, once as a `tspan dx` inside the textPath and once as the
+attribute. text-align-04-b (2,811) sets `text-anchor="end"` against
+`startOffset="100%"`, and paths-dom-01-f (1,095) asks for a startOffset of 50
+on a closed path and on one carrying a `pathLength`. The measuring half is
+already in place - step 5c's position lists and step 7's glyph advances - so
+what has to be written is the walk along the referenced path's own verbs: the
+arc length each glyph's advance selects, the tangent's rotation at that anchor,
+and the anchor's own offset applied before the walk starts. All four are
+Georgia/host-font rows, so a floor stays under each; the glyphs are still the
+biggest single difference in every one.
 
 ## Deferred / accepted ceilings (do not chase)
 
