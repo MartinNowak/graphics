@@ -455,9 +455,9 @@ text-align-05-b.svg OK 1614
 text-align-06-b.svg OK 2950
 text-align-07-t.svg OK 6338
 text-align-08-b.svg OK 11239
-text-altglyph-01-b.svg OK 4185
-text-altglyph-02-b.svg OK 1002
-text-altglyph-03-b.svg OK 5716
+text-altglyph-01-b.svg OK 2204
+text-altglyph-02-b.svg OK 612
+text-altglyph-03-b.svg OK 5326
 text-bidi-01-t.svg OK 814
 text-deco-01-b.svg OK 1369
 text-dom-01-f.svg OK 3517

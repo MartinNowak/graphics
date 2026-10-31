@@ -685,6 +685,16 @@ private struct Renderer
     int[] cssParent;
     int[] cssSib;
 
+    // One glyph an altGlyph substitutes in, with the font that owns it:
+    // the outline is in that font's units, and §10.14.1 lets the href name
+    // a glyph from a face the document never selects - text-altglyph-02-b
+    // puts a bold serif `a` into a run whose family is the sans one.
+    static struct AltGlyph
+    {
+        SvgFont* font;
+        SvgGlyph* glyph;
+    }
+
     // The <text> subtree being accumulated: one run per style/position
     // break (the element itself opens the first, every <tspan> opens
     // another). Layout - §6.1 per-glyph x/y/dx/dy lists, §16.3
@@ -702,6 +712,7 @@ private struct Renderer
         float gScale = 1; // spacingAndGlyphs outline scale (layout pass)
         size_t onPath = size_t.max; // index into textPaths: a <textPath>
                                     // run rides that path instead of the pen
+        AltGlyph[] alts; // non-empty: these stand in for `text` (§10.14.1)
     }
     TextRun[] textRuns;
     bool inText;
@@ -2641,12 +2652,110 @@ private struct Renderer
              : sl == TypeFace.Slant.Oblique ? 2 : 0;
     }
 
+    // A glyph element out of the font store. The registry is where the
+    // outlines live, so the arena node an href lands on is only a name:
+    // every registered face is searched, family by family and glyph by
+    // glyph inside it. A <glyph> in a <font> the registry never took - its
+    // face names no family - is not an available glyph.
+    private AltGlyph glyphById(string id)
+    {
+        if (id.empty)
+            return AltGlyph.init;
+        foreach (ref faces; svgFonts)
+            foreach (f; faces)
+                if (auto g = f.byId(id))
+                    return AltGlyph(f, g);
+        return AltGlyph.init;
+    }
+
+    // One <glyphRef> (§10.14.2). The href is the whole story here: the
+    // glyphname/format spelling names a glyph in one of the CSS2 font
+    // formats, none of which load in this engine, so such a ref never
+    // matches. A fragment that dangles, names something that is not a
+    // <glyph>, or names a glyph no registered font holds is a failed ref.
+    private AltGlyph glyphRefOf(immutable(Element) e)
+    {
+        immutable href = strip(e.attrs.get("href", e.attrs.get("xlink:href", "")));
+        if (href.empty || href[0] != '#') // an external glyph file: no store
+            return AltGlyph.init;
+        immutable size_t t = doc.byId(href[1 .. $]);
+        if (t == Document.unknown || doc.nodes[t].name != "glyph")
+            return AltGlyph.init;
+        return glyphById(href[1 .. $]);
+    }
+
+    // What an altGlyph href resolves to (§10.14.1/§10.14.2). A <glyph> is
+    // the whole substitution by itself. An <altGlyphDef> holds either bare
+    // glyphRefs - the substitution only if every one of them matches - or
+    // altGlyphItem candidate sets, of which the first item whose refs all
+    // match wins. An empty result is the no-match case, and an empty `alts`
+    // run renders exactly what the spec asks of it: the character data, as
+    // if there were no altGlyph element around it.
+    private AltGlyph[] altSubs(in string[string] a)
+    {
+        immutable href = strip(a.get("href", a.get("xlink:href", "")));
+        if (href.empty || href[0] != '#') // only a fragment addresses a glyph
+            return null;
+        immutable size_t t = doc.byId(href[1 .. $]);
+        if (t == Document.unknown)
+            return null;
+
+        switch (doc.nodes[t].name)
+        {
+        case "glyph":
+            AltGlyph g = glyphById(href[1 .. $]);
+            return g.glyph is null ? null : [g];
+
+        case "altGlyphDef":
+            AltGlyph[] bare;
+            bool hasItem;
+            foreach (ch; doc.nodes[t].children)
+            {
+                ref immutable(Element) c = doc.nodes[ch];
+                if (c.name == "altGlyphItem")
+                {
+                    hasItem = true;
+                    AltGlyph[] item;
+                    bool complete = true;
+                    foreach (gc; c.children)
+                    {
+                        ref immutable(Element) r = doc.nodes[gc];
+                        if (r.name != "glyphRef")
+                            continue; // other markup in the item is moot
+                        AltGlyph g = glyphRefOf(r);
+                        if (g.glyph is null)
+                        {
+                            complete = false;
+                            break;
+                        }
+                        item ~= g;
+                    }
+                    if (complete && item.length)
+                        return item; // first complete candidate wins
+                }
+                else if (c.name == "glyphRef" && !hasItem)
+                {
+                    AltGlyph g = glyphRefOf(c);
+                    if (g.glyph is null)
+                        return null; // a bare def needs every one of its refs
+                    bare ~= g;
+                }
+            }
+            return bare; // items only, none complete: nothing
+
+        default:
+            return null; // any other target is not a substitution
+        }
+    }
+
     // One positioned glyph of an SVG-font run: the code points of the
     // run text it covers, and whether the SVG face (sf) or the host
     // face draws it. GlyphStream yields one glyph per code point (no
     // shaping), so a code-point-at-a-time host fallback is equivalent
     // to streaming the run. `gs` is null inside an SVG face when the
     // font has no missing-glyph: the glyph advances but draws nothing.
+    // A §10.14.1 substitution is a slot too - its `sf` is the font the
+    // altGlyph href led to, which need not be the run's own.
     private struct GSlot
     {
         size_t lo, hi; // byte range in the run text (host fallback)
@@ -2655,9 +2764,25 @@ private struct Renderer
         dchar lead;    // first code point: the word-spacing rule
     }
 
-    private GSlot[] glyphSlots(string text, SvgFont* sf)
+    private GSlot[] glyphSlots(ref TextRun run, SvgFont* sf)
     {
         GSlot[] slots;
+        if (run.alts.length)
+        {
+            // §10.14.1: the substitute list stands in for the element's
+            // whole character data - one slot per glyph, whether the
+            // element held one character or two. The slots are pinned at
+            // the end of the text so no host fallback can read what the
+            // substitution replaced; word-spacing still reads the
+            // character data, which is what the list is standing in for.
+            size_t at;
+            immutable dchar lead = decode(run.text, at);
+            foreach (ref a; run.alts)
+                slots ~= GSlot(run.text.length, run.text.length, a.font,
+                    a.glyph, lead);
+            return slots;
+        }
+        string text = run.text;
         size_t i;
         while (i < text.length)
         {
@@ -3021,11 +3146,12 @@ private struct Renderer
         foreach (ri, ref run; textRuns)
         {
             if (run.text.empty)
-                continue;
+                continue; // no character data: an altGlyph with nothing
+                          // inside substitutes nothing and paints nothing
             auto cache = faceCache(run.style);
             auto sf = svgFace(run.style);
             float[] va;
-            if (sf)
+            if (sf || run.alts.length)
             {
                 // SVG font run (§20.5-20.7): per-glyph slots, out-of-range
                 // characters falling back to the host face one code point
@@ -3033,14 +3159,18 @@ private struct Renderer
                 // slot counts once), and hkern tightens the PRECEDING
                 // glyph's advance - the spec models kerning as exactly that
                 // reduction, so folding it into va keeps paint, anchoring
-                // and textLength all consistent.
-                immutable float fs = run.style.fontSize / sf.upem;
-                auto slots = glyphSlots(run.text, sf);
+                // and textLength all consistent. A substitute slot carries
+                // its own font, whose units-per-em and default advance go
+                // with the outline (§10.14.1).
+                auto slots = glyphSlots(run, sf);
                 foreach (i, ref sl; slots)
                 {
+                    float fs = 0; // the slot's own face scale; 0: host slot
+                    if (sl.sf)
+                        fs = run.style.fontSize / sl.sf.upem;
                     float adv = 0; // gdc leaves bare float locals as garbage
                     if (sl.sf)
-                        adv = (sl.gs ? sl.gs.advX : sf.defaultAdv) * fs;
+                        adv = (sl.gs ? sl.gs.advX : sl.sf.defaultAdv) * fs;
                     else
                         foreach (gl; cache.glyphStream(
                                 run.text[sl.lo .. sl.hi], Glyph.LoadFlag.Metrics))
@@ -3048,7 +3178,7 @@ private struct Renderer
                     va ~= adv + run.style.letterSpacing
                         + (sl.lead == ' ' ? run.style.wordSpacing : 0.0f);
                     if (sl.sf && i && slots[i - 1].sf is sl.sf)
-                        va[i - 1] -= sf.kernK(slots[i - 1].gs, sl.gs) * fs;
+                        va[i - 1] -= sl.sf.kernK(slots[i - 1].gs, sl.gs) * fs;
                 }
             }
             else
@@ -3168,6 +3298,9 @@ private struct Renderer
         auto cache = faceCache(s);
         auto sf = svgFace(s);
         immutable scale = run.gScale;
+        // The run's own face scale feeds the baseline table; outlines take
+        // their scale from each slot's font, an altGlyph's traveling with
+        // its glyph (§10.14.1).
         immutable float fs = sf ? s.fontSize / sf.upem : 0.0f;
 
         // §10.9.2: y/dy position the *dominant* baseline of the table in
@@ -3250,13 +3383,13 @@ private struct Renderer
 
         path.reset();
         size_t gi;
-        if (sf)
+        if (sf || run.alts.length)
         {
             // SVG font run: same placement rules as the host path below,
             // but glyph outlines come from the font (converted from font
             // units in appendGlyph) and the pen always advances by the
             // measured `va` (advances + spacing + hkern).
-            foreach (ref sl; glyphSlots(run.text, sf))
+            foreach (ref sl; glyphSlots(run, sf))
             {
                 Matrix m;
                 if (pp !is null)
@@ -3284,10 +3417,12 @@ private struct Renderer
                 if (sl.sf)
                 {
                     // A missing glyph without an outline (or no
-                    // missing-glyph element at all) advances silently.
+                    // missing-glyph element at all) advances silently. A
+                    // substitute's font travels with it: its units-per-em
+                    // and origin are that font's, not the run's (§10.14.1).
                     if (sl.gs !is null && sl.gs.hasD)
-                        appendGlyph(sl.gs.d, m, scale, true, fs,
-                                    sf.originX, sf.originY);
+                        appendGlyph(sl.gs.d, m, scale, true,
+                            s.fontSize / sl.sf.upem, sl.sf.originX, sl.sf.originY);
                 }
                 else
                     foreach (gl; cache.glyphStream(run.text[sl.lo .. sl.hi],
@@ -3792,6 +3927,29 @@ private struct Renderer
             return true;
         }
 
+        case "altGlyph":
+        {
+            // §10.14.1: a text content child element, and its run model is
+            // the tspan's - x/y/dx/dy and the computed style are its own, and
+            // the character data after </altGlyph> returns to the parent.
+            // What it adds is the glyph list standing in for its character
+            // data; when nothing resolves the run is an ordinary one, which
+            // is exactly the "as if there were not an altGlyph element" rule.
+            auto lc = lengthCtx();
+            auto xs = lenList(a, "x", lc, RefAxis.width);
+            auto ys = lenList(a, "y", lc, RefAxis.height);
+            auto dxs = lenList(a, "dx", lc, RefAxis.width);
+            auto dys = lenList(a, "dy", lc, RefAxis.height);
+            pushStyle(a, idx);
+            if (inText)
+            {
+                newRun(a, xs, ys, dxs, dys, openPath);
+                runOpen = true;
+                textRuns[$ - 1].alts = altSubs(a);
+            }
+            return true;
+        }
+
         case "textPath":
         {
             // §10.8: the run model is the tspan's; what the element adds
@@ -3835,7 +3993,7 @@ private struct Renderer
             popStyle();
             break;
 
-        case "text", "tspan", "tref", "textPath":
+        case "text", "tspan", "tref", "altGlyph", "textPath":
             if (tag == "text")
             {
                 // All runs are in: measure, anchor, place, paint -
@@ -4103,9 +4261,8 @@ private struct Renderer
     // is exactly the Document/Element tree parser.d builds - and §O.2
     // makes #SVGDOM true when any SVGDOM-* string is. The dynamic profile
     // stays unclaimed: #Animation, scripting and #SVGDOM-animation /
-    // #SVGDOM-dynamic evaluate to false. Two gaps hide inside the static
-    // claims: tref/altGlyph (§10.6/§10.14.1) are not implemented, and
-    // ICC ColorProfile is accepted but never applied.
+    // #SVGDOM-dynamic evaluate to false. One gap hides inside the static
+    // claims: ICC ColorProfile is accepted but never applied.
     static bool featureOK(string f)
     {
         static immutable string[] ok =
@@ -7503,4 +7660,98 @@ unittest
         ~ "\n         outside</tspan>"), 1),
         renderSVG(host(`<tspan xml:space="preserve">Hellooutside</tspan>`), 1)),
         "xml:space=\"preserve\" keeps a newline as a space");
+}
+
+unittest
+{
+    // §10.14.1/§10.14.2: an altGlyph's character data is replaced by the
+    // glyphs its href selects. A <glyph> is the whole answer; an altGlyphDef
+    // is either bare glyphRefs - all of them or nothing - or altGlyphItem
+    // candidate sets, of which the first complete one wins. Nothing matching
+    // leaves the run ordinary, which is what the spec asks of it: the
+    // character data paints as if there were not an altGlyph element. Glyphs
+    // are found by element id in any registered font, and that font's units
+    // travel with the outline.
+    string svg(string body)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="80" height="30"
+            viewBox="0 0 80 30">
+            <defs>
+                <font horiz-adv-x="100">
+                    <font-face font-family="AltFace" units-per-em="100"
+                        ascent="80" descent="-20" alphabetic="0"/>
+                    <glyph id="sq" unicode="a" glyph-name="sq"
+                        d="M0 0h80v80h-80z"/>
+                    <glyph id="bar" glyph-name="bar" d="M0 0h20v100h-20z"/>
+                    <glyph id="dot" glyph-name="dot" d="M0 0h40v40h-40z"/>
+                </font>
+                <font horiz-adv-x="100">
+                    <font-face font-family="AltOther" units-per-em="100"
+                        ascent="80" descent="-20" alphabetic="0"/>
+                    <glyph unicode="a" glyph-name="sq2" d="M0 80h80v-80h-80z"/>
+                </font>
+                <altGlyphDef id="two"><glyphRef xlink:href="#bar"/>
+                    <glyphRef xlink:href="#dot"/></altGlyphDef>
+                <altGlyphDef id="badref"><glyphRef xlink:href="#bar"/>
+                    <glyphRef xlink:href="#gone"/></altGlyphDef>
+                <altGlyphDef id="baditem"><altGlyphItem>
+                    <glyphRef xlink:href="#gone"/></altGlyphItem></altGlyphDef>
+                <altGlyphDef id="pickitem"><altGlyphItem>
+                    <glyphRef xlink:href="#gone"/></altGlyphItem>
+                    <altGlyphItem><glyphRef xlink:href="#dot"/></altGlyphItem>
+                </altGlyphDef>
+            </defs>
+            <g font-size="10" fill="#008000">` ~ body ~ `</g></svg>`;
+    }
+    // The same <text> in each family, rendered. Both faces are metrically
+    // identical, so a substitution that brings its own font with it has to
+    // put down the same pixels in either.
+    Bitmap line(string family, string body)
+    {
+        return renderSVG(svg(`<text x="4" y="20" font-family="` ~ family
+            ~ `">` ~ body ~ `</text>`), 1);
+    }
+    auto face(string body) { return line("AltFace", body); }
+
+    auto plain = face("a");
+    // #bar has no unicode of its own: the face could never pick it, so a
+    // different raster can only be the substitution happening.
+    immutable string bar = `<altGlyph xlink:href="#bar">a</altGlyph>`;
+    assert(!samePixels(face(bar), plain),
+        "an altGlyph href naming a glyph substitutes it");
+    // text-altglyph-03-b puts a bold serif glyph into a sans run: the face
+    // the href led to is the one whose units and origin draw it.
+    assert(samePixels(line("AltOther", bar), face(bar)),
+        "the font an altGlyph led to travels with its glyph");
+    // Many-to-many either way: the character data is replaced whole, and a
+    // def may hand back more glyphs than there were characters.
+    assert(samePixels(face(`<altGlyph xlink:href="#bar">ab</altGlyph>`), face(bar)),
+        "the substitution stands in for the whole character data");
+    assert(samePixels(face(`<altGlyph xlink:href="#two">a</altGlyph>`),
+        face(`<altGlyph xlink:href="#bar">a</altGlyph>`
+           ~ `<altGlyph xlink:href="#dot">a</altGlyph>`)),
+        "a bare altGlyphDef lists every glyph the substitution needs");
+    // §10.14.2's selection rule, and the fallback that follows a miss.
+    assert(samePixels(face(`<altGlyph xlink:href="#pickitem">a</altGlyph>`),
+        face(`<altGlyph xlink:href="#dot">a</altGlyph>`)),
+        "the first altGlyphItem whose glyphRefs all match is the one that paints");
+    assert(samePixels(face(`<altGlyph xlink:href="#baditem">a</altGlyph>`), plain),
+        "an altGlyphItem holding a glyph that is not there selects nothing");
+    assert(samePixels(face(`<altGlyph xlink:href="#badref">a</altGlyph>`), plain),
+        "a bare altGlyphDef needs every one of its refs to match");
+    assert(samePixels(face(`<altGlyph xlink:href="#gone">a</altGlyph>`), plain),
+        "a dangling href leaves the character data alone");
+    assert(samePixels(face(`<altGlyph>a</altGlyph>`), plain),
+        "an href-less altGlyph is passed over");
+    // What is replaced is character data, so an element with none inside
+    // replaces nothing - and paints nothing, as text-altglyph-03-b shows.
+    assert(samePixels(face(`x<altGlyph xlink:href="#bar"/>`), face("x")),
+        "an altGlyph with no character data paints nothing");
+    // An x on the altGlyph positions the glyphs it substituted, as a tspan's.
+    immutable pinned = inkBox(face(
+        `<altGlyph xlink:href="#bar" x="40">a</altGlyph>`));
+    immutable flowed = inkBox(face(bar));
+    assert(pinned[0] - flowed[0] == 36,
+        `x moves the substitution: ${to!string(pinned)} / ${to!string(flowed)}`);
 }

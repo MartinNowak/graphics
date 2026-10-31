@@ -44,6 +44,7 @@ struct SvgGlyph
     Path d;       // font units, y up (empty when `d` is absent)
     bool hasD;
     float advX;
+    string id;    // id: what an altGlyph href names (§10.14.1)
     string name;  // glyph-name
     dchar[] uni;  // decoded `unicode` sequence; empty -> name-only glyph
 }
@@ -99,6 +100,20 @@ struct SvgFont
             decode(text, j); // skip the one code point we cannot map
         consumed = j - i;
         return hasMissing ? &missing : null;
+    }
+
+    /// The glyph carrying this `id`, §10.14.1's other way in: an altGlyph
+    /// href names the glyph element instead of a character, so a glyph with
+    /// no `unicode` of its own - the shape an alt set exists for - is still
+    /// reachable. Document order again, first match wins.
+    SvgGlyph* byId(string id)
+    {
+        if (id.empty)
+            return null;
+        foreach (ref g; glyphs)
+            if (g.id.length && g.id == id)
+                return &g;
+        return null;
     }
 
     /// §20.7: the k value of the first pair entry whose (first, second)
@@ -383,6 +398,7 @@ private SvgFont* parseFont(ref immutable(Element)[] nodes, size_t idx)
 
         case "glyph", "missing-glyph":
             SvgGlyph g;
+            if (auto p = "id" in c.attrs) g.id = *p;
             if (auto p = "glyph-name" in c.attrs) g.name = *p;
             if (auto p = "unicode" in c.attrs) g.uni = decodeUni(*p);
             if (auto p = "d" in c.attrs)

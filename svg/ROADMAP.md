@@ -87,6 +87,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the parser used to delete: one string per      |            |
 |                       | element, breaks gone, gaps consolidated once   |            |
 |                       | (SVG 1.1 §10.15)                               |            |
+| step 31               | an altGlyph replaces its character data with   | 3.06 M     |
+|                       | the glyphs its href names, by element id in    |            |
+|                       | any registered font, first complete            |            |
+|                       | altGlyphItem winning (SVG 1.1 §10.14)          |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -814,21 +818,55 @@ the interact category move for the same reason, their captions being
 positioned tspans: interact-pevents-08-f 1,034 -> 834, -09-f 1,118 -> 919,
 animate-interact-pevents-03-t 1,108 -> 917 and -04-t 1,193 -> 1,003.
 
-Up next - step 31, `altGlyph` (§10.14). The element names the glyphs it wants
-instead of taking what the face maps for the character: an `altGlyphDef` holds
-`glyphRef`s - by `xlink:href` to a `<glyph>`, which is what the suite writes,
-or by `glyphname` and `format` - optionally grouped into `altGlyphItem`
-candidate sets, and the first item whose every glyph is available wins, with
-the altGlyph's own character data painted unchanged when none is. The
-outlines, `hor-adv-x` and the `unicode` mapping already come out of SVG fonts
-(step 7); what is missing is the selection by name. text-altglyph-01-b (4,185)
-and -03-b (5,716) are the rows, and -02-b's dangling href is already right at
-1,002. Then the `rotate` list (§6.1.2), still unimplemented for text:
+Step 31 (`altGlyph`, §10.14) landed. The element is a text content child, so
+its run model is the tspan's - its own x/y/dx/dy, its own computed style, and
+the character data after `</altGlyph>` back with the parent; what it adds is a
+list of glyphs standing in for that character data. `SvgGlyph` keeps the
+element's `id`, because that is the name an `altGlyph`/`glyphRef` href uses;
+an href landing on a `<glyph>` is the whole substitution. An `altGlyphDef` is
+read §10.14.2's way: bare `glyphRef`s are the substitution only if every one of
+them resolves, `altGlyphItem` candidate sets are tried in document order until
+one is complete, and nothing resolving leaves the run's list empty - an empty
+list *being* the fallback the spec asks for, the character data painting as if
+there were no `altGlyph` element at all.
+
+Two readings the references settled. A substitute comes from wherever it is
+defined, not from the face `font-family` selects: text-altglyph-03-b puts
+`EmbeddedSerifBold`'s glyphs into a run whose family is `EmbeddedSans`, so a
+substitution carries its owning font with it and the layout scale is taken per
+slot - `fontSize / slot.font.upem`, with that font's `horiz-origin-x/y` - in
+both passes, rather than the run face's scale applied once to the line. And an
+`altGlyph` with nothing inside paints nothing: what gets replaced is character
+data, and with none there is nothing to replace. That is the reading the
+captured PNG agrees with, even though the test's own hand-written "Expected"
+cell shows the serif `a`: -03-b is a draft (`status="created"`) whose XXX note
+records that the no-character-data subtests were removed from -02-b, and every
+"Actual" cell of those rows is blank in the reference.
+
+Only same-document fragments resolve. `glyphname` and `format` name a glyph in
+one of the CSS2 font formats, and no such file loads here; a non-fragment href
+leaves the document, and the font store holds no external glyph. Both fall back
+to the character data. `rotate` (§10.14.1 gives the element one) waits for the
+text list below.
+
+Three rows moved and none moved up: 3,064,573 -> 3,061,812 AE.
+text-altglyph-01-b 4,185 -> 2,204, where HAPPY and SAD are the substituted
+happy/sad faces and what is left is HappySad's outlines being rasterized -
+249 AE on the HAPPY band, 557 on the SAD+SASSY band, 120 on the revision line.
+text-altglyph-02-b 1,002 -> 612, most of it the test frame's stroke: crop the
+frame ring out and 194 AE of header and footer text is what is left.
+text-altglyph-03-b 5,716 -> 5,326, and masking its DRAFT band leaves 580: that
+band is the ceiling on the row, because the reference was captured without the
+`<g id="draft-watermark">` the file still carries uncommented.
+
+Up next - step 32, the `rotate` list (§6.1.2), still unimplemented for text:
 text-text-07-t (1,344) and -09-t (1,297) exist to test it, text-tspan-02-b
 (3,741) is its nested-`tspan` case and text-dom-01-f (3,517) puts
 `<tspan rotate="45,90">` in the middle of a sentence. Its list indexes the
-whitespace-processed string this step just fixed, so the order the two land in
-matters.
+whitespace-processed string step 30 fixed, and, now that substitutions land,
+not always one angle per character: an `altGlyph` holding one character
+against a two-glyph `altGlyphDef` has two glyphs to turn. text-dom-05-f's
+`rotate=` sits on `visibility="hidden"` text, so it is not a prize.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -869,6 +907,10 @@ matters.
   still carries uncommented (the other watermark-carrying files, e.g.
   `animate-elem-86-t` and `linking-frag-01-f`, do keep their band). No
   timing or `currentColor` model reaches that reference.
+- `text-altglyph-03-b` (5.3 K): 4.7 K of it is that same band. The file is
+  `status="created"` and carries its `<g id="draft-watermark">` uncommented,
+  which we paint; its reference was captured without it. Mask the band and the
+  row is 580 AE, so the altGlyph rows themselves are at their floor.
 - struct-image-13/14/15-f (453 K): the reference PNGs deviate from the
   tile PNGs they composite; our tiles match ground truth at AE 0 — a
   reference-suite defect, documented in the `<image>` commit message.
@@ -982,7 +1024,6 @@ matters.
   viewBox/par) is what renders and `<view>` elements stay registered inert.
 - `color-interpolation-filters="linearRGB"` pass for the filter chain
   (ch. 15; feeds `filters-conv-03-f` and friends).
-- `altGlyph` text content element (§10.14.1).
 - `color-interpolation`'s third reading: §14.4 takes a mask's luminance in the
   space the property names. masking-mask-01-b (845) and masking-intro-01-f (611)
   set `linearRGB` on their `<mask>` elements, whose content paints opaque, so
