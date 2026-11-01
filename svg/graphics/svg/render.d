@@ -4732,6 +4732,40 @@ private struct Renderer
         return true;
     }
 
+    // Paint a referenced element into a fresh full-canvas offscreen and
+    // bring it back in working space: feImage's non-image href (§15.18),
+    // "rendered according to the behavior of the 'use' element". The
+    // element lands where it stands in the current user space - the same
+    // canvas matrix the SourceGraphic snapshot above used - and the
+    // `clip` box (the primitive subregion) is the only thing that trims
+    // it. Canvas-sized and device-aligned, because that is what every
+    // raster in the chain is.
+    Raster referencedRaster(size_t target, bool linearRGB, in IBox4 clip)
+    {
+        auto off = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
+        off.eraseColor(Color(0));
+        auto oc = new Canvas(off);
+        oc.matrix = canvas.matrix;
+
+        auto oldCanvas = canvas;
+        auto oldBmp = bmp;
+        immutable oldTrack = bboxTrack;
+        canvas = oc;
+        bmp = off;
+        bboxTrack = false; // the filtered element's bbox is already taken
+        scope (exit)
+        {
+            canvas = oldCanvas;
+            bmp = oldBmp;
+            bboxTrack = oldTrack;
+        }
+        paintSubtree(target);
+
+        auto r = rasterFrom(off, linearRGB);
+        r.clipTo(clip);
+        return r;
+    }
+
     // Run the primitive chain (§15.3). Inputs resolve by name - the
     // built-ins plus earlier `result`s - and a primitive's implicit
     // input is the previous primitive's output (SourceGraphic before
@@ -5193,6 +5227,33 @@ private struct Renderer
                             parsePAR(e.attrs.get("preserveAspectRatio", "")));
                         placeImage(o, bitmapRaster(img, f.linearRGB), fr.left,
                             fr.top, fit[0][0], fit[1][1], fit[0][2], fit[1][2]);
+                    }
+                }
+                else if (!href.empty && href[0] == '#')
+                {
+                    // Not a stand-alone image resource, so §15.18 sends
+                    // the href down the `use` path: the element the
+                    // fragment names is painted where it stands in the
+                    // current user space. No viewport, no fit, no
+                    // preserveAspectRatio - the subregion above is only
+                    // an output clip - and a dangling fragment is a
+                    // broken reference that yields transparent black,
+                    // just as it does for `use`. The reference stack is
+                    // consulted and pushed the same way: an feImage
+                    // aimed at an element that is already being instanced
+                    // here would otherwise recurse until the filter-depth
+                    // cap stopped it.
+                    immutable target = doc.byId(href[1 .. $]);
+                    if (target != Document.unknown)
+                    {
+                        immutable n = doc.nodes[target];
+                        if (!canFind(useStack, target) && !displayNone(target)
+                            && conditionsPass(n.attrs))
+                        {
+                            useStack ~= target;
+                            scope (exit) useStack = useStack[0 .. $ - 1];
+                            o = referencedRaster(target, f.linearRGB, sub);
+                        }
                     }
                 }
                 res = o;
@@ -7811,6 +7872,41 @@ unittest
     assert(px.r > 60 && px.r < 68, `red is the white showing through: ${to!string(px)}`);
     assert(px.g > 177 && px.g < 185, `green straight 1/3: ${to!string(px)}`);
     assert(px.b > 219 && px.b < 227, `blue straight 2/3: ${to!string(px)}`);
+}
+
+unittest
+{
+    // §15.18: an feImage href that is not a stand-alone image resource is
+    // "rendered according to the behavior of the 'use' element". A rect
+    // parked in <defs> becomes the chain's input, at its own coordinates;
+    // the filtered element's paint is gone, feImage's x/y/width/height trim
+    // the result without moving it, and a dangling fragment is a broken
+    // reference that leaves transparent black - nothing on the page.
+    string doc(string prim)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30">
+            <defs><rect id="r" x="4" y="4" width="12" height="8" fill="lime"/></defs>
+            <filter id="f" filterUnits="userSpaceOnUse" x="0" y="0" width="30" height="30">
+                ` ~ prim ~ `</filter>
+            <rect x="20" y="20" width="6" height="6" fill="red" filter="url(#f)"/>
+            </svg>`;
+    }
+
+    auto plain = renderSVG(doc(`<feImage href="#r"/>`));
+    immutable at = plain.getLine!PMColor(8)[8];
+    assert(at.a == 255 && at.g > 250 && at.r < 5 && at.b < 5,
+        "the referenced element paints, in place: " ~ to!string(at));
+    assert(plain.getLine!PMColor(8)[1].a == 0, "nothing outside the referenced element");
+    assert(plain.getLine!PMColor(22)[22].a == 0, "the filtered element's own paint is replaced");
+
+    auto subbed = renderSVG(doc(`<feImage href="#r" x="8" y="6" width="20" height="20"/>`));
+    assert(subbed.getLine!PMColor(8)[8].g > 250, "subregion: what it covers survives");
+    assert(subbed.getLine!PMColor(5)[8].a == 0, "subregion clips above the box");
+    assert(subbed.getLine!PMColor(9)[5].a == 0, "subregion clips left of the box");
+
+    auto gone = renderSVG(doc(`<feImage href="#nope"/>`));
+    assert(gone.getLine!PMColor(8)[8].a == 0 && gone.getLine!PMColor(22)[22].a == 0,
+        "broken reference: transparent black");
 }
 
 unittest

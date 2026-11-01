@@ -116,6 +116,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | #svgView(...) or #xywh= - and a <view> inside  |            |
 |                       | a nested <svg> re-roots the document           |            |
 |                       | (SVG 1.1 §17.3.2)                              |            |
+| step 38               | an feImage href that is not an image file      | 3.03 M     |
+|                       | paints the element its fragment names, where   |            |
+|                       | it stands, the way `use` does, and the         |            |
+|                       | subregion is only a clip (SVG 1.1 §15.18)      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1140,7 +1144,54 @@ a third view. `#sq` stretches to 100x50, `#sqmeet` centres at +50,0,
 `#svgView(viewBox(0,0,50,50);viewBox(0,0,10,10))` is the document's own
 25x25 at the origin again.
 
-Up next - step 38, the same fragment on someone else's URL. `resolveHref`
+Step 38 is §15.18, and `feImage` had been reading only the first half of
+its own paragraph: "If the 'xlink:href' references a stand-alone image
+resource such as a JPEG, PNG or SVG file, then the image resource is
+rendered according to the behavior of the 'image' element; otherwise, the
+referenced resource is rendered according to the behavior of the 'use'
+element." A PNG href gets a viewport and a `preserveAspectRatio` fit; an
+href starting '#' went through the same file resolver, which answers
+nothing for a leading fragment, so the primitive returned transparent
+black. `filters-composite-02-b` is built entirely out of that second half
+- twelve filters, two `feImage`s each, aimed at `path`s in `<defs>` - and
+all twelve of its triangle pairs were missing.
+
+The fragment now resolves by id and the element is painted where it
+stands. No viewport, no fit, no `preserveAspectRatio`: §15.18 sends that
+case to `use`, and none of the three is part of `use`. The current user
+space is the scratch canvas's matrix, the plain parent CTM the
+SourceGraphic snapshot used, so the referenced triangle lands exactly
+where the filtered element's own geometry would have. `x`, `y`, `width`
+and `height` stay what §15.1 says a primitive's are - the subregion, a
+clip on the output, never a placement - so `feImageRect` still computes
+the box, `clipTo` still applies it, and the box still goes into the
+subregion record the next primitive reads for its edge measurement
+(§15.7.3).
+
+`use`'s broken-reference rules arrive with it: an id that names nothing,
+an element with `display="none"`, one whose conditional attributes fail
+and a target already on the instance stack all leave transparent black.
+The stack check is what keeps a self-referential chain finite - an
+feImage aimed at the very element whose filter is running would otherwise
+recurse to the depth cap. A `symbol` or `svg` target paints as its
+content in the current space rather than as the nested viewport `use`
+would give it: the fit needs a synthetic `use` element, the arena is
+sealed, and the suite never asks.
+
+Offscreen, canvas-sized, device-aligned. `referencedRaster` paints into a
+fresh bitmap at the chain's matrix and hands it to `rasterFrom`, because
+every other raster in a chain is canvas-sized and region-clipped, and a
+bbox-sized one would leave each later primitive doing arithmetic against
+a different origin.
+
+One row moved, and it is the only row that could: `filters-composite-02-b`
+13,882 -> 2,174, since the suite's `feImage` hrefs are 24 element ids, all
+in that file, and 37 image files everywhere else. The 2,174 that stays is
+diffuse - the strongest difference clusters are bands 43-89 wide and
+18-24 tall, the shape of text baselines and triangle edges rather than a
+panel still missing. Suite total 3,043,080 -> 3,031,372.
+
+Up next - step 39, the same fragment on someone else's URL. `resolveHref`
 throws the '#...' part of an href away, so `<image href="x.svg#svgView(...)">`
 renders the referenced document's own view, while §17.3.2's rules are
 written for a link *from a source document* and `use` already honours its
@@ -1247,6 +1298,12 @@ well.
   being successfully referenced by other elements (such as via a `use`)") so the
   three black clones hide the red decoys and no red shows, and the PNG is the
   red-decoy state the test was written to eliminate.
+- `struct-use-06-b` (30 K) is that red-decoy state at the other half of its own
+  pass criteria: the PNG shows "if external `use` isn't implemented, show red
+  rects" at both instances, while we follow §5.6 into
+  `struct-use-06-b-1.svg` - the lime 120x120 `rect1` at 40,120, and the external
+  `svg-root`'s 450x450 lime square scaled into the second `use` element's
+  122x122, which is the state the test exists to reach.
 - `filters-turb` (163 K) / `filters-conv` (169 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
   filters-morph-01-f (8.4 K) belongs to the same family: its four feMorphology
@@ -1312,6 +1369,11 @@ well.
   for a link *from a source document*, and `use` already honours a
   fragment by element id. The suite's only `#svgView` hrefs sit on `<a>`
   elements, which nothing navigates, so no row moves here either.
+- `feImage` whose href names an SVG *file*: §15.18 sends that case to `image`'s
+  behaviour, but the primitive reaches for `loadSVGImage`, which has no SVG
+  decoder, so the picture comes out empty while `<image href="x.svg">` next door
+  renders the same document. Nothing in the suite asks - its `feImage` hrefs are
+  element ids (step 38) or raster files.
 - Not the filters' colour space, their arithmetic: `filter.d` keeps the §15.2
   linearRGB working space already - `rasterFrom` decodes, `bitmapFrom` encodes,
   `color-interpolation-filters="sRGB"` flips the flag at `makeFilter` - and

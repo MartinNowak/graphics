@@ -122,7 +122,7 @@ filters-background-01-f.svg OK 4968
 filters-blend-01-b.svg OK 7422
 filters-color-01-b.svg OK 7811
 filters-color-02-b.svg OK 747
-filters-composite-02-b.svg OK 13882
+filters-composite-02-b.svg OK 2174
 filters-composite-03-f.svg OK 9647
 filters-composite-04-f.svg OK 801
 filters-composite-05-f.svg OK 1303
