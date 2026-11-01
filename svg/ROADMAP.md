@@ -103,6 +103,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | color-interpolation names on the <mask>        |            |
 |                       | element, weighted by §15.10's own row          |            |
 |                       | (SVG 1.1 §14.4)                                |            |
+| step 35               | an attribute value's white space: XML turns    | 3.04 M     |
+|                       | a literal tab or line ending into a space,     |            |
+|                       | a reference keeps the character it names,      |            |
+|                       | a number list splits on either (§3.3.3, §7.1)  |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -987,15 +991,68 @@ of a byte, enough to flip a rounding boundary or two. Accepted and rebased like
 the step-33 rows - the spec names §15.10's numbers, and an archived capture
 cannot settle ±1/255. Suite total 3,043,913 -> 3,043,915.
 
-Up next - step 35, a triage before a build. `filters-conv-03-f` (6,095 across a
-308x77 band) is the largest row left that is not a ceiling, and its colour
-space is not the question: the §15.2 working space is in place, `rasterFrom`
-decoding on the way in and `bitmapFrom` encoding on the way out. What is
-unknown is whether that band is our convolution at the raster edge or the
-reference's own filter. If the triage says reference, the standing backlog item
-takes the slot instead: the CLI's fragment selection (§17.3.2 - `#view-id`,
-`#svgView(...)`, `#xywh=`), which moves no AE because the harness hands the CLI
-bare files.
+Step 35 is the white space *inside* an attribute value, which is two rules and
+not one. XML 1.0 §3.3.3: by the time a value reaches the application each
+*literal* tab, carriage return and line ending it was written with has become a
+space, and §2.11 folds a CR/LF pair to one line ending first, so a pair is one
+space and not two. A character reference is character data and §3.3.3 leaves it
+alone, so `&#10;` keeps the newline it names - which is why parser.d's
+`normalizeAttrWS` runs over the source text and step 33's `decodeRefs` runs
+*after* it; normalize the other way round and a written-out newline is erased.
+SVG §7.1 supplies the other half: space, tab, CR and LF are one thing, white
+space, in its own attribute grammars, so the newline a reference leaves behind
+still separates two numbers.
+
+The damage was in the number lists. Eight filter primitives split theirs with
+`splitter(value, " ")` - one space, not a run of white space - so a value
+written across lines, or indented with a tab, or carrying a double space,
+yields an empty item; `to!float` throws on it; the primitive is disabled. And
+§15.1's answer to a broken primitive is transparent black, so the filtered
+element is simply missing from the page, with nothing in the harness's `.err`
+file to say why. `numList` in render.d splits on a whitespace run instead,
+which is what `parseDash` and the length lists already did.
+
+`filters-conv-03-f` is the row that shows it. It writes both sharpen kernels
+across three lines with tab indentation, so both convolves were disabled and
+its middle panel - the SMIL one, whose frozen
+`<set attributeName="in" to="passimg">` moves the convolve from the squid to
+the bird - painted nothing. Read the list properly and that panel is the
+sharpened bird its pass criteria ask for: 1,486 -> 334. The panel to its left
+holds at 2,216, because it carries no filter at all and its answer is the
+`<script>` repointing `img.href.baseVal` at the bird. The one to its right
+goes 1,486 -> 2,300: its convolve now runs, but stays `in="SourceGraphic"` -
+the script would have set `prim.in1.baseVal` to `passimg` - so we sharpen the
+squid where the reference sharpens the bird. That is the scripting ceiling the
+ceilings list already carries, now reached by sharpening the wrong picture
+rather than no picture. Row 6,095 -> 5,757, and nothing else in the suite
+moves: 15 files hold a literal line ending or tab inside a quoted value, but
+17 of those are `xlink:href` base64 data URIs folded
+at 76 characters and already handled by `base64Payload`, then 10 `d`, 4
+`points` and 3 `transform`, whose grammars already treated a newline as white
+space, and one each of `status`, `onload` and `height`, which are script. A
+five-cell probe - one 100 px lime square per spelling of the separator - reads
+0.8576 over the cell for a single-line kernel and now also for a literal
+newline, a literal tab, `&#10;` and `&#9;`; all four of those read 0 before,
+which is an empty panel.
+
+One bug fell out of the `&#9;` cell. `refCodePoint` required three characters
+before the `#`, which rejects a one-digit decimal reference, and `&#9;` - the
+tab - is two characters, so it named nothing and stayed written out like an
+undeclared entity. No suite file writes one (coords-transformattr-01-f spells
+its tab `&#x0009;`), so no row moves, but §4.1's Char production admits tab,
+newline and carriage return. Suite total 3,043,915 -> 3,043,577.
+
+Up next - step 36, a boundary inside `feConvolveMatrix`. §15.17 measures
+`edgeMode` against the boundaries of the *input image*, and ours are measured
+against something wider: in a probe of three squares with a one-tap kernel that
+reads the pixel left of the image, and a region twenty pixels wider than the
+image, `none`, `wrap` and `duplicate` all leave that pixel transparent. Same in
+`filters-conv-05-f`, where the three `edgeMode` panels come out identical to
+six digits - the exact failure that test's own pass criteria warn about ("if
+they all look the same the test has failed"). The AE at stake is small, since
+05-f is already in the ceilings list as a white-page reference (153.9 K of it,
+7.6 K once flattened over white); three panels that should differ and do not is
+a spec defect with a picture attached.
 
 
 ## Deferred / accepted ceilings (do not chase)
@@ -1161,7 +1218,7 @@ bare files.
   viewBox/par) is what renders and `<view>` elements stay registered inert.
 - Not the filters' colour space, their arithmetic: `filter.d` keeps the §15.2
   linearRGB working space already - `rasterFrom` decodes, `bitmapFrom` encodes,
-  `color-interpolation-filters="sRGB"` flips the flag at `makeFilter` - and yet
-  `filters-conv-03-f` (6,095) still differs across a 308x77 band. The gap is in
-  the primitive maths (convolution/morphology at the raster edge), and the
-  triage of it is open.
+  `color-interpolation-filters="sRGB"` flips the flag at `makeFilter` - and
+  what looked like arithmetic in `filters-conv-03-f`'s 308x77 band was a parse
+  failure, which step 35 closed. What is left of that row is two script panels
+  (4,516 of it) plus 334 of convolution at the raster edge, unexamined.

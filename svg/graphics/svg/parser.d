@@ -20,16 +20,17 @@ enum svgNS = "http://www.w3.org/2000/svg";
 // dropped - such attributes carry no rendering meaning. The undeclared
 // `xlink` prefix keeps working (seeded default, lenient as before);
 // `xml:` and `xmlns:` declarations are kept verbatim. Every value arrives
-// with its references resolved, because XML §4.1 gives a reference two
-// homes - an attribute value and character data - and both are the node's
-// business, not the source text's.
+// with its literal line endings and tabs turned into spaces (XML §3.3.3) and
+// its references resolved, because XML §4.1 gives a reference two homes - an
+// attribute value and character data - and both are the node's business, not
+// the source text's.
 string[string] attrs(CursorType)(ref CursorType cursor, in string[string] ns)
     if (isCursor!CursorType)
 {
     string[string] res;
     foreach (a; cursor.attributes)
     {
-        immutable value = decodeRefs(a.value);
+        immutable value = decodeRefs(normalizeAttrWS(a.value));
         immutable col = countUntil(a.name, ':');
         if (col > 0)
         {
@@ -155,6 +156,33 @@ string decodeRefs(string s)
     return acc.data;
 }
 
+/// XML 1.0 §3.3.3: when an attribute value is not character data, each
+/// *literal* tab, carriage return and line feed it was written with reaches
+/// the application as a space. A character reference is character data, so
+/// `&#10;` keeps the newline it names - which is why this runs over the source
+/// text and `decodeRefs` runs after it. §2.11 folds a CR/LF pair to one line
+/// ending first, so a pair is one space, not two.
+string normalizeAttrWS(string s)
+{
+    if (!(s.canFind('\t') || s.canFind('\n') || s.canFind('\r')))
+        return s;
+
+    auto acc = appender!string;
+    acc.reserve(s.length);
+    for (size_t i; i < s.length; ++i)
+    {
+        if (s[i] == '\r')
+        {
+            if (i + 1 < s.length && s[i + 1] == '\n')
+                ++i;
+            acc.put(' ');
+        }
+        else
+            acc.put(s[i] == '\t' || s[i] == '\n' ? ' ' : s[i]);
+    }
+    return acc.data;
+}
+
 /// The character a reference names: §4.4.7's five names, or §4.1's numeric
 /// form, decimal or hexadecimal. -1 for anything else, including a code point
 /// outside Unicode's range or in the surrogate band, which §4.1 keeps out of
@@ -170,7 +198,7 @@ private int refCodePoint(string name)
     case "apos": return '\'';
     default: break;
     }
-    if (name.length < 3 || name[0] != '#')
+    if (name.length < 2 || name[0] != '#') // `&#;` names nothing
         return -1;
     immutable hex = name[1] == 'x' || name[1] == 'X';
     immutable first = hex ? 2 : 1;
@@ -982,6 +1010,36 @@ unittest
     assert(decodeRefs(`a &lt; &quot;&apos;&amp;`) == `a < "'&`);
     assert(decodeRefs(`&#62; &#x3E; &#X3e;`) == `> > >`);
     assert(decodeRefs(`a &(b`) == `a &(b`); // not a reference
+    assert(decodeRefs(`&#9; &#10; &#13;`) == "\t \n \r",
+        "a one-digit decimal reference names its character as well");
     assert(decodeRefs(`&#xD800; &#1114112; &#0; &#x;`)
         == `&#xD800; &#1114112; &#0; &#x;`, "nothing for it to name");
+}
+
+unittest
+{
+    // XML §3.3.3: an attribute value that is not character data reaches the
+    // application with each literal tab, carriage return and line ending
+    // already a space, so a value written across two lines is one value and
+    // not a broken one. A character reference *is* character data: §3.3.3
+    // leaves the newline or tab it names exactly as it is, and SVG §7.1 then
+    // counts space, tab, CR and LF alike as white space in its own grammars.
+    assert(normalizeAttrWS("a\tb\nc\r\nd") == "a b c d",
+        "a CR/LF pair is one line ending (§2.11), so one space");
+    assert(normalizeAttrWS("nothing wide here") == "nothing wide here");
+
+    // The continuation line is flush on purpose: the value is the two lines,
+    // and the space that replaces the line ending is the separator between
+    // `2` and `3` that a number list reads.
+    auto doc = parseSVG(`
+        <svg xmlns="http://www.w3.org/2000/svg">
+            <rect id="w" points="1 2
+3 4"/>
+            <rect id="r" y="0&#10;10" width="4&#9;4"/>
+        </svg>`);
+    assert(doc.nodes[doc.byId("w")].attrs["points"] == "1 2 3 4",
+        "a line ending inside a value is filed as a space");
+    assert(doc.nodes[doc.byId("r")].attrs["y"] == "0\n10"
+        && doc.nodes[doc.byId("r")].attrs["width"] == "4\t4",
+        "what a reference names survives the normalization");
 }

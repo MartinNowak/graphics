@@ -542,6 +542,18 @@ private Raster bitmapRaster(in Bitmap b, bool linearRGB)
     return r;
 }
 
+// A filter attribute's number list (§15.6.4 and friends): items separated by
+// a run of §7.1 white space - space, tab, CR, LF - with an optional comma.
+// Splitting on whitespace rather than on one space is what makes a value
+// written across several lines a list instead of a parse failure: XML §3.3.3
+// turns a *literal* line ending or tab in an attribute value into a space,
+// while a character reference is character data and arrives as the character
+// it names, so both spellings of a separator reach here as white space.
+auto numList(string s)
+{
+    return splitter(replace(strip(s), ',', ' '));
+}
+
 // Parse `stroke-dasharray`: null means "none" or invalid (the attribute is
 // then ignored). SVG: an odd count of entries is repeated to an even one;
 // a list that sums to zero renders like none; negative values are an error.
@@ -4940,7 +4952,7 @@ private struct Renderer
                 float s1 = 0, s2 = 0;
                 size_t seen = 0;
                 if (auto p = "stdDeviation" in e.attrs)
-                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    foreach (t; numList(*p))
                         if (seen < 2)
                             try
                             {
@@ -4968,7 +4980,7 @@ private struct Renderer
                     type = toLower(strip(*p));
                 float[] vals;
                 if (auto p = "values" in e.attrs)
-                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    foreach (t; numList(*p))
                         try
                             vals ~= to!float(t);
                         catch (ConvException)
@@ -5007,7 +5019,7 @@ private struct Renderer
                         // anything else, "identity" included: identity
                     }
                     if (auto p = "tableValues" in ce.attrs)
-                        foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                        foreach (t; numList(*p))
                             try
                                 fp.table ~= to!float(t);
                             catch (ConvException)
@@ -5036,7 +5048,7 @@ private struct Renderer
                 size_t seen = 0;
                 bool bad = false;
                 if (auto p = "order" in e.attrs)
-                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    foreach (t; numList(*p))
                     {
                         if (seen < 2)
                         {
@@ -5054,7 +5066,7 @@ private struct Renderer
 
                 float[] k;
                 if (auto p = "kernelMatrix" in e.attrs)
-                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    foreach (t; numList(*p))
                         try
                             k ~= to!float(t);
                         catch (ConvException)
@@ -5179,7 +5191,7 @@ private struct Renderer
                 size_t seen = 0;
                 bool bad = false;
                 if (auto p = "baseFrequency" in e.attrs)
-                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    foreach (t; numList(*p))
                     {
                         if (seen < 2)
                         {
@@ -5298,7 +5310,7 @@ private struct Renderer
                 size_t seen = 0;
                 bool bad = false;
                 if (auto p = "radius" in e.attrs)
-                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    foreach (t; numList(*p))
                     {
                         if (seen < 2)
                         {
@@ -5425,7 +5437,7 @@ private struct Renderer
                     float[2] v = [1.0f, 1.0f];
                     size_t seen = 0;
                     bool bad = false;
-                    foreach (t; splitter(replace(strip(*p), ",", " "), " "))
+                    foreach (t; numList(*p))
                     {
                         if (seen < 2)
                         {
@@ -7488,6 +7500,45 @@ unittest
     assert(px.r > 60 && px.r < 68, `red is the white showing through: ${to!string(px)}`);
     assert(px.g > 177 && px.g < 185, `green straight 1/3: ${to!string(px)}`);
     assert(px.b > 219 && px.b < 227, `blue straight 2/3: ${to!string(px)}`);
+}
+
+unittest
+{
+    // §7.1 white space inside a filter attribute's number list. One sharpen
+    // kernel, written four ways: on a line, wrapped over three lines with tab
+    // indentation as the suite's filters-conv-03-f writes it, with the
+    // separators spelled out as character references (which XML §3.3.3 keeps
+    // as the newline and tab they name), and with runs of spaces. A list split
+    // on a single space instead finds an empty item, `to!float` throws, and
+    // the primitive quietly yields transparent black - the filtered element
+    // goes missing from the page entirely.
+    string svgWith(string kernel)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="20">
+            <filter id="s"><feConvolveMatrix order="3" kernelMatrix="` ~ kernel
+            ~ `"/></filter>
+            <rect width="30" height="20" fill="white"/>
+            <rect x="5" y="5" width="14" height="9" fill="#00ff00" filter="url(#s)"/>
+            </svg>`;
+    }
+
+    auto base = renderSVG(svgWith("0 -1 0 -1 5 -1 0 -1 0"));
+    auto wrapped = renderSVG(svgWith("0 -1 0\n\t\t-1 5 -1\n\t0 -1 0"));
+    auto byRef = renderSVG(svgWith(`0 -1 0&#10;-1 5 -1&#9;0 -1 0`));
+    auto gaps = renderSVG(svgWith("  0  -1   0 -1 5 -1 0 -1 0  "));
+
+    // The kernel's own centre weight answers: 5*lime - 4*lime is lime, so the
+    // interior of the rect is untouched, and a disabled primitive would leave
+    // the white backdrop showing there instead.
+    immutable mid = base.getLine!PMColor(9)[12];
+    assert(mid.a == 255 && mid.r < 5 && mid.g > 250 && mid.b < 5,
+        `sharpen ran: ${to!string(mid)}`);
+    foreach (b; [wrapped, byRef, gaps])
+    {
+        assert(b.buffer == base.buffer, "the same kernel, written differently");
+        immutable p = b.getLine!PMColor(9)[12];
+        assert(p.a == 255 && p.g > 250, `and still painted: ${to!string(p)}`);
+    }
 }
 
 unittest
