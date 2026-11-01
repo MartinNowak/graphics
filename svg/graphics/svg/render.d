@@ -5233,7 +5233,18 @@ private struct Renderer
                 immutable href = e.attrs.get("href", e.attrs.get("xlink:href", ""));
                 if (auto path = resolveHref(docBase, href))
                 {
-                    auto img = loadSVGImage(path);
+                    // §15.18's first half: a stand-alone image resource is
+                    // rendered the way the `image` element renders it, and
+                    // an SVG file is such a resource - so the same dispatch
+                    // imageElement makes, fragment included. The IRI is
+                    // §17.3.2's "URL reference to an SVG image" here too,
+                    // so `x.svg#view-id` shows that view of the file.
+                    auto hash = find(href, '#');
+                    immutable asSvg = path.length >= 4
+                        && equalCase(path[$ - 4 .. $], ".svg");
+                    auto img = asSvg
+                        ? svgImageBitmap(path, hash.empty ? "" : hash[1 .. $])
+                        : loadSVGImage(path);
                     immutable nw = to!float(img.width), nh = to!float(img.height);
                     if (img.config != Bitmap.Config.NoConfig && nw > 0 && nh > 0
                         && !sub.empty)
@@ -8000,6 +8011,75 @@ unittest
     auto gone = renderSVG(doc(`<feImage href="#nope"/>`));
     assert(gone.getLine!PMColor(8)[8].a == 0 && gone.getLine!PMColor(22)[22].a == 0,
         "broken reference: transparent black");
+}
+
+unittest
+{
+    // §15.18's first half: an feImage href naming an SVG *file* names a
+    // stand-alone image resource, so the file renders the way the `image`
+    // element renders it - the placement rect is its viewport, the natural
+    // pixels are met into that rect, and step 39's fragment rules apply to
+    // the same IRI, so a `view` written in the referenced file picks which
+    // part of it is the picture.
+    import std.file : mkdir, remove, rmdir, tempDir, write;
+    import std.path : buildPath;
+    import std.process : thisProcessID;
+
+    immutable dir = buildPath(tempDir, "gsvg-feimg-" ~ to!string(thisProcessID));
+    mkdir(dir);
+    immutable ext = buildPath(dir, "ext.svg");
+    scope (exit) { remove(ext); rmdir(dir); }
+
+    write(ext, `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"
+            viewBox="0 0 20 20">
+        <view id="right" viewBox="10 0 10 20"/>
+        <rect width="10" height="20" fill="#00ff00"/>
+        <rect x="10" width="10" height="20" fill="#0000ff"/>
+        </svg>`);
+
+    auto page(string prim)
+    {
+        return renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30">
+            <filter id="f" filterUnits="userSpaceOnUse" x="0" y="0"
+                width="30" height="30">
+                ` ~ prim ~ `</filter>
+            <rect x="26" y="26" width="3" height="3" fill="red" filter="url(#f)"/>
+            </svg>`, 1, dir ~ "/");
+    }
+    bool limeAt(const Bitmap b, int x, int y)
+    {
+        immutable p = b.getLine!PMColor(y)[x];
+        return p.a == 255 && p.g > 250 && p.r < 5 && p.b < 5;
+    }
+    bool blueAt(const Bitmap b, int x, int y)
+    {
+        immutable p = b.getLine!PMColor(y)[x];
+        return p.a == 255 && p.b > 250 && p.r < 5 && p.g < 5;
+    }
+
+    // Whole filter region as the rect: the 20x20 file met into 30x30.
+    auto whole = page(`<feImage href="ext.svg"/>`);
+    assert(limeAt(whole, 7, 15) && blueAt(whole, 22, 15), "the file, fitted to the rect");
+    immutable over = whole.getLine!PMColor(28)[28];
+    assert(over.r < 5 && over.b > 250, "the filtered element's own red is gone");
+
+    // A rect of its own: 20x20 met into 20x10 lands 10x10 at the centre of
+    // the rect, and everything outside the subregion is clipped away.
+    auto fitted = page(`<feImage href="ext.svg" x="0" y="0" width="20" height="10"/>`);
+    assert(limeAt(fitted, 7, 5) && blueAt(fitted, 12, 5), "meet inside the rect");
+    assert(fitted.getLine!PMColor(5)[17].a == 0, "meet centring leaves the right empty");
+    assert(fitted.getLine!PMColor(12)[7].a == 0, "and the subregion clips below the rect");
+
+    // The fragment selects the view of the referenced document: the root's
+    // 10x20 right-hand column, so the left column falls out of the picture.
+    auto viewed = page(`<feImage href="ext.svg#right"/>`);
+    assert(blueAt(viewed, 15, 15), "the view's region, fitted as before");
+    assert(limeAt(viewed, 3, 15) && !limeAt(viewed, 10, 15), "most of the left column is gone");
+    assert(viewed.getLine!PMColor(15)[25].a == 0, "and its right edge stays empty");
+
+    // A file that is not there is a broken reference: transparent black.
+    auto missing = page(`<feImage href="missing.svg"/>`);
+    assert(missing.getLine!PMColor(15)[15].a == 0, "missing file paints nothing");
 }
 
 unittest

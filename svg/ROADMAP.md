@@ -124,6 +124,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | image href into an .svg document picks the     |            |
 |                       | view of it that the image shows - <view>,      |            |
 |                       | svgView(...), xywh= (SVG 1.1 §17.3.2)          |            |
+| step 40               | §15.18's first half: an feImage href that      | 3.03 M*    |
+|                       | names an SVG file renders that file the way    |            |
+|                       | `image` does - rect as viewport, the fit and   |            |
+|                       | the view fragment included (SVG 1.1 §15.18)    |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -138,6 +142,11 @@ on `<a>` elements, font hrefs and `use`/`tref` element ids, and the one
 `<image>` href that carries a '#' names an element in the *same* document,
 which the test says must not display. Nothing to move; 526 rows came back
 byte-identical again.
+
+\* step 40 is §15.18 on an SVG file: the harness's 37 `feImage` file
+hrefs are PNGs and a JPEG, its 24 element-id hrefs all belong to
+`filters-composite-02-b`, and no test aims an feImage at an SVG document,
+so this row cannot move either - byte-identical again.
 
 ## Next steps
 
@@ -1251,11 +1260,57 @@ byte-identical, and the unittest pins the re-root, the `svgView` spelling
 and the three fallbacks - an id nothing carries, a degenerate viewBox, an
 `xywh=` with a zero box - against a real file on disk.
 
-Up next - step 40, the first half of §15.18's sentence: an `feImage` href
-that names an SVG *file*. That primitive reaches for `loadSVGImage`, which
-has no SVG decoder, so the picture comes out empty while an `<image>` next
-door renders the same document fine. `svgImageBitmap`, now carrying the
-fragment handling this step added, is the piece that closes it.
+Step 40 is the half of §15.18 that step 38 left behind: "If the
+'xlink:href' references a stand-alone image resource such as a JPEG, PNG
+or SVG file, then the image resource is rendered according to the behavior
+of the 'image' element". JPEGs and PNGs have always gone down that
+branch; an SVG path went down it too, into `loadSVGImage`, and that
+decoder holds no SVG, so the primitive returned an empty raster and the
+filtered element vanished - while `<image>`, two sentences of the
+specification later, renders the very same file without trouble.
+
+The primitive now dispatches the way `imageElement` does: a resolved path
+ending `.svg` goes to `svgImageBitmap`, everything else to the bitmap
+decoder. Nothing else in the case moves, and that is the point - the
+placement rect is the image's viewport, `viewFit` fits the natural pixels
+into it under the element's own `preserveAspectRatio` ("The processing of
+the 'preserveAspectRatio' attribute on the 'feImage' element is identical
+to that of the 'image' element"), step 38's subregion still only trims the
+output, and `f.linearRGB` still decides how the raster is decoded into the
+working space.
+
+The fragment rides along, and it belongs there: §17.3.2's rules are
+written for an IRI that locates an SVG document, and an `feImage` href is
+one. `x.svg#view-id` re-roots the referenced document to a nested element
+and *that* picture is what the rect fits, exactly as it is for an
+`<image>`. The loop guard is `svgImageBitmap`'s own, so an SVG that
+reaches itself through an feImage stops at the nesting cap and paints
+nothing instead of recursing.
+
+Probed at 200x100 against the external file step 39 uses, with the filter
+region over the whole canvas: a rect covering the region lands the file
+1:1 - red x0..49/y0..49, blue x100..199/y50..99. A rect at 50,25 sized
+100x50 meets the 200x100 natural pixels into it, and the red moves to
+x50..74/y25..49 with the blue at x100..149/y50..74. `#nv` re-roots to the
+nested viewport, so the red is gone and its blue runs x51..199 at full
+height; `#svgView` naming the 50x50 corner puts the red at x50..149 full
+height and leaves the blue outside that region. The filtered element's own
+rect is replaced in every case, and an href at a file that is not there
+paints nothing at all.
+
+Suite: byte-identical, and it could not be otherwise. The harness's 37
+`feImage` file hrefs are PNGs and one JPEG, its 24 element-id hrefs all
+belong to `filters-composite-02-b`, and nothing aims an feImage at an SVG
+document. The unittest covers the file fitted to the whole region, a rect
+of its own with the meet centring and the subregion clip, a `#view-id`
+written inside the referenced file, and a file that is missing.
+
+Up next - step 41, housekeeping the backlog has carried for six steps:
+the stale § numbers in source comments. Text layout still cites
+§6.1/§6.1.2/§6.1.3/§6.2/§7.1, markers cite §11.4 and the `image` element
+cites §9.8, while the local SE's own headings put text at 10, painting at
+11 (markers §11.6) and `image` at §5.7. Comments only - the gate has to
+come back byte-identical.
 
 
 ## Deferred / accepted ceilings (do not chase)
@@ -1324,9 +1379,11 @@ fragment handling this step added, is the piece that closes it.
   06-b's body still carries its own "external use isn't implemented, show
   red rects" fallback *under* the clones, and its reference was captured by
   a UA that showed exactly that fallback, so the correct lime external
-  rect now paints over it (+6.8 K at the step-11 rebase). 04-b's reference
-  shows colored shapes no spec-correct render of the referenced files
-  produces; 07-b's nested-`<svg>` fit is already handled to §7.7.
+  rect now paints over it (+6.8 K at the step-11 rebase); its second clone
+  aims at the external `svg-root` itself, whose 450x450 lime square is
+  scaled into that `use` element's own 122x122. 04-b's reference shows
+  colored shapes no spec-correct render of the referenced files produces;
+  07-b's nested-`<svg>` fit is already handled to §7.7.
 - styling-css-09-f (18.9 K) / styling-css-10-f (9.8 K) / styling-pres-
   05-f (14.3 K): step 12 triage proved the external-sheet machinery
   works end to end (`@import` fetch, unquoted `[id=...]` selectors,
@@ -1356,12 +1413,6 @@ fragment handling this step added, is the piece that closes it.
   being successfully referenced by other elements (such as via a `use`)") so the
   three black clones hide the red decoys and no red shows, and the PNG is the
   red-decoy state the test was written to eliminate.
-- `struct-use-06-b` (30 K) is that red-decoy state at the other half of its own
-  pass criteria: the PNG shows "if external `use` isn't implemented, show red
-  rects" at both instances, while we follow §5.6 into
-  `struct-use-06-b-1.svg` - the lime 120x120 `rect1` at 40,120, and the external
-  `svg-root`'s 450x450 lime square scaled into the second `use` element's
-  122x122, which is the state the test exists to reach.
 - `filters-turb` (163 K) / `filters-conv` (169 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
   filters-morph-01-f (8.4 K) belongs to the same family: its four feMorphology
@@ -1421,11 +1472,6 @@ fragment handling this step added, is the piece that closes it.
   11 (markers §11.6), the `image` element §5.7, `viewBox`/`par` §7.7/§7.8,
   objectBoundingBox units §7.11, clip-path §14.3.5, mask §14.4, feature
   strings Appendix O. Comments only: the gate must stay byte-identical.
-- `feImage` whose href names an SVG *file*: §15.18 sends that case to `image`'s
-  behaviour, but the primitive reaches for `loadSVGImage`, which has no SVG
-  decoder, so the picture comes out empty while `<image href="x.svg">` next door
-  renders the same document. Nothing in the suite asks - its `feImage` hrefs are
-  element ids (step 38) or raster files.
 - Not the filters' colour space, their arithmetic: `filter.d` keeps the §15.2
   linearRGB working space already - `rasterFrom` decodes, `bitmapFrom` encodes,
   `color-interpolation-filters="sRGB"` flips the flag at `makeFilter` - and
