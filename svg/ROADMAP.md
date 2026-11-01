@@ -95,6 +95,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | its own text position, the nearest list above  |            |
 |                       | answering over that element's whole subtree    |            |
 |                       | (SVG 1.1 §10.2/§10.4-§10.5)                    |            |
+| step 33               | a reference, entity or character, resolves on  | 3.04 M     |
+|                       | the node it stands on: character data and      |            |
+|                       | attribute values decode, a CDATA section keeps |            |
+|                       | what it typed (XML §4.1, §4.2, §4.4.7)         |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -904,14 +908,59 @@ under each glyph. What is left in those three is the letterforms, the frame ring
 (40 AE on each band it crosses) and -02-b's `$Revision: 1.10 $` line, 441 on its
 band, which the reference spells differently.
 
-Up next - step 33, the predefined entities and character references (§4.1,
-§4.3.5, §4.3.7), the backlog's first item: `AT&amp;T` and `&#8721;` still reach
-the canvas written out, extra ink where the reference has one glyph. Step 14
-proved the source-text reading is the wrong place (`&lt;animate&gt;` inside a
-description became a live element, -4.7 K on animate-elem-40-t), so the decode
-belongs on the node after tokenizing - text nodes first, attribute values
-holding their escapes the same way today. text-ws-01-t (6,112) and -02-t (7,525)
-are the rows that pay for it and animate-elem-40-t the one that must not move.
+Step 33 (the predefined entities and the character references, XML §4.1/§4.2/
+§4.4.7) landed: a reference resolves on the node it stands on. `attrs()`
+decodes each attribute value as it files it, and a text node is decoded as it
+is adopted, so `AT&amp;T`, `&#8721;` and `y="&#49;"` reach layout as the
+characters they name and not as the bytes the author typed. The pass runs over
+the node, never over the source text - the line step 14 drew for the general
+entities still holds: `&lt;text id="no"/&gt;` inside a `<title>` mints no
+element, and animate-elem-40-t's `x/y on &lt;use&gt;` stays one label, now
+spelled the way its reference paints it (2,324 -> 1,556). A CDATA section is
+the one place a reference does not exist (XML §4.2), so the cursor runs
+`No.conflateCDATA` - the library default folds a section into the character
+data around it, and a folded section would stop meaning anything - and the
+cdata case adopts its content untouched: `<![CDATA[&shape; &amp; &#65;]]>`
+keeps what was written. One pass over the node is also why struct-frag-06-t
+still paints its own demo line `(&amp;#x41)= A` as `&#x41;` rather than as `A`.
+One decoder now serves the document: css.d's `xmlUnescape` and fonts.d's
+`entityDecode` are gone, because a `<style>` body is character data and a
+`<glyph unicode>` value an attribute value, and both have been resolved before
+either module sees them. §20.4 says outright that a glyph's characters are
+usually written as character references, and the suite's font fixtures mean it:
+SVGFreeSans-ISO-8859-1.svg carries 623 `&`, SVGFreeSansOblique-Lat1.svg 100
+`&#xNN;`.
+
+That is where the three rows up come from. With `unicode="&#x22;"`, `&amp;`,
+`&apos;` and `&#x21;` resolved, those fixtures answer their own `" & < > ' !`
+cells with the declared face's glyph instead of a host fallback, and
+styling-css-05-b pays +2 (1,467 -> 1,469) for an italic exclamation that now
+comes from SVGFreeSansOblique - that is the §20.6 map, and the archived
+reference predates it. animate-elem-77-t +76 is its three header labels, now
+`<text>`, `<g>` and `<a>`: of the 1,271 pixels that moved, 25 match its
+reference that missed it before and none the other way, and the row's 166 K is
+the white-page ceiling below. text-dom-04-f +298 is the same mechanism landing
+on a row whose text was already in the wrong place (ceilings).
+
+46 rows fell, three rose, and the total is down 13.2 K. text-ws-02-t 7,525 ->
+6,369 and -01-t 6,112 -> 5,277 for the `&amp;` inside their `<text>`;
+animate-elem-37-t/-39-t/-36-t -963/-956/-683 and struct-use-01-t -950 for the
+`&lt;animateTransform&gt;` and `&lt;rect&gt;` labels over each panel;
+struct-frag-06-t -799; fonts-elem-05-t -598 and -06-t -545;
+painting-marker-03-f and -04-f -580/-592. And coords-transformattr-01-f, which
+used to *error*: its transform lists separate the functions with
+`&#x0020;`/`&#x0009;`/`&#x000D;`/`&#x000A;` references, and those are now the
+white space §7.3 says they are, so the row went ERROR -> OK at 613. Suite total
+3,057,076 -> 3,043,913.
+
+Up next - step 34, the mask luminance reading of §14.4: `color-interpolation`
+names the space a mask's luminance is taken in, and today it is taken in sRGB
+whatever the property says. masking-mask-01-b (845) and -intro-01-f (611) set
+`linearRGB` on their `<mask>` elements and paint their content opaque, so only
+that read is left between them and their floor - a small step, chosen because
+the honest levers left in the suite are small ones. The other open backlog item
+is the CLI's own fragment selection (§17.3.2: `#view-id`, `#svgView(...)`,
+`#xywh=`), which moves no AE because the harness hands the CLI bare files.
 
 
 ## Deferred / accepted ceilings (do not chase)
@@ -964,6 +1013,14 @@ are the rows that pay for it and animate-elem-40-t the one that must not move.
   which do enclose "the diagonally rotated fifth glyph 'i'", the reading our
   rotate agrees with. Turning the pair moved 3 AE of band mismatch around;
   the geometry is right and the row's floor is the band.
+- `text-dom-04-f` (12.4 K), +298 at step 33: its `<text>` asks `y="2em"` at
+  `font-size="4000"` under `scale(0.02)`, and the line lands at y=22..59 while
+  the reference sits at y=120..219 - 1.9 K lime pixels against its 10.7 K. That
+  em reading, and the SVG-font scaling of a 4000-unit size, are the row's own
+  defect and older than the entities. Step 33 only changed which glyph
+  `simplesvgfont` is asked for: the content is now `abca`, U+1D352, `cb` rather
+  than the twelve characters `&#x1D352;` spells out, and one more cell of a
+  face already placed wrong is all the +298 buys.
 - struct-image-13/14/15-f (453 K): the reference PNGs deviate from the
   tile PNGs they composite; our tiles match ground truth at AE 0 — a
   reference-suite defect, documented in the `<image>` commit message.
@@ -1056,14 +1113,6 @@ are the rows that pay for it and animate-elem-40-t the one that must not move.
 
 ## Backlog (small, opportunistic)
 
-- Decode the five predefined entities and the character references (§4.1,
-  §4.3.7) where they belong: on the node, after tokenizing. Today `&amp;` and
-  `&#65;` reach a text node written out and get painted as typed - step 14's
-  unittest pins that pass-through - and attribute values are the same;
-  `css.d`'s `xmlUnescape` already does the job for stylesheet text. Doing it
-  textually instead would turn a label into markup: that variant lost 4.7 K
-  on `animate-elem-40-t` (`&lt;animate&gt;` descriptions became elements)
-  while gaining 2 K on `text-ws-01-t`/`-02-t`.
 - Fix stale § numbers in source comments (text-area refs went with step
   6): `render.d` still cites `§6.1/§6.1.2/§6.1.3/§6.2/§7.1` around text
   layout, `§11.4` markers, `§9.8` image; `css.d`/`filter.d` unchecked.
@@ -1075,9 +1124,9 @@ are the rows that pay for it and animate-elem-40-t the one that must not move.
   `#xywh=` on the CLI's file argument. Pure viewer-URL feature; the suite
   harness passes bare files, so today the no-fragment case (outer svg's
   viewBox/par) is what renders and `<view>` elements stay registered inert.
-- `color-interpolation-filters="linearRGB"` pass for the filter chain
-  (ch. 15; feeds `filters-conv-03-f` and friends).
-- `color-interpolation`'s third reading: §14.4 takes a mask's luminance in the
-  space the property names. masking-mask-01-b (845) and masking-intro-01-f (611)
-  set `linearRGB` on their `<mask>` elements, whose content paints opaque, so
-  only the luminance read differs - and both rows already sit near their floors.
+- Not the filters' colour space, their arithmetic: `filter.d` keeps the §15.2
+  linearRGB working space already - `rasterFrom` decodes, `bitmapFrom` encodes,
+  `color-interpolation-filters="sRGB"` flips the flag at `makeFilter` - and yet
+  `filters-conv-03-f` (6,095) still differs across a 308x77 band. The gap is in
+  the primitive maths (convolution/morphology at the raster edge), and the
+  triage of it is open.

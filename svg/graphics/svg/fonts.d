@@ -516,68 +516,20 @@ private T parseHex(T)(string s)
     return parse!T(s, 16);
 }
 
-/// The parser stores attribute values verbatim, but the suite's font
-/// fixtures name characters with XML entities (&quot; &amp; &#160;), so
-/// the `unicode` attribute gets the entity treatment here.
+/// The characters a glyph answers to. The `unicode` attribute is an attribute
+/// value, so its XML references (XML §4.1) were resolved when the node was
+/// built - §20.4 says outright that a glyph's characters are often written as
+/// character references, and the suite's font fixtures name `"` with `&#x22;`
+/// and `&` with `&amp;`. What is left here is to read the value as code
+/// points; a value that is not valid UTF-8 names nothing.
 private dchar[] decodeUni(string raw)
 {
     dchar[] uni;
     try
-        foreach (dchar ch; entityDecode(raw))
+        foreach (dchar ch; raw)
             uni ~= ch;
     catch (UTFException) {}
     return uni;
-}
-
-private string entityDecode(string s)
-{
-    string res;
-    size_t i;
-    while (i < s.length)
-    {
-        if (s[i] != '&')
-        {
-            res ~= s[i++];
-            continue;
-        }
-        size_t j = i + 1;
-        while (j < s.length && s[j] != ';' && j - i < 12)
-            ++j;
-        if (j >= s.length || s[j] != ';')
-        {
-            res ~= s[i++];
-            continue;
-        }
-        immutable name = s[i + 1 .. j];
-        switch (name)
-        {
-        case "amp":  res ~= '&';  break;
-        case "lt":   res ~= '<';  break;
-        case "gt":   res ~= '>';  break;
-        case "quot": res ~= '"';  break;
-        case "apos": res ~= '\''; break;
-        default:
-            if (name.length > 1 && name[0] == '#')
-            {
-                try
-                {
-                    immutable long cp = name.length > 2
-                        && (name[1] == 'x' || name[1] == 'X')
-                        ? parseHex!long(name[2 .. $]) : to!long(name[1 .. $]);
-                    if (cp >= 0 && cp <= 0x10FFFF)
-                        res ~= cast(dchar) cp;
-                    else
-                        res ~= s[i .. j + 1];
-                }
-                catch (ConvException) { res ~= s[i .. j + 1]; }
-            }
-            else
-                res ~= s[i .. j + 1]; // unknown: keep it verbatim
-            break;
-        }
-        i = j + 1;
-    }
-    return res;
 }
 
 private string getAttr(ref immutable(Element) e, string name)

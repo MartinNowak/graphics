@@ -1,11 +1,12 @@
 module graphics.svg.parser;
 
 import std.algorithm : canFind, countUntil, startsWith;
+import std.array : appender;
 import std.exception;
 import std.experimental.xml.cursor, std.experimental.xml.lexers, std.experimental.xml.parser;
 import std.experimental.xml.interfaces : isCursor, XMLKind;
 import std.range : empty;
-import std.typecons : Yes;
+import std.typecons : No, Yes;
 
 enum xlinkNS = "http://www.w3.org/1999/xlink";
 enum svgNS = "http://www.w3.org/2000/svg";
@@ -18,13 +19,17 @@ enum svgNS = "http://www.w3.org/2000/svg";
 // (conform-viewers-03-f binds `xlink` to nonsense on purpose) is
 // dropped - such attributes carry no rendering meaning. The undeclared
 // `xlink` prefix keeps working (seeded default, lenient as before);
-// `xml:` and `xmlns:` declarations are kept verbatim.
+// `xml:` and `xmlns:` declarations are kept verbatim. Every value arrives
+// with its references resolved, because XML §4.1 gives a reference two
+// homes - an attribute value and character data - and both are the node's
+// business, not the source text's.
 string[string] attrs(CursorType)(ref CursorType cursor, in string[string] ns)
     if (isCursor!CursorType)
 {
     string[string] res;
     foreach (a; cursor.attributes)
     {
+        immutable value = decodeRefs(a.value);
         immutable col = countUntil(a.name, ':');
         if (col > 0)
         {
@@ -36,12 +41,12 @@ string[string] attrs(CursorType)(ref CursorType cursor, in string[string] ns)
                     continue; // unknown-namespace attribute: inert
                 if (uri !is null && *uri == xlinkNS)
                 {
-                    res["xlink:" ~ a.name[cast(size_t) col + 1 .. $]] = a.value;
+                    res["xlink:" ~ a.name[cast(size_t) col + 1 .. $]] = value;
                     continue;
                 }
             }
         }
-        res[a.name] = a.value;
+        res[a.name] = value;
     }
     return res;
 }
@@ -51,8 +56,11 @@ string[string] attrs(CursorType)(ref CursorType cursor, in string[string] ns)
 /// Element nodes have a `name`, the *local* name of an element that the
 /// parser resolved to the SVG namespace; text nodes (character data *and*
 /// CDATA sections, the two ways SVG carries text into `<text>`) have an
-/// empty name and carry the raw (not whitespace-normalized) content in
-/// `text`. `children` are arena indices, so the tree stays pointer-stable
+/// empty name and carry their content in `text` - character data with its
+/// references resolved (XML §4.1), a CDATA section exactly as written (XML
+/// §4.2) - and neither of them whitespace-normalized yet, which is §10.15's
+/// work on the whole string a text content element holds, not on one node at
+/// a time. `children` are arena indices, so the tree stays pointer-stable
 /// while the arena grows and after it is sealed.
 struct Element
 {
@@ -105,6 +113,95 @@ struct Document
 /// not redeclare them (§4.2), so they never enter the entity table and a
 /// reference to one keeps its spelling for whatever decodes it later.
 private enum xmlBuiltins = ["amp", "lt", "gt", "quot", "apos"];
+
+/// XML 1.0 §4.1 and §4.4.7: a character reference - `&#35;` or `&#x23;` -
+/// stands for the character with that code point, and each of the five
+/// predefined entities (§4.4.7) for the character its name names. They
+/// resolve where they stand - in character data, in an attribute value - and
+/// never over the source text, which is the other side of the line step 14
+/// drew for the general entities: `&lt;text&gt;` written inside a title is a
+/// label, not an element. A CDATA section (§4.2) holds no references at all,
+/// so the caller says which kind of node it is handing over. A `&` that
+/// starts nothing decodable is left written out, as an undeclared entity
+/// reference is - dropping content is worse than showing what was typed.
+string decodeRefs(string s)
+{
+    if (!canFind(s, '&'))
+        return s;
+
+    auto acc = appender!string;
+    acc.reserve(s.length);
+    for (size_t i; i < s.length; )
+    {
+        immutable amp = countUntil(s[i .. $], '&');
+        if (amp < 0)
+        {
+            acc.put(s[i .. $]);
+            break;
+        }
+        immutable at = i + cast(size_t) amp; // the '&' itself
+        acc.put(s[i .. at]);
+        immutable semi = countUntil(s[at + 1 .. $], ';');
+        immutable cp = semi < 0 ? -1 : refCodePoint(s[at + 1 .. at + 1 + cast(size_t) semi]);
+        if (cp < 0)
+        {
+            acc.put('&');
+            i = at + 1;
+            continue;
+        }
+        acc.put(cast(dchar) cp);
+        i = at + cast(size_t) semi + 2;
+    }
+    return acc.data;
+}
+
+/// The character a reference names: §4.4.7's five names, or §4.1's numeric
+/// form, decimal or hexadecimal. -1 for anything else, including a code point
+/// outside Unicode's range or in the surrogate band, which §4.1 keeps out of
+/// a document.
+private int refCodePoint(string name)
+{
+    switch (name)
+    {
+    case "lt":   return '<';
+    case "gt":   return '>';
+    case "amp":  return '&';
+    case "quot": return '"';
+    case "apos": return '\'';
+    default: break;
+    }
+    if (name.length < 3 || name[0] != '#')
+        return -1;
+    immutable hex = name[1] == 'x' || name[1] == 'X';
+    immutable first = hex ? 2 : 1;
+    if (name.length == first) // `&#x;` names nothing
+        return -1;
+    int cp;
+    for (size_t i = first; i < name.length; ++i)
+    {
+        immutable d = hex ? hexDigit(name[i])
+            : name[i] >= '0' && name[i] <= '9' ? name[i] - '0' : -1;
+        if (d < 0 || (cp = cp * (hex ? 16 : 10) + d) > 0x10_FFFF)
+            return -1;
+    }
+    // §4.1's Char production keeps the surrogate band out of a document, and
+    // every control code but tab, newline and carriage return: a reference to
+    // one of those names nothing, so it stays written out like any other.
+    if (cp >= 0xD800 && cp <= 0xDFFF)
+        return -1;
+    return cp < 0x20 && cp != 0x9 && cp != 0xA && cp != 0xD ? -1 : cp;
+}
+
+private int hexDigit(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
 
 /// XML 1.0 §4.4.2: a reference to an internal general entity is replaced by
 /// the content of its declaration before the document is parsed. SVG makes
@@ -388,7 +485,14 @@ Document parseSVG(string source)
     // outside a text content element a text node paints nothing, and inside
     // one §10.15's consolidation and bound-trimming run in appendRunText
     // and layoutText.
-    auto c = text.lexer.parser!(Yes.preserveWhitespace).cursor((CursorError e) {});
+    //
+    // No.conflateCDATA, the library default being Yes: XML §4.2 says a CDATA
+    // section is character data with no references in it, and that reading
+    // only survives if the walk still sees `cdata` where it was written.
+    // Conflated into a text node, the section's `&amp;` would be decoded by
+    // the §4.1 pass below and the section would stop meaning anything.
+    auto c = text.lexer.parser!(Yes.preserveWhitespace)
+        .cursor!(No.conflateCDATA)((CursorError e) {});
     c.setSource(text);
 
     Element[] nodes = [Element.init]; // nodes[0]: the document pseudo-root
@@ -494,10 +598,14 @@ Document parseSVG(string source)
         return idx;
     }
 
-    void addText(size_t parent)
+    // `references` is true for character data and false for a CDATA section:
+    // §4.2 says a CDATA section is "character data that is not marked up",
+    // which is another way of saying its `&` is just an `&`.
+    void addText(size_t parent, bool references)
     {
         immutable idx = nodes.length;
-        nodes ~= Element("", null, c.content, null);
+        nodes ~= Element("", null,
+            references ? decodeRefs(c.content) : c.content, null);
         nodes[parent].children ~= idx;
     }
 
@@ -505,7 +613,8 @@ Document parseSVG(string source)
     // child. Iterating siblings with next() skips over the end tags of
     // descended-into children (exit() parks the cursor on the parent's
     // own end tag, which the caller's next() steps past). Comments,
-    // PIs and DTD noise are dropped; text and CDATA become text nodes.
+    // PIs and DTD noise are dropped; text and CDATA become text nodes, the
+    // first with its references resolved and the second as written.
     void walkChildren(size_t parent)
     {
         do switch (c.kind)
@@ -528,8 +637,11 @@ Document parseSVG(string source)
                 unbindNs(declared);
             }
             break;
-        case XMLKind.text, XMLKind.cdata:
-            addText(parent);
+        case XMLKind.text:
+            addText(parent, true);
+            break;
+        case XMLKind.cdata:
+            addText(parent, false); // §4.2: no references to resolve here
             break;
         default:
             break;
@@ -772,7 +884,7 @@ unittest
         <text id="t">&row; &raster; &loop; &undeclared; %paint;</text>
         <text id="b">R&amp;D &#65;</text>
         <!-- &shape; -->
-        <svg id="c"><![CDATA[&shape;]]></svg>
+        <svg id="c"><![CDATA[&shape; &amp; &#65;]]></svg>
     </svg>`);
 
     // Markup in, markup out: the path is a child of the <g>, in place.
@@ -799,21 +911,77 @@ unittest
     assert(allText(doc.byId("t")) == `w=7 &raster; &loop; &undeclared; %paint;`,
         "unparsed, cyclic, undeclared and parameter references stay written out");
 
-    // Predefined entities and character references are not the expander's
-    // business: neither name is in the table (`#` is not a Name character),
-    // so both reach the text node as written.
+    // The expander has no business with the built-ins or the character
+    // references - neither name is in its table, `#` is not a Name character
+    // - so those names reach the node, and the node's own decode answers for
+    // them: `R&D A` is what the text node carries.
     import std.format : format;
-    assert(allText(doc.byId("b")) == `R&amp;D &#65;`,
-        format("built-ins and character references reach text as written: %s",
+    assert(allText(doc.byId("b")) == `R&D A`,
+        format("built-ins and character references decode on the node: %s",
             allText(doc.byId("b"))));
 
     // An external-entity reference names a file, not replacement text, and
     // neither comments nor CDATA hold references (§2.2, §2.7): exactly one
-    // <path> exists in the whole document.
+    // <path> exists in the whole document, and the CDATA section keeps its
+    // `&shape;`, its built-in and its character reference exactly as typed.
     assert(doc.nodes[doc.byId("i")].attrs["xlink:href"] == "&ext;");
-    assert(allText(doc.byId("c")) == "&shape;");
+    assert(allText(doc.byId("c")) == "&shape; &amp; &#65;",
+        "a CDATA section is character data that is not marked up (§4.2)");
     foreach (n; doc.nodes)
         if (n.name == "path")
             ++paths;
     assert(paths == 1, "only the expanded reference is a path");
+}
+
+unittest
+{
+    // XML §4.1 and §4.4.7: the five predefined entities and the character
+    // references resolve where they stand - in character data, and in an
+    // attribute value - and they resolve on the node, never over the source
+    // text. That last half is what keeps `&lt;text .../&gt;` inside a title a
+    // sentence rather than an element, and it is why animate-elem-40-t writes
+    // its labels that way: `x/y on &lt;use&gt;` is a label, and its reference
+    // paints the words.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <title>&lt;text id="no"/&gt;</title>
+        <text id="a" y="&#49;" font-family="&quot;Free Sans&quot;">R&amp;D
+            &lt;circle/&gt; &#65;&#x42;&#8721;&#x1F600;</text>
+        <text id="b">&nbsp; &amp; &unknown;</text>
+        <g id="c"><![CDATA[as written: &amp; &#65;]]></g>
+    </svg>`);
+
+    string allText(size_t i)
+    {
+        string s = doc.nodes[i].text;
+        foreach (ch; doc.nodes[i].children)
+            if (doc.nodes[ch].name.empty)
+                s ~= allText(ch);
+        return s;
+    }
+
+    import std.format : format;
+    assert(doc.byId("no") == Document.unknown,
+        "a reference resolved on the node cannot mint an element");
+    assert(allText(doc.byId("a")) == `R&D
+            <circle/> AB` ~ "\u2211\U0001F600",
+        format("both kinds become characters: %s", allText(doc.byId("a"))));
+    assert(doc.nodes[doc.byId("a")].attrs["y"] == "1",
+        "an attribute value resolves its references the same way (§4.1)");
+    assert(doc.nodes[doc.byId("a")].attrs["font-family"] == `"Free Sans"`,
+        "the predefined entities included");
+    assert(allText(doc.byId("b")) == `&nbsp; & &unknown;`,
+        "an undeclared name is nobody's to resolve, so it stays typed");
+    assert(allText(doc.byId("c")) == `as written: &amp; &#65;`,
+        "§4.2's CDATA section never reaches the decoder");
+
+    // The decoder on its own: the five names, numbers in both bases and with
+    // either spelling of `x`, and everything that is not a reference - a
+    // stray `&`, a name outside the five, a code point §4.1 keeps out of a
+    // document - left written out for the canvas to show.
+    assert(decodeRefs(`g &gt; rect`) == `g > rect`);
+    assert(decodeRefs(`a &lt; &quot;&apos;&amp;`) == `a < "'&`);
+    assert(decodeRefs(`&#62; &#x3E; &#X3e;`) == `> > >`);
+    assert(decodeRefs(`a &(b`) == `a &(b`); // not a reference
+    assert(decodeRefs(`&#xD800; &#1114112; &#0; &#x;`)
+        == `&#xD800; &#1114112; &#0; &#x;`, "nothing for it to name");
 }

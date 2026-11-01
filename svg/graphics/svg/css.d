@@ -154,11 +154,12 @@ Rule[] parseSheet(string src, ref size_t order, string baseDir = "", int depth =
 }
 
 /// All rules of every <style> element, in document order; `baseDir` is
-/// the document's directory for resolving `@import` targets. Style text
-/// arrives as the parser wrote it: sxml hands `&gt;` through raw while
-/// CDATA sections are literal, and the suite writes the same `>`
-/// selector both ways (styling-css-04-f escapes, struct-use-10-f is
-/// CDATA), so the text is XML-unescaped before it is tokenized.
+/// the document's directory for resolving `@import` targets. The text is
+/// already what XML says it is: the parser resolves the references of
+/// character data (XML §4.1), and the suite writes the same `>` selector
+/// both ways - styling-css-04-f escapes it, struct-use-10-f hides it in a
+/// CDATA section, where XML §4.2 says there is nothing to resolve - so the
+/// sheet is tokenized as the node holds it.
 Rule[] collectStyles(in Document doc, string baseDir = "")
 {
     Rule[] rules;
@@ -174,7 +175,7 @@ Rule[] collectStyles(in Document doc, string baseDir = "")
                 foreach (t; doc.nodes[ch].children)
                     if (doc.nodes[t].name.empty)
                         src ~= doc.nodes[t].text;
-                rules ~= parseSheet(xmlUnescape(src), order, baseDir);
+                rules ~= parseSheet(src, order, baseDir);
             }
             walk(ch);
         }
@@ -974,106 +975,7 @@ private string[] splitTop(string s, char sep)
     return res;
 }
 
-// -------------------------------------------------------------- XML text
-
-/// Decode the character references sxml hands through untouched, plus
-/// any numeric reference: the five XML built-ins and &#...; / &#x...;.
-/// A `&` that starts nothing decodable is left as written.
-string xmlUnescape(string s)
-{
-    if (!canFind(s, '&'))
-        return s;
-
-    auto acc = appender!string;
-    size_t i = 0;
-    while (i < s.length)
-    {
-        if (s[i] != '&')
-        {
-            acc.put(s[i++]);
-            continue;
-        }
-        immutable semi = findFrom(s, i + 1, ';');
-        if (semi == npos || semi - i > 10)
-        {
-            acc.put(s[i++]);
-            continue;
-        }
-        auto ent = s[i + 1 .. semi];
-        int cp = -1;
-        switch (ent)
-        {
-        case "lt":   cp = '<'; break;
-        case "gt":   cp = '>'; break;
-        case "amp":  cp = '&'; break;
-        case "quot": cp = '"'; break;
-        case "apos": cp = '\''; break;
-        default:
-            if (ent.length > 2 && ent[0] == '#')
-            {
-                bool hex = ent[1] == 'x' || ent[1] == 'X';
-                int base = hex ? 16 : 10;
-                size_t j = hex ? 2 : 1;
-                int num = 0;
-                for (; j < ent.length; ++j)
-                {
-                    immutable d = hex ? hexVal(ent[j]) : (ent[j] >= '0' &&
-                        ent[j] <= '9' ? ent[j] - '0' : -1);
-                    if (d < 0)
-                    {
-                        num = -1;
-                        break;
-                    }
-                    num = num * base + d;
-                }
-                cp = num;
-            }
-            break;
-        }
-        if (cp < 0)
-        {
-            acc.put(s[i++]);
-            continue;
-        }
-        if (cp < 0x80)
-            acc.put(cast(char) cp);
-        else if (cp < 0x800)
-        {
-            acc.put(cast(char) (0xC0 | (cp >> 6)));
-            acc.put(cast(char) (0x80 | (cp & 0x3F)));
-        }
-        else
-        {
-            acc.put(cast(char) (0xE0 | (cp >> 12)));
-            acc.put(cast(char) (0x80 | ((cp >> 6) & 0x3F)));
-            acc.put(cast(char) (0x80 | (cp & 0x3F)));
-        }
-        i = semi + 1;
-    }
-    return acc.data;
-}
-
-private int hexVal(char c)
-{
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'a' && c <= 'f')
-        return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F')
-        return c - 'A' + 10;
-    return -1;
-}
-
 // ------------------------------------------------------------------ tests
-
-unittest
-{
-    // sxml keeps entity references raw, so the prepass decodes them.
-    assert(xmlUnescape(`g &gt; rect`) == `g > rect`);
-    assert(xmlUnescape(`a &lt; &quot;&apos;&amp;`) == `a < "'&`);
-    assert(xmlUnescape(`&#62; &#x3E;`) == `> >`);
-    assert(xmlUnescape(`a &(b`) == `a &(b`); // not a reference
-}
 
 unittest
 {
@@ -1154,7 +1056,10 @@ unittest
 
 unittest
 {
-    // Matching against the arena, cascade order, and class lists.
+    // Matching against the arena, cascade order, and class lists. The sheet
+    // text goes through decodeRefs because that is what the parser has
+    // already done to a <style> node by the time collectStyles sees it.
+    import graphics.svg.parser : decodeRefs;
     auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg"
         xmlns:xlink="http://www.w3.org/1999/xlink">
         <defs>
@@ -1169,7 +1074,7 @@ unittest
     </svg>`);
 
     size_t order = 0;
-    auto rules = parseSheet(xmlUnescape(`
+    auto rules = parseSheet(decodeRefs(`
         rect { fill: black }                    /* 001 */
         defs &gt; rect { fill: green }          /* escaped text sheet */
         #alpha .testClass1 { fill: red }        /* 110 */
