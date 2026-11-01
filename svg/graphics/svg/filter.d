@@ -707,26 +707,45 @@ unittest
 /// spec formula). Bias enters alpha raw and colours at bias·ALPHA_X,Y;
 /// preserveAlpha unpremultiplies the colours, runs the kernel on those,
 /// and re-premultiplies against the untouched source alpha.
+///
+/// `img` is the input image's box inside `src`, in raster pixels. §15.17
+/// measures `edgeMode` against "the boundaries of the 'in' image", and a
+/// filter's offscreen is rarely that size: it spans the primitive subregion,
+/// which is usually wider than the picture inside it. Clamping or wrapping at
+/// the raster's own edge instead makes `duplicate` and `wrap` reach across
+/// transparent padding, which is how the three `edgeMode` panels of
+/// filters-conv-05-f came out identical.
 enum ConvEdge { duplicate, wrap, none }
 
-void convolve(ref Raster dst, in Raster src, in float[] k, int ox, int oy,
+void convolve(ref Raster dst, in Raster src, in IBox4 img, in float[] k, int ox, int oy,
     int tx, int ty, float divisor, float bias, ConvEdge edge, bool preserveAlpha)
 {
     dst = Raster(src.w, src.h);
+    // Keep the box inside the raster and every rule below can index freely.
+    immutable IBox4 ib = intersect(img, IBox4(0, 0, src.w, src.h));
+    immutable iw = ib.x1 - ib.x0, ih = ib.y1 - ib.y0;
 
     float samp(in Raster r, int sx, int sy, int c)
     {
+        if (ib.empty) // no image at all: everything is transparent black
+            return 0.0f;
         switch (edge)
         {
-        case ConvEdge.duplicate:
-            return r.px[(min(max(sy, 0), r.h - 1) * r.w + min(max(sx, 0), r.w - 1)) * 4 + c];
-        case ConvEdge.wrap:
+        case ConvEdge.duplicate: // the image's edge pixels extend outward
             {
-                immutable wx = ((sx % r.w) + r.w) % r.w, wy = ((sy % r.h) + r.h) % r.h;
-                return r.px[(wy * r.w + wx) * 4 + c];
+                immutable dx = min(max(sx, ib.x0), ib.x1 - 1),
+                        dy = min(max(sy, ib.y0), ib.y1 - 1);
+                return r.px[(cast(size_t) (dy * r.w + dx)) * 4 + c];
             }
-        default: // none: zero (including alpha) outside
-            return sx >= 0 && sx < r.w && sy >= 0 && sy < r.h ? r.px[(sy * r.w + sx) * 4 + c] : 0.0f;
+        case ConvEdge.wrap: // the image tiles: its far edges are joined
+            {
+                immutable wx = ((sx - ib.x0) % iw + iw) % iw + ib.x0,
+                        wy = ((sy - ib.y0) % ih + ih) % ih + ib.y0;
+                return r.px[(cast(size_t) (wy * r.w + wx)) * 4 + c];
+            }
+        default: // none: zero (including alpha) outside the image
+            return sx >= ib.x0 && sx < ib.x1 && sy >= ib.y0 && sy < ib.y1
+                ? r.px[(cast(size_t) (sy * r.w + sx)) * 4 + c] : 0.0f;
         }
     }
 
@@ -776,7 +795,8 @@ unittest
     auto src = Raster(2, 1);
     Raster d;
     src.px[] = [1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f];
-    convolve(d, src, [0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f],
+    convolve(d, src, IBox4(0, 0, 2, 1),
+        [0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f],
         3, 3, 1, 1, 1.0f, 0.0f, ConvEdge.none, false);
     assert(d.px[] == src.px[], to!string(d.px[]));
 
@@ -786,7 +806,8 @@ unittest
     // the k[0] tap alone, and 2*red + blue at y=1.
     src = Raster(1, 2);
     src.px[] = [1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f]; // red above blue
-    convolve(d, src, [1.0f, 2.0f], 1, 2, 0, 1, 3.0f, 0.0f, ConvEdge.none, false);
+    convolve(d, src, IBox4(0, 0, 1, 2), [1.0f, 2.0f], 1, 2, 0, 1, 3.0f, 0.0f,
+        ConvEdge.none, false);
     assert(isClose(d.px[0], 1.0f / 3, 1e-5f) && d.px[1] == 0.0f
         && isClose(d.px[3], 1.0f / 3, 1e-5f), to!string(d.px[0 .. 4]));
     assert(isClose(d.px[4], 2.0f / 3, 1e-5f) && isClose(d.px[6], 1.0f / 3, 1e-5f)
@@ -797,18 +818,50 @@ unittest
     src = Raster(1, 1);
     src.px[] = [1.0f, 0.0f, 0.0f, 1.0f];
     auto box = repeat(1.0f, 9).array;
-    convolve(d, src, box, 3, 3, 1, 1, 9.0f, 0.0f, ConvEdge.none, false);
+    convolve(d, src, IBox4(0, 0, 1, 1), box, 3, 3, 1, 1, 9.0f, 0.0f, ConvEdge.none, false);
     assert(isClose(d.px[0], 1.0f / 9, 1e-5f) && isClose(d.px[3], 1.0f / 9, 1e-5f));
-    convolve(d, src, box, 3, 3, 1, 1, 9.0f, 0.0f, ConvEdge.duplicate, false);
+    convolve(d, src, IBox4(0, 0, 1, 1), box, 3, 3, 1, 1, 9.0f, 0.0f,
+        ConvEdge.duplicate, false);
     assert(d.px[] == [1.0f, 0.0f, 0.0f, 1.0f], to!string(d.px[]));
+
+    // The edges are the image's, not the offscreen's (§15.17). A 5-wide
+    // block inside an 8-wide raster, read through a kernel that taps only
+    // the pixel left of the target: at the block's own left edge, x=2,
+    // "none" finds nothing, "duplicate" repeats that edge pixel (blue) and
+    // "wrap" joins to the block's far edge (red). All three used to answer
+    // "nothing", because the raster's border is three columns further out.
+    src = Raster(8, 1);
+    immutable IBox4 block = IBox4(2, 0, 7, 1);
+    foreach (x; block.x0 .. block.x1)
+        src.px[x * 4 + 3] = 1.0f; // opaque
+    src.px[2 * 4 + 2] = 1.0f; // blue at the block's left edge
+    src.px[6 * 4] = 1.0f; // red at its right edge
+    immutable tapLeft = [0.0f, 0.0f, 1.0f]; // order="3 1": k[2] taps x-1
+    convolve(d, src, block, tapLeft, 3, 1, 1, 0, 1.0f, 0.0f, ConvEdge.none, false);
+    assert(d.px[2 * 4 .. 3 * 4] == [0.0f, 0.0f, 0.0f, 0.0f], to!string(d.px[8 .. 12]));
+    assert(isClose(d.px[3 * 4 + 3], 1.0f, 1e-5f), "the tap inside the block still reads");
+    convolve(d, src, block, tapLeft, 3, 1, 1, 0, 1.0f, 0.0f, ConvEdge.duplicate, false);
+    assert(d.px[2 * 4 .. 3 * 4] == [0.0f, 0.0f, 1.0f, 1.0f], to!string(d.px[8 .. 12]));
+    convolve(d, src, block, tapLeft, 3, 1, 1, 0, 1.0f, 0.0f, ConvEdge.wrap, false);
+    assert(d.px[2 * 4 .. 3 * 4] == [1.0f, 0.0f, 0.0f, 1.0f], to!string(d.px[8 .. 12]));
+    // The join period is the block's 5 columns, not the raster's 8: at x=0
+    // the tap is x=-1, which the image's own tiling lands on x=4, an opaque
+    // pixel. Measuring the raster instead lands it on x=7, padding, and
+    // duplicate clamps to the raster's first column for the same reason.
+    assert(d.px[0 .. 4] == [0.0f, 0.0f, 0.0f, 1.0f], to!string(d.px[0 .. 4]));
+    convolve(d, src, block, tapLeft, 3, 1, 1, 0, 1.0f, 0.0f, ConvEdge.duplicate, false);
+    assert(d.px[0 .. 4] == [0.0f, 0.0f, 1.0f, 1.0f], to!string(d.px[0 .. 4]));
 
     // preserveAlpha keeps alpha and runs the kernel on straight colours;
     // the raw form convolves alpha too and lets bias ride the result.
+    src = Raster(1, 1);
     src.px[] = [0.5f, 0.0f, 0.0f, 0.5f]; // half-alpha straight red
-    convolve(d, src, [0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f],
+    convolve(d, src, IBox4(0, 0, 1, 1),
+        [0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f],
         3, 3, 1, 1, 1.0f, 0.0f, ConvEdge.none, true);
     assert(d.px[] == [0.5f, 0.0f, 0.0f, 0.5f], to!string(d.px[]));
-    convolve(d, src, [0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f],
+    convolve(d, src, IBox4(0, 0, 1, 1),
+        [0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f],
         3, 3, 1, 1, 1.0f, 0.5f, ConvEdge.none, false);
     // alpha: 0.5 + 0.5 = 1; PM red: 0.5 + 0.5*1; and bias lands on
     // every component, so the black channels lift to 0.5 - the

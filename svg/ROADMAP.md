@@ -107,6 +107,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | a literal tab or line ending into a space,     |            |
 |                       | a reference keeps the character it names,      |            |
 |                       | a number list splits on either (§3.3.3, §7.1)  |            |
+| step 36               | feConvolveMatrix measures its edges on         | 3.04 M     |
+|                       | the input image's own border, and edgeMode     |            |
+|                       | starts at none, not the duplicate our          |            |
+|                       | parser reached for (SVG 1.1 §15.17)            |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1042,17 +1046,46 @@ undeclared entity. No suite file writes one (coords-transformattr-01-f spells
 its tab `&#x0009;`), so no row moves, but §4.1's Char production admits tab,
 newline and carriage return. Suite total 3,043,915 -> 3,043,577.
 
-Up next - step 36, a boundary inside `feConvolveMatrix`. §15.17 measures
-`edgeMode` against the boundaries of the *input image*, and ours are measured
-against something wider: in a probe of three squares with a one-tap kernel that
-reads the pixel left of the image, and a region twenty pixels wider than the
-image, `none`, `wrap` and `duplicate` all leave that pixel transparent. Same in
-`filters-conv-05-f`, where the three `edgeMode` panels come out identical to
-six digits - the exact failure that test's own pass criteria warn about ("if
-they all look the same the test has failed"). The AE at stake is small, since
-05-f is already in the ceilings list as a white-page reference (153.9 K of it,
-7.6 K once flattened over white); three panels that should differ and do not is
-a spec defect with a picture attached.
+Step 36 is §15.17's edge box. `edgeMode` is defined against "the boundaries of
+the 'in' image", and ours were measured against the raster - the offscreen the
+chain works in, which is device-aligned and as wide as the canvas. So
+`duplicate` clamped to the canvas's first column and `wrap` joined the canvas's
+far edge, both of them transparent padding: outside the picture every mode
+answered zero and the mode made no visible difference at all. `convolve` now
+takes the input image's box next to the raster, the same box `feTile` already
+carries for its tiling, and the chain resolves it the way it resolves any
+input - `namedSub` for a named result, the filter region for SourceGraphic,
+which §15.5 has already region-clipped.
+
+The probe says it plainly: three squares, a region the size of each, and a
+kernel with one tap on the pixel to the left. Their left columns used to come
+out transparent under all three modes; now `none` leaves it transparent while
+`duplicate` repeats the edge and `wrap` joins to the far side, both lime at
+alpha 255. A second probe, with the region twenty pixels wider than the square,
+keeps the square's own left column transparent under every mode - correctly,
+because there is padding there and not image: with `in="SourceGraphic"` the
+image is the region. In `filters-conv-05-f`, whose pass criteria read "if they
+all look the same the test has failed", the three panels went from
+pixel-identical to 200-219 differing pixels between each pair and the row gives
+up 292; `filters-conv-01-f`, which spells `duplicate` out on one panel, gives
+up 205.
+
+Two bugs, one found through the other. §15.17's initial value for `edgeMode`
+is `none`; our parser reached for `duplicate`, and had no branch for the word
+"duplicate" at all - the spelling worked only because it was the default.
+Fixing the initial value before adding that branch made `filters-conv-04-f`
+worse by 1,052 and `filters-conv-02-f` by 53: neither names an edge mode, and
+the old default had been quietly behaving like `none` because a clamp at the
+canvas edge lands on padding, which is what `none` wants. Both rows are back
+at their step-35 values, and what the fix really buys is that the two spellings
+now mean different things. Suite total 3,043,577 -> 3,043,080.
+
+Up next - step 37, the viewer's own URL. §17.3.2's fragment selection -
+`#view-id`, `#svgView(...)` and `#xywh=` on the CLI's file argument - is the
+part of chapter 17 the renderer has never touched: `<view>` elements parse and
+register, and the outer `<svg>`'s `viewBox` always wins. No harness row can
+move, because the harness hands the CLI bare files, so this step is for the
+spec column rather than the AE column.
 
 
 ## Deferred / accepted ceilings (do not chase)
@@ -1153,7 +1186,7 @@ a spec defect with a picture attached.
   being successfully referenced by other elements (such as via a `use`)") so the
   three black clones hide the red decoys and no red shows, and the PNG is the
   red-decoy state the test was written to eliminate.
-- `filters-turb` (163 K) / `filters-conv` (172 K): feTurbulence noise and
+- `filters-turb` (163 K) / `filters-conv` (169 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
   filters-morph-01-f (8.4 K) belongs to the same family: its four feMorphology
   result boxes (144x117, 142x117, 130x92, 128x105) carry 10.9 K strong-delta
@@ -1180,7 +1213,7 @@ a spec defect with a picture attached.
   our own renderings after `magick -background white -flatten` (a one-off
   script; the harness composites nothing) collapses them: animate-elem-77-t
   166.2 K -> 1.3 K, text-intro-03-b 164.5 K -> 11.0 K, filters-turb-02-f
-  161.6 K -> 5.1 K, filters-conv-05-f 153.9 K -> 7.6 K, struct-image-
+  161.6 K -> 5.1 K, filters-conv-05-f 153.6 K -> 7.0 K, struct-image-
   13/14/15-f 151 K each -> 5.3/5.3/6.4 K, filters-light-02-f 134.8 K -> 66,
   text-intro-06-t/-07-t 158 K each -> 22.2/22.7 K. Compositing over white
   suite-wide is the wrong lever: 3.33 M -> 73.7 M, because the other 515
@@ -1221,4 +1254,5 @@ a spec defect with a picture attached.
   `color-interpolation-filters="sRGB"` flips the flag at `makeFilter` - and
   what looked like arithmetic in `filters-conv-03-f`'s 308x77 band was a parse
   failure, which step 35 closed. What is left of that row is two script panels
-  (4,516 of it) plus 334 of convolution at the raster edge, unexamined.
+  (4,516 of it) plus 334 of sharpening the bird itself, unexamined - step 36
+  moved the convolve's edge box and that 334 did not blink.

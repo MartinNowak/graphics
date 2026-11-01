@@ -5096,14 +5096,16 @@ private struct Renderer
                 if (tx < 0 || tx >= ord[0] || ty < 0 || ty >= ord[1])
                     bad = true;
 
-                ConvEdge em = ConvEdge.duplicate;
+                // §15.17's initial value is "none", and an unrecognised
+                // spelling leaves it standing.
+                ConvEdge em = ConvEdge.none;
                 if (auto p = "edgeMode" in e.attrs)
                 {
                     immutable v = toLower(strip(*p));
                     if (v == "wrap")
                         em = ConvEdge.wrap;
-                    else if (v == "none")
-                        em = ConvEdge.none;
+                    else if (v == "duplicate")
+                        em = ConvEdge.duplicate;
                 }
                 bool pa = false;
                 if (auto p = "preserveAlpha" in e.attrs)
@@ -5111,8 +5113,21 @@ private struct Renderer
 
                 if (!bad)
                 {
+                    // §15.17 measures edgeMode against the input image's
+                    // boundaries, and the raster is the whole subregion the
+                    // chain works in, so the box travels with the raster -
+                    // exactly as it does for feTile's tiling.
+                    IBox4 isub = lastSub;
+                    if (auto p = "in" in e.attrs)
+                    {
+                        immutable nm = strip(*p);
+                        if (auto q = nm in namedSub)
+                            isub = *q;
+                        else
+                            isub = region; // SourceGraphic & friends span the region
+                    }
                     Raster o;
-                    convolve(o, input(e.attrs, "in"), k, ord[0], ord[1], tx, ty,
+                    convolve(o, input(e.attrs, "in"), isub, k, ord[0], ord[1], tx, ty,
                         div, num(e.attrs, "bias", 0.0f), em, pa);
                     res = o;
                 }
@@ -7539,6 +7554,57 @@ unittest
         immutable p = b.getLine!PMColor(9)[12];
         assert(p.a == 255 && p.g > 250, `and still painted: ${to!string(p)}`);
     }
+}
+
+unittest
+{
+    // §15.17's edgeMode is measured against the boundaries of the *input
+    // image*, not of the offscreen it sits in. The region is exactly a
+    // 10x8 lime rect and the kernel has one tap, the pixel to the left of
+    // the target, so the picture simply moves a pixel and the rect's own
+    // left column answers what the edge mode does: "none" reads what is
+    // not there and yields transparent black, "duplicate" repeats the edge
+    // and "wrap" joins to the right-hand edge, both of them lime. Read the
+    // offscreen instead and the three are identical, which is how the three
+    // edgeMode panels of filters-conv-05-f came out.
+    string edgeSVG(string modeAttr)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="12">
+            <filter id="e" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse"
+                    x="1" y="1" width="10" height="8">
+                <feConvolveMatrix order="3 1" ` ~ modeAttr ~ `kernelMatrix="0 0 1"/>
+            </filter>
+            <rect x="1" y="1" width="10" height="8" fill="#00ff00" filter="url(#e)"/>
+            </svg>`;
+    }
+
+    auto none = renderSVG(edgeSVG(`edgeMode="none" `));
+    auto dup = renderSVG(edgeSVG(`edgeMode="duplicate" `));
+    auto wrap = renderSVG(edgeSVG(`edgeMode="wrap" `));
+
+    // Inside the picture all three agree: the tap lands on lime, which also
+    // says the primitive was not disabled.
+    foreach (b; [none, dup, wrap])
+    {
+        immutable p = b.getLine!PMColor(5)[4];
+        assert(p.a == 255 && p.r < 5 && p.g > 250 && p.b < 5, `lime inside: ${to!string(p)}`);
+    }
+
+    // The rect's own left column, one tap outside the image.
+    immutable left = none.getLine!PMColor(5)[1];
+    assert(left.a == 0, `none reads transparent black: ${to!string(left)}`);
+    foreach (b; [dup, wrap])
+    {
+        immutable p = b.getLine!PMColor(5)[1];
+        assert(p.a == 255 && p.g > 250, `the edge is the image's: ${to!string(p)}`);
+    }
+    assert(none.buffer != dup.buffer && none.buffer != wrap.buffer,
+        "three modes, three pictures");
+
+    // And the initial value is "none" - leaving the attribute out is the
+    // first mode, not the one our parser used to reach for.
+    immutable om = renderSVG(edgeSVG("")).getLine!PMColor(5)[1];
+    assert(om.a == 0, `the initial value reads transparent black: ${to!string(om)}`);
 }
 
 unittest
