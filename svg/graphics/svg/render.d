@@ -713,12 +713,29 @@ private struct Renderer
         size_t onPath = size_t.max; // index into textPaths: a <textPath>
                                     // run rides that path instead of the pen
         AltGlyph[] alts; // non-empty: these stand in for `text` (§10.14.1)
+        size_t rot = size_t.max; // innermost rotate scope when the run opened
+        float[] rots; // §6.1.2: one angle per character of `text` (empty: none)
     }
     TextRun[] textRuns;
     bool inText;
     bool runOpen; // the last run may still receive text nodes
     FPoint textPos; // the <text> x/y chunk origin
     size_t openPath = size_t.max; // the <textPath> currently open, if any
+
+    // §6.1.2/§10.2: a `rotate` list indexes the characters of the element
+    // that carries it, descendants included, and a character takes the value
+    // of the nearest ancestor that has one. So the chain of text content
+    // elements around a run has to outlive the run: each one opens a scope
+    // (closed by the matching case in closeElement), and every scope above a
+    // character counts that character as part of its own subtree.
+    static struct RotScope
+    {
+        float[] vals; // empty: no rotate attribute here, just a link
+        size_t parent; // enclosing scope, size_t.max for none
+        size_t n; // characters of this subtree laid out so far
+    }
+    RotScope[] rotScopes; // live for the current <text>
+    size_t[] rotStack; // the text content elements currently open
 
     // One <textPath> reference, measured out for the runs that ride it
     // (§10.8). The distance table is the library's path measure; `start`
@@ -2871,7 +2888,8 @@ private struct Renderer
         auto lc = lengthCtx();
         textRuns ~= TextRun(styles.data.back, "", xs, ys, dxs, dys,
             a.convLen("textLength", 0.0f, lc, RefAxis.width),
-            a.get("lengthAdjust", "") == "spacing", 1, onPath);
+            a.get("lengthAdjust", "") == "spacing", 1, onPath, null,
+            rotStack.length ? rotStack[$-1] : size_t.max);
     }
 
     // §7.1 whitespace processing: `default` collapses runs of space
@@ -2887,7 +2905,8 @@ private struct Renderer
             // (positioning lists and textLength were the closed
             // tspan's). Inside a <textPath> it still rides the path.
             textRuns ~= TextRun(styles.data.back, "", null, null, null,
-                null, 0, false, 1, openPath);
+                null, 0, false, 1, openPath, null,
+                rotStack.length ? rotStack[$-1] : size_t.max);
             runOpen = true;
         }
         ref string buf = textRuns[$ - 1].text;
@@ -3135,6 +3154,38 @@ private struct Renderer
             break;
         }
 
+        // §6.1.2/§10.2: a rotate list is a supplemental rotation about the
+        // current text position, one value per character, numbered inside the
+        // element that carries it - descendants included. So the nearest
+        // enclosing element with a list answers for a character, every
+        // element above it counts that character among its own subtree, and a
+        // list shorter than the characters runs on its last value; the extra
+        // values of a longer list go unused. The numbering is over the
+        // character data §10.15 left behind, which is why this pass sits
+        // after the trimming above rather than during the walk.
+        foreach (ref run; textRuns)
+        {
+            if (run.text.empty || run.rot == size_t.max)
+                continue;
+            size_t hit = run.rot;
+            while (hit != size_t.max && rotScopes[hit].vals.empty)
+                hit = rotScopes[hit].parent;
+            if (hit == size_t.max)
+                continue; // nowhere above is there a rotate list
+            foreach (dchar c; run.text) // one angle per character, not byte
+            {
+                immutable i = min(rotScopes[hit].n, rotScopes[hit].vals.length - 1);
+                run.rots ~= rotScopes[hit].vals[i];
+                // And every element whose subtree holds it counts one.
+                for (size_t up = run.rot; up != size_t.max; )
+                {
+                    if (!rotScopes[up].vals.empty)
+                        ++rotScopes[up].n;
+                    up = rotScopes[up].parent;
+                }
+            }
+        }
+
         // Pass 1: per-glyph advances. letter-spacing follows every
         // character, word-spacing every U+0020 (the CSS model, so a
         // trailing gap rides in the anchored width too). textLength
@@ -3329,6 +3380,18 @@ private struct Renderer
         // the path is an absolute offset along it, y is ignored, and dy
         // offsets across the path - which is why the baseline shifts below
         // are applied in the rotated frame rather than in the page's.
+        // §6.1.2's supplemental rotation for the glyph at index gi. An
+        // altGlyph's alternate glyphs are one group, turned by the angle of
+        // the first character of its character data; the values for the rest
+        // of that character data are passed over (§10.14.1).
+        float rotAt(size_t gi)
+        {
+            if (run.rots.empty)
+                return 0.0f;
+            immutable i = run.alts.length ? 0 : min(gi, run.rots.length - 1);
+            return run.rots[i];
+        }
+
         bool pathMatrix(size_t gi, out Matrix m)
         {
             float d0 = pen.x + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
@@ -3359,6 +3422,11 @@ private struct Renderer
                     angle = atan2(tb.y - ta.y, tb.x - ta.x) * 180.0f / PI;
             }
 
+            // §10.2: the rotate value is "supplemental to any rotation due
+            // to text on a path" - the same turn about the same point, so it
+            // adds straight onto the tangent.
+            angle += rotAt(gi);
+
             m.reset();
             Matrix tr;
             tr.setTranslate(at.x, at.y);
@@ -3383,6 +3451,8 @@ private struct Renderer
 
         path.reset();
         size_t gi;
+        FPoint gbase; // §10.7.1's temporary frame for a rotated run of
+        float gacc;   // alternate glyphs: the advances it has used already
         if (sf || run.alts.length)
         {
             // SVG font run: same placement rules as the host path below,
@@ -3408,10 +3478,47 @@ private struct Renderer
                     if (gi < run.ys.length)
                         gy = pen.y = run.ys[gi];
                     gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
-                    gy += bShift;          // §10.9.2 dominant baseline rides on y/dy
-                    gy -= s.baselineShift; // positive raises the baseline (§10.9.2)
+
+                    immutable float rot = rotAt(gi);
+                    immutable float ux = gx; // where the pen advances from
+                    // §10.7.1: a character drawn as several glyphs lives in
+                    // its rotation's temporary coordinate system, the advances
+                    // between those glyphs included - which for an altGlyph
+                    // run (§10.14.1) is the whole substitution. The pen itself
+                    // still walks the page's x axis: rotate never moves the
+                    // current text position (§10.2).
+                    if (rot != 0.0f && run.alts.length && gi && gi >= run.xs.length
+                        && gi >= run.ys.length)
+                    {
+                        immutable rad = rot * PI / 180.0f;
+                        gx = gbase.x + cos(rad) * gacc;
+                        gy = gbase.y + sin(rad) * gacc;
+                    }
+                    else
+                    {
+                        gbase = FPoint(gx, gy);
+                        gacc = 0.0f;
+                    }
+
                     m.setTranslate(gx, gy);
-                    pen.x = gx + (gi < va.length ? va[gi] : 0.0f);
+                    if (rot != 0.0f)
+                    {
+                        Matrix r;
+                        r.setRotate(rot); // degrees, clockwise (y is down)
+                        m = m * r;
+                    }
+                    // §10.9.2's dominant baseline and baseline-shift place the
+                    // outline inside that frame, the way a rise does on a path.
+                    immutable float rise = bShift - s.baselineShift;
+                    if (rise != 0.0f)
+                    {
+                        Matrix q;
+                        q.setTranslate(0.0f, rise);
+                        m = m * q;
+                    }
+                    immutable float adv = gi < va.length ? va[gi] : 0.0f;
+                    pen.x = ux + adv;
+                    gacc += adv;
                 }
 
                 if (sl.sf)
@@ -3453,9 +3560,24 @@ private struct Renderer
                     if (gi < run.ys.length)
                         gy = pen.y = run.ys[gi];
                     gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
-                    gy += bShift;          // §10.9.2 dominant baseline rides on y/dy
-                    gy -= s.baselineShift; // positive raises the baseline (§10.9.2)
+
+                    immutable float rot = rotAt(gi); // §6.1.2, about here
                     m.setTranslate(gx, gy);
+                    if (rot != 0.0f)
+                    {
+                        Matrix r;
+                        r.setRotate(rot); // degrees, clockwise (y is down)
+                        m = m * r;
+                    }
+                    // §10.9.2's dominant baseline and baseline-shift place the
+                    // outline inside that frame, as on a path.
+                    immutable float rise = bShift - s.baselineShift;
+                    if (rise != 0.0f)
+                    {
+                        Matrix q;
+                        q.setTranslate(0.0f, rise);
+                        m = m * q;
+                    }
                     pen.x = gx + (gi < va.length ? va[gi] : gl.advance.x);
                 }
 
@@ -3849,9 +3971,35 @@ private struct Renderer
                tag == "style" || tag == "foreignObject";
     }
 
+    // Opens a rotate scope for one text content element (§6.1.2). A list
+    // that is absent, empty or malformed is no list at all: the nearest
+    // ancestor above it is what answers for these characters.
+    void pushRotScope(in string[string] a)
+    {
+        float[] vals;
+        if (auto v = "rotate" in a)
+            vals = parseNumList(strip(*v));
+        rotScopes ~= RotScope(vals,
+            rotStack.length ? rotStack[$-1] : size_t.max, 0);
+        rotStack ~= rotScopes.length - 1;
+    }
+
     // Returns true if the element opens a style (<g>, <text>, <tspan>, <svg>).
     bool element(string tag, in string[string] a, size_t idx = Document.unknown)
     {
+        // Every text content element opens a rotate scope, so the ancestors
+        // around a run are still known when its characters are numbered at
+        // </text>; closeElement's matching case closes the scope again. A
+        // <text> starts the chain over, as it does its runs.
+        if (tag == "text")
+        {
+            rotScopes.length = 0;
+            rotStack.length = 0;
+        }
+        if (tag == "text" || tag == "tspan" || tag == "tref"
+            || tag == "altGlyph" || tag == "textPath")
+            pushRotScope(a);
+
         switch (tag)
         {
         case "g", "a": // <a> is a plain styled container for rendering
@@ -4005,6 +4153,8 @@ private struct Renderer
                 runOpen = false;
                 textRuns.length = 0;
                 textPaths.length = 0; // measured paths were for this element
+                rotScopes.length = 0;
+                rotStack.length = 0; // ditto the rotate chain (§6.1.2)
             }
             else
             {
@@ -4013,6 +4163,8 @@ private struct Renderer
                 if (tag == "textPath")
                     openPath = size_t.max; // out of the path: the parent flows straight
             }
+            if (rotStack.length)
+                rotStack = rotStack[0 .. $-1]; // the scope `element` opened
             break;
 
         default:
@@ -7754,4 +7906,140 @@ unittest
     immutable flowed = inkBox(face(bar));
     assert(pinned[0] - flowed[0] == 36,
         `x moves the substitution: ${to!string(pinned)} / ${to!string(flowed)}`);
+}
+
+unittest
+{
+    // §6.1.2/§10.2: rotate is a supplemental rotation about the current text
+    // position, one value per character. A list shorter than the characters
+    // runs on its last value, the values past the last character go unread,
+    // and each character turns by the value of the nearest element around it
+    // that has a list - numbered inside that element's whole subtree.
+    string line(string attrs, string body = "abcd")
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"
+            viewBox="0 0 160 80"><text x="10" y="45" font-size="20"
+            fill="#008000" ` ~ attrs ~ `>` ~ body ~ `</text></svg>`;
+    }
+    // The line one spelling lays out, allow for where another one breaks it:
+    // a break in the markup is a break in the host font's shaping as well -
+    // it kerns and hints inside a run, never across one - which at these
+    // angles shows up as a shade on the junction glyph's edge and nowhere
+    // else. A wrong value moves the ink itself, which is what this looks at.
+    bool sameShape(in Bitmap flat, in Bitmap split)
+    {
+        if (inkBox(flat) != inkBox(split))
+            return false;
+        foreach (y; 0 .. flat.height)
+            foreach (x, immutable p; flat.getLine!PMColor(y))
+            {
+                immutable q = split.getLine!PMColor(y)[x];
+                if (p.a > q.a ? p.a - q.a > 32 : q.a - p.a > 32)
+                    return false;
+            }
+        return true;
+    }
+    auto straight = renderSVG(line(""));
+    assert(!samePixels(renderSVG(line(`rotate="45"`)), straight),
+        "a rotate list turns the run's glyphs");
+    assert(samePixels(renderSVG(line(`rotate="0 0 0 0"`)), straight),
+        "a list of zeroes is the plain baseline");
+    assert(samePixels(renderSVG(line(`rotate=""`)), straight),
+        "an empty list is no list at all");
+    assert(samePixels(renderSVG(line(`rotate="0 45"`)),
+        renderSVG(line(`rotate="0 45 45 45"`))),
+        "a list shorter than the characters repeats its last value");
+    assert(samePixels(renderSVG(line(`rotate="0 45 90 135"`)),
+        renderSVG(line(`rotate="0 45 90 135 180 225"`))),
+        "the values past the last character are never read");
+    assert(!samePixels(renderSVG(line(`rotate="0 45 90 135"`)),
+        renderSVG(line(`rotate="0 45 90 90"`))),
+        "each character carries its own value");
+    // The characters §10.15 trims away are not characters the list numbers
+    // either, so the values line up with the letters that survive.
+    assert(samePixels(straight, renderSVG(line("", " abcd  "))),
+        "the element's bounding whitespace rides no position");
+    assert(samePixels(renderSVG(line(`rotate="0 45 90 135"`)),
+        renderSVG(line(`rotate="0 45 90 135"`, " abcd "))),
+        "so the first value belongs to the first letter");
+
+    // An element with no list of its own keeps counting inside its parent's,
+    // wherever its characters sit in the parent's subtree.
+    auto pinned = renderSVG(line(`rotate="0 45 90 135"`,
+        `<tspan>ab</tspan>cd`));
+    assert(sameShape(pinned, renderSVG(line(`rotate="0 45 90 135"`))),
+        "a tspan without a rotate list leaves the numbering alone");
+    assert(sameShape(pinned, renderSVG(line(`rotate="0 45 90 135"`,
+        `ab<tspan>cd</tspan>`))),
+        "and the numbering is absolute, not per run");
+    assert(sameShape(pinned, renderSVG(line(`rotate="0 45 90 135"`,
+        `<tspan><tspan>ab</tspan></tspan>cd`))),
+        "several levels deep, the nearest list above still answers");
+    assert(!sameShape(pinned, renderSVG(line("",
+        `<tspan rotate="0 45">ab</tspan><tspan rotate="0 45">cd</tspan>`))),
+        "the values do not start over at the break");
+
+    // A child that has a list takes over its own characters - and the
+    // ancestor above counts them all the same, which is what puts the
+    // character handed back to it on the value the ancestor's list says.
+    auto over = renderSVG(line(`rotate="0 45 90 135 180"`,
+        `a<tspan rotate="10 20">bc</tspan>d`));
+    assert(!samePixels(over, renderSVG(line(`rotate="0 45 90 135 180"`,
+        `a<tspan rotate="10 20">b</tspan>cd`))),
+        "a nested list covers its own characters only");
+    assert(sameShape(over, renderSVG(line(`rotate="0 45 90 135 180"`,
+        `a<tspan rotate="10 20">bc</tspan><tspan>d</tspan>`))),
+        "the ancestor's count runs through the child it gave way to");
+
+    // §10.2: on a path the value is supplemental to the turn the path gives,
+    // about the same point.
+    string onPath(string rot)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="140" height="140">
+            <path id="p" d="M 10 100 h 110" fill="none"/>
+            <text font-size="20" fill="#008000"` ~ rot
+            ~ `><textPath xlink:href="#p">abcd</textPath></text></svg>`;
+    }
+    assert(samePixels(renderSVG(onPath("")),
+        renderSVG(onPath(` rotate="0 0 0 0"`))),
+        "zeroes leave the tangent where it was");
+    assert(!samePixels(renderSVG(onPath("")),
+        renderSVG(onPath(` rotate="30 30 30 30"`))),
+        "rotate turns the glyphs off the path's own direction");
+
+    // §10.7.1/§10.14.1: a character drawn as several glyphs - which for an
+    // altGlyph is the whole substitution - is laid out inside the rotation's
+    // temporary frame, the advances between those glyphs included, and only
+    // the first character of its character data supplies the angle.
+    string alt(string rot, string data = "a")
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="120" height="120"
+            viewBox="0 0 120 120">
+            <defs><font horiz-adv-x="100">
+                <font-face font-family="Grp" units-per-em="100" ascent="80"
+                    descent="-20" alphabetic="0"/>
+                <glyph id="bar1" unicode="a" glyph-name="bar1"
+                    d="M0 0h20v100h-20z"/>
+                <glyph id="bar2" glyph-name="bar2" d="M0 0h20v100h-20z"/>
+            </font>
+            <altGlyphDef id="pair"><glyphRef xlink:href="#bar1"/>
+                <glyphRef xlink:href="#bar2"/></altGlyphDef></defs>
+            <text x="20" y="40" font-family="Grp" font-size="10"
+                fill="#008000"><altGlyph xlink:href="#pair"` ~ rot
+            ~ `>` ~ data ~ `</altGlyph></text></svg>`;
+    }
+    immutable flat = inkBox(renderSVG(alt("")));
+    immutable group = inkBox(renderSVG(alt(` rotate="90"`)));
+    assert(!samePixels(renderSVG(alt(` rotate="90"`)), renderSVG(alt(""))),
+        "an alternate group rotates as a whole");
+    // Two 2x10 bars one advance apart: flat they stand side by side, and a
+    // quarter turn puts the second one under the first.
+    assert(group[3] - group[1] > flat[3] - flat[1]
+        && group[2] - group[0] < flat[2] - flat[0],
+        `the group advances down the turned axis: ${to!string(flat)} / ${to!string(group)}`);
+    assert(samePixels(renderSVG(alt(` rotate="90 20 40"`, "ab")),
+        renderSVG(alt(` rotate="90"`, "ab"))),
+        "only the first character of the data supplies the group's angle");
 }

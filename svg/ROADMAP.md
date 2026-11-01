@@ -91,6 +91,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the glyphs its href names, by element id in    |            |
 |                       | any registered font, first complete            |            |
 |                       | altGlyphItem winning (SVG 1.1 §10.14)          |            |
+| step 32               | a rotate list turns each character about       | 3.06 M     |
+|                       | its own text position, the nearest list above  |            |
+|                       | answering over that element's whole subtree    |            |
+|                       | (SVG 1.1 §10.2/§10.4-§10.5)                    |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -859,14 +863,56 @@ text-altglyph-03-b 5,716 -> 5,326, and masking its DRAFT band leaves 580: that
 band is the ceiling on the row, because the reference was captured without the
 `<g id="draft-watermark">` the file still carries uncommented.
 
-Up next - step 32, the `rotate` list (§6.1.2), still unimplemented for text:
-text-text-07-t (1,344) and -09-t (1,297) exist to test it, text-tspan-02-b
-(3,741) is its nested-`tspan` case and text-dom-01-f (3,517) puts
-`<tspan rotate="45,90">` in the middle of a sentence. Its list indexes the
-whitespace-processed string step 30 fixed, and, now that substitutions land,
-not always one angle per character: an `altGlyph` holding one character
-against a two-glyph `altGlyphDef` has two glyphs to turn. text-dom-05-f's
-`rotate=` sits on `visibility="hidden"` text, so it is not a prize.
+Step 32 (the text `rotate` list, §10.2/§10.4/§10.5) landed. A rotate value is
+not a placement: §10.2 defines it as a supplemental rotation *about the current
+text position*, so nothing about the line moves - every advance, every x/y/dx/
+dy list, the anchor shift of §10.11, the pen handed to the next run, all of it
+runs as though the attribute were absent - and only the outline is turned, about
+the point on the baseline where its character begins. On a path the value rides
+on top of the tangent turn step 28 takes from the path, about that same point:
+text-text-07-t's and -09-t's "Both Together" rows are position lists *and*
+rotate, and their letters fan off the line the lists set.
+
+The numbering is what needs the tree. A list indexes the characters "of this
+element or any of its descendants", so the count is absolute inside the subtree
+of the element carrying the list, each character takes its angle from the
+nearest element around it that has one, a short list repeats its last value and
+a longer list's spare values are never read. That chain cannot be settled during
+the walk, because §10.15 decides which characters exist at all: the numbering is
+over the string layout sees, so every text content element opens a scope in
+`element` and the matching case in `closeElement` closes it, and `layoutText`
+walks the chain after the whitespace passes. One scope id per run carries it,
+because a run never straddles the element that opened it - text after a
+`</tspan>` starts a fresh run, and a fresh run takes that element's parent.
+`rotate=""` and a malformed list are no list at all: the nearest ancestor above
+answers for those characters instead.
+
+§10.7.1 says what "the glyph" is when one character becomes several outlines,
+which is step 31's substitution exactly: the advances between them live in the
+rotation's temporary coordinate system. An `altGlyph` holding a two-glyph
+`altGlyphDef` at `rotate="90"` therefore puts the second bar *under* the first,
+with one angle for the whole substitution - its first character's, §10.14.1 -
+while the pen still walks the page's x axis, rotate having no say over the
+current text position.
+
+Four rows moved, one of them up: 3,061,812 -> 3,057,076 AE. The two reference
+fans, text-text-07-t 1,344 -> 462 and text-text-09-t 1,297 -> 455, and
+text-tspan-02-b 3,741 -> 726, the nested case: its red row is one 55-value list
+written on the `<text>` and its green row the same turns re-written over
+child1..child5, and both now land on the annotation numbers the test prints
+under each glyph. What is left in those three is the letterforms, the frame ring
+(40 AE on each band it crosses) and -02-b's `$Revision: 1.10 $` line, 441 on its
+band, which the reference spells differently.
+
+Up next - step 33, the predefined entities and character references (§4.1,
+§4.3.5, §4.3.7), the backlog's first item: `AT&amp;T` and `&#8721;` still reach
+the canvas written out, extra ink where the reference has one glyph. Step 14
+proved the source-text reading is the wrong place (`&lt;animate&gt;` inside a
+description became a live element, -4.7 K on animate-elem-40-t), so the decode
+belongs on the node after tokenizing - text nodes first, attribute values
+holding their escapes the same way today. text-ws-01-t (6,112) and -02-t (7,525)
+are the rows that pay for it and animate-elem-40-t the one that must not move.
+
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -911,6 +957,13 @@ against a two-glyph `altGlyphDef` has two glyphs to turn. text-dom-05-f's
   `status="created"` and carries its `<g id="draft-watermark">` uncommented,
   which we paint; its reference was captured without it. Mask the band and the
   row is 580 AE, so the altGlyph rows themselves are at their floor.
+- `text-dom-01-f` (3.5 K), +3 at step 32: the line that carries
+  `<tspan rotate="45,90">is</tspan>` is not visible in its reference at all.
+  The file's DRAFT band is painted *over* it there, and the only ink the PNG
+  keeps at that place is the script's own lightblue `getExtentOfChar` boxes -
+  which do enclose "the diagonally rotated fifth glyph 'i'", the reading our
+  rotate agrees with. Turning the pair moved 3 AE of band mismatch around;
+  the geometry is right and the row's floor is the band.
 - struct-image-13/14/15-f (453 K): the reference PNGs deviate from the
   tile PNGs they composite; our tiles match ground truth at AE 0 — a
   reference-suite defect, documented in the `<image>` commit message.
