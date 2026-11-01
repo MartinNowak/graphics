@@ -129,9 +129,12 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | `image` does - rect as viewport, the fit and   |            |
 |                       | the view fragment included (SVG 1.1 §15.18)    |            |
 | step 41               | stale section numbers in the source comments:  | 3.03 M*    |
-                        | 117 cites re-checked against the SE's own      |            |
-                        | contents, and three notes rewritten to say     |            |
-                        | what the spec says (comments only)             |            |
+|                       | 117 cites re-checked against the SE's own      |            |
+|                       | contents, and three notes rewritten to say     |            |
+|                       | what the spec says (comments only)             |            |
+| step 42               | a zero-length edge still has its first and     | 3.03 M     |
+|                       | final vertex, so its markers paint even with   |            |
+|                       | butt caps (SVG 1.1 §11.6.3)                    |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1369,12 +1372,58 @@ numbers went unchecked.
 Suite: byte-identical, 526 rows and the same 3,031,372 AE. A comment sweep
 cannot move a pixel, which is exactly what this gate checks.
 
-Up next - step 42, the biggest row no ceiling note has ever looked at:
-`text-text-08-b` (15,072). Its panels are the fill-opacity, stroke-opacity
-and `opacity` properties on `text`, handled the same way as on shapes ever
-since the text era, and nothing in the roadmap has asked what the archived
-reference there actually shows.
+Step 42 landed the marker at a degenerate vertex (SVG 1.1 §11.6.3). The
+walk already gave `M 0 0 L 0 0` its two junctions, and the vertex rule
+already reads marker-start at the first and marker-end at the final one.
+In front of them sat a rule of our own, from the first marker commit,
+with nothing cited for it: when a junction's direction came out as the
+zero vector and the line caps were the default butt, the marker was
+skipped - a stroke that paints no dot was taken to hide its marker too.
+§11.6.3 sets no such condition: "marker-start defines the arrowhead or
+polymarker that shall be drawn at the first vertex" of the shape,
+marker-end "at the final vertex". `imp-path-01-f` is the suite's own
+test of exactly that shape - a `path d="m 0 0 L 0 0"` and a
+`<line x1="0" x2="0" y1="100" y2="100">`, stroke-width 25 both,
+marker-end both - and its reference carries a 75x75 marker square at
+each vertex, 11,028 blue px where we were painting none.
 
+Orientation was the only half of the old rule with anything behind it.
+§11.6.2: when the incoming and outgoing tangents produce a zero vector,
+"the direction of marker is undefined" - about `orient="auto"`. That
+file never asks for auto: its marker keeps the default `orient="0"`, so
+its square sits axis-aligned, east and south of the vertex. Where auto
+*is* asked for on a zero-length edge, a tangent of (0, 0) puts atan2 at
+0 and that reading lands on the same square.
+
+Suite: one row moves, `imp-path-01-f` 9,790 -> 5,055. What is left there
+is not markers. 4,748 of it is the y=0..25 band: the file is
+`status="reviewed"` and still carries an uncommented
+`<g id="draft-watermark">`, which we paint and its reference does not, so
+our 7,993 red px sit exactly where the reference shows the top of the
+marker's own ink. The rest, ~530, is the frame ring - 12-25 AE per 25-row
+band on the sides, 248 along its bottom edge, that half-pixel stroker
+convention recorded under step 27. Between those two floors the two
+marker squares agree.
+
+Up next - step 43: `filters-color-01-b` (7,811). The bigger filter rows
+are the wrong shape for a feature - `filters-displace-01-f` (13.4 K)
+drives four feDisplacementMaps from feImage bitmaps, and
+`filters-overview-02-b`/`-03-b` (8.4/8.5 K) blur a gradient, so their
+difference is spread across a ramp or a noise picture rather than sitting
+anywhere. This one sits: five rectangles across one blue-to-yellow
+gradient - unfiltered, `feColorMatrix type="matrix"`, `saturate`,
+`hueRotate`, `luminanceToAlpha` - and 4,264 of its 7,811 AE is the
+y=240..280 band, with 1,247 in the band above it. The first band is the
+luminanceToAlpha panel, `<rect y="420">` inside the file's nested
+`<svg x="-10" y="5" width="500" height="290" viewBox="0 0 800 500">`, so
+it lands at device y=249..272. Its chain ends in `feComposite
+in="SourceGraphic" in2="a" operator="in"`, which makes the panel's alpha
+the matrix's A row and nothing else, and the file's `#Matrix` region is
+the tightest in the suite - `x="0%" y="0%" width="100%" height="100%"`,
+where the other three run -5%/-5%/110%/110%. Those two readings, the
+Rec.709-style luminance coefficients and a filter region clipped exactly
+to the bbox, are worth probing before the row is filed as arithmetic
+drift alongside its `filters-turb`/`filters-conv` neighbours.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -1419,6 +1468,8 @@ reference there actually shows.
   `status="created"` and carries its `<g id="draft-watermark">` uncommented,
   which we paint; its reference was captured without it. Mask the band and the
   row is 580 AE, so the altGlyph rows themselves are at their floor.
+  `imp-path-01-f` (5.1 K since step 42) is a second member of that class:
+  4,748 of its 5,055 is that same y=0..25 band.
 - `text-dom-01-f` (3.5 K), +3 at step 32: the line that carries
   `<tspan rotate="45,90">is</tspan>` is not visible in its reference at all.
   The file's DRAFT band is painted *over* it there, and the only ink the PNG
@@ -1497,6 +1548,12 @@ reference there actually shows.
   are missing (`fc-match Impact` answers Noto Sans here).
   `text-intro-03-b/-06-t/-07-t` (480 K) are a different lever:
   Arabic shaping with host Noto against Kayrawan/Scheherezade references.
+  `text-text-08-b` (15.1 K), triaged at step 42, is the substitution half of
+  that floor: 13.7 K of it lies in its four Verdana text bands, 2,002 in the
+  y=0..20 band where its 1-unit `test-frame` ring is the half-pixel stroker
+  convention recorded under step 27, and 298 at y>=340. Its blue there reads `#0000FE80` against the reference's
+  `#0000FF80`, inside the compare's fuzz, so the opacity halves themselves cost
+  no AE.
 - White-page references (~1.46 M, 44% of the 3.33 M baseline): ten tests'
   reference PNGs were captured over an *opaque white page* while our canvas
   is transparent, so their AE is page background, not content. Re-comparing

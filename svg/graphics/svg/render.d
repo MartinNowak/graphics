@@ -2262,11 +2262,14 @@ private struct Renderer
                     }
                     if (url.empty)
                         continue;
-                    // Zero-length edge: with butt caps the stroke paints
-                    // no dot, so its start/end markers stay hidden too;
-                    // round/square caps paint them at zero orientation.
-                    if (dir.x == 0 && dir.y == 0 && s.caps == CapStyle.Butt)
-                        continue;
+                    // A zero-length edge still has its first and final
+                    // vertex, and §11.6.3 draws the start/end markers at
+                    // those vertices whatever the caps do - butt caps paint
+                    // no stroke dot, but imp-path-01-f marks a `m 0 0 L 0 0`
+                    // and a zero-length <line> with butt caps anyway. The
+                    // tangent is the zero vector here, and §11.6.2 leaves
+                    // orient="auto" undefined for that case; atan2(0, 0) is
+                    // 0, which is the orientation its reference paints.
                     renderMarker(url, jn.p, dir, isStart, s, target, dev);
                 }
     }
@@ -7663,6 +7666,23 @@ unittest
             marker-mid="url(#sq)"/>
         </svg>`);
     assert(bmp.getLine!PMColor(17)[20].a == 0, "no stroke and no fill, no markers");
+
+    // A zero-length edge still has a first and a final vertex, so its
+    // markers paint: butt caps take the stroke dot away, not the marker
+    // (imp-path-01-f marks exactly this shape). With no tangent to read,
+    // orient="auto" (§11.6.2 leaves that case undefined) sits at 0, so the
+    // 4x4 viewport - strokeWidth units, so 8x8 device px - runs east and
+    // south of the vertex.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <marker id="sq" markerWidth="4" markerHeight="4" refX="0" refY="0" orient="auto">
+            <rect width="4" height="4" fill="red"/></marker>
+        <line x1="20" y1="20" x2="20" y2="20" stroke="black" stroke-width="2"
+            marker-end="url(#sq)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(22)[22].r == 255 && bmp.getLine!PMColor(26)[26].r == 255,
+        "a zero-length edge gets its end marker");
+    assert(bmp.getLine!PMColor(22)[19].a == 0 && bmp.getLine!PMColor(19)[22].a == 0,
+        "unrotated: the marker box lies east and south of the vertex");
 
     // orient: a tall bar (2x4) west of the ref point. orient 0 keeps it
     // there; orient 90 swings it over the pixel east of the vertex.

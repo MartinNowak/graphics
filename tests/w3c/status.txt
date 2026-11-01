@@ -178,7 +178,7 @@ fonts-glyph-03-t.svg OK 6176
 fonts-glyph-04-t.svg OK 510
 fonts-kern-01-t.svg OK 2617
 fonts-overview-201-t.svg OK 1006
-imp-path-01-f.svg OK 9790
+imp-path-01-f.svg OK 5055
 interact-cursor-01-f.svg OK 1726
 interact-dom-01-b.svg OK 12819
 interact-events-01-b.svg OK 14474
