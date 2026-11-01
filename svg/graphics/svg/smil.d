@@ -43,7 +43,7 @@ import std.string : indexOf, strip;
 // animateMotion's frozen position rides on the target as a supplemental
 // translate applied *before* (to the left of) the element's transform
 // chain - the order animate-elem-53-t's guide rects can prove
-// (SVG 1.1 §9.5); rotate="auto"/"auto-reverse" turn along the path's
+// (SVG 1.1 §19.2.14); rotate="auto"/"auto-reverse" turn along the path's
 // end tangent (animate-elem-08-t). keyPoints and mpath are not tracked.
 // Reference and image documents stay static: applySMILEndStates runs on
 // the CLI's document only (SVG images have no timeline -
@@ -169,7 +169,7 @@ private bool toDouble(string s, ref double v)
 }
 
 // One SMIL clock value ("9s", "0.5", "120ms", "2min"); false for
-// indefinite/event/syncbase tokens (§5.2).
+// indefinite/event/syncbase tokens (§19.2.8.1).
 private bool clock(string t, ref double secs)
 {
     t = t.strip;
@@ -259,7 +259,7 @@ private bool syncbase(string tok, ref Sync ctx, ref double secs)
 }
 
 // The wall-clock members of a ';'-separated begin/end list: plain
-// clock values plus any syncbase tokens that resolve (§5.2).
+// clock values plus any syncbase tokens that resolve (§19.2.8).
 private double[] clocks(string s, ref Sync ctx)
 {
     double[] res;
@@ -374,7 +374,7 @@ private bool effect(in Element n, size_t parent, ref Document doc,
         return false;
 
     // Default target is the parent element; an href retargets to the
-    // id it names (§19.2.0: href identifies the target, not the host).
+    // id it names (§19.2.4: href identifies the target, not the host).
     size_t target = parent;
     if (auto hp = "xlink:href" in a)
     {

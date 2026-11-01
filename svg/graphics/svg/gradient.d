@@ -477,7 +477,7 @@ Shader makeGradient(ref const(Document) doc, string id, in FRect bbox,
             lin = false;
     }
 
-    // cx/cy/r default to "50%" (§7.5: in userSpaceOnUse the r basis is the
+    // cx/cy/r default to "50%" (§13.2.3: in userSpaceOnUse the r basis is the
     // normalized diagonal; with objectBoundingBox every one of these is a
     // fraction), fx/fy to cx/cy - all resolved per unit system already.
     immutable cx = attr(chain, "cx", pxScale * 0.5, pxScale);

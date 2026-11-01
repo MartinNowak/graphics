@@ -213,8 +213,8 @@ string normalizeText(string s)
     return res;
 }
 
-// SVG number list (SVG 1.1 §6.1: the x/y/dx/dy glyph-positioning
-// lists): whitespace and/or comma separated plain user units. Parsing
+// SVG number list (SVG 1.1 §4.2; the x/y/dx/dy glyph-positioning
+// lists of §10.4): whitespace and/or comma separated plain user units. Parsing
 // stops at the first malformed token, keeping everything before it.
 float[] parseNumList(string s)
 {
@@ -348,14 +348,14 @@ Matrix viewFit(const(float)[4] vb, float w, float h, PAR par)
 }
 
 // Unit tangent vector; (0, 0) when the segment is degenerate - marker
-// placement reads that as the zero-length case (§11.4.1).
+// placement reads that as the zero-length case (§11.6.4).
 private FPoint unit(FPoint v)
 {
     immutable l = sqrt(v.x * v.x + v.y * v.y);
     return l > 0 ? FPoint(v.x / l, v.y / l) : FPoint(0, 0);
 }
 
-// §9.8 image sampler: browsers filter scaled images bilinearly, and
+// §5.7 image sampler: browsers filter scaled images bilinearly, and
 // nearest (plain BitmapShader) both stair-steps upscales and misses
 // the browsers' half-pixel registration: the blitter asks for shader
 // points at integer device indices (pixel centers), while the browser
@@ -428,7 +428,7 @@ class ImageShader : MappingShader
     float sx, sy;
 }
 
-// resolveHref (§5.1.2 URL plumbing) lives in css.d now: @import targets
+// resolveHref (§5.10.1 URL plumbing) lives in css.d now: @import targets
 // need the same base-relative, ./..-collapsing resolution as <image> hrefs.
 
 // xml:base resolution: the value becomes the subtree's base directory.
@@ -448,7 +448,7 @@ private string baseJoin(string base, string v)
 // empty Bitmap so broken references stay cheap, and suite tests
 // reference the same image dozens of times, so the cache is
 // process-lifetime.
-// data: URLs (§7.4: href is a URI, and the suite embeds a JPEG and a
+// data: URLs (§17.1.2: href is a URI, and the suite embeds a JPEG and a
 // PNG this way) are the only scheme we can honour without a network.
 // Only base64 payloads are in play; the bytes go to gamut (the codec
 // behind guip.Bitmap.load) and the decoded pixels are copied into a
@@ -520,7 +520,7 @@ private Bitmap loadSVGImage(string path)
 // A decoded Bitmap into filter working space (feImage §15.18): the
 // straight ARGB premultiplies into floats, colour through the sRGB
 // decode curve when the chain works in linearRGB (alpha is linear
-// either way, §15.2).
+// either way, §15.7.1).
 private Raster bitmapRaster(in Bitmap b, bool linearRGB)
 {
     immutable clut = srgbDecodeLUT();
@@ -542,8 +542,8 @@ private Raster bitmapRaster(in Bitmap b, bool linearRGB)
     return r;
 }
 
-// A filter attribute's number list (§15.6.4 and friends): items separated by
-// a run of §7.1 white space - space, tab, CR, LF - with an optional comma.
+// A filter attribute's number list (§15.10 and friends): items separated by
+// a run of §4.2 white space - space, tab, CR, LF - with an optional comma.
 // Splitting on whitespace rather than on one space is what makes a value
 // written across several lines a list instead of a parse failure: XML §3.3.3
 // turns a *literal* line ending or tab in an attribute value into a space,
@@ -586,7 +586,7 @@ float[] parseDash(string v)
 // closing line of a closed subpath has no segment, so expand closes into
 // explicit lines before dashing a path. `xform` maps the geometry on the way
 // out - text on a path needs the referenced path's own transform applied
-// before it is measured (§10.8.1), and measuring wants the closes expanded.
+// before it is measured (§10.13.2), and measuring wants the closes expanded.
 Path expandedCloses(in Path path, in Matrix xform = Matrix.init)
 {
     Path res;
@@ -715,8 +715,8 @@ private struct Renderer
 
     // The <text> subtree being accumulated: one run per style/position
     // break (the element itself opens the first, every <tspan> opens
-    // another). Layout - §6.1 per-glyph x/y/dx/dy lists, §16.3
-    // textLength, §16.4 letter/word-spacing, and the §6.1.3 anchor
+    // another). Layout - §10.4's per-glyph x/y/dx/dy lists and
+    // textLength, §10.11 letter/word-spacing, and the §10.9.1 anchor
     // shift over the WHOLE chunk - runs at the </text>, where every
     // run's width is known (flushing per tspan instead let each break
     // re-anchor itself and the runs piled up on top of each other).
@@ -724,7 +724,7 @@ private struct Renderer
     {
         Style style; // computed-style snapshot taken at the break
         string text;
-        float[] xs, ys, dxs, dys; // §6.1 positioning lists
+        float[] xs, ys, dxs, dys; // §10.4 positioning lists
         float textLength; // 0: unset
         bool adjSpacing;  // lengthAdjust="spacing" (else scale glyphs)
         float gScale = 1; // spacingAndGlyphs outline scale (layout pass)
@@ -732,7 +732,7 @@ private struct Renderer
                                     // run rides that path instead of the pen
         AltGlyph[] alts; // non-empty: these stand in for `text` (§10.14.1)
         size_t rot = size_t.max; // innermost rotate scope when the run opened
-        float[] rots; // §6.1.2: one angle per character of `text` (empty: none)
+        float[] rots; // §10.5: one angle per character of `text` (empty: none)
     }
     TextRun[] textRuns;
     bool inText;
@@ -740,7 +740,7 @@ private struct Renderer
     FPoint textPos; // the <text> x/y chunk origin
     size_t openPath = size_t.max; // the <textPath> currently open, if any
 
-    // §6.1.2/§10.2: a `rotate` list indexes the characters of the element
+    // §10.5: a `rotate` list indexes the characters of the element
     // that carries it, descendants included, and a character takes the value
     // of the nearest ancestor that has one. So the chain of text content
     // elements around a run has to outlive the run: each one opens a scope
@@ -756,7 +756,7 @@ private struct Renderer
     size_t[] rotStack; // the text content elements currently open
 
     // One <textPath> reference, measured out for the runs that ride it
-    // (§10.8). The distance table is the library's path measure; `start`
+    // (§10.13.2). The distance table is the library's path measure; `start`
     // is the element's startOffset already resolved to a distance along
     // the measured length.
     static struct PathOnPath
@@ -764,7 +764,7 @@ private struct Renderer
         PathMeasure meas;
         float total = 0; // .init of a float is NaN, so these are spelled out
         float start = 0; // ditto: an absent startOffset means 0, not NaN
-        bool bad; // broken reference: §10.8.1 drops the whole subtree
+        bool bad; // broken reference: §10.13.2 drops the whole subtree
     }
     PathOnPath[] textPaths;
 
@@ -791,7 +791,7 @@ private struct Renderer
     bool clipMode;
     int clipDepth;
 
-    // Painting <marker> content: §11.4 keeps markers out of marker
+    // Painting <marker> content: §11.6.3 keeps markers out of marker
     // content (no recursion), so flushPath skips them while set.
     bool markerMode;
 
@@ -819,7 +819,7 @@ private struct Renderer
     // from the SVG font; everything else falls through to the host face.
     SvgFont*[][string] svgFonts;
 
-    // The open-document chain (§9.8, §5.6): the files being rendered
+    // The open-document chain (§5.7, §5.6): the files being rendered
     // right now, seeded with the CLI's document itself. A file href -
     // <image> or external <use> - already on the chain is a reference
     // loop, an error state painting nothing (struct-image-12-b and
@@ -914,17 +914,17 @@ private struct Renderer
         // exact.
         string[] clipUrls;
 
-        // mask="url(#id)" (§14.1): same accumulation chain as clipUrls -
+        // mask="url(#id)" (§14.4): same accumulation chain as clipUrls -
         // mask values are per-pixel scalars on premultiplied pixels, so
         // stacking them multiplies exactly and order never matters.
         string[] maskUrls;
 
-        // marker-start/mid/end (§11.4). Unlike clip/mask these are
+        // marker-start/mid/end (§11.6.3). Unlike clip/mask these are
         // ordinary inherited properties: a value replaces (not chains)
         // the inherited one and "none" cancels it. Empty = no marker.
         string markerStart, markerMid, markerEnd;
 
-        // xml:base (§5.1.2): inherited base for relative URLs. Only
+        // xml:base (§5.10.1): inherited base for relative URLs. Only
         // <image> reaches outside the document, so only <image> hrefs
         // consume it. Empty = the document's own directory.
         string baseUrl;
@@ -978,7 +978,7 @@ private struct Renderer
     // Set up the canvas and the viewport zoom (viewBox -> canvas).
     void setupRoot(in string[string] a)
     {
-        // SVG 1.1 §7.5.1/§7.7: root width/height are lengths in the
+        // SVG 1.1 §7.2/§7.7: root width/height are lengths in the
         // *viewer's* initial viewport, default to 100%, and percentages
         // resolve against it too - not against the viewBox. The viewer
         // size is the UA's choice; the SE harness renders every test
@@ -1163,7 +1163,7 @@ private struct Renderer
                 break;
 
             case "mask":
-                // url(#id) or none (§14.1): the url joins the ancestor
+                // url(#id) or none (§14.4): the url joins the ancestor
                 // mask chain (see Style.maskUrls); like clip-path there
                 // is no fallback paint, so urlPaint's trailing paint -
                 // if any - is ignored, and a malformed value drops the
@@ -1178,7 +1178,7 @@ private struct Renderer
                 break;
 
             case "marker-start", "marker-mid", "marker-end":
-                // §11.4: ordinary inherited properties, not a chain -
+                // §11.6.3: ordinary inherited properties, not a chain -
                 // the value replaces whatever was inherited and "none"
                 // cancels it; a malformed value drops the declaration.
                 // The `marker` shorthand is deliberately absent: it is
@@ -1245,7 +1245,7 @@ private struct Renderer
                 break;
 
             case "xml:base":
-                // §5.1.2: the subtree's base for relative URLs - kept
+                // §5.10.1: the subtree's base for relative URLs - kept
                 // as a normalised prefix ending in '/'; a malformed
                 // value keeps the inherited base.
                 style.baseUrl = baseJoin(style.baseUrl.length
@@ -1396,7 +1396,7 @@ private struct Renderer
             case "word-spacing":
             {
                 // CSS `normal` is 0; percentages/em ride on the font
-                // size like font-size's do (§16.4). `res` starts at 0:
+                // size like font-size's do (§10.11). `res` starts at 0:
                 // gdc leaves bare float locals as garbage.
                 float res = 0;
                 if (v != "normal")
@@ -1759,7 +1759,7 @@ private struct Renderer
         return new PatternShader(rows, ps.X, ps.Y, ps.W, ps.H, s, ps.pt.inverted);
     }
 
-    // clip-path and mask (SVG 1.1 §14.3, §14.1): rasterise this paint
+    // clip-path and mask (SVG 1.1 §14.3, §14.4): rasterise this paint
     // into a full-canvas scratch, multiply every referenced <clipPath>'s
     // coverage (Style.clipUrls) and every <mask>'s value (Style.maskUrls)
     // into it, then sprite-composite the result. The engine has no path
@@ -1797,7 +1797,7 @@ private struct Renderer
         if (doStroke)
             oc.drawPath(stroked, strokeP);
         // Markers belong to the element's paint, so the element's
-        // clip/mask applies to them too (§11.4).
+        // clip/mask applies to them too (§11.6.4).
         if (doMarkers)
             drawMarkers(s, oc, scratch);
 
@@ -1986,7 +1986,7 @@ private struct Renderer
         return any;
     }
 
-    // Rasterise the <mask> `id` (§14.1) with normal paint semantics -
+    // Rasterise the <mask> `id` (§14.4) with normal paint semantics -
     // unlike a clipPath's opaque geometry, everything the children
     // paint (colour, gradients, opacity) shapes the mask - and multiply
     // its per-pixel value into `scratch`. The value is a luminance, or
@@ -2190,7 +2190,7 @@ private struct Renderer
         return lin * (p.a / 255.0f);
     }
 
-    // SVG 1.1 §11.4: markers decorate the vertices of a stroked or
+    // SVG 1.1 §11.6.4: markers decorate the vertices of a stroked or
     // filled path.
     // Walk the path with plain iteration (not the fill pass): the closing
     // edge of a `Z` arrives as the explicit Line it is followed by the
@@ -2344,7 +2344,7 @@ private struct Renderer
         m.bmp = dev;
         m.canvas = new Canvas(dev);
         m.inRoot = true;
-        m.markerMode = true; // §11.4: no markers on marker content
+        m.markerMode = true; // §11.6.3: no markers on marker content
         m.clipDepth = clipDepth + 1;
         m.vpW = vpW;
         m.vpH = vpH;
@@ -2543,7 +2543,7 @@ private struct Renderer
         if (doFill || doStroke)
         {
             // Markers paint at vertices when the element is stroked OR
-            // filled (§11.4.1) - painting-marker-07-f's fill-only paths
+            // filled (§11.6.4) - painting-marker-07-f's fill-only paths
             // carry markers; marker content itself never nests markers.
             // Text markers are not supported (yet).
             immutable doMarkers = (doFill || doStroke) && !markerMode
@@ -2616,7 +2616,7 @@ private struct Renderer
     }
 
     // The fraction of a chunk's width lying left of its anchor point
-    // (SVG 1.1 §6.1.3: start 0, middle 1/2, end 1).
+    // (SVG 1.1 §10.9.1: start 0, middle 1/2, end 1).
     static float anchorFrac(TextPaint.TextAlign a)
     {
         return a == TextPaint.TextAlign.Center ? 0.5f
@@ -2892,7 +2892,7 @@ private struct Renderer
     // Emit one glyph outline's verbs into `path` under `m`: an SVG font
     // glyph first converts from font units (y up, glyph origin at
     // (ox, oy)) to the user-space em (`fs`); then spacingAndGlyphs
-    // scales the outline in x (§16.3); then `m` places it on the
+    // scales the outline in x (§10.4); then `m` places it on the
     // baseline. The callback mutates the per-verb point copies only,
     // never the stored outline.
     void appendGlyph(ref const Path g, Matrix m, float gScale,
@@ -2932,7 +2932,7 @@ private struct Renderer
         });
     }
 
-    // The §6.1 positioning lists (x/y/dx/dy): plain user units, so a
+    // The §10.4 positioning lists (x/y/dx/dy): plain user units, so a
     // multi-number value is the list spelling; a lone number may carry
     // units (dx="0.5cm"), the pre-list form - either way the result is
     // a one-element list. Garbage or an absent attribute: no list.
@@ -2960,7 +2960,7 @@ private struct Renderer
             rotStack.length ? rotStack[$-1] : size_t.max);
     }
 
-    // §7.1 whitespace processing: `default` collapses runs of space
+    // §10.15 whitespace processing: `default` collapses runs of space
     // (the element's leading space is trimmed at layout time);
     // `preserve` keeps every gap, but there is no tab/newline glyph to
     // draw - those take a space's advance.
@@ -2997,7 +2997,7 @@ private struct Renderer
         // dchar[] would store UTF-32LE: each char trailed by NUL bytes)
     }
 
-    // Measure the path a <textPath> rides (§10.8.1). The reference has to
+    // Measure the path a <textPath> rides (§10.13.2). The reference has to
     // name a <path> in this document; any other target is an error state
     // and the element's whole contents are not rendered. Its data is read
     // in the current <text>'s user space rather than where the reference
@@ -3116,8 +3116,8 @@ private struct Renderer
     }
 
     // Measure, position, and paint the whole <text> at its close:
-    // §6.1.2 per-glyph x/y/dx/dy lists, §16.3 textLength and §16.4
-    // letter/word-spacing feed the advances, and the §6.1.3 anchor
+    // §10.4/§10.5 per-glyph x/y/dx/dy lists, §10.4 textLength, §10.11
+    // letter/word-spacing feed the advances, and the §10.9.1 anchor
     // shift spans the WHOLE line - per-tspan flushing could not get
     // that last one, since a line's width is only known once its last
     // run has parsed, and anchored multi-chunk lines piled up.
@@ -3151,7 +3151,7 @@ private struct Renderer
         }
 
         // A chunk boundary is also a line boundary, and the white space that
-        // trails a line or leads it is not rendered (SVG 1.1 §6.2's chunk
+        // trails a line or leads it is not rendered (SVG 1.1 §10.7.1's chunk
         // model - a run carrying an absolute x or y starts a new chunk - with
         // CSS Text's segment adjustment). Without this a gap left between two
         // positioned tspans rides in the anchored width of the chunk before
@@ -3222,7 +3222,7 @@ private struct Renderer
             break;
         }
 
-        // §6.1.2/§10.2: a rotate list is a supplemental rotation about the
+        // §10.5: a rotate list is a supplemental rotation about the
         // current text position, one value per character, numbered inside the
         // element that carries it - descendants included. So the nearest
         // enclosing element with a list answers for a character, every
@@ -3259,7 +3259,7 @@ private struct Renderer
         // trailing gap rides in the anchored width too). textLength
         // then adjusts: `spacing` spreads the difference over the
         // gaps, `spacingAndGlyphs` scales the line uniformly -
-        // advances here, outlines in paintRun (§16.3).
+        // advances here, outlines in paintRun (§10.4).
         float[][] advs;
         advs.length = textRuns.length;
         foreach (ri, ref run; textRuns)
@@ -3360,7 +3360,7 @@ private struct Renderer
                 size_t j = ri + 1;
                 while (j < textRuns.length && textRuns[j].onPath == ridden)
                     ++j;
-                if (!textPaths[ridden].bad) // §10.8.1: a broken reference
+                if (!textPaths[ridden].bad) // §10.13.2: a broken reference
                 {                          // renders none of its contents
                     float width = 0; // gdc leaves bare float locals as garbage
                     foreach (k; ri .. j)
@@ -3377,7 +3377,7 @@ private struct Renderer
             }
             // A lone x value is a chunk origin, not a per-glyph pin:
             // the run flows from it and text-anchor aligns the chunk
-            // there (SVG 1.1 §6.2 chunk model). Multi-value lists do
+            // there (SVG 1.1 §10.7.1 chunk model). Multi-value lists do
             // pin glyphs one at a time, where the anchor is moot.
             if (textRuns[ri].xs.length == 1)
             {
@@ -3406,7 +3406,7 @@ private struct Renderer
     // follows §10.4/§10.5: x/y assignments are cumulative for the pen, dx
     // moves this glyph (and the pen follows), dy moves only this
     // glyph's baseline. A run handed a `pp` rides that measured path
-    // instead (§10.8/§10.13.3), and for it pen.x is the distance already
+    // instead (§10.13.2/§10.13.3), and for it pen.x is the distance already
     // travelled along the path and pen.y is not used at all.
     void paintRun(ref TextRun run, const float[] va, ref FPoint pen,
         const PathOnPath* pp = null)
@@ -3448,7 +3448,7 @@ private struct Renderer
         // the path is an absolute offset along it, y is ignored, and dy
         // offsets across the path - which is why the baseline shifts below
         // are applied in the rotated frame rather than in the page's.
-        // §6.1.2's supplemental rotation for the glyph at index gi. An
+        // §10.5's supplemental rotation for the glyph at index gi. An
         // altGlyph's alternate glyphs are one group, turned by the angle of
         // the first character of its character data; the values for the rest
         // of that character data are passed over (§10.14.1).
@@ -3490,9 +3490,9 @@ private struct Renderer
                     angle = atan2(tb.y - ta.y, tb.x - ta.x) * 180.0f / PI;
             }
 
-            // §10.2: the rotate value is "supplemental to any rotation due
-            // to text on a path" - the same turn about the same point, so it
-            // adds straight onto the tangent.
+            // §10.5/§10.13.3: rotate is a supplemental rotation about the
+            // current text position, and a glyph on the path turns to its
+            // tangent - same point, so the two angles simply add.
             angle += rotAt(gi);
 
             m.reset();
@@ -3554,7 +3554,7 @@ private struct Renderer
                     // between those glyphs included - which for an altGlyph
                     // run (§10.14.1) is the whole substitution. The pen itself
                     // still walks the page's x axis: rotate never moves the
-                    // current text position (§10.2).
+                    // current text position (§10.5).
                     if (rot != 0.0f && run.alts.length && gi && gi >= run.xs.length
                         && gi >= run.ys.length)
                     {
@@ -3629,7 +3629,7 @@ private struct Renderer
                         gy = pen.y = run.ys[gi];
                     gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
 
-                    immutable float rot = rotAt(gi); // §6.1.2, about here
+                    immutable float rot = rotAt(gi); // §10.5, about here
                     m.setTranslate(gx, gy);
                     if (rot != 0.0f)
                     {
@@ -3719,7 +3719,7 @@ private struct Renderer
     }
 
     // Build the path for a shape and flush it with its style.
-    // §9.8 <image>: the href names a raster file resolved against the
+    // §5.7 <image>: the href names a raster file resolved against the
     // element's xml:base chain (falling back to the document's own
     // directory). x/y place a viewport of width x height (defaulting
     // to the image's natural size); the image maps into it exactly as
@@ -3727,13 +3727,13 @@ private struct Renderer
     // (default xMidYMid meet). An empty or fragment href, an
     // unsupported URL scheme, a zero/negative viewport and an
     // undecodable or missing file all render nothing.
-    // SVG 1.1 §9.8 / SVG Image: an href naming an SVG document makes
+    // SVG 1.1 §5.7: an href naming an SVG document makes
     // that document the image's content. Render it offscreen at its
     // intrinsic size - its own root sizing, setupRoot's conjured
     // container included for missing/% width/height - and hand the
     // raster to the viewport fit/clip/compose below. Unreadable or
     // malformed files and reference loops are broken references:
-    // §9.8 renders nothing for those.
+    // §5.7 renders nothing for those.
     //
     // `view` is the href's fragment: §17.3.2's rules are written for any
     // IRI that locates an SVG document, a link from a source document
@@ -3799,7 +3799,7 @@ private struct Renderer
             ? svgImageBitmap(src, hash.empty ? "" : hash[1 .. $])
             : loadSVGImage(src);
         if (img.config == Bitmap.Config.NoConfig)
-            return; // broken reference: §9.8 renders nothing
+            return; // broken reference: §5.7 renders nothing
 
         immutable float nw = img.width, nh = img.height;
         auto lc = lengthCtx();
@@ -4059,7 +4059,7 @@ private struct Renderer
                tag == "style" || tag == "foreignObject";
     }
 
-    // Opens a rotate scope for one text content element (§6.1.2). A list
+    // Opens a rotate scope for one text content element (§10.5). A list
     // that is absent, empty or malformed is no list at all: the nearest
     // ancestor above it is what answers for these characters.
     void pushRotScope(in string[string] a)
@@ -4188,7 +4188,7 @@ private struct Renderer
 
         case "textPath":
         {
-            // §10.8: the run model is the tspan's; what the element adds
+            // §10.13.2: the run model is the tspan's; what the element adds
             // is the path the run rides, measured here, once, while the
             // reference and its attributes are in hand. x/y/dx/dy are not
             // this element's attributes at all - the distance along the
@@ -4242,7 +4242,7 @@ private struct Renderer
                 textRuns.length = 0;
                 textPaths.length = 0; // measured paths were for this element
                 rotScopes.length = 0;
-                rotStack.length = 0; // ditto the rotate chain (§6.1.2)
+                rotStack.length = 0; // ditto the rotate chain (§10.5)
             }
             else
             {
@@ -4786,7 +4786,7 @@ private struct Renderer
         return r;
     }
 
-    // Run the primitive chain (§15.3). Inputs resolve by name - the
+    // Run the primitive chain (§15.7.2). Inputs resolve by name - the
     // built-ins plus earlier `result`s - and a primitive's implicit
     // input is the previous primitive's output (SourceGraphic before
     // the first one). Unrecognised primitives are ignored (§15.1); a
@@ -4796,7 +4796,7 @@ private struct Renderer
     {
         immutable clut = srgbDecodeLUT(); // flood colors join the working space
 
-        Raster sa = Raster(src.w, src.h); // SourceAlpha: coverage as black (§15.3)
+        Raster sa = Raster(src.w, src.h); // SourceAlpha: coverage as black (§15.7.2)
         foreach (i; 0 .. sa.px.length / 4)
             sa.px[i * 4 + 3] = src.px[i * 4 + 3];
 
@@ -4821,7 +4821,7 @@ private struct Renderer
                 return;
             bg = rasterFrom(bmp, f.linearRGB); // live canvas = the backdrop
             bg.clipTo(region); // BackgroundImage is "under the filter
-            haveBg = true;    // region" (§15.3)
+            haveBg = true;    // region" (§15.6)
         }
 
         Raster input(in string[string] at, string key)
@@ -4921,7 +4921,7 @@ private struct Renderer
 
             case "feFlood":
             {
-                Color fc; // initial flood-color is black (§15.6.12)
+                Color fc; // initial flood-color is black (§15.16)
                 if (auto p = "flood-color" in e.attrs)
                 {
                     Color v;
@@ -4941,7 +4941,7 @@ private struct Renderer
                 col[0] = f.linearRGB ? clut[fc.r] : fc.r / 255.0f;
                 col[1] = f.linearRGB ? clut[fc.g] : fc.g / 255.0f;
                 col[2] = f.linearRGB ? clut[fc.b] : fc.b / 255.0f;
-                col[3] = fc.a / 255.0f * fo; // alpha is linear (§15.2)
+                col[3] = fc.a / 255.0f * fo; // alpha is linear (§15.7.1)
                 col[0 .. 3] *= col[3]; // store premultiplied
                 Raster o = Raster(src.w, src.h);
                 flood(o, intersect(primSubregion(e, f, region, basis, ctm), region), col);
@@ -4982,7 +4982,7 @@ private struct Renderer
                     case "screen": mode = BlendMode.screen; break;
                     case "darken": mode = BlendMode.darken; break;
                     case "lighten": mode = BlendMode.lighten; break;
-                    default: break; // normal, and unknown modes per §15.4
+                    default: break; // normal, and unknown modes per §15.9
                     }
                 Raster d = Raster(src.w, src.h);
                 blend(d, input(e.attrs, "in"), input(e.attrs, "in2"), mode);
@@ -5034,7 +5034,7 @@ private struct Renderer
             case "feColorMatrix":
             {
                 // type defaults to "matrix"; values is a whitespace-or-comma
-                // separated number list (§15.6.4/15.6.5).
+                // separated number list (§15.10).
                 string type = "matrix";
                 if (auto p = "type" in e.attrs)
                     type = toLower(strip(*p));
@@ -5294,7 +5294,7 @@ private struct Renderer
 
             case "feTurbulence":
             {
-                // §15.19/§15.24: baseFrequency "<number> [<number>]"
+                // §15.24: baseFrequency "<number> [<number>]"
                 // (default 0; negative is an error), numOctaves integer
                 // (default 1), seed (default 0, truncated toward zero
                 // on the way into the PRNG), type (default turbulence),
@@ -5623,7 +5623,7 @@ private struct Renderer
         return res;
     }
 
-    // FillPaint/StrokePaint inputs (§15.3): the referencing element's
+    // FillPaint/StrokePaint inputs (§15.7.2): the referencing element's
     // paint server as a continuous-tone image - literally painting the
     // region rect with that paint under the element's CTM, so gradients,
     // patterns, and plain colors resolve exactly as they would when the
@@ -6377,7 +6377,7 @@ unittest
 unittest
 {
     // viewBox + width/height="100%" (the W3C suite's standard prolog):
-    // canvas takes the conjured 480x360 viewer viewport (§7.5.1/§7.7).
+    // canvas takes the conjured 480x360 viewer viewport (§7.2/§7.7).
     auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 480 360"/>`);
     assert(bmp.width == 480 && bmp.height == 360, to!string(bmp.width));
 
@@ -6413,7 +6413,7 @@ unittest
 
 unittest
 {
-    // SVG as image content (§9.8): an href naming an .svg document
+    // SVG as image content (§5.7): an href naming an .svg document
     // renders that document at its intrinsic size through the same
     // viewport fit as bitmaps; loops and broken references paint nothing.
     import std.file : mkdir, remove, rmdir, tempDir, write;
@@ -6441,7 +6441,7 @@ unittest
         <image width="20" height="20" href="loop.svg"/></svg>`, 1, dir ~ "/");
     assert(bmp.getLine!PMColor(10)[10].g == 255, "loop paints its first leg once");
 
-    // broken reference: an .svg that is not there paints nothing (§9.8)
+    // broken reference: an .svg that is not there paints nothing (§5.7)
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
         <image width="20" height="20" href="missing.svg"/></svg>`, 1, dir ~ "/");
     assert(bmp.getLine!PMColor(10)[10].a == 0, "broken ref paints nothing");
@@ -7514,7 +7514,7 @@ unittest
         "maskType=alpha: half-transparent black passes 0.5");
 
     // Broken mask references and empty masks: the element is not
-    // rendered (same §14.1/§14.6 nonexistent-reference rule as clip).
+    // rendered (same nonexistent-reference rule as clip: §14.3.5/§14.4).
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="40" viewBox="0 0 20 40">
         <rect id="notmask" x="-6" y="10" width="5" height="5"/>
         <mask id="mempty"/>
@@ -7637,7 +7637,7 @@ unittest
 
 unittest
 {
-    // §11.4 markers. A 4x4 red square, refX/refY (2,2), hangs centred
+    // §11.6.2 markers. A 4x4 red square, refX/refY (2,2), hangs centred
     // on each vertex of this polyline; the default markerUnits scales
     // the marker viewport by stroke-width 2, so each marker covers the
     // 8x8 block v-4 .. v+3.
@@ -7736,7 +7736,7 @@ unittest
         </svg>`);
     assert(bmp.getLine!PMColor(17)[20].a == 0, "the marker shorthand is not a presentation attribute");
 
-    // §11.4.1: markers hang off stroked OR filled elements - this
+    // §11.6.4: markers hang off stroked OR filled elements - this
     // referrer has no stroke, and 07-f pins that display:none on the
     // referenced marker (directly or via an ancestor) does not hide a
     // reference-drawn marker.
@@ -7806,7 +7806,7 @@ unittest
 
 unittest
 {
-    // <image> (§9.8). hrefs resolve against renderSVG's baseDir (main
+    // <image> (§5.7). hrefs resolve against renderSVG's baseDir (main
     // passes the file's directory); these run from the repo root.
     immutable imgBase = "tests/w3c/suite/images/";
 
@@ -7837,7 +7837,7 @@ unittest
     immutable edgeHi = bmp.getLine!PMColor(12)[16];
     assert(edgeLo.r == 72 && edgeHi.r == 80, "scaled images sample bilinearly");
 
-    // data: URI hrefs (§7.4: href is a URI, and struct-image-04-t
+    // data: URI hrefs (§17.1.2: href is a URI, and struct-image-04-t
     // embeds a JPEG and PNG this way). A 1x1 opaque-red PNG scaled to
     // 10x10 must cover the viewport edge to edge: every device pixel
     // center maps into the half-texel border (u = x/10 + 0.05 - 0.5
@@ -7866,14 +7866,14 @@ unittest
     assert(folded.r == 255 && folded.g == 0 && folded.b == 0 && folded.a == 255,
         "a line-folded base64 payload decodes like the same payload unwrapped");
 
-    // xml:base (§5.1.2) rebases the subtree's hrefs.
+    // xml:base (§5.10.1) rebases the subtree's hrefs.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
         <g xml:base="../images/"><image href="PngSuite/basn0g01.png"/></g>
         </svg>`, 1.0f, "tests/w3c/suite/svg/");
     assert(bmp.getLine!PMColor(5)[5].r == 0 && bmp.getLine!PMColor(5)[5].a == 255,
         "xml:base resolves relative image hrefs");
 
-    // Broken references render nothing (§9.8): missing file, a URL
+    // Broken references render nothing (§5.7): missing file, a URL
     // scheme (no network here), and a same-document fragment.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
         <image href="no-such-file.png" width="20" height="20"/>
@@ -8084,7 +8084,7 @@ unittest
 
 unittest
 {
-    // §7.1 white space inside a filter attribute's number list. One sharpen
+    // §4.2 white space inside a filter attribute's number list. One sharpen
     // kernel, written four ways: on a line, wrapped over three lines with tab
     // indentation as the suite's filters-conv-03-f writes it, with the
     // separators spelled out as character references (which XML §3.3.3 keeps
@@ -8287,7 +8287,7 @@ unittest
 {
     // The measuring the layout rides: closes contribute their return leg
     // (expandedCloses), and the reference's own transform maps the geometry
-    // before it is measured (§10.8.1 - a supplemental transform in the text's
+    // before it is measured (§10.13.2 - a supplemental transform in the text's
     // user space, which is why nothing else composes onto it here).
     Path p;
     p.addSVGPath("M 0 0 h 10 z");
@@ -8302,7 +8302,7 @@ unittest
 
 unittest
 {
-    // §10.8/§10.13.3: the glyphs ride the referenced path and turn to it,
+    // §10.13.2/§10.13.3: the glyphs ride the referenced path and turn to it,
     // with their baseline on it. Laid along a downward path, a run that is
     // wide and short laid flat comes out tall and narrow - the ink box
     // transposed, and the baseline sitting where the path is.
@@ -8328,7 +8328,7 @@ unittest
 
 unittest
 {
-    // startOffset (§10.8.1) is a distance along the path, in the current
+    // startOffset (§10.13.2) is a distance along the path, in the current
     // user units, as a percentage of the measured length, or in the
     // reference's own pathLength units.
     // Built with concatenation, not ${} interpolation: this gdc leaves the
@@ -8422,7 +8422,7 @@ unittest
 
 unittest
 {
-    // §10.8.1: a <textPath> whose reference is broken is in error, and none
+    // §10.13.2: a <textPath> whose reference is broken is in error, and none
     // of its contents are rendered - dangling, or a target that is not a
     // path at all.
     string bad(string target)
@@ -8477,7 +8477,7 @@ unittest
     // the two references sit in runs of their own with that whitespace
     // between - and the render matches the two-tspan spelling. (That gap
     // carries no advance yet: the XML cursor drops a whitespace-only text
-    // node before the arena ever sees it, which §7.1 asks a text content
+    // node before the arena ever sees it, which §10.15 asks a text content
     // element to keep as one space. Tracked apart from <tref>.)
     assert(samePixels(renderSVG(inDoc(`<tref xlink:href="#a"/> <tref xlink:href="#b"/>`)),
         renderSVG(inDoc(`<tspan>Hello</tspan> <tspan>World</tspan>`))),
@@ -8687,7 +8687,7 @@ unittest
 
 unittest
 {
-    // §6.1.2/§10.2: rotate is a supplemental rotation about the current text
+    // §10.5: rotate is a supplemental rotation about the current text
     // position, one value per character. A list shorter than the characters
     // runs on its last value, the values past the last character go unread,
     // and each character turns by the value of the nearest element around it
@@ -8768,8 +8768,8 @@ unittest
         `a<tspan rotate="10 20">bc</tspan><tspan>d</tspan>`))),
         "the ancestor's count runs through the child it gave way to");
 
-    // §10.2: on a path the value is supplemental to the turn the path gives,
-    // about the same point.
+    // §10.5/§10.13.3: on a path the value is supplemental to the turn
+    // the path gives, about the same point.
     string onPath(string rot)
     {
         return `<svg xmlns="http://www.w3.org/2000/svg"

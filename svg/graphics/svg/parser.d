@@ -13,7 +13,7 @@ enum svgNS = "http://www.w3.org/2000/svg";
 
 // Flatten the attributes of the cursor's current element into a map,
 // resolving namespace prefixes against `ns`. XLink attributes are
-// defined by namespace, not by prefix spelling (§5.1.2): a `P:local`
+// defined by namespace, not by prefix spelling (§17.1.5): a `P:local`
 // attribute whose prefix resolves to the XLink namespace is stored
 // normalized as `xlink:local`, and one bound to any other namespace
 // (conform-viewers-03-f binds `xlink` to nonsense on purpose) is
@@ -1022,7 +1022,7 @@ unittest
     // application with each literal tab, carriage return and line ending
     // already a space, so a value written across two lines is one value and
     // not a broken one. A character reference *is* character data: §3.3.3
-    // leaves the newline or tab it names exactly as it is, and SVG §7.1 then
+    // leaves the newline or tab it names exactly as it is, and SVG §10.15 then
     // counts space, tab, CR and LF alike as white space in its own grammars.
     assert(normalizeAttrWS("a\tb\nc\r\nd") == "a b c d",
         "a CR/LF pair is one line ending (§2.11), so one space");

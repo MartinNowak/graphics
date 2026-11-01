@@ -11,10 +11,10 @@ import graphics.svg.parser : Document;
 // - offscreen pass, region maths, per-primitive attribute resolution - lives
 // in graphics.svg.render.
 //
-// Working images are premultiplied RGBA floats. The spec lets intermediates
-// leave [0,1] (arithmetic k-terms, convolve's negative lobes), so the floats
-// stay raw and clamping happens only when a result is encoded back to bytes
-// (§15.2: nothing is clamped between primitives).
+// Working images are premultiplied RGBA floats. §15.7.1 clamps every
+// primitive's result, but the floats here stay raw - arithmetic k-terms
+// and convolve's negative lobes keep their headroom - and the clamp
+// happens when a result is encoded back to bytes.
 
 private bool ieq(string a, string b)
 {
@@ -27,7 +27,7 @@ private bool ieq(string a, string b)
 }
 
 // ---------------------------------------------------------------------------
-// Transfer functions. gamut ships none, and SVG 1.1 §15.2 makes linearRGB
+// Transfer functions. gamut ships none, and SVG 1.1 §15.7.1 makes linearRGB
 // the initial color-interpolation-filters value - the suite never overrides
 // it, so the linear working space is baked into every reference PNG. Encode
 // inverts decode at 8-bit granularity exactly, keeping the linearRGB detour
@@ -111,7 +111,7 @@ struct Raster
         this.w = w;
         this.h = h;
         px.length = w * h * 4;
-        px[] = 0.0f; // transparent black, per §15.3's buffer init
+        px[] = 0.0f; // transparent black, per §15.1's buffer init
         // (.length= alone can hand back recycled GC memory uncleaned)
     }
 
@@ -208,7 +208,7 @@ Raster rasterFrom(in Bitmap src, bool linearRGB)
             {
                 immutable sb = straightByte(p, c);
                 // straight byte -> working space, then back to premultiplied:
-                // the working-image invariant every §15.4 formula relies on.
+                // the working-image invariant every §15.7.1 formula relies on.
                 r.px[i + c] = r.px[i + 3] * (linearRGB ? lut[sb] : sb / 255.0f);
             }
         }
@@ -269,7 +269,7 @@ unittest
 // Primitive operations, batched over the premultiplied float slices.
 // ---------------------------------------------------------------------------
 
-/// Porter-Duff "over": exactly how feMerge composites its nodes (§15.3).
+/// Porter-Duff "over": exactly how feMerge composites its nodes (§15.19).
 void mergeOver(ref Raster dst, in Raster src)
 {
     foreach (i; 0 .. cast(int) (dst.px.length / 4))
@@ -344,7 +344,7 @@ void flood(ref Raster dst, in IBox4 box, in float[4] colorPM)
 
 enum CompOp { over, inOp, outOp, atop, xorOp, arithmetic }
 
-/// feComposite, §15.6.23's operator table evaluated on premultiplied
+/// feComposite, §15.12's operator table evaluated on premultiplied
 /// inputs; the arithmetic k-terms write raw (possibly out-of-[0,1]) floats.
 void composite(ref Raster dst, in Raster a, in Raster b, CompOp op, in float[4] k)
 {
@@ -405,7 +405,7 @@ unittest
 
 enum BlendMode { normal, multiply, screen, darken, lighten }
 
-/// feBlend, §15.4/§15.6.1: source-over compositing where the blend term
+/// feBlend, §15.9: source-over compositing where the blend term
 /// runs on the unpremultiplied channels. multiply/screen reduce to
 /// PM-channel arithmetic (homogeneity: B·αs·αd == the PM product form);
 /// darken/lighten compare straight values but still yield a PM term.
@@ -490,7 +490,7 @@ unittest
     assert(d.px[] == [0.0f, 0.5f, 0.5f, 0.75f], to!string(d.px[]));
 }
 
-/// feColorMatrix §15.6.4/15.6.5: build the row-major 5x4 matrix named by
+/// feColorMatrix §15.10: build the row-major 5x4 matrix named by
 /// `type` from its `values` shortcut. Unknown types, short value lists and
 /// non-matrix types with values present behave as the identity.
 float[20] cmMatrix(in string type, const float[] v)
@@ -535,7 +535,7 @@ float[20] cmMatrix(in string type, const float[] v)
 }
 
 /// The matrix runs on straight (non-premultiplied) channels, [R G B A 1]
-/// per §15.6.4; only the resulting alpha is clamped, colours stay raw.
+/// per §15.10; only the resulting alpha is clamped, colours stay raw.
 void colorMatrix(ref Raster dst, in Raster src, in float[20] m)
 {
     dst = Raster(src.w, src.h);
@@ -869,12 +869,12 @@ unittest
     assert(d.px[] == [1.0f, 0.5f, 0.5f, 1.0f], to!string(d.px[]));
 }
 
-/// feGaussianBlur, §15.16.1: for s >= 2 three box blurs stand in for the
+/// feGaussianBlur, §15.17: for s >= 2 three box blurs stand in for the
 /// Gaussian - d = floor(s·3·sqrt(2π)/4 + 0.5); odd d takes three boxes of
 /// size d centred on the output pixel, even d two boxes of size d half a
 /// pixel apart plus one box of size d+1. Below 2 the exact separable
 /// Gaussian kernel (truncated at 3σ) convolves instead. Zero padding: the
-/// offscreen outside the raster is transparent black (§15.3).
+/// offscreen outside the raster is transparent black (§15.1).
 void gaussianBlur(ref Raster dst, in Raster src, float sx, float sy)
 {
     dst = src.dup();
@@ -1095,7 +1095,7 @@ unittest
 }
 
 // ---------------------------------------------------------------------------
-// feTurbulence (§15.19/§15.24). The spec prints the exact algorithm -
+// feTurbulence (§15.24). The spec prints the exact algorithm -
 // Park–Miller PRNG feeding a Perlin lattice - so the port below follows it
 // verbatim: matching the suite's references is a matter of reproducing the
 // PRNG sequence and the lattice indirection bit-for-bit, and every
@@ -1860,7 +1860,7 @@ struct FilterSpec
     string x = "-10%", y = "-10%", width = "120%", height = "120%";
     bool objBB = true;     // filterUnits; objectBoundingBox is the default
     bool primsObjBB;       // primitiveUnits (§15.3); default userSpaceOnUse
-    bool linearRGB = true; // color-interpolation-filters; §15.2 initial value
+    bool linearRGB = true; // color-interpolation-filters; §15.7.1 initial value
     size_t[] prims;        // arena indices, document order
     Color color = Color.Black; // the 'color' property as inherited at the
                                // <filter> element - the currentColor base
@@ -1899,7 +1899,7 @@ FilterSpec makeFilter(ref const Document doc, size_t target)
         }
     }
 
-    // currentColor (§6.2.2) inside flood-color/lighting-color resolves
+    // currentColor (§11.2) inside flood-color/lighting-color resolves
     // against the 'color' property inherited at the primitives' ancestors -
     // document-tree inheritance, which filters-light-05-f pins down with
     // <defs color="...">. The arena carries no parent links, so walk down
@@ -1943,7 +1943,7 @@ FilterSpec makeFilter(ref const Document doc, size_t target)
         f.primsObjBB = ieq(pu, "objectBoundingBox"); // invalid: userSpaceOnUse
     immutable cif = attr("color-interpolation-filters");
     if (cif !is null && ieq(cif, "sRGB"))
-        f.linearRGB = false; // inherit / auto / invalid: §15.2 initial value stands
+        f.linearRGB = false; // inherit / auto / invalid: §15.7.1 initial value stands
 
     immutable xs = attr("x"), ys = attr("y"), ws = attr("width"), hs = attr("height");
     if (xs !is null && xs.length) f.x = xs;

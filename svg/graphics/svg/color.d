@@ -25,7 +25,7 @@ unittest
 }
 
 /// Parse an SVG `<color>` or `<paint>` value: CSS/SVG color keywords,
-/// including the CSS2 system colors SVG 1.1 §6.2 inherits,
+/// including the CSS2 system colors SVG 1.1 §4.2 inherits,
 /// #rgb/#rgba/#rrggbb/#rrggbbaa, rgb() (0..255 or percentages), `none`
 /// (transparent) and `transparent`. `currentColor` and `inherit` are *not*
 /// resolved here: the caller deals with them (they need the style stack).
@@ -87,7 +87,7 @@ bool parsePaint(string s, out Color res)
     auto lower = toLower(s);
     auto p = lower in colorKeywords;
     if (p is null)
-        p = lower in systemColors; // CSS2 system colors, via SVG 1.1 §6.2
+        p = lower in systemColors; // CSS2 system colors, via SVG 1.1 §4.2
     if (p is null)
         return false;
     res = *p;
@@ -279,7 +279,7 @@ immutable Color[string] colorKeywords = [
     "yellowgreen": color(0xFF, 0x9A, 0xCD, 0x32),
 ];
 
-// The CSS2 system colors, which SVG 1.1 §6.2 makes part of SVG's color
+// The CSS2 system colors, which SVG 1.1 §4.2 makes part of SVG's color
 // keywords too: "The color keywords from CSS2 that correspond to the colors
 // used by objects in the user's environment. (The normative reference is CSS2
 // system colors; in [CSS2], section 18.2.)" §18.2 settles the twenty-eight
@@ -343,7 +343,7 @@ unittest
     assert(parsePaint(" darkblue ", c) && c.argb == 0xFF00008B);
     assert(parsePaint("royalblue", c) && c.argb == 0xFF4169E1);
 
-    // The CSS2 system colors SVG 1.1 §6.2 inherits: the names are keywords,
+    // The CSS2 system colors SVG 1.1 §4.2 inherits: the names are keywords,
     // the values are the UA's, and they follow the same case-insensitive
     // spelling as every other SVG keyword.
     assert(parsePaint("Window", c) && c.argb == 0xFFDFDFDF);

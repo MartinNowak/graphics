@@ -128,6 +128,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | names an SVG file renders that file the way    |            |
 |                       | `image` does - rect as viewport, the fit and   |            |
 |                       | the view fragment included (SVG 1.1 §15.18)    |            |
+| step 41               | stale section numbers in the source comments:  | 3.03 M*    |
+                        | 117 cites re-checked against the SE's own      |            |
+                        | contents, and three notes rewritten to say     |            |
+                        | what the spec says (comments only)             |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -147,6 +151,11 @@ byte-identical again.
 hrefs are PNGs and a JPEG, its 24 element-id hrefs all belong to
 `filters-composite-02-b`, and no test aims an feImage at an SVG document,
 so this row cannot move either - byte-identical again.
+
+\* step 41 is comments only, so it cannot move a row by construction: 547
+`§` cites across the sources, every distinct number matched against the
+SE's expanded table of contents, and the 526 rows came back
+byte-identical again.
 
 ## Next steps
 
@@ -1305,12 +1314,66 @@ document. The unittest covers the file fitted to the whole region, a rect
 of its own with the meet centring and the subregion clip, a `#view-id`
 written inside the referenced file, and a file that is missing.
 
-Up next - step 41, housekeeping the backlog has carried for six steps:
-the stale § numbers in source comments. Text layout still cites
-§6.1/§6.1.2/§6.1.3/§6.2/§7.1, markers cite §11.4 and the `image` element
-cites §9.8, while the local SE's own headings put text at 10, painting at
-11 (markers §11.6) and `image` at §5.7. Comments only - the gate has to
-come back byte-identical.
+Step 41 (the stale § numbers) landed. The sources cite the spec by section
+number in 547 places, and 117 of those cites named a section that does not
+say what the comment attributed to it; rewriting them touched 122 comment
+lines over nine files. Every number was matched against the local SE's
+expanded table of contents - 565 numbered sections - and each flagged line
+was read against the section it names before being moved.
+
+The bulk of the moves are the ones the "Up next" notes have carried since
+step 6. Text layout sits at §10.4 (the per-glyph x/y/dx/dy lists and
+textLength), §10.5 (`rotate`), §10.9.1 (`text-anchor`), §10.11
+(`letter-spacing`/`word-spacing`) and §10.15 (white space handling), not at
+§6.1/§6.1.2/§6.1.3/§16.3/§16.4 - chapter 16 is the SE's *User interface
+events*. The white space character list and the comma-or-white-space
+number-list separator are §4.2, which is also where the CSS system colours
+enter SVG, so `color.d` and the number-list helper moved there. `textPath`
+is §10.13.2 - the element, its broken-reference rule, `startOffset` - with
+§10.13.3 for the layout. Markers split three ways: §11.6.2 the element,
+§11.6.3 the properties, which is the half that keeps marker content
+marker-free, and §11.6.4 the drawing rules, including markers painted
+after the object is filled and stroked.
+
+The element chapters follow the SE too: `image` §9.8 -> §5.7 (9.8 is a DOM
+interface section), `xml:base` §5.1.2 -> §5.10.1, the initial viewport
+§7.5.1 -> §7.2, the `transform` attribute §9.5 -> §7.6, radial gradients'
+cx/cy/r defaults §7.5 -> §13.2.3, mask §14.1 -> §14.4 with the broken
+reference rule at §14.3.5/§14.4, data: URIs §7.4 -> §17.1.2, and the
+XLink-is-a-namespace-not-a-prefix rule §5.1.2 -> §17.1.5. SMIL's timing
+tokens move from §5.2 to §19.2.8/§19.2.8.1, its href retargeting from the
+non-existent §19.2.0 to §19.2.4, and animateMotion's supplemental translate
+to §19.2.14. The filters kept a flat draft numbering: §15.6.4/§15.6.5 is
+feColorMatrix §15.10, §15.6.23 is feComposite §15.12, §15.16.1 is
+feGaussianBlur §15.17, §15.6.12 is feFlood §15.16, §15.4 is feBlend §15.9,
+and the working-space claims - linearRGB as the initial
+`color-interpolation-filters`, premultiplied inputs, the clamp on each
+primitive's result - all belong to §15.7.1.
+
+Three of them changed a claim, not only a pointer. The filter header said
+the spec lets intermediates leave [0,1] and that nothing is clamped between
+primitives; §15.7.1 clamps every primitive's RGBA result, so the note now
+states what this code does - floats stay raw here, the clamp waits for
+encode. The pattern note said the SE treats every empty or zero-sized tile
+as an error; §13.3 splits it - a negative value is an error, zero
+"disables rendering of the element". And a `rotate` note quoted
+"supplemental to any rotation due to text on a path", a sentence the SE
+never writes; it now says what §10.5 and §10.13.3 do, that the rotation is
+about the current text position, so it adds onto the path's tangent.
+
+Cites naming other specifications stay as they were: CSS 2.1 §6.4.3, CSS
+§6.5.1, CSS2 §15.3.3, XML 1.0 §2.11/§3.3.3/§4.4.x, SMIL smil20 §2.6 and
+RFC 4648 §3. The local copy is the SVG SE and nothing else, so those
+numbers went unchecked.
+
+Suite: byte-identical, 526 rows and the same 3,031,372 AE. A comment sweep
+cannot move a pixel, which is exactly what this gate checks.
+
+Up next - step 42, the biggest row no ceiling note has ever looked at:
+`text-text-08-b` (15,072). Its panels are the fill-opacity, stroke-opacity
+and `opacity` properties on `text`, handled the same way as on shapes ever
+since the text era, and nothing in the roadmap has asked what the archived
+reference there actually shows.
 
 
 ## Deferred / accepted ceilings (do not chase)
@@ -1465,13 +1528,6 @@ come back byte-identical.
 
 ## Backlog (small, opportunistic)
 
-- Fix stale § numbers in source comments (text-area refs went with step
-  6): `render.d` still cites `§6.1/§6.1.2/§6.1.3/§6.2/§7.1` around text
-  layout, `§11.4` markers, `§9.8` image; `css.d`/`filter.d` unchecked.
-  Chapter numbers from the local SE's own headings: text is 10, painting
-  11 (markers §11.6), the `image` element §5.7, `viewBox`/`par` §7.7/§7.8,
-  objectBoundingBox units §7.11, clip-path §14.3.5, mask §14.4, feature
-  strings Appendix O. Comments only: the gate must stay byte-identical.
 - Not the filters' colour space, their arithmetic: `filter.d` keeps the §15.2
   linearRGB working space already - `rasterFrom` decodes, `bitmapFrom` encodes,
   `color-interpolation-filters="sRGB"` flips the flag at `makeFilter` - and

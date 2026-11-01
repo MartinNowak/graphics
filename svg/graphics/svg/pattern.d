@@ -38,8 +38,8 @@ struct PatternServer
 /// patterns take their `lime` fallbacks ("empty patterns are not
 /// rendered, and the fallback colour is used instead"), while
 /// pservers-pattern-09-f's zero-sized `pattern3`, which carries a
-/// viewBox, leaves its rectangle blank. SE §14.1.1 lists them all as
-/// errors; the era UAs measured here did not.
+/// viewBox, leaves its rectangle blank. SE §13.3 makes a negative tile
+/// size an error and zero "disables rendering"; the era UAs differ.
 bool patternResolve(ref const(Document) doc, string id, in FRect bbox,
     float vpW, float vpH, out PatternServer ps)
 {

@@ -294,7 +294,7 @@ Decl[] styleDecls(string src)
 }
 
 /// True when a declaration value carries the `!important` marker. In a
-/// presentation attribute it is not valid (§6.2: attribute values take
+/// presentation attribute it is not valid (§6.4: attribute values take
 /// no markers), and the whole attribute is then dropped.
 bool hasImportant(string v)
 {
@@ -852,7 +852,7 @@ private Rule[] importRules(string url, string baseDir, ref size_t order, int dep
 
 // ------------------------------------------------------------------- URLs
 
-// §5.1.2 URL plumbing, for <image> hrefs and @import targets alike:
+// §5.10.1 URL plumbing, for <image> hrefs and @import targets alike:
 // only plain filesystem paths are in play. resolveHref returns null
 // for an empty href, a same-document fragment (an <image> cannot paint
 // an inline element) and any URL scheme (http:, data:, ... - no
