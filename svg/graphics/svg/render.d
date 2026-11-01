@@ -3734,7 +3734,13 @@ private struct Renderer
     // raster to the viewport fit/clip/compose below. Unreadable or
     // malformed files and reference loops are broken references:
     // §9.8 renders nothing for those.
-    Bitmap svgImageBitmap(string path)
+    //
+    // `view` is the href's fragment: §17.3.2's rules are written for any
+    // IRI that locates an SVG document, a link from a source document
+    // included, so the view selection belongs to the reference and not to
+    // the file. The four rules and the re-rooting are exactly the ones the
+    // viewer's own URL goes through in renderSVG.
+    Bitmap svgImageBitmap(string path, string view = "")
     {
         if (openDocs.length >= 8 || canFind(openDocs, path))
             return Bitmap(); // loop (or runaway nesting): paints nothing
@@ -3752,9 +3758,18 @@ private struct Renderer
             t.openDocs = openDocs ~ path;
             t.zoom = 1.0f; // natural pixels; the fit below scales the
                 // raster into the <image>'s viewport
-            t.setupRoot(t.doc.nodes[t.doc.root].attrs); // canvas + fit
+            auto sel = viewFragment(t.doc, view);
+            t.fragRoot = sel.svg;
+            t.fragView = sel.spec;
+            // A `view` written inside a nested <svg> displays that element,
+            // so the intrinsic size becomes the nested element's own and
+            // everything beside it is out of the picture.
+            auto head = t.doc.root;
+            if (sel.svg != Document.unknown)
+                head = sel.svg;
+            t.setupRoot(t.rootView(t.doc.nodes[head])); // canvas + fit
             t.inRoot = true; // the <svg> root is already set up
-            t.walk(t.doc.root); // its children are the image content
+            t.walk(head); // its children are the image content
         }
         catch (Exception)
             return Bitmap(); // unreadable / malformed document
@@ -3770,14 +3785,19 @@ private struct Renderer
 
         // Named `src`, not `path`: the member `path` is the geometry the
         // paint below rasterises, and the clip branch at the end needs it.
-        immutable src = resolveHref(s.baseUrl.length ? s.baseUrl : docBase,
-            a.get("href", a.get("xlink:href", "")));
+        immutable raw = a.get("href", a.get("xlink:href", ""));
+        immutable hrefBase = s.baseUrl.length ? s.baseUrl : docBase;
+        immutable src = resolveHref(hrefBase, raw);
         if (src is null)
             return;
         // .svg hrefs render through the sub-renderer above; anything
-        // else goes to the bitmap decoder (PNG/JPEG/data: URI).
+        // else goes to the bitmap decoder (PNG/JPEG/data: URI). The
+        // fragment is not part of the file name - resolveHref drops it -
+        // so it travels separately, as the view selection §17.3.2 gives it.
+        auto hash = find(raw, '#');
         Bitmap img = src.length >= 4 && equalCase(src[$ - 4 .. $], ".svg")
-            ? svgImageBitmap(src) : loadSVGImage(src);
+            ? svgImageBitmap(src, hash.empty ? "" : hash[1 .. $])
+            : loadSVGImage(src);
         if (img.config == Bitmap.Config.NoConfig)
             return; // broken reference: §9.8 renders nothing
 
@@ -6414,6 +6434,79 @@ unittest
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
         <image width="20" height="20" href="missing.svg"/></svg>`, 1, dir ~ "/");
     assert(bmp.getLine!PMColor(10)[10].a == 0, "broken ref paints nothing");
+}
+
+unittest
+{
+    // §17.3.2 across a reference: the fragment of an href that locates an
+    // SVG document picks which view of that document the <image> shows. A
+    // `view` written inside a nested <svg> re-roots the picture - the
+    // nested element is what the image's intrinsic size comes from - and a
+    // fragment naming an ordinary element, or nothing, falls back to the
+    // document's own view.
+    import std.file : mkdir, remove, rmdir, tempDir, write;
+    import std.path : buildPath;
+    import std.process : thisProcessID;
+
+    immutable dir = buildPath(tempDir, "gsvg-view-" ~ to!string(thisProcessID));
+    mkdir(dir);
+    immutable ext = buildPath(dir, "ext.svg");
+    scope (exit) { remove(ext); rmdir(dir); }
+
+    write(ext, `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"
+            viewBox="0 0 40 20">
+        <rect width="10" height="10" fill="#ff0000"/>
+        <svg x="20" y="10" width="20" height="10" viewBox="0 0 10 5">
+            <view id="nv" viewBox="0 0 5 5"/>
+            <rect width="10" height="5" fill="#0000ff"/>
+        </svg>
+        </svg>`);
+
+    auto host(string href)
+    {
+        return renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40"
+            height="20" viewBox="0 0 40 20">
+            <image width="40" height="20" href="` ~ href ~ `"/></svg>`, 1, dir ~ "/");
+    }
+    bool redAt(const Bitmap b, int x, int y)
+    {
+        immutable p = b.getLine!PMColor(y)[x];
+        return p.a == 255 && p.r > 250 && p.g < 5 && p.b < 5;
+    }
+    bool blueAt(const Bitmap b, int x, int y)
+    {
+        immutable p = b.getLine!PMColor(y)[x];
+        return p.a == 255 && p.b > 250 && p.r < 5 && p.g < 5;
+    }
+
+    // No fragment: the referenced document's own 40x20 view, 1:1.
+    auto plain = host("ext.svg");
+    assert(redAt(plain, 5, 5), "the document's own view: red at the origin");
+    assert(blueAt(plain, 30, 15), "and its nested viewport at x=20,y=10");
+
+    // A `view` in the nested <svg>: that element and its 5x5 viewBox are
+    // the whole picture, met into its own 20x10 and scaled 2x into the
+    // viewport, so a letterbox band stays empty at the left.
+    auto reroot = host("ext.svg#nv");
+    assert(!redAt(reroot, 5, 5), "re-rooted: the outer rect is gone");
+    assert(blueAt(reroot, 20, 10) && blueAt(reroot, 38, 18),
+        "the nested element is the picture: 20x10 natural px, scaled 2x");
+    assert(reroot.getLine!PMColor(10)[5].a == 0, "the meet centring is empty");
+
+    // svgView(...) spells a viewBox out: the 10x10 corner scaled 2x and
+    // centred, so the red square moves and the blue viewport falls off.
+    auto spelled = host("ext.svg#svgView(viewBox(0,0,10,10))");
+    assert(!redAt(spelled, 5, 5) && redAt(spelled, 20, 10), "the region, centred");
+    assert(!blueAt(spelled, 30, 15), "outside that region: nothing");
+
+    // Not a view, not correctly formed: the document's own attributes, and
+    // the render keeps the same intrinsic size.
+    foreach (bad; ["#nope", "#svgView(viewBox(0,0,0,0))", "#xywh=0,0,0,0"])
+    {
+        auto fb = host("ext.svg" ~ bad);
+        assert(redAt(fb, 5, 5) && blueAt(fb, 30, 15),
+            `fallback keeps the document view: ${bad}`);
+    }
 }
 
 unittest

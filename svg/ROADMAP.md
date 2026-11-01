@@ -120,6 +120,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | paints the element its fragment names, where   |            |
 |                       | it stands, the way `use` does, and the         |            |
 |                       | subregion is only a clip (SVG 1.1 §15.18)      |            |
+| step 39               | the same fragment on someone else's URL: an    | 3.03 M*    |
+|                       | image href into an .svg document picks the     |            |
+|                       | view of it that the image shows - <view>,      |            |
+|                       | svgView(...), xywh= (SVG 1.1 §17.3.2)          |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -128,6 +132,12 @@ gate must stay flat, and it does.
 \* step 37 is the viewer's own URL: the harness hands the CLI bare file
 names, so no row can move - the 526 came back byte-identical, and that is
 what the gate checks here.
+
+\* step 39 is §17.3.2 on an external reference: the suite's fragments sit
+on `<a>` elements, font hrefs and `use`/`tref` element ids, and the one
+`<image>` href that carries a '#' names an element in the *same* document,
+which the test says must not display. Nothing to move; 526 rows came back
+byte-identical again.
 
 ## Next steps
 
@@ -1191,13 +1201,61 @@ diffuse - the strongest difference clusters are bands 43-89 wide and
 18-24 tall, the shape of text baselines and triangle edges rather than a
 panel still missing. Suite total 3,043,080 -> 3,031,372.
 
-Up next - step 39, the same fragment on someone else's URL. `resolveHref`
-throws the '#...' part of an href away, so `<image href="x.svg#svgView(...)">`
-renders the referenced document's own view, while §17.3.2's rules are
-written for a link *from a source document* and `use` already honours its
-fragment by element id. The suite's only `#svgView` hrefs sit on `<a>`
-elements, which nothing navigates, so that step is for the spec column as
-well.
+Step 39 is §17.3.2 a second time, on a link out of a source document
+rather than the viewer's own address. `resolveHref` had been dropping the
+'#...' tail of every href before the renderer looked at it - right for a
+file name, wrong for the IRI. The rules are the same four as step 37's: a
+`view`'s id, `svgView(...)`, `xywh=`, and anything else falling back to the
+element's own attributes; what changes is that §17.3.2 writes them for a
+URL reference *to an SVG image*, and `<image>` is that case. An `<image>`
+aimed at a file with any of the three spellings after its '#' showed the
+file's own view instead.
+
+`svgImageBitmap` takes the fragment as a second argument and runs it
+through `viewFragment`, the same function the CLI's own URL goes through;
+all that differs is where the IRI came from. `imageElement` keeps the raw
+href, splits at the first '#' and hands the tail down, because
+`resolveHref`'s job is to answer *which file* and a file name has no
+fragment in it. A '#' with nothing after it is the empty fragment, the
+same as none.
+
+Re-rooting matters more here than it did for the CLI, because this
+sub-renderer's canvas *is* the image's intrinsic size. A `view` inside a
+nested `<svg>` makes that element the picture: its own `width`/`height`
+become the raster the `<image>` element's viewport then fits, and the rest
+of the referenced document - its other children, its background - is not
+in the picture at all. Probed against an external 200x100 page carrying a
+red 50x50 at the origin and a nested `<svg>` at 100,50 sized 100x50 with a
+`view` naming a 25x25 box: with no fragment the image reads red
+x0..49/y0..49 and blue x100..199/y50..99; with `#nv` the red is gone and
+the blue, met into the nested element's own 100x50, runs x51..199 at full
+height; and a `svgView` naming a 50x50 corner puts the red at x50..149
+full height with the blue outside that region entirely.
+
+`use` stays out of it. §5.6 says its fragment "identifies a fragment of
+the currently referenced SVG document" - an element id - while §17.3.2's
+rules belong to an IRI that locates a document, which is what `<image>`
+does and what `feImage` will do when it learns to read an SVG file. A
+`use` aimed at an element id is untouched; one aimed at a `<view>`'s id
+paints the `view` element, which carries no renderable content, and an
+href spelling out an `svgView(...)` spec names no element at all and is a
+broken reference. Those are §5.6's readings, not holes in this step.
+
+No row moves, and one row is worth naming for why not. `struct-image-12-b`
+is the only test in the harness with a '#' on an `<image>` href, and it is
+the negative case - "image elements can't reference elements in an svg
+file", an href of '#svg-root-circle' at a `<defs>`-nested `<svg>`, which
+must not display and does not. Every other fragment in 526 files sits on
+an `<a>`, a font href or a `use`/`tref` element id. The gate came back
+byte-identical, and the unittest pins the re-root, the `svgView` spelling
+and the three fallbacks - an id nothing carries, a degenerate viewBox, an
+`xywh=` with a zero box - against a real file on disk.
+
+Up next - step 40, the first half of §15.18's sentence: an `feImage` href
+that names an SVG *file*. That primitive reaches for `loadSVGImage`, which
+has no SVG decoder, so the picture comes out empty while an `<image>` next
+door renders the same document fine. `svgImageBitmap`, now carrying the
+fragment handling this step added, is the piece that closes it.
 
 
 ## Deferred / accepted ceilings (do not chase)
@@ -1363,12 +1421,6 @@ well.
   11 (markers §11.6), the `image` element §5.7, `viewBox`/`par` §7.7/§7.8,
   objectBoundingBox units §7.11, clip-path §14.3.5, mask §14.4, feature
   strings Appendix O. Comments only: the gate must stay byte-identical.
-- The same fragment on someone else's URL: `resolveHref` throws the
-  '#...' part of an href away, so `<image href="x.svg#svgView(...)">`
-  renders the referenced document's own view. §17.3.2's rules are written
-  for a link *from a source document*, and `use` already honours a
-  fragment by element id. The suite's only `#svgView` hrefs sit on `<a>`
-  elements, which nothing navigates, so no row moves here either.
 - `feImage` whose href names an SVG *file*: §15.18 sends that case to `image`'s
   behaviour, but the primitive reaches for `loadSVGImage`, which has no SVG
   decoder, so the picture comes out empty while `<image href="x.svg">` next door
