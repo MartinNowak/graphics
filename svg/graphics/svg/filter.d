@@ -34,6 +34,11 @@ private bool ieq(string a, string b)
 // byte-identical for pixels that pass through unchanged.
 // ---------------------------------------------------------------------------
 
+// §15.10's luminanceToAlpha row. §14.4 sends a mask's luminance through the
+// same coefficients ("as defined in the feColorMatrix filter primitive"), so
+// render.d reads them here rather than carrying a second copy.
+enum lumCoefs = [0.2125f, 0.7154f, 0.0721f];
+
 // Piecewise sRGB decode (IEC 61966-2-1; the table of SVG 1.1 F.2).
 float[256] srgbDecodeLUT()
 {
@@ -518,7 +523,7 @@ float[20] cmMatrix(in string type, const float[] v)
 
     case "luminanceToAlpha":
         m[] = 0.0f;
-        m[15 .. 18] = [0.2125f, 0.7154f, 0.0721f];
+        m[15 .. 18] = lumCoefs[];
         break;
 
     default: // matrix

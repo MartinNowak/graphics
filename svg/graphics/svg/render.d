@@ -1971,12 +1971,14 @@ private struct Renderer
     // Rasterise the <mask> `id` (§14.1) with normal paint semantics -
     // unlike a clipPath's opaque geometry, everything the children
     // paint (colour, gradients, opacity) shapes the mask - and multiply
-    // its per-pixel value into `scratch`. The value is the Rec.709
-    // luminance, or plain alpha under maskType="alpha". PMColor stores
-    // premultiplied, so the weighted channel sum already equals
-    // luminance x alpha. The mask region (maskUnits frame, defaults
-    // -10%,-10%,120%,120%) bounds where anything can show: referrer
-    // pixels whose user-space centres fall outside it multiply by zero.
+    // its per-pixel value into `scratch`. The value is a luminance, or
+    // plain alpha under maskType="alpha", and §14.4 takes that luminance
+    // in the space color-interpolation names on the mask element. PMColor
+    // stores premultiplied, so under the sRGB reading the weighted channel
+    // sum already equals luminance x alpha. The mask region (maskUnits
+    // frame, defaults -10%,-10%,120%,120%) bounds where anything can show:
+    // referrer pixels whose user-space centres fall outside it multiply
+    // by zero.
     bool maskMultiply(string id, ref Bitmap scratch, in FRect bbox,
         in Matrix geom)
     {
@@ -2087,6 +2089,21 @@ private struct Renderer
         // Multiply in the mask value, testing region membership through
         // the inverse CTM so a transformed mask region stays exact.
         immutable alphaType = equalCase(strAttr(chain, "maskType"), "alpha");
+        // §14.4: under maskType="luminance" the colour half of the mask
+        // value is a luminance, and it is taken in the space
+        // color-interpolation names on the <mask> element - the same read
+        // the property gets on a paint server (§11.3), and the same answer
+        // that chose how the content above composited. sRGB is the
+        // property's initial value, so only linearRGB changes anything, and
+        // the referrer's ancestors do not reach the mask any more than the
+        // region attributes' do.
+        immutable lumLinear = equalCase(strAttr(chain, "color-interpolation"),
+            "linearrgb");
+        // The curve table is only read under linearRGB, so it is only built
+        // there - and `float[256] lut;` left unset would be a table of NaNs.
+        float[256] lut;
+        if (lumLinear)
+            lut = srgbDecodeLUT();
         immutable inv = geom.inverted;
         bool any;
         foreach (y; 0 .. bmp.height)
@@ -2105,9 +2122,17 @@ private struct Renderer
                     && uy >= reg.top && uy < reg.bottom)
                 {
                     immutable kx = k[x];
-                    v = alphaType
-                        ? kx.a / 255.0f
-                        : (0.2126f*kx.r + 0.7152f*kx.g + 0.0722f*kx.b) / 255.0f;
+                    if (alphaType)
+                        v = kx.a / 255.0f;
+                    else if (lumLinear)
+                        v = maskLuminance(kx, lut);
+                    else
+                        // Storage space does the arithmetic §14.4 spells
+                        // out: weighting the premultiplied bytes is the
+                        // weighted sum of the straight channels times
+                        // alpha, which is the order it asks for.
+                        v = (lumCoefs[0]*kx.r + lumCoefs[1]*kx.g
+                            + lumCoefs[2]*kx.b) / 255.0f;
                 }
                 // Mutate _color directly: `px = <Color expression>`
                 // would fire PMColor's implicit this(Color) constructor
@@ -2120,6 +2145,31 @@ private struct Renderer
             }
         }
         return any;
+    }
+
+    // §14.4's linearRGB reading of the mask value: take the
+    // non-premultiplied colour, run it through the same piecewise curve the
+    // §15 chain works in, weight it by §15.10's luminance-to-alpha row, and
+    // only then multiply by alpha - "the computed luminance value is
+    // multiplied by the corresponding alpha value". The order is the whole
+    // difference: a mid-grey 0x80 is 0.502 encoded but 0.216 linear, so an
+    // opaque grey square masks to 55/255 under linearRGB where the sRGB
+    // reading leaves it at 128/255. Un-premultiplying by the same rounding
+    // filter.d's straightByte uses keeps the detour byte-exact for the
+    // black-and-white masks that are the common case.
+    static float maskLuminance(in PMColor p, in float[256] lut)
+    {
+        if (!p.a)
+            return 0f; // transparent black: no colour to carry a luminance
+        float lin = 0f; // bare `float lin;` would seed this with NaN
+        foreach (c; 0 .. 3)
+        {
+            immutable pm = c == 0 ? p.r : c == 1 ? p.g : p.b;
+            immutable straight =
+                min((cast(int) pm * 255 + p.a / 2) / p.a, 255);
+            lin += lumCoefs[c] * lut[straight];
+        }
+        return lin * (p.a / 255.0f);
     }
 
     // SVG 1.1 §11.4: markers decorate the vertices of a stroked or
@@ -6952,8 +7002,9 @@ unittest
 unittest
 {
     // Luminance masks (masking-mask-01-b semantics): white passes,
-    // black blocks, pure red passes its Rec.709 luminance 0.2126, and
-    // maskType="alpha" ignores colour entirely.
+    // black blocks, pure red passes its §15.10 luminance-to-alpha
+    // coefficient 0.2125 (§14.4 borrows that row), and maskType="alpha"
+    // ignores colour entirely.
     auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="80" viewBox="0 0 20 80">
         <mask id="half"><rect width="10" height="20" fill="white"/></mask>
         <mask id="blk"><rect y="20" width="20" height="20" fill="black"/></mask>
@@ -6969,7 +7020,7 @@ unittest
     assert(bmp.getLine!PMColor(30)[10].a == 0, "black mask blocks the element");
     immutable red = bmp.getLine!PMColor(50)[10];
     assert(red.a > 52 && red.a < 56 && red.b >= 245,
-        "red luminance 0.2126 scales alpha (straight blue stays full)");
+        "red luminance 0.2125 scales alpha (straight blue stays full)");
     immutable alf = bmp.getLine!PMColor(70)[10];
     assert(alf.a > 126 && alf.a < 130 && alf.g >= 250,
         "maskType=alpha: half-transparent black passes 0.5");
@@ -7050,6 +7101,50 @@ unittest
         <rect width="20" height="20" fill="lime" mask="url(#cyc)"/>
         </svg>`);
     assert(bmp.getLine!PMColor(10)[10].a == 0, "self-referencing mask: capped, not rendered");
+}
+
+unittest
+{
+    // §14.4: color-interpolation names the space a mask's luminance is
+    // taken in, and the read is the <mask> element's own. One opaque
+    // mid-grey square does the whole test: 0x80 is 0.502 encoded, which the
+    // sRGB reading weights straight to 128/255 while the linearRGB reading
+    // - decode, weight, and only then multiply by alpha - lands on
+    // srgbDecode(0.502) = 0.216, i.e. 55/255. The bottom pair carries the
+    // grey at opacity 0.5, which is where the order shows: a decode of the
+    // already-premultiplied byte would say 13/255 there, not 28.
+    // A <g> putting the *referrer* in linear light moves none of these,
+    // and a <mask> that only borrows one by href keeps its reading.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="60" viewBox="0 0 40 60">
+        <defs>
+            <mask id="srgb"><rect x="-10" y="-10" width="80" height="80" fill="gray"/></mask>
+            <mask id="lin" color-interpolation="linearRGB"><rect x="-10" y="-10" width="80" height="80" fill="gray"/></mask>
+            <mask id="tmpl" xlink:href="#lin"/>
+            <mask id="srgb50"><rect x="-10" y="-10" width="80" height="80" fill="gray" opacity="0.5"/></mask>
+            <mask id="lin50" color-interpolation="linearRGB"><rect x="-10" y="-10" width="80" height="80" fill="gray" opacity="0.5"/></mask>
+        </defs>
+        <rect width="20" height="20" fill="white" mask="url(#srgb)"/>
+        <g color-interpolation="linearRGB">
+            <rect x="20" width="20" height="20" fill="white" mask="url(#srgb)"/>
+        </g>
+        <rect y="20" width="20" height="20" fill="white" mask="url(#lin)"/>
+        <rect x="20" y="20" width="20" height="20" fill="white" mask="url(#tmpl)"/>
+        <rect y="40" width="20" height="20" fill="white" mask="url(#srgb50)"/>
+        <rect x="20" y="40" width="20" height="20" fill="white" mask="url(#lin50)"/>
+        </svg>`);
+    immutable g1 = bmp.getLine!PMColor(10)[10];
+    assert(g1.a > 126 && g1.a < 130, "the initial sRGB reading: 0.502 masks 0.502");
+    immutable g2 = bmp.getLine!PMColor(10)[30];
+    assert(g2.a > 126 && g2.a < 130,
+        "color-interpolation on the referrer's <g> does not reach the mask");
+    immutable g3 = bmp.getLine!PMColor(30)[10];
+    assert(g3.a > 53 && g3.a < 57, "linearRGB decodes first: 0.502 is 0.216 linear");
+    immutable g4 = bmp.getLine!PMColor(30)[30];
+    assert(g4.a > 53 && g4.a < 57, "an href template carries the reading with it");
+    immutable g5 = bmp.getLine!PMColor(50)[10];
+    assert(g5.a > 62 && g5.a < 66, "sRGB: half-alpha grey is half of 0.502");
+    immutable g6 = bmp.getLine!PMColor(50)[30];
+    assert(g6.a > 26 && g6.a < 30, "alpha multiplies last, not inside the curve");
 }
 
 unittest

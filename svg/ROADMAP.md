@@ -99,6 +99,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the node it stands on: character data and      |            |
 |                       | attribute values decode, a CDATA section keeps |            |
 |                       | what it typed (XML §4.1, §4.2, §4.4.7)         |            |
+| step 34               | a mask's luminance is taken in the space       | 3.04 M     |
+|                       | color-interpolation names on the <mask>        |            |
+|                       | element, weighted by §15.10's own row          |            |
+|                       | (SVG 1.1 §14.4)                                |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -953,14 +957,45 @@ used to *error*: its transform lists separate the functions with
 white space §7.3 says they are, so the row went ERROR -> OK at 613. Suite total
 3,057,076 -> 3,043,913.
 
-Up next - step 34, the mask luminance reading of §14.4: `color-interpolation`
-names the space a mask's luminance is taken in, and today it is taken in sRGB
-whatever the property says. masking-mask-01-b (845) and -intro-01-f (611) set
-`linearRGB` on their `<mask>` elements and paint their content opaque, so only
-that read is left between them and their floor - a small step, chosen because
-the honest levers left in the suite are small ones. The other open backlog item
-is the CLI's own fragment selection (§17.3.2: `#view-id`, `#svgView(...)`,
-`#xywh=`), which moves no AE because the harness hands the CLI bare files.
+Step 34 is §14.4's reading of a mask's colour half. That half is a luminance,
+it is taken in the space `color-interpolation` names on the `<mask>` element,
+and the weights are the ones §14.4 borrows - "as defined in the `feColorMatrix`
+filter primitive", §15.10's `0.2125 0.7154 0.0721` row - where the mask code
+had the Rec.709-rounded `0.2126 0.7152 0.0722`. `filter.d` already carried that
+row for `luminanceToAlpha`, so it is one shared `lumCoefs` now rather than two
+near-copies. The property gets the read §11.3 gives it on a paint server: down
+the mask's own `href` chain, never from the referrer, so a
+`<g color-interpolation="linearRGB">` around the masking shape changes nothing
+and a template carries the answer with it. Under `linearRGB` a mask pixel
+leaves storage through the same un-premultiply and the same piecewise curve the
+§15 chain uses, is weighted, and only then meets alpha - "the computed
+luminance value is multiplied by the corresponding alpha value". That order is
+what the unittest pins: one opaque `#808080` square masks to 128/255 under the
+sRGB reading and 55/255 under linearRGB, and the same grey at `opacity="0.5"`
+to 64 against 28.
+
+The suite cannot show the branch, and the reason is worth keeping. Exactly two
+rows name `linearRGB` on a `<mask>` (masking-mask-01-b, masking-intro-01-f),
+and every mask among them paints white or a pure primary at full intensity -
+luminance 1, 0.2125, 0.0721 - which are the same numbers on either side of the
+curve, because the decode leaves 0 and 255 where they are. Strip the attribute
+out of either file and the render is byte-identical (`magick compare` AE 0), so
+masking-mask-01-b holds at 845 no matter what the read says. The one row that
+does move, masking-intro-01-f 611 -> 613, moves from the coefficients alone: on
+the red-on-blue `AA` ring of its mask the swapped row is worth a few hundredths
+of a byte, enough to flip a rounding boundary or two. Accepted and rebased like
+the step-33 rows - the spec names §15.10's numbers, and an archived capture
+cannot settle ±1/255. Suite total 3,043,913 -> 3,043,915.
+
+Up next - step 35, a triage before a build. `filters-conv-03-f` (6,095 across a
+308x77 band) is the largest row left that is not a ceiling, and its colour
+space is not the question: the §15.2 working space is in place, `rasterFrom`
+decoding on the way in and `bitmapFrom` encoding on the way out. What is
+unknown is whether that band is our convolution at the raster edge or the
+reference's own filter. If the triage says reference, the standing backlog item
+takes the slot instead: the CLI's fragment selection (§17.3.2 - `#view-id`,
+`#svgView(...)`, `#xywh=`), which moves no AE because the harness hands the CLI
+bare files.
 
 
 ## Deferred / accepted ceilings (do not chase)
