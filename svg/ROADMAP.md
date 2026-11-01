@@ -111,10 +111,19 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the input image's own border, and edgeMode     |            |
 |                       | starts at none, not the duplicate our          |            |
 |                       | parser reached for (SVG 1.1 §15.17)            |            |
+| step 37               | the viewer's own URL: the fragment on the file | 3.04 M*    |
+|                       | argument picks the initial view - #view-id,    |            |
+|                       | #svgView(...) or #xywh= - and a <view> inside  |            |
+|                       | a nested <svg> re-roots the document           |            |
+|                       | (SVG 1.1 §17.3.2)                              |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
 gate must stay flat, and it does.
+
+\* step 37 is the viewer's own URL: the harness hands the CLI bare file
+names, so no row can move - the 526 came back byte-identical, and that is
+what the gate checks here.
 
 ## Next steps
 
@@ -1080,12 +1089,64 @@ canvas edge lands on padding, which is what `none` wants. Both rows are back
 at their step-35 values, and what the fix really buys is that the two spellings
 now mean different things. Suite total 3,043,577 -> 3,043,080.
 
-Up next - step 37, the viewer's own URL. §17.3.2's fragment selection -
-`#view-id`, `#svgView(...)` and `#xywh=` on the CLI's file argument - is the
-part of chapter 17 the renderer has never touched: `<view>` elements parse and
-register, and the outer `<svg>`'s `viewBox` always wins. No harness row can
-move, because the harness hands the CLI bare files, so this step is for the
-spec column rather than the AE column.
+Step 37 is §17.3.2, the viewer's own URL. Nothing in the renderer had ever
+held an address: `<view>` elements parsed, registered an id and stayed
+inert, and the outer `<svg>`'s view attributes always won. The CLI now
+splits the first '#' off its file argument - read, base directory and the
+PNG's name all use the path without it - and hands the rest to `renderSVG`.
+
+A bare name that names a `view` displays that element's *closest ancestor
+`svg`*, the view's attributes overriding that element's - and only the ones
+the view actually carries. A view naming just a viewBox leaves the
+element's own `preserveAspectRatio` standing, which is how a square viewBox
+in a document that says `none` still stretches to 100x50 while the same
+view with `meet` written on it centres at +50,0 instead. If that `svg` is a
+nested one, §17.3.2 displays *it* in the viewport: the renderer re-roots,
+so the nested element's x and y, its ancestors and everything beside them
+are out of the picture, and the canvas is that element's own 100x50. The
+arena is sealed immutable, so the override is a copy of one element's
+attributes - which is what the rule means: the fragment overrides the
+element for this viewing, not the file.
+
+`#svgView(...)` spells a view out instead: the five parameter types in any
+order, ';' between them - or `%3B`, the url-escaped separator the spec adds
+so an animated list of IRIs keeps its semicolon - and a comma inside one
+attribute, because "spaces are not allowed in fragment specifications". A
+repeated type ("each type may only occur at most one time"), an unknown
+name or a viewBox that is not a rect makes the fragment not a correctly
+formed SVG fragment identifier at all, and it lands with any other
+element's id and every unknown id at the fourth rule: the `svg`'s own
+attributes. Falling back instead of failing matters here - `setupRoot`
+enforces a positive viewBox, and a mistyped fragment is user input, not a
+broken document.
+
+Three of the five parameters are parsed and then dropped, on purpose.
+`zoomAndPan` and `viewTarget` are interaction - §17.3.4's highlight is a
+CSS `:target` rule this engine does not match - and `transform(...)` is in
+the production while §17.3.3's `view` element carries no `transform`
+attribute for it to mean, which is how §17.3.2 defines the parameters.
+`#xywh=x,y,w,h` is not in this grammar either: it is the SVG Tiny 1.2
+shorthand and the spelling people type into an address bar, so it is taken
+for the viewBox it is. `xpointer(id('MyView'))`, which §17.3.2's prose
+shows once, is not in the production, and stays unimplemented.
+
+The AE column cannot move - the harness hands the CLI bare files - and the
+526 rows came back byte-identical, which is the check this step has. The
+probe carries the evidence: a 200x100 canvas whose outer element says
+`preserveAspectRatio="none"`, two views (`sq` naming only a viewBox,
+`sqmeet` naming `xMidYMid meet` too), and a nested `svg` of 100x50 holding
+a third view. `#sq` stretches to 100x50, `#sqmeet` centres at +50,0,
+`#nested` renders a 100x50 picture with the outer rect gone, and
+`#svgView(viewBox(0,0,50,50);viewBox(0,0,10,10))` is the document's own
+25x25 at the origin again.
+
+Up next - step 38, the same fragment on someone else's URL. `resolveHref`
+throws the '#...' part of an href away, so `<image href="x.svg#svgView(...)">`
+renders the referenced document's own view, while §17.3.2's rules are
+written for a link *from a source document* and `use` already honours its
+fragment by element id. The suite's only `#svgView` hrefs sit on `<a>`
+elements, which nothing navigates, so that step is for the spec column as
+well.
 
 
 ## Deferred / accepted ceilings (do not chase)
@@ -1245,10 +1306,12 @@ spec column rather than the AE column.
   11 (markers §11.6), the `image` element §5.7, `viewBox`/`par` §7.7/§7.8,
   objectBoundingBox units §7.11, clip-path §14.3.5, mask §14.4, feature
   strings Appendix O. Comments only: the gate must stay byte-identical.
-- Viewer-side fragment selection (§17.3.2): `#view-id`, `#svgView(...)` and
-  `#xywh=` on the CLI's file argument. Pure viewer-URL feature; the suite
-  harness passes bare files, so today the no-fragment case (outer svg's
-  viewBox/par) is what renders and `<view>` elements stay registered inert.
+- The same fragment on someone else's URL: `resolveHref` throws the
+  '#...' part of an href away, so `<image href="x.svg#svgView(...)">`
+  renders the referenced document's own view. §17.3.2's rules are written
+  for a link *from a source document*, and `use` already honours a
+  fragment by element id. The suite's only `#svgView` hrefs sit on `<a>`
+  elements, which nothing navigates, so no row moves here either.
 - Not the filters' colour space, their arithmetic: `filter.d` keeps the §15.2
   linearRGB working space already - `rasterFrom` decodes, `bitmapFrom` encodes,
   `color-interpolation-filters="sRGB"` flips the flag at `makeFilter` - and

@@ -688,6 +688,12 @@ private struct Renderer
     float zoom;
     bool inRoot; // latches at the first <svg> element; nodes before it are inert
 
+    // §17.3.2: what the viewer's own IRI fragment asked for - the <svg> to
+    // display (Document.unknown = the outermost one) and the view
+    // specification attributes that override that element's own.
+    size_t fragRoot = Document.unknown;
+    string[string] fragView;
+
     // Author style sheet (§6.2): every <style> element's rules in sheet
     // order, plus the arena parent and previous-sibling maps the
     // selector matcher walks. All set in renderSVG and copied to the
@@ -5722,6 +5728,21 @@ private struct Renderer
         }
     }
 
+    // The root <svg>'s attributes with the fragment's view specification
+    // merged in. The arena is immutable (parser.d seals it), so the
+    // override lives in a copy of one element's attributes rather than on
+    // the node - which is also what §17.3.2 means: the fragment overrides
+    // the element's view attributes for this viewing, not the file.
+    string[string] rootView(in Element n)
+    {
+        string[string] a;
+        foreach (k, v; n.attrs)
+            a[k] = v;
+        foreach (k, v; fragView)
+            a[k] = v;
+        return a;
+    }
+
     // Visit the children of arena node `idx` in document order.
     void walk(size_t idx)
     {
@@ -5742,7 +5763,7 @@ private struct Renderer
                 if (ch == doc.root)
                 {
                     inRoot = true;
-                    setupRoot(n.attrs);
+                    setupRoot(rootView(n));
                 }
                 walk(ch);
                 continue;
@@ -5772,17 +5793,281 @@ private struct Renderer
     }
 }
 
+// §17.3.2: the fragment in the viewer's own IRI chooses the initial view.
+// It never reaches the document - the CLI hands `renderSVG` the characters
+// after the '#' - and it can only ever speak to the view specification
+// attributes: `viewBox`, `preserveAspectRatio`, `zoomAndPan` and
+// `viewTarget` on a `view` element, plus `transform` inside `svgView(...)`.
+// The last three change nothing here, and not by accident: a static
+// renderer has no pan to disable, §17.3.4's highlight is a CSS `:target`
+// rule this engine does not match, and `transform(...)` is in the
+// production while the SE's `view` element carries no such attribute -
+// §17.3.2 defines the parameters as "the same meaning as the corresponding
+// attributes on a 'view' element", and for transform there is none. They
+// are parsed so a fragment that uses them stays well-formed, and dropped.
+struct ViewSelection
+{
+    size_t svg = Document.unknown; // the `svg` displayed; unknown = the outermost
+    string[string] spec;           // attributes overriding that element's own
+}
+
+// A viewBox the canvas can be built from: `setupRoot` enforces one, so a
+// fragment that spells it wrong has to be turned down here rather than
+// thrown at the viewport.
+private bool goodViewBox(string s)
+{
+    try
+    {
+        float[4] vb;
+        parseViewBox(vb, s);
+        return vb[2] > 0 && vb[3] > 0;
+    }
+    catch (Throwable)
+        return false;
+}
+
+// §17.3.2's SVGViewSpec production: `svgView(` and the five known
+// parameter types separated by ';' - which may also be written %3B, the
+// url-escaped form the spec allows so a semicolon-separated list of IRIs
+// can be animated without the separator being read as a list separator.
+// An unknown name, a repeated type ("each type may only occur at most one
+// time in a correctly formed SVGViewSpec") or a space ("spaces are not
+// allowed in fragment specifications") means the fragment is not a
+// correctly formed SVG fragment identifier at all, which is an empty map:
+// the document keeps its own view.
+private string[string] parseViewSpec(string frag)
+{
+    enum head = "svgView(";
+    enum known = ["viewBox", "preserveAspectRatio", "transform", "zoomAndPan", "viewTarget"];
+    string[string] spec;
+    if (frag.length <= head.length || frag[0 .. head.length] != head || frag[$ - 1] != ')')
+        return typeof(spec).init;
+
+    immutable inner = replace(replace(frag[head.length .. $ - 1], "%3B", ";"), "%3b", ";");
+    if (canFind(inner, ' '))
+        return typeof(spec).init;
+
+    for (size_t pos; pos < inner.length;)
+    {
+        immutable cut = indexOf(inner[pos .. $], ';');
+        immutable item = cut < 0 ? inner[pos .. $] : inner[pos .. pos + cut];
+        pos += item.length + 1;
+
+        immutable open = indexOf(item, '(');
+        if (item.empty || open < 0 || item[$ - 1] != ')')
+            return typeof(spec).init;
+        immutable name = item[0 .. open];
+        if (!canFind(known, name) || name in spec)
+            return typeof(spec).init;
+        spec[name] = item[open + 1 .. $ - 1];
+    }
+    return spec;
+}
+
+// Finds the closest `svg` element enclosing arena index `target`, looking
+// only inside the subtree rooted at `svg`. §17.3.2 displays *that* `svg`
+// in the viewport, which for a `view` written inside a nested `svg` is the
+// nested one - and the nested one becomes the whole document.
+private bool viewOwner(in Document doc, size_t idx, size_t svg, size_t target, out size_t owner)
+{
+    foreach (ch; doc.nodes[idx].children)
+    {
+        immutable name = doc.nodes[ch].name;
+        if (name.empty)
+            continue; // character data holds no views
+        if (ch == target)
+        {
+            owner = name == "svg" ? ch : svg;
+            return true;
+        }
+        if (viewOwner(doc, ch, name == "svg" ? ch : svg, target, owner))
+            return true;
+    }
+    return false;
+}
+
+/// `frag` is everything after the '#' in the viewer's IRI; empty means the
+/// IRI had none. §17.3.2's four rules, in its own order:
+///
+/// * no fragment - the outermost `svg`'s own view specification attributes;
+/// * a bare name that is a `view` element - that element's closest
+///   ancestor `svg` is displayed, and the attributes the `view` carries
+///   override that `svg`'s; one written inside a nested `svg` therefore
+///   re-roots the document;
+/// * `svgView(...)` - the outermost `svg`, displayed with the attributes
+///   the fragment provides;
+/// * any other element, or no element at all: an id nothing carries, or a
+///   fragment that is not correctly formed - the `svg`'s own attributes.
+///
+/// What a fragment picks is the view, not the viewport: `width` and
+/// `height` still come from the `svg` element (§7.2), and a bad viewBox
+/// written in the fragment falls back to the document's rather than
+/// failing the render.
+ViewSelection viewFragment(in Document doc, string frag)
+{
+    if (frag.empty)
+        return ViewSelection.init;
+
+    if (frag.length > 8 && frag[0 .. 8] == "svgView(")
+    {
+        auto spec = parseViewSpec(frag);
+        if (auto vb = "viewBox" in spec)
+            if (!goodViewBox(*vb))
+                return ViewSelection.init;
+        return ViewSelection(spec: spec);
+    }
+
+    // #xywh=x,y,w,h is not in §17.3.2's grammar - it is the SVG Tiny 1.2
+    // shorthand for a viewBox, and the spelling people actually type into
+    // an address bar. Its four parameters *are* ViewBoxParams, so it goes
+    // through the same door.
+    if (frag.length > 5 && frag[0 .. 5] == "xywh=")
+    {
+        immutable vb = frag[5 .. $];
+        if (canFind(vb, ' ') || !goodViewBox(vb))
+            return ViewSelection.init;
+        return ViewSelection(spec: ["viewBox": vb]);
+    }
+
+    // BareName: it names an element, and only a `view` element says
+    // anything about the view.
+    immutable idx = doc.byId(frag);
+    if (idx == Document.unknown || doc.nodes[idx].name != "view")
+        return ViewSelection.init;
+
+    size_t owner;
+    if (!viewOwner(doc, doc.root, doc.root, idx, owner))
+        return ViewSelection.init; // a `view` outside the root `svg`'s subtree
+
+    string[string] spec;
+    foreach (name; ["viewBox", "preserveAspectRatio", "zoomAndPan", "viewTarget"])
+        if (auto p = name in doc.nodes[idx].attrs)
+            spec[name] = *p;
+    if (auto vb = "viewBox" in spec)
+        if (!goodViewBox(*vb))
+            return ViewSelection.init;
+
+    return ViewSelection(svg: owner == doc.root ? Document.unknown : owner, spec: spec);
+}
+
+unittest
+{
+    // §17.3.2: the fragment in the viewer's own URL picks the initial view.
+    // The document is a 200x100 canvas whose outer `svg` says
+    // preserveAspectRatio="none", so a square viewBox tells the two
+    // readings apart: the outer element's par survives a `view` that does
+    // not name one, and a `view` that does is what overrides it.
+    enum src = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"
+        viewBox="0 0 200 100" preserveAspectRatio="none">
+        <defs>
+            <view id="sq" viewBox="0 0 50 50"/>
+            <view id="sqmeet" viewBox="0 0 50 50" preserveAspectRatio="xMidYMid meet"/>
+            <rect id="notaview" width="1" height="1"/>
+        </defs>
+        <rect width="25" height="25" fill="#f00"/>
+        <svg x="50" y="50" width="100" height="50" viewBox="0 0 10 5">
+            <view id="nested" viewBox="0 0 5 5"/>
+            <rect width="5" height="5" fill="#00f"/>
+        </svg>
+    </svg>`;
+
+    bool redAt(const Bitmap b, int x, int y)
+    {
+        immutable p = b.getLine!PMColor(y)[x];
+        return p.a == 255 && p.r > 250 && p.g < 5 && p.b < 5;
+    }
+    bool blueAt(const Bitmap b, int x, int y)
+    {
+        immutable p = b.getLine!PMColor(y)[x];
+        return p.a == 255 && p.b > 250 && p.r < 5 && p.g < 5;
+    }
+
+    auto at(string frag)
+    {
+        return renderSVG(src, 1.0f, "", "", frag);
+    }
+
+    // No fragment: the outer `svg`'s own view, 1:1, and the nested one
+    // where its x/y put it.
+    auto plain = at("");
+    assert(plain.width == 200 && plain.height == 100);
+    assert(redAt(plain, 10, 10) && !redAt(plain, 30, 10), "25 units at 1:1");
+    assert(blueAt(plain, 75, 75), "the nested viewport paints too");
+
+    // A `view` naming only a viewBox leaves the element's par standing:
+    // "none" stretches, so the red square reaches x=100 but no further.
+    auto sq = at("sq");
+    assert(redAt(sq, 10, 10) && redAt(sq, 99, 10), "sx 4, sy 2");
+    assert(!redAt(sq, 120, 10) && !redAt(sq, 10, 60), "and no further");
+    assert(!blueAt(sq, 75, 75), "the whole document moved, not just the rect");
+
+    // A `view` naming par as well overrides it: meet centres the square,
+    // so the left 50 device pixels are padding and the rect sits at 50..100.
+    auto meet = at("sqmeet");
+    assert(!redAt(meet, 10, 10) && redAt(meet, 60, 10), "centred");
+
+    // The same two views spelled inline. Semicolons separate attributes,
+    // and %3B is the url-escaped form of the same separator; the align and
+    // meet words inside one attribute are separated by a comma, because
+    // "spaces are not allowed in fragment specifications".
+    auto sv = at("svgView(viewBox(0,0,50,50))");
+    assert(redAt(sv, 10, 10) && !redAt(sv, 120, 10), "the element's par still applies");
+    auto sv2 = at("svgView(viewBox(0,0,50,50);preserveAspectRatio(xMidYMid,meet))");
+    assert(!redAt(sv2, 10, 10) && redAt(sv2, 60, 10), "two attributes, one view");
+    assert(at("svgView(viewBox(0,0,50,50)%3BpreserveAspectRatio(xMidYMid,meet))").buffer
+        == sv2.buffer, "%3B is a separator");
+    auto sv3 = at("svgView(preserveAspectRatio(xMidYMid,meet);viewBox(0,0,50,50))");
+    assert(sv3.buffer == sv2.buffer, "any order");
+    // Accepted, and inert: the SE's `view` element has no transform
+    // attribute for transform(...) to mean, and zoomAndPan/viewTarget are
+    // not things a static renderer paints.
+    assert(at(`svgView(viewBox(0,0,50,50);transform(scale(10));zoomAndPan(disable);viewTarget(nested))`).buffer
+        == sv.buffer, "the other three parameters change nothing");
+
+    // Not correctly formed is not an SVG fragment identifier: a repeated
+    // attribute type, a space, an unknown name, a viewBox that is not a
+    // rect - each leaves the document's own view standing.
+    foreach (bad; ["svgView(viewBox(0,0,50,50);viewBox(0,0,10,10))",
+        "svgView(viewBox(0,0 50,50))", "svgView(zoom(5))", "svgView(viewBox(0,0,0,0))",
+        "svgView()", "xywh=0,0,0,0", "xywh=1,2,3"])
+        assert(at(bad).buffer == plain.buffer, `fallback for ${bad}`);
+
+    // A bare name that is not a `view`, and a bare name nothing carries,
+    // are §17.3.2's fourth rule: the `svg`'s own attributes.
+    foreach (name; ["notaview", "nope", ""])
+        assert(at(name).buffer == plain.buffer, `not a view: ${name}`);
+
+    // The Tiny 1.2 shorthand, and the only reason it is here: it is the
+    // spelling users type. It names a viewBox, so it behaves like `sq`.
+    auto xy = at("xywh=0,0,50,50");
+    assert(redAt(xy, 10, 10) && !redAt(xy, 120, 10), "#xywh= is a viewBox");
+
+    // A `view` written inside a nested `svg`: §17.3.2 displays *that*
+    // `svg` in the viewport, so the nested element becomes the document -
+    // 100x50 of it, its x/y and its ancestors left out of the picture.
+    auto nest = at("nested");
+    assert(nest.width == 100 && nest.height == 50, "re-rooted, and resized by the nested element");
+    assert(blueAt(nest, 30, 25) && !blueAt(nest, 10, 25), "5x5 meet into 100x50");
+    assert(!redAt(nest, 5, 5) && !redAt(nest, 10, 10), "the outer rect is gone");
+}
 // Parses `source` and renders it into a fresh Bitmap.
 // Render `source` to a fresh bitmap. `baseDir` is the source file's
 // directory (trailing '/'): the base for relative <image> hrefs;
-// empty = the process cwd.
+// empty = the process cwd. `view` is the IRI fragment of the viewer's own
+// URL (§17.3.2), without the '#'; empty is no fragment.
 Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "",
-    string docPath = "")
+    string docPath = "", string view = "")
 {
     Renderer r;
     r.doc = parseSVG(source);
     applySMILEndStates(r.doc); // the CLI timeline runs to t=+inf before
         // anything reads the attributes; image documents stay static
+    // The fragment is the viewer's input, not the document's, so it lands
+    // after the animation end states have been folded in: a <set> on the
+    // root's viewBox is part of the file, the fragment is not.
+    auto sel = viewFragment(r.doc, view);
+    r.fragRoot = sel.svg;
+    r.fragView = sel.spec;
     r.docBase = baseDir;
     if (docPath.length)
         r.openDocs = [docPath]; // the document itself is "in flight":
@@ -5792,7 +6077,18 @@ Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "",
     r.cssParent = cssAncestry(r.doc.nodes);
     r.cssSib = cssPrevSib(r.doc.nodes, r.cssParent);
     r.zoom = zoom;
-    r.walk(0); // the document pseudo-root; inRoot latches at the <svg>
+    if (r.fragRoot != Document.unknown)
+    {
+        // §17.3.2: the closest ancestor <svg> of the <view> is what gets
+        // displayed in the viewport, so a <view> written inside a nested
+        // <svg> re-roots the document: that element's ancestors, and its
+        // own x and y, are not part of the picture at all.
+        r.inRoot = true;
+        r.setupRoot(r.rootView(r.doc.nodes[r.fragRoot]));
+        r.walk(r.fragRoot);
+    }
+    else
+        r.walk(0); // the document pseudo-root; inRoot latches at the <svg>
 
     // The device is composited premultiplied (blendPM), but an ARGB_8888
     // Bitmap - and any PNG saved from it - is straight-alpha by definition,
