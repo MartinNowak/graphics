@@ -144,6 +144,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 45               | an SVG file referenced by `image` is sized     | 3.01 M     |
 |                       | by the element that references it - once, at   |            |
 |                       | the rate it is displayed (SVG 1.1 §5.7)        |            |
+| step 46               | a PNG says in its gAMA chunk how the samples   | 2.98 M     |
+|                       | were encoded, so loading one re-encodes them   |            |
+|                       | onto the page's own 2.2 curve - for `image`    |            |
+|                       | and feImage alike (PNG 1.2 §4.2.2.3)           |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1529,15 +1533,53 @@ ring and the antialiasing along each fitted edge. `struct-image-18-f`'s
 across the top, 298 along the bottom with the label - the half-pixel
 stroker floor recorded under step 27.
 
-Up next - step 46: `struct-image-03-t` (9,296) is the suite's only test
-of a PNG `gAMA` chunk, and `gAMA` is not read anywhere in the library -
-`grep -r gAMA src` is empty. Its five 430x48 bars carry gAMA 0.3, 0.45,
-0.56, 1.0 and 2.0 over stored samples of 193, 168, 152, 102 and 40;
-decode the sample with the file's gamma and all five land at linear
-0.40, which is how the reference shows them - one grey, sRGB 186, five
-times. We take the samples as sRGB and show 207, 187, 173, 128 and 64,
-so the delta is 430x48 of bar per step of gamma. It is a decode-side
-fix, the same colour-management path `color-prof-01-f` (6,811) waits on.
+Step 46 landed PNG's `gAMA` chunk. The decoder in use is stb's and it
+parses no chunks at all - `grep -r gAMA src` is still empty - so
+`pngFileGamma` walks a file's own chunk stream: IHDR, then the chunks
+before the first IDAT, which is where the ancillary colour chunks live,
+and it reads the 4-byte fixed-point gamma there. It answers 0 when the
+file also carries `iCCP` or `sRGB`, because PNG 1.2 §4.2.2.4 and
+§4.2.2.5 rank both ahead of `gAMA` and there is no ICC reader here to
+honour either; such a file is read as sRGB, which costs nothing in this
+suite, since every profiled file in it carries a profile that sits near
+45454 anyway. `color-prof-01-f` (6,811) therefore still waits on a
+profile reader, not on gamma.
+
+`applyPNGamma` folds the two curves into one table. A PNG holds samples
+meant for a display of gamma `100000/gAMA`; the page displays at 2.2,
+so a sample leaves the file's curve and enters the page's as
+`out = (s/255)^(100000/(2.2*gAMA))` - one power, no round trip through
+linear. Only the three colour bytes move: alpha is not stored in a
+file's gamma. Both loaders run it, `loadDataURL` and `loadSVGImage`, so
+the `image` element and every filter input that reads a file arrive
+already in the page's space and share one cached raster. The five
+ramps of `struct-image-03-t` pin the arithmetic point for point: 128
+stored at gAMA 1.00 gives 186, 2 at 1.00 gives 28, 64 at 2.00 gives 85
+and 64 at 0.30 gives 31 - and 186 is what the reference shows for all
+five bars.
+
+Nineteen rows moved, -26,401 in all - 526 rows, 2,979,286 AE. The
+three big ones are `struct-image-03-t` 9,296 -> 463,
+`filters-displace-01-f` 13,396 -> 2,387 (its `feImage` input is
+`sphere.png`, gAMA 100000) and `struct-image-09-t` 2,549 -> 463. The
+PngSuite files behind `filters-composite-04-f` and `-05-f` (801 and
+1,303 -> 604 each), `filters-conv-03-f` -227 and
+`filters-image-03/04/05-f` -66/-50/-78 come from the same 100000-gamma
+`basn*` inputs, and `struct-image-13-f`/`-14-f` -1,280 each and `-15-f`
+-291 are those tiles composited. Two rows went up and both are
+accepted: `filters-image-02-b` +39 and `filters-blend-01-b` +4 both
+read a gAMA 45000 picture, whose exponent is 1.0101 - almost identity,
+and the reference behaves as though it were exactly identity, so
+honouring it moves a few mid greys one step.
+
+Up next - step 47: while triaging the dash rows, `stroke-dasharray`
+without a `stroke-dashoffset` turned out to paint nothing at all. The
+style struct holds a bare `float dashOffset;`, and D seeds a float
+field with `float.init`, which is NaN - the trap the source already
+notes at three other places. `seg = 4 - NaN` fails `seg > 0`, so the
+dash pass handed the stroker an empty path. §11.4's initial value is 0.
+The rasterizer unittest missed it because the element it draws writes
+its own `stroke-dashoffset="0"`.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -1569,7 +1611,11 @@ fix, the same colour-management path `color-prof-01-f` (6,811) waits on.
   frozen result of a `begin="indefinite"` fade the operator starts by
   clicking the `<a xlink:href="#fadein">` button. Both files render
   correctly as authored (20-t's white square and both buttons match ours),
-  so the delta is the activation, not the paint.
+  so the delta is the activation, not the paint. `animate-elem-29-b`
+  (10.7 K) is that pair's third member: its 180x180 `#080` square sits at
+  `fill-opacity="0"` until the same `<a xlink:href="#fadein">` click
+  starts a second `begin="indefinite"` fade, and its reference shows the
+  fade frozen at 1 - so the square's whole area counts as a delta here.
 - `animate-elem-85-t` (22.3 K): the reference contradicts the file it is
   scored against. The source documents the freeze state (at t = 10 s both
   `color` and `fill` are `#00ffff`) and we paint exactly that — cyan rects,
@@ -1623,7 +1669,11 @@ fix, the same colour-management path `color-prof-01-f` (6,811) waits on.
   markup-level fills - and 10-f's reference shows green circles in a
   test that contains no green. Matching those would mean re-breaking
   visibility !important, the CSS case rules, and presentation-attr
-  precedence.
+  precedence. `styling-pres-04-f` (14.3 K) belongs to that group: its
+  reference is byte-identical to pres-05-f's, the same empty page down
+  to the md5, so neither capture holds a shape - while 04-f's own
+  inline `<style>` asks for the same all-green answer through
+  descendant, child and adjacency selectors, and we paint it.
 - types-basic-02-f (8.2 K), from the step-23 sweep: its pass criteria ask for
   "six circles with the same thick green stroke visible, and no red", which is
   what we paint, and the archived PNG is the state its own description carves

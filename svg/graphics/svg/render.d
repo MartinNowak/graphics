@@ -1,7 +1,7 @@
 module graphics.svg.render;
 
 import std.algorithm, std.ascii, std.base64, std.conv, std.exception, std.math, std.range, std.string;
-import std.file : readText;
+import std.file : read, readText;
 import std.path : dirName;
 import std.utf : decode;
 import core.bitop : bswap;
@@ -440,7 +440,10 @@ private string baseJoin(string base, string v)
 }
 
 // Loaded images keyed by resolved path. Bitmaps keep their straight
-// (non-premultiplied) ARGB, as loaded: the drawing path is an
+// (non-premultiplied) ARGB, with one edit: a PNG's gAMA curve is folded
+// onto the page's 2.2 one at load time (see pngFileGamma below), so
+// every consumer - image element or filter input - reads samples that
+// already sit in the page's space. The drawing path is an
 // ImageShader, which premultiplies each sampled pixel once when it
 // converts the slot to a PMColor. Premultiplying at load time would
 // scale translucent pixels by (a+1) twice (the suite's tRNS and
@@ -471,6 +474,119 @@ private string base64Payload(string s)
     return cast(string) kept;
 }
 
+// PNG's gAMA chunk (PNG 1.2 §4.2.2.3) records how the file encoded light:
+// the sample is the light it stands for raised to 1/g, so a file written
+// for a 2.2 monitor says 45454 and needs no move on a 2.2 page, while the
+// same samples in a file that says 100000 are light itself and lift. The
+// suite is explicit about both: struct-image-03-t draws one grey ramp in
+// files saying 0.30, 0.45, 0.56, 1.00 and 2.00 and the reference puts all
+// five on the same curve (128 in the 1.00 file is 186 on the page), and
+// struct-image-09-t's photo says 100000 and arrives 2.2-lighter than its
+// bytes.
+// A file carrying iCCP or sRGB is speaking through a profile instead,
+// which outranks gAMA (PNG §4.2.2.4 and §4.2.2.5); there is no profile
+// reader yet (colour-prof-01-f), so those bytes stay as loaded - every
+// profiled file in the suite says 45454, which is a no-op here anyway.
+private float pngFileGamma(const(ubyte)[] bytes)
+{
+    if (bytes.length < 8 || bytes[0 .. 4] != [0x89, 'P', 'N', 'G'])
+        return 0; // not a PNG: the codec's own guess stands
+    float g = 0;
+    // gAMA, iCCP and sRGB all precede the first IDAT (PNG §5.3), so the
+    // walk stops at the pixel stream.
+    for (size_t i = 8; i + 12 <= bytes.length; )
+    {
+        immutable size_t len = (cast(size_t) bytes[i] << 24)
+            | (cast(size_t) bytes[i + 1] << 16)
+            | (bytes[i + 2] << 8) | bytes[i + 3];
+        immutable string type = cast(string) bytes[i + 4 .. i + 8];
+        if (type == "IDAT" || type == "IEND")
+            break;
+        if (type == "iCCP" || type == "sRGB")
+            return 0;
+        if (type == "gAMA" && len == 4)
+        {
+            immutable uint scaled = (cast(uint) bytes[i + 8] << 24)
+                | (cast(uint) bytes[i + 9] << 16)
+                | (cast(uint) bytes[i + 10] << 8) | bytes[i + 11];
+            if (scaled)
+                g = scaled / 100_000.0f;
+        }
+        i += 12 + len;
+    }
+    return g;
+}
+
+// Move a decoded image's samples from the file's curve onto the page's
+// 2.2 one - out = (s^(1/g))^(1/2.2). Alpha is coverage, not light, so it
+// is left alone, and the Bitmap stays straight (non-premultiplied).
+private void applyPNGamma(ref Bitmap b, float g)
+{
+    immutable float k = 1.0f / (2.2f * g);
+    ubyte[256] clut;
+    foreach (i; 0 .. 256)
+        clut[i] = cast(ubyte) min(255.0f, round(255.0f * pow(i / 255.0f, k)));
+    foreach (y; 0 .. b.height)
+        foreach (ref c; b.getLine!Color(y))
+        {
+            c.r = clut[c.r];
+            c.g = clut[c.g];
+            c.b = clut[c.b];
+        }
+}
+
+unittest
+// PNG colour chunks, and the curve a gAMA says the samples sit on.
+{
+    ubyte[] chunk(string type, uint value)
+    {
+        ubyte[] b = [0, 0, 0, 4]; // length, big-endian
+        b ~= cast(ubyte[]) type;
+        b ~= [cast(ubyte) (value >> 24), cast(ubyte) (value >> 16),
+              cast(ubyte) (value >> 8), cast(ubyte) value];
+        b ~= [0, 0, 0, 0]; // the CRC is never read
+        return b;
+    }
+    auto sig = cast(ubyte[]) "\x89PNG\r\n\x1A\n";
+
+    assert(pngFileGamma(sig ~ chunk("gAMA", 100_000)) == 1.0f);
+    immutable float small = pngFileGamma(sig ~ chunk("gAMA", 22_727));
+    assert(small > 0.22726f && small < 0.22728f, to!string(small));
+    assert(pngFileGamma(sig ~ chunk("gAMA", 100_000) ~ chunk("IDAT", 0)) == 1.0f);
+    // A profile outranks the number, and so does a missing one.
+    assert(pngFileGamma(sig ~ chunk("sRGB", 0) ~ chunk("gAMA", 100_000)) == 0);
+    assert(pngFileGamma(sig ~ chunk("iCCP", 0) ~ chunk("gAMA", 100_000)) == 0);
+    assert(pngFileGamma(sig ~ chunk("gAMA", 30_000) ~ chunk("PLTE", 0)) == 0.3f);
+    assert(pngFileGamma(cast(ubyte[]) "GIF89a") == 0);
+
+    // 128 in a file that says 1.0000 is half light, which is 186 on a
+    // 2.2 page - struct-image-03-t's five ramps agree on that number.
+    auto b = Bitmap(Bitmap.Config.ARGB_8888, 1, 2);
+    foreach (y; 0 .. 2)
+    {
+        auto row = b.getLine!Color(y);
+        row[0].r = 0x80;
+        row[0].g = 0x80;
+        row[0].b = 0x80;
+        row[0].a = y ? 0x80 : 0xFF;
+    }
+    applyPNGamma(b, 1.0f);
+    immutable Color lift = b.getLine!Color(0)[0];
+    assert(lift.r == 186 && lift.g == 186 && lift.b == 186, to!string(lift.r));
+    assert(b.getLine!Color(1)[0].a == 0x80); // coverage is not light
+
+    // A file written for a 2.2 monitor (gAMA 45454) is already there.
+    auto c = Bitmap(Bitmap.Config.ARGB_8888, 1, 1);
+    auto crow = c.getLine!Color(0);
+    crow[0].r = 0x80;
+    crow[0].g = 0x80;
+    crow[0].b = 0x80;
+    crow[0].a = 0xFF;
+    immutable Color before = crow[0];
+    applyPNGamma(c, 0.45454f);
+    assert(c.getLine!Color(0)[0] == before, to!string(c.getLine!Color(0)[0].r));
+}
+
 private Bitmap loadDataURL(string url)
 {
     auto semi = indexOf(url, ';');
@@ -479,10 +595,11 @@ private Bitmap loadDataURL(string url)
         "only base64 data: URLs load");
 
     auto payload = base64Payload(url[semi + 8 .. $]);
+    immutable ubyte[] bytes = Base64.decode(payload);
 
     Bitmap bmp;
     Image image;
-    enforce(image.loadFromMemory(Base64.decode(payload),
+    enforce(image.loadFromMemory(bytes,
         LOAD_RGB | LOAD_ALPHA | LOAD_8BIT | LOAD_NO_PREMUL
         | LAYOUT_GAPLESS | LAYOUT_VERT_STRAIGHT),
         "undecodable data: image");
@@ -499,6 +616,9 @@ private Bitmap loadDataURL(string url)
             e = bswap(e);
         e = (e << 24) | (e >> 8); // 0xRRGGBBAA -> 0xAARRGGBB
     }
+    immutable float g = pngFileGamma(bytes);
+    if (g)
+        applyPNGamma(bmp, g);
     return bmp;
 }
 
@@ -509,9 +629,19 @@ private Bitmap loadSVGImage(string path)
         return *hit;
     Bitmap img;
     try
-        img = path.length > 5 && path[0 .. 5] == "data:"
-            ? loadDataURL(path)
-            : Bitmap.load(path);
+    {
+        if (path.length > 5 && path[0 .. 5] == "data:")
+            img = loadDataURL(path);
+        else
+        {
+            img = Bitmap.load(path);
+            // The codec hands back the file's own samples; gAMA says what
+            // curve they sit on.
+            immutable float g = pngFileGamma(cast(ubyte[]) read(path));
+            if (g)
+                applyPNGamma(img, g);
+        }
+    }
     catch (Exception)
         img = Bitmap(); // missing, undecodable, or SVG-as-image (later)
     return cache[path] = img;
@@ -8099,15 +8229,17 @@ unittest
     // half-pixel registration (u = x/s + 0.5/s - 0.5). At 64x32 over
     // a 32x32 image with preserveAspectRatio="none", sx is 2 and sy
     // 1: x=15 lands on natural u=7.25 and x=16 on u=7.75, straddling
-    // basn0g04's row-12 step 68 -> 85 at column 8. Nearest would
-    // answer (round(192*68+64*85)>>8, round(64*68+192*85)>>8) = (72, 80).
+    // basn0g04's row-12 step 68 -> 85 at column 8. That file says
+    // gAMA 1.0000, so the page sees the step lifted to 140 -> 155
+    // first; the straddle then answers ((192*140+64*155)>>8,
+    // (64*140+192*155)>>8) = (143, 151). Nearest would be (140, 155).
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32">
         <image href="PngSuite/basn0g04.png" width="64" height="32"
             preserveAspectRatio="none"/>
         </svg>`, 1.0f, imgBase);
     immutable edgeLo = bmp.getLine!PMColor(12)[15];
     immutable edgeHi = bmp.getLine!PMColor(12)[16];
-    assert(edgeLo.r == 72 && edgeHi.r == 80, "scaled images sample bilinearly");
+    assert(edgeLo.r == 143 && edgeHi.r == 151, "scaled images sample bilinearly");
 
     // data: URI hrefs (§17.1.2: href is a URI, and struct-image-04-t
     // embeds a JPEG and PNG this way). A 1x1 opaque-red PNG scaled to
