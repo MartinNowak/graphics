@@ -5298,11 +5298,14 @@ private struct Renderer
 
             case "feGaussianBlur":
             {
-                // stdDeviation is "s [t]"; a lone value blurs both axes.
+                // §15.19: stdDeviation is "s" or "sx sy" - the pair gives the
+                // two axes separately, a lone value blurs both, and a zero
+                // leaves its own axis untouched.
                 float s1 = 0, s2 = 0;
                 size_t seen = 0;
                 if (auto p = "stdDeviation" in e.attrs)
                     foreach (t; numList(*p))
+                    {
                         if (seen < 2)
                             try
                             {
@@ -5312,6 +5315,7 @@ private struct Renderer
                             catch (ConvException)
                                 {}
                         ++seen;
+                    }
                 if (seen == 1)
                     s2 = s1;
                 Raster o;
@@ -8465,6 +8469,33 @@ unittest
     assert(px.r > 60 && px.r < 68, `red is the white showing through: ${to!string(px)}`);
     assert(px.g > 177 && px.g < 185, `green straight 1/3: ${to!string(px)}`);
     assert(px.b > 219 && px.b < 227, `blue straight 2/3: ${to!string(px)}`);
+}
+
+unittest
+{
+    // §15.19's two-number 'stdDeviation' is per-axis: "8 0" smears along x
+    // and keeps y sharp, "0 8" is the other way round. Reading the pair as
+    // one number turns both cases into the same isotropic blob, which is
+    // what the suite's filters-gauss-02-f is there to catch.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80">
+        <filter id="fx" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="8 0"/>
+        </filter>
+        <rect x="30" y="30" width="20" height="20" filter="url(#fx)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(40)[20].a > 0, "x blur: ink reaches out along x");
+    assert(bmp.getLine!PMColor(20)[40].a == 0, "x blur: nothing spreads above the box");
+    assert(bmp.getLine!PMColor(20)[20].a == 0, "x blur: no diagonal leak");
+
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80">
+        <filter id="fy" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="0 8"/>
+        </filter>
+        <rect x="30" y="30" width="20" height="20" filter="url(#fy)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(20)[40].a > 0, "y blur: ink reaches out along y");
+    assert(bmp.getLine!PMColor(40)[20].a == 0, "y blur: nothing spreads left of the box");
+    assert(bmp.getLine!PMColor(20)[20].a == 0, "y blur: no diagonal leak");
 }
 
 unittest

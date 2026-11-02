@@ -166,6 +166,11 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | a `use` instance of a `symbol` or `svg` -      |            |
 |                       | clips what it holds to its box (§7.6.4,        |            |
 |                       | §7.7, §19.4)                                   |            |
+| step 51               | feGaussianBlur's 'stdDeviation' is one or      | 2.94 M     |
+|                       | two numbers - x then y, and a zero leaves      |            |
+|                       | its own axis sharp; the pair's counter sat     |            |
+|                       | outside the loop body, so its last token       |            |
+|                       | alone set both axes (§15.19)                   |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1741,23 +1746,56 @@ fallback - against the revision 1.5 file in `suite/`, which we resolve to
 its lime external squares. Both were ceilings before the clip and both
 stay ceilings.
 
-Up next - step 51: `primitiveUnits`, §15.1's second coordinate system
-inside a filter. Seven files set it - `filters-offset-02-b` (4,176),
-`filters-felem-02-f` (2,912), `filters-image-04-f` (1,298),
-`filters-image-03-f` (1,185), `filters-tile-01-b` (1,076),
-`filters-light-03-f` (915) and `filters-conv-05-f` (153.6 K, one of the
-white-page rows) - and `filters-offset-02-b` measures the gap directly.
-Its three boxes each put a filtered square exactly over an unfiltered
-one, so the correct answer is three green squares; the reference is three
-green squares and ours has a red band down the right and a red band along
-the bottom of the first - `dx="0.1" dy="0.2"` at a 100-unit bbox is 10
-and 20 device pixels, and our lime stops at x=139 and y=219 inside a
-frame at 50..150 / 130..230 - and half of the third (`dx="-1"`, our lime
-stops at the middle of the box). The middle one, `dx="1" dy="1"`, does
-land, so the primitive scale is reaching some parameters and not others;
-the rest of that row, 989 + 115, is its DRAFT band and a
-`$Revision: 1.2 $` label set against our 1.4, which makes the capture
-stale on its own terms.
+Step 51 is §15.19's two-number 'stdDeviation'. feGaussianBlur takes one
+or two numbers: the pair is the standard deviation along x and along y
+separately, and a zero leaves its own axis untouched, so "20 0" smears
+sideways under a hard top and bottom and "0 10" is the other way round.
+The parser filled s1/s2 with a `seen` counter, and that counter sat
+outside the `foreach` body - D takes the body to be the single `if` -
+so the loop never advanced it, every token overwrote s1, and the
+`seen == 1` line then copied that last token into s2. "20 0" collapsed
+to 0/0, which blurs nothing, and "0 10" collapsed to 10/10, which
+blurs both ways: the two filters in the suite's own test of the
+property drew one identical blob and one untouched pair. The four other
+number-list readers in the switch (`order`, `baseFrequency`, `radius`
+and `kernelUnitLength`) already brace their bodies; this was the odd
+one.
+
+`filters-gauss-02-f` states the rule in its own description - "blurred
+only in the non-zero direction" - and its boxes now smear along their
+own axis only, 4,730 -> 913; `filters-gauss-01-b`'s
+`stdDeviation="20 1"` box takes the same correction, 3,050 -> 632.
+What is left in both is the profile of the blur rather than its shape:
+a sigma that wide goes through the three-box approximation the engine
+uses above sigma 2, so the falloff and where it stops sit a few pixels
+off the reference. `filters-gauss-01-b` is a stale capture as well -
+its PNG says `$Revision: 1.6 $`, `suite/` holds 1.7.
+
+Two new unittests pin the pair: `stdDeviation="8 0"` puts ink 10 px out
+to either side of the box and nothing above it, `"0 8"` the reverse,
+and both leave the corner clear, which is the pixel an isotropic blur
+would fill.
+
+Two rows moved, -6,235 in all - 526 rows, 2,942,094 AE.
+
+Up next - step 52: the primitive subregion's defaults, §15.1 again. A
+primitive's x/y/width/height are primitiveUnits numbers, but the sides
+it leaves out default to the *filter region*, not to the filter
+element's own -10%/120% numbers. `primSubregion` shares `lengthBox`
+with the region and so borrows those defaults, which puts a primitive
+that gives only width/height 10% of the bbox off both leading edges.
+`filters-offset-02-b`'s first box is that case: `feFlood
+width="100%" height="100%"` inside a filter whose region is
+`x="0%" y="0%" width="200%" height="200%"`, so our flood starts 10 px
+left of and above where the region starts, and after `feOffset
+dx="0.1" dy="0.2"` its lime stops 10 px short of the frame's right edge
+and 10 px short of its bottom where the reference is solid green.
+`feImageRect` already defaults its absent sides to the region; the same
+shape fits here. The third box of that row is a different matter and
+stays a ceiling: `feoffset3` is `x="-100%" width="200%"` around a lime
+square at 430..530, so its region covers the frame at 330..430 and the
+`dx="-1"` source that should land in it is the part of that lime which
+runs off the right edge of the page.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -1894,6 +1932,15 @@ stale on its own terms.
   result boxes (144x117, 142x117, 130x92, 128x105) carry 10.9 K strong-delta
   pixels, and the only unit content in the file, a `12pt` label, was worth the
   158 AE step 24 took off it.
+- Filter offscreens are page-sized and page-originated: `Raster` carries a
+  width and a height but no origin, so source graphic lying outside the page
+  never reaches the chain. That is the whole of `filters-offset-02-b`'s third
+  box, 5,145 of its strong-delta pixels: the region is 330..430, the lime
+  square it must offset into that region runs 430..530 with the page ending at
+  480, so only the 430..479 strip exists to be shifted and our lime stops at
+  the middle of the frame where the reference fills it. Closing it means
+  giving every filter raster an origin and padding the scratch past the page
+  edge.
 - Gradient ramps that change colour across a `stop-opacity` change
   (`pservers-grad-13-b` 2.8 K, `-05-b` 1.0 K, `-18-b` 1.1 K): the archived
   references interpolate `stop-color` and `stop-opacity` separately - step 22
@@ -1987,7 +2034,8 @@ stale on its own terms.
   to="../images/pinksquidj.png" begin="2s">` reaches 2 s in - the authored
   state, ours, is the blue one. Its `feImage` box and its `<image>` twin
   land at the reference's place and size, so the fit is right and the
-  colour is the capture's.
+  colour is the capture's. `filters-gauss-01-b` (632 after step 51) is
+  the same drift: its PNG says `$Revision: 1.6 $` and `suite/` holds 1.7.
 
 ## Backlog (small, opportunistic)
 

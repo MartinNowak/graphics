@@ -138,8 +138,8 @@ filters-displace-02-f.svg OK 1065
 filters-example-01-b.svg OK 2342
 filters-felem-01-b.svg OK 479
 filters-felem-02-f.svg OK 2912
-filters-gauss-01-b.svg OK 3050
-filters-gauss-02-f.svg OK 4730
+filters-gauss-01-b.svg OK 632
+filters-gauss-02-f.svg OK 913
 filters-gauss-03-f.svg OK 463
 filters-image-01-b.svg OK 567
 filters-image-02-b.svg OK 5471
