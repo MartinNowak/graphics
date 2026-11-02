@@ -148,6 +148,11 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | were encoded, so loading one re-encodes them   |            |
 |                       | onto the page's own 2.2 curve - for `image`    |            |
 |                       | and feImage alike (PNG 1.2 §4.2.2.3)           |            |
+| step 47               | a bare `float` field starts as NaN, not 0, and | 2.97 M     |
+|                       | stroke-dashoffset's initial value is 0 (§11.4);|            |
+|                       | so every dash length came out NaN-wide: a      |            |
+|                       | stroke-dasharray with no dashoffset drew       |            |
+|                       | nothing at all                                 |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1572,14 +1577,45 @@ read a gAMA 45000 picture, whose exponent is 1.0101 - almost identity,
 and the reference behaves as though it were exactly identity, so
 honouring it moves a few mid greys one step.
 
-Up next - step 47: while triaging the dash rows, `stroke-dasharray`
-without a `stroke-dashoffset` turned out to paint nothing at all. The
-style struct holds a bare `float dashOffset;`, and D seeds a float
-field with `float.init`, which is NaN - the trap the source already
-notes at three other places. `seg = 4 - NaN` fails `seg > 0`, so the
-dash pass handed the stroker an empty path. §11.4's initial value is 0.
-The rasterizer unittest missed it because the element it draws writes
-its own `stroke-dashoffset="0"`.
+Step 47 fixed the default of `stroke-dashoffset`. The style struct held
+a bare `float dashOffset;`, and D seeds a float field with `float.init`
+- NaN. The source warns about that trap at three other places already;
+this was the last bare float field in the module, and a grep for one is
+empty now. `svgDash` opens the pattern at `offset % L`, so the first
+dash came out `intervals[0] - NaN` wide, that failed the `seg > 0`
+test, and the dash pass handed the stroker an empty path: a
+`stroke-dasharray` with no `stroke-dashoffset` drew nothing at all, on
+any shape. §11.4's initial value is 0, so that is what the field says
+now. The rasterizer unittest had pinned the dash for six steps without
+catching it, because the element it draws also writes
+`stroke-dashoffset="0"`; it draws the pattern twice now, with the
+attribute and without.
+
+Fifteen rows moved, -9,338 in all - 526 rows, 2,969,948 AE. Eleven
+down: `animate-elem-35-t` 8,353 -> 4,296, `painting-stroke-06-t`
+4,058 -> 1,626, `painting-stroke-09-t` 2,299 -> 642, the three
+`filters-overview` files -404/-414/-413 each, whose page frame is
+dashed, `animate-elem-41-t` -46, `-78-t` -29, `-33-t` -5 and
+`interact-pevents-07-t` with `animate-interact-pevents-02-t` -2 each.
+Four up, +123 together: `interact-pevents-09-f` +38,
+`animate-interact-pevents-04-t` +37, `interact-pevents-08-f` +24 and
+`animate-interact-pevents-03-t` +24. All four are hairline
+`stroke-width="1"` frames dashed `1,1` or `3,3`, and cropped, both
+sides draw the same dashed rectangles at the same places; which pixel a
+dash boundary takes is rasterizer detail, and that is the whole of the
+difference.
+
+Up next - step 48: `paths-data-02-t` (5,496) has one cluster left, a
+6,167-pixel one over x=331..456, y=10..128, and it is a single subpath
+of `Bez_fill_MQzmqz`: `M372 130Q272 50 422 10zm70 0q50-150-80-90z`.
+The file pins that leaf's own vertices with 4x4 markers - a moveto at
+442,130, which is `m70 0` measured from 372,130 - and we never draw
+it. `addSVGPath` takes the current point of every relative command
+from `path.points[$-1]`, and `Path.close` appends a Close verb with no
+point of its own, so after a `z` that is still the last point the
+*previous* command wrote. §9.3.2 says a closepath leaves the subpath's
+start as the current point; read the wrong way round, `m70 0` starts
+at 492,10 and its curve runs off through the top of the canvas.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -1721,6 +1757,13 @@ its own `stroke-dashoffset="0"`.
   `filters-color-01-b`'s 2,480, all that is left of it once step 43 put
   its five panels at AE 0, is that same floor: ~1.9 K across its five
   Verdana labels, and ~540 in the frame ring.
+- `painting-stroke-06-t` (1.6 K) is what step 47 left of it, and the
+  rest is not a feature. Cropped to its two dash rows, ours and the
+  reference put the dashes at the same places and the same widths; what
+  is left is the 1-px decision every dash boundary makes under
+  `scale(1.8)`, where a 5-unit dash is 9 device pixels wide and a
+  2-unit one 3.6 - which is where all of it sits, y=99..117 (the
+  `5,2,5,5,2,5` pair) and y=153..171 (`2` with `stroke-dashoffset="2"`).
 - White-page references (~1.46 M, 44% of the 3.33 M baseline): ten tests'
   reference PNGs were captured over an *opaque white page* while our canvas
   is transparent, so their AE is page background, not content. Re-comparing

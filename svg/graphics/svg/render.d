@@ -1064,7 +1064,11 @@ private struct Renderer
         JoinStyle joins;
         float miterLimit=4;
         float[] dash;      // null/empty: solid stroke
-        float dashOffset;
+        // stroke-dashoffset's initial value is 0 (§11.4). A bare
+        // `float dashOffset;` seeds float.init, which for a float is
+        // NaN, and a NaN offset makes the first dash's length NaN, so a
+        // stroke-dasharray with no stroke-dashoffset paints nothing.
+        float dashOffset = 0;
 
         // Text attributes, inherited like the paint attributes.
         string family;
@@ -7414,6 +7418,16 @@ unittest
     assert(bmpD.getLine!PMColor(10)[11].r == 255); // dash at 10..14
     assert(bmpD.getLine!PMColor(10)[15].r == 0);   // gap at 14..18
     assert(bmpD.getLine!PMColor(10)[19].r == 255); // dash at 18..22
+
+    // ...and the same pattern with no stroke-dashoffset at all: the
+    // property's initial value is 0 (§11.4), which is not what an
+    // uninitialised float field holds, and this element used to vanish.
+    auto bmpA = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
+        <path d="M10,10 h20" stroke="red" stroke-width="6" stroke-dasharray="4"/>
+        </svg>`);
+    assert(bmpA.getLine!PMColor(10)[11].r == 255, "dasharray with no dashoffset");
+    assert(bmpA.getLine!PMColor(10)[15].r == 0, "and the gap is still a gap");
+    assert(bmpA.getLine!PMColor(10)[19].r == 255, "and the next dash still starts");
 }
 
 unittest
