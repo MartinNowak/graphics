@@ -5990,10 +5990,12 @@ private struct Renderer
     }
 
     // Filter primitive subregion (§15.1): x/y/width/height restrict the
-    // primitive, defaulting to the filter's own x/y/width/height - read
-    // in primitiveUnits, so when the units differ it is NOT the same box
-    // as the effects region. A zero-size subregion makes the primitive's
-    // result transparent black.
+    // primitive and are read in primitiveUnits, so when the units differ it
+    // is NOT the same box as the effects region. The sides a primitive
+    // leaves out, though, are the filter region's own sides: §15.7.3 says
+    // the default subregion IS the filter region, and a primitive that
+    // gives only some of the four has to fill the rest the same way. A
+    // zero-size subregion makes the primitive's result transparent black.
     IBox4 primSubregion(in Element e, in FilterSpec f, in IBox4 region,
                         in IBox4 basis, in Matrix ctm)
     {
@@ -6001,14 +6003,11 @@ private struct Renderer
             && "width" !in e.attrs && "height" !in e.attrs)
             return region; // §15.7.3: the default subregion IS the filter region
 
-        string g(string k, string def)
-        {
-            if (auto p = k in e.attrs)
-                return *p;
-            return def;
-        }
-        return lengthBox(g("x", ""), g("y", ""), g("width", ""),
-                         g("height", ""), f.primsObjBB, basis, ctm);
+        immutable b = primBox(e, f, region, basis, ctm);
+        if (b.width <= 0 || b.height <= 0)
+            return IBox4();
+        return IBox4(cast(int) floor(b.x), cast(int) floor(b.y),
+                     cast(int) ceil(b.right), cast(int) ceil(b.bottom));
     }
 
     // A box of four <length>s in device pixels: objectBoundingBox
@@ -6047,14 +6046,15 @@ private struct Renderer
         return bboxToDevice(FRect(x, y, x + w, y + h), ctm);
     }
 
-    // feImage's placement rect (§15.18, continuous device coords):
-    // specified x/y/width/height are primitiveUnits lengths like any
-    // primitive subregion (percentages against the viewport in
-    // userSpaceOnUse, bbox fractions in objectBoundingBox), but an
-    // absent side defaults to 0%/100% *of the filter region* - not the
-    // §15.1 -10%/120% defaults the suite's other primitives get.
-    FRect feImageRect(in Element e, in FilterSpec f, in IBox4 region,
-                      in IBox4 basis, in Matrix ctm)
+    // A primitive's placement rect in continuous device coords: its
+    // x/y/width/height are primitiveUnits lengths (percentages against the
+    // viewport in userSpaceOnUse, bbox fractions in objectBoundingBox), and
+    // an absent side is the filter region's side - §15.1's rule for a
+    // subregion, which §15.18 gives feImage outright. An unparseable
+    // number counts as absent. No size check here: the callers want empty
+    // boxes for different reasons.
+    FRect primBox(in Element e, in FilterSpec f, in IBox4 region,
+                  in IBox4 basis, in Matrix ctm)
     {
         float x, y, w, h; // device pixels
 
@@ -6086,9 +6086,18 @@ private struct Renderer
             h = "height" in e.attrs ? fabs(my1 - my0) : cast(float) (region.y1 - region.y0);
         }
 
-        if (w <= 0 || h <= 0)
-            return FRect(0, 0);
         return FRect(x, y, x + w, y + h);
+    }
+
+    // feImage's placement rect (§15.18): that box, or nothing at all when
+    // the primitive asks for a zero-sized one.
+    FRect feImageRect(in Element e, in FilterSpec f, in IBox4 region,
+                      in IBox4 basis, in Matrix ctm)
+    {
+        immutable b = primBox(e, f, region, basis, ctm);
+        if (b.width <= 0 || b.height <= 0)
+            return FRect(0, 0);
+        return b;
     }
 
     // A user-space rect into the raster's device box (corner AABB).
@@ -8496,6 +8505,47 @@ unittest
     assert(bmp.getLine!PMColor(20)[40].a > 0, "y blur: ink reaches out along y");
     assert(bmp.getLine!PMColor(40)[20].a == 0, "y blur: nothing spreads left of the box");
     assert(bmp.getLine!PMColor(20)[20].a == 0, "y blur: no diagonal leak");
+}
+
+unittest
+{
+    // §15.1 + §15.7.3: a primitive that names only some of x/y/width/height
+    // fills the rest from the *filter region*, not from the filter's own
+    // -10%/120% numbers. Region 10..70, flood 40x40 -> the flood runs
+    // 10..50; read the missing x/y as -10% of the viewport and it starts at
+    // 2 and stops at 42 instead.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80">
+        <filter id="u" filterUnits="userSpaceOnUse" x="10" y="10" width="60" height="60">
+            <feFlood flood-color="lime" width="40" height="40"/>
+        </filter>
+        <rect width="80" height="80" filter="url(#u)"/>
+        </svg>`);
+    bool lime(int x, int y)
+    {
+        immutable p = bmp.getLine!PMColor(y)[x];
+        return p.a > 200 && p.g > 200 && p.r < 80;
+    }
+    assert(lime(30, 30), "the flood covers its own box");
+    assert(lime(45, 30), "and reaches the width it asked for, measured from the region");
+    assert(!lime(5, 30), "starting at the region, not 10% of the viewport left of it");
+    assert(!lime(65, 30), "and no further than that width");
+
+    // The same reading in objectBoundingBox primitiveUnits, which is what
+    // filters-offset-02-b's first box measures: bbox 40x40 at 20..60, region
+    // 0%/200% -> 20..100, so the flood is 20..60 and feOffset +0.1/+0.2
+    // shifts it 4 and 8 px to 24..64 x 28..68.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80">
+        <filter id="o" primitiveUnits="objectBoundingBox"
+                x="0%" y="0%" width="200%" height="200%">
+            <feFlood flood-color="lime" width="100%" height="100%"/>
+            <feOffset dx="0.1" dy="0.2"/>
+        </filter>
+        <rect x="20" y="20" width="40" height="40" fill="red" filter="url(#o)"/>
+        </svg>`);
+    assert(lime(40, 40), "the offset flood still covers the middle of the box");
+    assert(lime(62, 40), "and reaches 4 px past it along x");
+    assert(lime(40, 66), "and 8 px past it along y");
+    assert(!lime(22, 26), "the region, not bbox -10%, is where it starts");
 }
 
 unittest

@@ -171,6 +171,12 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | its own axis sharp; the pair's counter sat     |            |
 |                       | outside the loop body, so its last token       |            |
 |                       | alone set both axes (§15.19)                   |            |
+| step 52               | a primitive subregion takes its absent         | 2.94 M     |
+|                       | sides from the filter region, not from         |
+|                       | the element's own -10%/120% numbers, so        |
+|                       | a flood giving only width/height sat 10%       |
+|                       | of the bbox off both leading edges             |
+|                       | (§15.1, §15.7.3)                               |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1778,24 +1784,64 @@ would fill.
 
 Two rows moved, -6,235 in all - 526 rows, 2,942,094 AE.
 
-Up next - step 52: the primitive subregion's defaults, §15.1 again. A
-primitive's x/y/width/height are primitiveUnits numbers, but the sides
-it leaves out default to the *filter region*, not to the filter
-element's own -10%/120% numbers. `primSubregion` shares `lengthBox`
-with the region and so borrows those defaults, which puts a primitive
-that gives only width/height 10% of the bbox off both leading edges.
-`filters-offset-02-b`'s first box is that case: `feFlood
-width="100%" height="100%"` inside a filter whose region is
-`x="0%" y="0%" width="200%" height="200%"`, so our flood starts 10 px
-left of and above where the region starts, and after `feOffset
-dx="0.1" dy="0.2"` its lime stops 10 px short of the frame's right edge
-and 10 px short of its bottom where the reference is solid green.
-`feImageRect` already defaults its absent sides to the region; the same
-shape fits here. The third box of that row is a different matter and
-stays a ceiling: `feoffset3` is `x="-100%" width="200%"` around a lime
-square at 430..530, so its region covers the frame at 330..430 and the
-`dx="-1"` source that should land in it is the part of that lime which
-runs off the right edge of the page.
+Step 52 is the other half of §15.1: where a primitive's subregion starts
+when the primitive does not say. x/y/width/height are primitiveUnits
+numbers, so they are not the effects region when the units differ, but
+the sides the primitive leaves out are that region's own sides -
+§15.7.3 says the default subregion IS the filter region, and a primitive
+naming only some of the four has to fill the rest the same way.
+`primSubregion` instead handed all four attribute names to `lengthBox`,
+which is the filter region's reader and supplies §15.1's -10%/120%
+defaults, so a primitive that gave only width/height sat 10% of the bbox
+off both leading edges.
+
+The box was already being resolved correctly one case over. `feImageRect`
+walks the four sides itself - viewport percentages in userSpaceOnUse,
+bbox fractions in objectBoundingBox - and takes a missing side from the
+region. That body is now `primBox`, returning continuous device coords;
+`primSubregion` rounds it out to a pixel box, empty when the primitive
+asks for a zero width or height, and `feImageRect` keeps only its own
+zero-size check. `lengthBox` is back to serving the filter region alone.
+
+`filters-offset-02-b`'s first box is the reading: `feFlood
+width="100%" height="100%"` inside `x="0%" y="0%" width="200%"
+height="200%"`, so the flood begins at the region's edge and its own
+100x100 extent ends where the bbox ends. The old defaults started it 10
+px early in both axes, the intersection with the region hid that, and
+after `feOffset dx="0.1" dy="0.2"` the lime came out 10 px short of the
+frame's right edge and 10 px short of its bottom. Each of that row's
+three boxes lays a filtered square over an unfiltered one, so the answer
+is three solid green squares; the first one is now as green as the
+second, and their residual clusters match to the pixel at 392 each - the
+antialiased fringe of the 2-unit black frame, which the 2009 capture has
+and our rasterizer draws crisp.
+
+The row only falls 837 because most of it was never the subregion. 5,145
+of its strong-delta pixels are the third box, whose offset source lies
+off the page (new ceiling bullet below), and 989 + 115 are the DRAFT
+band and a `$Revision: 1.2 $` label set against our 1.4.
+
+Two new unittests pin the rule in each primitiveUnits. With the region at
+10..70, a `feFlood width="40" height="40"` with no x/y runs 10..50 and
+not 2..42; and the objectBoundingBox form of the suite's own filter puts
+the offset flood 4 px past the box along x and 8 px along y while
+leaving the corner it used to fill clear.
+
+One row moved, -837 - 526 rows, 2,941,257 AE.
+
+Up next - step 53: the filter family's remaining non-ceiling rows, led
+by `filters-blend-01-b` (7,426) and the twins `filters-overview-02-b`
+(5,633) and `filters-overview-03-b` (5,731). The twins are the cheaper
+read: their diff clusters are byte-identical, both dominated by one
+122x102 box at x=317..438, so a single shared primitive is wrong rather
+than two features, and the rest of both rows is DRAFT band and label.
+`filters-blend-01-b` is the colour case - 36,623 strong-delta pixels
+spread over the 360x294 union of its overlapping circles but only 7,426
+past the compare's fuzz, which says the blend result is a slightly
+different colour everywhere rather than a different shape anywhere, so
+the thing to test is §15.3's linearRGB default and §15.5's mode
+arithmetic on top of step 46's profiles. `pservers-grad-11-b` (5,323)
+and `masking-path-10-b` (1,921) are the next two after those.
 
 ## Deferred / accepted ceilings (do not chase)
 
