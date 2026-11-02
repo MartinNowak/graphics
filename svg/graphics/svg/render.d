@@ -4868,14 +4868,26 @@ private struct Renderer
 
     // All three attributes present must pass. Lists separate entries with
     // whitespace and/or semicolons (SE; the DOM API splits both ways across
-    // the era). An empty requiredFeatures list passes vacuously; empty
-    // requiredExtensions/systemLanguage lists evaluate to false.
+    // the era). §5.8.3 and §5.8.4 both close the same way: "If a null string
+    // or empty string value is given to attribute 'requiredFeatures', the
+    // attribute returns false" - a list that holds no tokens fails, it does
+    // not pass vacuously. An empty systemLanguage list never matches either.
     static bool conditionsPass(in string[string] a)
     {
         if (auto p = "requiredFeatures" in a)
+        {
+            bool any;
             foreach (f; splitter(replace(replace(strip(*p), ';', ' '), '\t', ' '), " "))
-                if (!f.empty && !featureOK(f))
+            {
+                if (f.empty)
+                    continue;
+                any = true;
+                if (!featureOK(f))
                     return false; // bogus token: this element is not supported
+            }
+            if (!any)
+                return false; // the empty value is false, not vacuous
+        }
 
         // requiredExtensions: no extension is claimed, and the spec makes an
         // empty list false too - the attribute always fails if present.
@@ -7179,19 +7191,23 @@ unittest
     auto px = bmp.getLine!PMColor(5)[5];
     assert(px.b == 255 && px.r == 0 && px.g == 0, to!string([px.r, px.g, px.b])); // only the last rect survives
 
-    // empty requiredFeatures passes vacuously (and a subtree fails whole):
+    // §5.8.3: an empty requiredFeatures value returns false, it does not
+    // pass vacuously (struct-cond-overview-03-f's first blue box, and the
+    // file's "three blue boxes" pass criteria); a failing test drops the
+    // whole subtree.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
-        width="10" height="10" viewBox="0 0 10 10">
+        width="30" height="10" viewBox="0 0 30 10">
+        <rect x="10" width="20" height="10" fill="lime"/>
         <g requiredFeatures="http://www.w3.org/TR/SVG11/feature#SVGDOM-dynamic">
             <rect width="10" height="10" fill="red"/>
         </g>
-        <g requiredFeatures="">
-            <g requiredFeatures="INVALID">
-                <rect width="10" height="10" fill="lime"/>
-            </g>
-        </g>
+        <rect x="10" width="10" height="10" fill="red" requiredFeatures=""/>
+        <rect x="20" width="10" height="10" fill="red" requiredFeatures=" "/>
         </svg>`);
     assert(bmp.getLine!PMColor(5)[5].a == 0, "failing tests drop the whole subtree");
+    assert(bmp.getLine!PMColor(5)[15].g == 255,
+        "empty requiredFeatures: false, so the red never paints");
+    assert(bmp.getLine!PMColor(5)[25].g == 255, "a whitespace-only list: same");
 
     // <switch>: first child whose tests pass renders, the rest never;
     // an untested last child is the fallback (struct-cond-01-t/02-t/03-t).
@@ -7204,6 +7220,7 @@ unittest
             <rect width="10" height="10" fill="blue"/>
         </switch>
         <switch transform="translate(0, 5)">
+            <rect width="10" height="5" fill="blue" requiredFeatures=""/>
             <rect width="10" height="5" fill="red" systemLanguage="de"/>
             <rect width="10" height="5" fill="gold"/>
         </switch>
@@ -7215,7 +7232,8 @@ unittest
     px = bmp.getLine!PMColor(3)[5];
     assert(px.g == 255 && px.r == 0, "the switch transform moves the chosen branch");
     px = bmp.getLine!PMColor(7)[5];
-    assert(px.r == 255 && px.g >= 200 && px.b == 0, "fallback child renders when tests all fail");
+    assert(px.r == 255 && px.g >= 200 && px.b == 0,
+        "fallback child renders when tests all fail, empty requiredFeatures included");
 }
 
 unittest

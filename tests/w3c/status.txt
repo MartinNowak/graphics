@@ -360,7 +360,7 @@ struct-cond-01-t.svg OK 444
 struct-cond-02-t.svg OK 736
 struct-cond-03-t.svg OK 498
 struct-cond-overview-02-f.svg OK 604
-struct-cond-overview-03-f.svg OK 2510
+struct-cond-overview-03-f.svg OK 604
 struct-cond-overview-04-f.svg OK 577
 struct-cond-overview-05-f.svg OK 7485
 struct-defs-01-t.svg OK 461

@@ -189,6 +189,12 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | and only the display half was honoured, so     |            |
 |                       | a hidden child still clipped the whole cell    |            |
 |                       | (§14.3.5)                                      |            |
+| step 55               | an empty `requiredFeatures` is false, not      | 2.94 M     |
+|                       | vacuously true: §5.8.3 ends by ruling a null   |            |
+|                       | or empty value false, so a blank list skips    |            |
+|                       | the element instead of painting it - which     |            |
+|                       | is what empty 'requiredExtensions' and         |            |
+|                       | 'systemLanguage' already did (§5.8.3-5)        |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1933,20 +1939,57 @@ compare's fuzz had already been forgiving the half-tone pixels along the
 cells' half-pixel edges: the two metrics never agree about what a rule
 is worth, so only the AE belongs in the table.
 
-Up next - step 55: `struct-cond-overview-03-f` (2,510) is one 98x78
-block at x=2..99 y=22..99 and §5.8.3 says why - "If a null string or
-empty string value is given to attribute 'requiredFeatures', the
-attribute returns false." We let an empty list pass vacuously, so the
-file's `<rect requiredFeatures="">` paints its default black over the
-blue box underneath while the capture, and the file's own pass criteria
-("three blue boxes are visible"), both want the box untouched. The
-sibling boxes, `requiredExtensions=""` and `systemLanguage=""`, already
-fail the way the reference wants, so this is one clause of
-`conditionsPass` plus the unittest whose comment claims the vacuous pass
-- and whose assert, again, cannot see the difference. `filters-felem-02-f`
-(2,912) follows it: three blocks only, a 76x73 and a 72x68 at two
-filter-region cells and a 107x112 between them, and
-`render-groups-01-b` (3,158) a dozen boxes over its five `g` cases.
+Step 55 is one clause of `conditionsPass`. The three conditional
+processing attributes are true when absent, and a present-but-empty
+`requiredFeatures` read as the vacuous case of "every feature in this
+list is supported" - no features listed, nothing to fail. §5.8.3 shuts
+that reading: after describing how the list is tested it ends "If a null
+string or empty string value is given to attribute 'requiredFeatures',
+the attribute returns false." §5.8.4 says the same words about
+`requiredExtensions`, which we already refused because this renderer
+claims no extension, and an empty `systemLanguage` list has no language
+to match, so those two already landed where the REC puts them.
+
+`conditionsPass` now counts the tokens it tested and fails the element
+when that count is zero. The count covers a value of nothing but
+whitespace too - the split yields no token, so there is nothing to
+accept - and every test goes through this one predicate at all four of
+its call sites: `renderChild`, the `use` instance that skips a
+switched-off target, and both halves of the `<switch>` search. So a
+blank branch inside a `switch` is skipped and the next child takes the
+slot, which is what the second `switch` in the module's own test now
+pins, and the unittest that used to claim the vacuous pass has asserts
+that can actually see the difference.
+
+`struct-cond-overview-03-f` is the suite's test of exactly these three
+blank values - three blue boxes, each with a twin carrying one empty
+attribute - and its pass criteria, "the test passes if three blue boxes
+are visible", agree with the REC and the capture against us: our
+requiredFeatures="" twin painted its default black across the first
+box. 2,510 -> 604. What is left is the row's older residue: 1,365
+pixels of DRAFT band, which is the white label and its host-font AA,
+the revision text under it, and two 2x100 columns at x=0..1 where the
+test frame's stroke disagrees.
+
+Up next - step 56: that last disagreement is worth one experiment
+instead of more assumptions, because it repeats at small scale nearly
+everywhere. Where an axis-aligned 1-px stroke is centred on an integer
+device coordinate our raster splits its coverage evenly across the two
+pixels it straddles - columns 0 and 1 for the test frame's edge at
+x="1", rows 0 and 1 for the DRAFT band's stroke at y="1" - while the
+captures put the whole line in the pixel that *starts* at that
+coordinate and leave the other untouched: opaque black at (240,1)
+here, one opaque green row 70 in `text-align-07-t` where we lay 127
+and 127 across rows 69 and 70, and a single clean column of frame in
+`render-groups-01-b` (3,158), whose 1,717-pixel shell is that stroke
+and little else. Fills are not in question - the same captures agree
+with our 0..100 blue box column for column - so the only question is
+what the stroke raster does when its two coverages are exactly equal.
+It needs measuring gate-wide before being believed, and
+`pservers-pattern-01-b` (3,192) is the counter-case to explain first:
+there the thin line is missing from our side, a pattern tile edge
+rather than a hairline convention. `filters-felem-02-f` (2,912), three
+blocks only, and `text-tselect-02-f` (4,667) follow it.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2221,8 +2264,7 @@ filter-region cells and a 107x112 between them, and
   has the group: 9,556 of its 11,608 raw diff pixels are that empty red
   strip. The rest is hairline placement - the 1-px guide lines are
   opaque on one row in the capture and split 127/127 over two in ours,
-  the same thin-stroke snapping question every 351x2 residual in the
-  family points at.
+  the same question the step-56 lead takes up.
 
 ## Backlog (small, opportunistic)
 
