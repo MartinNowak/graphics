@@ -116,7 +116,7 @@ coords-units-03-b.svg OK 1733
 coords-viewattr-01-b.svg OK 3618
 coords-viewattr-02-b.svg OK 531
 coords-viewattr-03-b.svg OK 1520
-coords-viewattr-04-f.svg OK 5941
+coords-viewattr-04-f.svg OK 1610
 extend-namespace-01-f.svg OK 23580
 filters-background-01-f.svg OK 2680
 filters-blend-01-b.svg OK 7422
@@ -225,7 +225,7 @@ masking-path-02-b.svg OK 459
 masking-path-03-b.svg OK 7025
 masking-path-04-b.svg OK 15512
 masking-path-05-f.svg OK 418
-masking-path-06-b.svg OK 7616
+masking-path-06-b.svg OK 7584
 masking-path-07-b.svg OK 1884
 masking-path-08-b.svg OK 3206
 masking-path-09-b.svg OK 1402
@@ -408,8 +408,8 @@ struct-image-14-f.svg OK 151700
 struct-image-15-f.svg OK 151045
 struct-image-16-f.svg OK 440
 struct-image-17-b.svg OK 588
-struct-image-18-f.svg OK 2613
-struct-image-19-f.svg OK 1312
+struct-image-18-f.svg OK 793
+struct-image-19-f.svg OK 1248
 struct-svg-01-f.svg OK 1087
 struct-svg-02-f.svg OK 737
 struct-svg-03-f.svg OK 604

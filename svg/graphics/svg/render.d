@@ -3730,25 +3730,43 @@ private struct Renderer
     // (default xMidYMid meet). An empty or fragment href, an
     // unsupported URL scheme, a zero/negative viewport and an
     // undecodable or missing file all render nothing.
-    // SVG 1.1 §5.7: an href naming an SVG document makes
-    // that document the image's content. Render it offscreen at its
-    // intrinsic size - its own root sizing, setupRoot's conjured
-    // container included for missing/% width/height - and hand the
-    // raster to the viewport fit/clip/compose below. Unreadable or
-    // malformed files and reference loops are broken references:
-    // §5.7 renders nothing for those.
+    // SVG 1.1 §5.7: an href naming an SVG document makes that document the
+    // image's content, and §5.7/§7.5 size the picture from the *referencing*
+    // element. The referenced root's own `x`/`y`/`width`/`height` are
+    // ignored, its `clip` and `overflow` are ignored, and - unless the
+    // reference's `preserveAspectRatio` starts with `defer` - so is that
+    // root's own `preserveAspectRatio`. What fits the viewport is the
+    // reference's `preserveAspectRatio` over "the value of the 'viewBox'
+    // attribute to use ... defined by the referenced content": the
+    // referenced outermost `viewBox`. Where the file has no `viewBox` there
+    // is nothing to fit, and its user units land one for one in the user
+    // space that references it. §15.18 gives `feImage` the same processing.
+    //
+    // Two steps, because the referencing element's width/height default to
+    // the reference's natural size and that is written in the file:
+    // `loadRefDoc` reads the document and reports that size - a file that
+    // declares none is 100% of the container, §7.5 - and `renderRefDoc`
+    // draws it into the viewport that references it, at the rate that
+    // viewport is being drawn, so the document is rasterised once, at the
+    // resolution it is displayed at. Rendering the file on its own page and
+    // fitting that raster into the viewport applies the fit twice, and
+    // coords-viewattr-04-f is the suite's proof of the difference.
+    // Unreadable or malformed files and reference loops are broken
+    // references: §5.7 renders nothing for those.
     //
     // `view` is the href's fragment: §17.3.2's rules are written for any
     // IRI that locates an SVG document, a link from a source document
     // included, so the view selection belongs to the reference and not to
     // the file. The four rules and the re-rooting are exactly the ones the
     // viewer's own URL goes through in renderSVG.
-    Bitmap svgImageBitmap(string path, string view = "")
+    bool loadRefDoc(string path, string view, out Renderer t, out size_t head,
+        out float[2] natural)
     {
+        head = Document.unknown;
+        natural = [0.0f, 0.0f];
         if (openDocs.length >= 8 || canFind(openDocs, path))
-            return Bitmap(); // loop (or runaway nesting): paints nothing
+            return false; // loop (or runaway nesting): paints nothing
 
-        Renderer t;
         try
         {
             t.doc = parseSVG(cast(string) readText(path));
@@ -3759,23 +3777,87 @@ private struct Renderer
             t.cssSib = cssPrevSib(t.doc.nodes, t.cssParent);
             t.svgFonts = collectFonts(t.doc, t.docBase);
             t.openDocs = openDocs ~ path;
-            t.zoom = 1.0f; // natural pixels; the fit below scales the
-                // raster into the <image>'s viewport
+            t.zoom = 1.0f; // the viewport arrives already in device pixels
             auto sel = viewFragment(t.doc, view);
             t.fragRoot = sel.svg;
             t.fragView = sel.spec;
             // A `view` written inside a nested <svg> displays that element,
-            // so the intrinsic size becomes the nested element's own and
+            // so the natural size becomes the nested element's own and
             // everything beside it is out of the picture.
-            auto head = t.doc.root;
+            head = t.doc.root;
             if (sel.svg != Document.unknown)
                 head = sel.svg;
-            t.setupRoot(t.rootView(t.doc.nodes[head])); // canvas + fit
+            // The file's own width/height. §5.7 ignores them as the viewport
+            // - that is the referencing element's - but they are still the
+            // natural size a referencing element with no width/height falls
+            // back to, and the implicit viewBox of a file that declares none.
+            LengthCtx lc;
+            lc.vpW = vpW; // this document is the container §7.5 gives
+            lc.vpH = vpH; // the reference, so its % sizes resolve here
+            auto ra = t.rootView(t.doc.nodes[head]);
+            // A file that declares no size of its own is 100% of the
+            // container, so the fallback is the referencing viewport - not
+            // 100 units. struct-image-16-f chains two such files, and a
+            // 100-unit square would be letterboxed inside it.
+            natural[0] = ra.convLen("width", lc.vpW, lc, RefAxis.width);
+            natural[1] = ra.convLen("height", lc.vpH, lc, RefAxis.height);
+        }
+        catch (Exception)
+            return false; // unreadable / malformed document
+        return natural[0] > 0 && natural[1] > 0;
+    }
+
+    // Draw the loaded reference into the viewport that references it: `vpU`
+    // is that viewport in the referencing element's user units, `k` the rate
+    // those units are being drawn at - so the file is rasterised once, at the
+    // resolution it is displayed at - and `parRaw` is the referencing
+    // element's preserveAspectRatio, which is what fits; the file's own
+    // counts only under `defer`, §5.7's one exception.
+    Bitmap renderRefDoc(ref Renderer t, size_t head, float[2] vpU, float[2] k,
+        string parRaw)
+    {
+        try
+        {
+            auto a = t.rootView(t.doc.nodes[head]);
+            immutable pw = vpU[0] * k[0], ph = vpU[1] * k[1];
+            if (!(pw > 0) || !(ph > 0))
+                return Bitmap();
+
+            t.bmp = Bitmap(Bitmap.Config.ARGB_8888, to!uint(round(pw)),
+                to!uint(round(ph)));
+            t.canvas = new Canvas(t.bmp);
+            if (auto p = "viewBox" in a)
+            {
+                float[4] vb;
+                parseViewBox(vb, *p);
+                enforce(vb[2] > 0 && vb[3] > 0, "invalid viewBox");
+                string par = parRaw;
+                if (startsWith(par, "defer"))
+                    par = a.get("preserveAspectRatio", "");
+                t.canvas.matrix = viewFit(vb, pw, ph, parsePAR(par));
+                t.vpW = vb[2]; // % lengths inside the file resolve against
+                t.vpH = vb[3]; // the region its viewBox is drawn through
+            }
+            else
+            {
+                // No viewBox: §5.7 has nothing to fit, so the file's user
+                // units land one for one in the user space that references
+                // it and its viewport is only a clip. struct-image-18-f
+                // measures the difference: a 50x50 file with no viewBox,
+                // referenced through a 25x25 viewport, shows a quarter of
+                // its circle, not a small whole one.
+                Matrix m;
+                m[0][0] = k[0];
+                m[1][1] = k[1];
+                t.canvas.matrix = m;
+                t.vpW = vpU[0];
+                t.vpH = vpU[1];
+            }
             t.inRoot = true; // the <svg> root is already set up
             t.walk(head); // its children are the image content
         }
         catch (Exception)
-            return Bitmap(); // unreadable / malformed document
+            return Bitmap(); // broken geometry inside the reference
         return t.bmp;
     }
 
@@ -3798,24 +3880,54 @@ private struct Renderer
         // fragment is not part of the file name - resolveHref drops it -
         // so it travels separately, as the view selection §17.3.2 gives it.
         auto hash = find(raw, '#');
-        Bitmap img = src.length >= 4 && equalCase(src[$ - 4 .. $], ".svg")
-            ? svgImageBitmap(src, hash.empty ? "" : hash[1 .. $])
-            : loadSVGImage(src);
-        if (img.config == Bitmap.Config.NoConfig)
-            return; // broken reference: §5.7 renders nothing
+        immutable asSvg = src.length >= 4 && equalCase(src[$ - 4 .. $], ".svg");
+        // An SVG reference is fitted into *this* element's viewport (§5.7),
+        // so the viewport has to be measured before the file is drawn; the
+        // file's own size is only the fallback for a width/height the
+        // element leaves out. A raster keeps its own pixels as that size.
+        float[2] nat = [0.0f, 0.0f];
+        Renderer sub;
+        size_t head;
+        Bitmap img;
+        if (asSvg)
+        {
+            if (!loadRefDoc(src, hash.empty ? "" : hash[1 .. $], sub, head, nat))
+                return; // broken reference: §5.7 renders nothing
+        }
+        else
+        {
+            img = loadSVGImage(src);
+            if (img.config == Bitmap.Config.NoConfig)
+                return; // the same, for a raster that will not decode
+            nat = [to!float(img.width), to!float(img.height)];
+        }
 
-        immutable float nw = img.width, nh = img.height;
         auto lc = lengthCtx();
         immutable x = a.convLen("x", 0.0f, lc, RefAxis.width);
         immutable y = a.convLen("y", 0.0f, lc, RefAxis.height);
-        immutable w = a.convLen("width", nw, lc, RefAxis.width);
-        immutable h = a.convLen("height", nh, lc, RefAxis.height);
+        immutable w = a.convLen("width", nat[0], lc, RefAxis.width);
+        immutable h = a.convLen("height", nat[1], lc, RefAxis.height);
         if (!(w > 0) || !(h > 0))
             return;
 
+        immutable par = a.get("preserveAspectRatio", "");
+        if (asSvg)
+        {
+            // The rate this element's user space is being drawn at, so the
+            // reference is rasterised at the resolution it is displayed at.
+            // Its pixels come back covering the viewport exactly, which
+            // leaves the fit below a one-for-one map of device px to user
+            // units - the viewport clip is still the intersection there.
+            immutable kx = sqrt(canvas.matrix[0][0] ^^ 2 + canvas.matrix[1][0] ^^ 2);
+            immutable ky = sqrt(canvas.matrix[0][1] ^^ 2 + canvas.matrix[1][1] ^^ 2);
+            img = renderRefDoc(sub, head, [w, h], [kx, ky], par);
+            if (img.config == Bitmap.Config.NoConfig)
+                return;
+        }
+
+        immutable float nw = img.width, nh = img.height;
         float[4] vb = [0, 0, nw, nh];
-        immutable fit = viewFit(vb, w, h,
-            parsePAR(a.get("preserveAspectRatio", "")));
+        immutable fit = viewFit(vb, w, h, parsePAR(par));
 
         // Paint only the overlap of viewport and image in natural-px
         // space: that intersection IS the viewport clip "slice"
@@ -5263,9 +5375,26 @@ private struct Renderer
                     auto hash = find(href, '#');
                     immutable asSvg = path.length >= 4
                         && equalCase(path[$ - 4 .. $], ".svg");
-                    auto img = asSvg
-                        ? svgImageBitmap(path, hash.empty ? "" : hash[1 .. $])
-                        : loadSVGImage(path);
+                    Bitmap img;
+                    if (asSvg)
+                    {
+                        Renderer rd;
+                        size_t rhead;
+                        float[2] rnat;
+                        if (loadRefDoc(path, hash.empty ? "" : hash[1 .. $],
+                                rd, rhead, rnat))
+                            // §15.18 says feImage's preserveAspectRatio is
+                            // processed as image's, so the file is drawn into
+                            // this rect - the viewport, already in the
+                            // raster's own units - and not on a page of its
+                            // own that then has to be fitted in.
+                            img = renderRefDoc(rd, rhead,
+                                [fr.right - fr.left, fr.bottom - fr.top],
+                                [1.0f, 1.0f],
+                                e.attrs.get("preserveAspectRatio", ""));
+                    }
+                    else
+                        img = loadSVGImage(path);
                     immutable nw = to!float(img.width), nh = to!float(img.height);
                     if (img.config != Bitmap.Config.NoConfig && nw > 0 && nh > 0
                         && !sub.empty)
@@ -6466,6 +6595,111 @@ unittest
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
         <image width="20" height="20" href="missing.svg"/></svg>`, 1, dir ~ "/");
     assert(bmp.getLine!PMColor(10)[10].a == 0, "broken ref paints nothing");
+}
+
+unittest
+{
+    // §5.7's sizing of an SVG reference: the referencing element's viewport
+    // and preserveAspectRatio do the fitting, over the referenced outermost
+    // viewBox, once. The file's own width/height and its own
+    // preserveAspectRatio are on the ignore list - `defer` excepted - and
+    // where the file has no viewBox its user units simply land one for one
+    // in the user space that references it.
+    import std.file : mkdir, remove, rmdir, tempDir, write;
+    import std.path : buildPath;
+    import std.process : thisProcessID;
+
+    immutable dir = buildPath(tempDir, "gsvg-refvp-" ~ to!string(thisProcessID));
+    mkdir(dir);
+    immutable vbOnly = buildPath(dir, "vb-only.svg"),
+             ownPage = buildPath(dir, "own-page.svg"),
+             noVB = buildPath(dir, "no-vb.svg"),
+             noSize = buildPath(dir, "no-size.svg");
+    scope (exit) { remove(vbOnly); remove(ownPage); remove(noVB);
+        remove(noSize); rmdir(dir); }
+
+    // A viewBox and no width/height, the shape of tests/w3c/images/
+    // happysmiley.svg, the file coords-viewattr-04-f references thirteen times.
+    write(vbOnly, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 40">`
+        ~ `<rect width="30" height="40" fill="#00ff00"/>`
+        ~ `<rect x="27" y="37" width="3" height="3" fill="#ff0000"/></svg>`);
+    // A file that brings its own 200x100 page, its own viewBox and its own
+    // fit: §5.7 ignores all three of those under an <image> reference.
+    write(ownPage, `<svg xmlns="http://www.w3.org/2000/svg" width="200"`
+        ~ ` height="100" viewBox="0 0 100 100"`
+        ~ ` preserveAspectRatio="xMaxYMax meet">`
+        ~ `<rect width="10" height="10" fill="#ff0000"/></svg>`);
+    // Size but no viewBox, tests/w3c/images/50x50greencircle.svg exactly,
+    // the file struct-image-18-f references.
+    write(noVB, `<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50">`
+        ~ `<circle cx="25" cy="25" r="20" fill="#00ff00"/></svg>`);
+    // Neither size nor viewBox, one leg of tests/w3c/images/level1.svg,
+    // struct-image-16-f's chain.
+    write(noSize, `<svg xmlns="http://www.w3.org/2000/svg">`
+        ~ `<rect width="100%" height="100%" fill="#00ff00"/></svg>`);
+
+    auto host(string file, string par, string dims)
+    {
+        return renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100"`
+            ~ ` height="100" viewBox="0 0 100 100"><image ` ~ dims
+            ~ ` preserveAspectRatio="` ~ par ~ `" href="` ~ file ~ `"/></svg>`,
+            1, dir ~ "/");
+    }
+    bool greenAt(const Bitmap b, int x, int y)
+    {
+        immutable p = b.getLine!PMColor(y)[x];
+        return p.a == 255 && p.g > 250 && p.r < 5 && p.b < 5;
+    }
+    bool redAt(const Bitmap b, int x, int y)
+    {
+        immutable p = b.getLine!PMColor(y)[x];
+        return p.a == 255 && p.r > 250 && p.g < 5 && p.b < 5;
+    }
+
+    // 50x30 over a 30x40 viewBox: meet is 0.75, and xMinYMin puts the whole
+    // letterbox to the right of the picture rather than around it.
+    auto minMeet = host("vb-only.svg", "xMinYMin meet", `width="50" height="30"`);
+    assert(greenAt(minMeet, 1, 10), "the fit starts at the viewport's edge");
+    assert(greenAt(minMeet, 21, 20) && redAt(minMeet, 21, 29),
+        "0.75 of the viewBox, marker corner included");
+    assert(!greenAt(minMeet, 30, 10), "the leftover width is all at the right");
+    assert(greenAt(minMeet, 10, 1) && greenAt(minMeet, 10, 29),
+        "and the viewport height is covered at both ends");
+
+    // The element's fit wins over the file's: 40x40 of a 100x100 viewBox at
+    // 0.4 flush at the origin, whatever the file's 200x100 page was fitted to.
+    auto ours = host("own-page.svg", "xMinYMin meet", `width="40" height="40"`);
+    assert(redAt(ours, 2, 2) && !redAt(ours, 10, 10), "the element fits it");
+    assert(!redAt(ours, 39, 39), "not the file's own page and fit");
+
+    // `defer` is §5.7's one exception: the file's own fit counts again, and
+    // over a 60x40 viewport that moves the picture 20 units right.
+    auto deferred = host("own-page.svg", "defer xMaxYMax meet",
+        `width="60" height="40"`);
+    assert(redAt(deferred, 21, 2) && !redAt(deferred, 2, 2),
+        "defer: the file's xMaxYMax offsets it");
+    auto direct = host("own-page.svg", "xMinYMin meet", `width="60" height="40"`);
+    assert(redAt(direct, 2, 2) && !redAt(direct, 21, 2),
+        "without defer: the element's xMinYMin does");
+
+    // With no viewBox there is nothing to fit, so the file's user units land
+    // one for one in this user space and the viewport is only a clip: a
+    // 50x50 circle referenced through a 20x20 viewport shows a quarter of
+    // itself, not a small whole one.
+    auto clipped = host("no-vb.svg", "", `x="5" y="5" width="20" height="20"`);
+    assert(greenAt(clipped, 17, 17), "the picture is at its own scale");
+    assert(greenAt(clipped, 12, 24) && greenAt(clipped, 24, 12),
+        "out to the file's own radius, where a fit would have shrunk it");
+    assert(!greenAt(clipped, 6, 6), "the viewport still cuts the quarter");
+    assert(!greenAt(clipped, 26, 26), "and nothing spills past it");
+
+    // A file that declares no size of its own is 100% of the container,
+    // §7.5, so it covers the viewport instead of letterboxing a 100x100 page.
+    auto fills = host("no-size.svg", "", `x="10" y="10" width="40" height="20"`);
+    assert(greenAt(fills, 11, 11) && greenAt(fills, 48, 28),
+        "the file fills the viewport that references it");
+    assert(!greenAt(fills, 9, 9) && !greenAt(fills, 50, 30),
+        "and stops at that viewport's edges");
 }
 
 unittest

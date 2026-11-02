@@ -141,6 +141,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 44               | a filter's background inputs read the page     | 3.01 M     |
 |                       | beneath the element, not the element itself:   |            |
 |                       | the page is named before the swap (§15.4)      |            |
+| step 45               | an SVG file referenced by `image` is sized     | 3.01 M     |
+|                       | by the element that references it - once, at   |            |
+|                       | the rate it is displayed (SVG 1.1 §5.7)        |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1489,25 +1492,52 @@ nothing in this suite: every file that reads those inputs declares it
 (`filters-background-01-f` four times, the three `filters-overview`
 files once each), so the `accumulate`/`new` bookkeeping stays behind it.
 
-Up next - step 45: `svgImageBitmap` renders a reference to an SVG
-document, from `image` or `feImage`, on the default 480x360 page and
-then fits that raster into the element's viewport, so the fit runs twice
-and the second time against the wrong aspect. §5.7 fits it once: for an
-SVG reference the referenced root's `x`/`y`/`width`/`height`, its `clip`
-and `overflow` and - unless the element's `preserveAspectRatio` starts
-with `defer` - its own `preserveAspectRatio` are all ignored, and what
-fits the referencing element's viewport is that element's
-`preserveAspectRatio` over the referenced outermost `viewBox`.
-`coords-viewattr-04-f` (5,941) is the suite's test of the options:
-thirteen `image`s of `../images/happysmiley.svg`, an
-`<svg viewBox="0 0 30 40">` with no width or height, fit through every
-align times meet/slice. Cropped per case the nine scored boxes are
-69-522 AE and only the `xMid` ones are low, and only by luck: ours is
-the inner scale min(480/30, 360/40) = 9 times the element's meet, so the
-30x60 `xMinYMin meet` case lands at 0.5625 with an x offset of 6.56
-where the reference is 1.0 flush at x=0, and the 50x30 case lands at the
-right 0.75 but 8.75 px right of where `xMin` puts it. The `feImage` rows
-ride the same call, so this wants a full gate run.
+Step 45 landed §5.7's sizing of a referenced SVG document.
+`svgImageBitmap` drew the file on the default 480x360 page and then
+fitted that raster into the element's viewport, so the fit ran twice and
+the second time against the wrong aspect: `coords-viewattr-04-f`'s 30x60
+`xMinYMin meet` case of a 30x40 viewBox came out at 0.5625 with an x
+offset of 6.56 where the reference is 1.0 flush at x=0. `loadRefDoc` and
+`renderRefDoc` replace it. The file is read once and its outermost
+`viewBox` is fitted once into the *referencing* element's viewport, at
+the rate that viewport is being drawn, so the raster arrives already at
+the resolution it is displayed at. The referenced root's own
+`x`/`y`/`width`/`height`, its `clip` and `overflow` and - unless the
+element's `preserveAspectRatio` starts with `defer` - its own
+`preserveAspectRatio` are dropped. `feImage` shares the code: §15.18
+says its `preserveAspectRatio` is processed as `image`'s, and its
+placement rect already arrives in the raster's own units.
+
+Two neighbouring viewport rules came with it, both §7.5. A file that
+declares no width/height is 100% of the container, not a 100-unit
+square, which is what keeps `struct-image-16-f`'s two-leg chain of
+size-less files filling its page instead of letterboxing a 100x100 one.
+And a file with no `viewBox` has nothing to fit, so its user units land
+one for one in the user space that references it and the viewport is
+only a clip: that is why `struct-image-18-f`'s reference shows a quarter
+of a 50x50 circle through a 25x25 viewport, not a small whole circle.
+All three cases - fit, 100%, clip - are pinned beside the `defer` case
+in the §5.7 unittest.
+
+Four rows moved and none moved up: `coords-viewattr-04-f` 5,941 ->
+1,610, `struct-image-18-f` 2,613 -> 793, `struct-image-19-f` 1,312 ->
+1,248 and `masking-path-06-b` 7,616 -> 7,584, -6,247 in all - 526 rows,
+3,005,687 AE. Cropped per case, 04-f's thirteen images now score 37-189
+each, from 69-522; what is left of that row is its labels, the frame
+ring and the antialiasing along each fitted edge. `struct-image-18-f`'s
+793 is 190 along the quarter's arc and about 600 on the frame ring - 325
+across the top, 298 along the bottom with the label - the half-pixel
+stroker floor recorded under step 27.
+
+Up next - step 46: `struct-image-03-t` (9,296) is the suite's only test
+of a PNG `gAMA` chunk, and `gAMA` is not read anywhere in the library -
+`grep -r gAMA src` is empty. Its five 430x48 bars carry gAMA 0.3, 0.45,
+0.56, 1.0 and 2.0 over stored samples of 193, 168, 152, 102 and 40;
+decode the sample with the file's gamma and all five land at linear
+0.40, which is how the reference shows them - one grey, sRGB 186, five
+times. We take the samples as sRGB and show 207, 187, 173, 128 and 64,
+so the delta is 430x48 of bar per step of gamma. It is a decode-side
+fix, the same colour-management path `color-prof-01-f` (6,811) waits on.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -1654,7 +1684,7 @@ ride the same call, so this wants a full gate run.
   references do keep their alpha. Better of the two readings per test puts
   the suite's content floor near 1.86 M - everything still worth chasing,
   including the ceilings above, lives there.
-- `masking-path-06-b` (7,905): the suite's only `clip="rect(...)"` row, and its
+- `masking-path-06-b` (7,584): the suite's only `clip="rect(...)"` row, and its
   reference is Batik's from-each-edge inset rather than the CSS 2.1 §11.1.2
   geometry §14.3.3 imports. There `rect(<top>,<right>,<bottom>,<left>)` are
   offsets from the top and left border edges, all four from one point, so
