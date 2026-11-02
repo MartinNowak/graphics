@@ -183,6 +183,12 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | element paints; only a layer that resolves     |            |
 |                       | and then covers nothing hides the paint        |            |
 |                       | (§14.3.5, §14.4)                               |            |
+| step 54               | an invisible `clipPath` child is no part       | 2.94 M     |
+|                       | of the clip: §14.3.5 excludes a child made     |            |
+|                       | invisible by 'display' or 'visibility',        |            |
+|                       | and only the display half was honoured, so     |            |
+|                       | a hidden child still clipped the whole cell    |            |
+|                       | (§14.3.5)                                      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1890,22 +1896,57 @@ pixels. `masking-path-08-b` keeps one more whole 50x50 block and that
 one is ours, which is why it no longer sits in the stale-capture list
 below.
 
-Up next - step 54: that block, x=215..264 y=100..149 in
-`masking-path-08-b` (1,968), is a rule held backwards. The cell is
-`clip-path="url(#hiddenclip)"`, whose `clipPath` holds one 100x100 rect
-with `visibility="hidden"`, and §14.3.5's geometry paragraph ends: "If a
-child element is made invisible by 'display' or 'visibility' it does not
-contribute to the clipping path." The clip therefore covers nothing and
-the red must vanish; the capture shows lime and we show red, 2,500 raw
-pixels in one cell. `display:none` is already honoured on clip children,
-which is why the `displayclip` cell beside it sits at 98 pixels of edge.
-The paragraph *above* that sentence is the regression guard: the
-geometry counts "exclusive of rendering properties", so the grid's
-`opacity="0"`, `fill="none"`, `fill-opacity="0"` and `stroke-opacity="0"`
-children must all keep contributing. The module's own clip unittest
-already claims "visibility:hidden still clips" in a comment, with an
-assert that cannot see it - lime wins at that sample either way - so the
-flip needs a sample that distinguishes the two.
+Step 54 is one sentence the module had backwards. The same §14.3.5
+paragraph that makes every `clipPath` child a 1-bit silhouette
+"exclusive of rendering properties such as fill, stroke, stroke-width"
+ends: "If a child element is made invisible by 'display' or 'visibility'
+it does not contribute to the clipping path." Only the display half was
+there. `renderChild` drops a `display:none` subtree before the clip
+rasteriser ever sees it, and the two `clipMode` branches - the one in
+the shape painter, the one in the text painter - then set `doFill =
+true`, which threw away the `s.visible` the ordinary paint path had
+already worked out. A `visibility="hidden"` child therefore painted its
+full outline into the clip mask.
+
+`doFill = s.visible` in both branches is the change. `if (doFill ||
+doStroke)` already guards every draw call, so an invisible child leaves
+the mask alone, and when it was the clip's only child the layer resolves
+but covers nothing - the half step 53 left standing - and the
+referencing element disappears. Inheritance rides along: the clip
+renderer pushes the `clipPath` subtree's own presentation attributes
+onto a fresh style stack, so a `<g visibility="hidden">` inside the
+`clipPath` hides its children exactly as the file's flat attribute does.
+
+Why this survived so long is a unittest that asserted the opposite with
+a sample that could not see it: a `clipPath` holding one hidden 10x100
+rect, sampled at (5,50), where a *different*, contributing child's clip
+covered that pixel regardless of the answer. The case is now four
+independent cells - a child under `opacity="0" fill="none"
+stroke-width="4"` and a child under an 80-unit stroke both still clip,
+which is the "exclusive of rendering properties" half, and a
+`visibility="hidden"` rect plus a hidden `<g>` both leave their cell's
+lime showing through.
+
+One row moved, -1,237 - 526 rows, 2,937,544 AE. `masking-path-08-b`'s
+raw-diff count fell further than its AE, 3,043 -> 593, because the
+compare's fuzz had already been forgiving the half-tone pixels along the
+cells' half-pixel edges: the two metrics never agree about what a rule
+is worth, so only the AE belongs in the table.
+
+Up next - step 55: `struct-cond-overview-03-f` (2,510) is one 98x78
+block at x=2..99 y=22..99 and §5.8.3 says why - "If a null string or
+empty string value is given to attribute 'requiredFeatures', the
+attribute returns false." We let an empty list pass vacuously, so the
+file's `<rect requiredFeatures="">` paints its default black over the
+blue box underneath while the capture, and the file's own pass criteria
+("three blue boxes are visible"), both want the box untouched. The
+sibling boxes, `requiredExtensions=""` and `systemLanguage=""`, already
+fail the way the reference wants, so this is one clause of
+`conditionsPass` plus the unittest whose comment claims the vacuous pass
+- and whose assert, again, cannot see the difference. `filters-felem-02-f`
+(2,912) follows it: three blocks only, a 76x73 and a 72x68 at two
+filter-region cells and a 107x112 between them, and
+`render-groups-01-b` (3,158) a dozen boxes over its five `g` cases.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -1923,10 +1964,19 @@ flip needs a sample that distinguishes the two.
   then `createElementNS` arcs), so the reference is a post-script state no
   static render reaches - the foreign-namespace half of it, ignoring the
   `bd:` elements, is already right.
+  paths-dom-02-f (5.5 K) is that class in one cluster: the root carries
+  `onload="CreatePath();setTimeout('AnimatePath();', 500);"` and the
+  flower it is scored against is the path that script builds, so the
+  static markup has no `d` to draw and its 168x194 block is unreachably
+  dynamic.
 - `conform-viewers` (14 K): references captured after script-driven viewer
   zoom/pan (`onload` handlers, `viewport.zoomAndPan`) — scripting end-states
   again; step 8's viewport sizing did not move them.
 - `interact-*`: pointer events / interactivity — out of scope.
+  `styling-css-06-b` (7.9 K) is the same wall wearing a CSS name: it is
+  the suite's `:visited` / `:hover` / `:focus` test, and its one 269x60
+  block is the row of links whose fill depends on browsing history and a
+  pointing device - UA state no headless render has.
 - `animate-elem-53-t` (2.1 K) / `animate-elem-63-t` (1.0 K): the only two
   animate tests whose references cannot be reached from any static
   end-state frame. 53-t's reference shows the RR square *before* its scale
@@ -2147,10 +2197,9 @@ flip needs a sample that distinguishes the two.
   exists. Reading each montage's own `$Revision:` label sorts the family:
   `conform-viewers-02-f` (7.8 K) 1.2 against 1.6, its page the script-driven
   `viewport.zoomAndPan` state the class note above already covers;
-  `masking-path-08-b` (2.0 K) is 1.1 against 1.7, but its two whole
-  squares are both accounted for now - step 53 took the broken-clip one,
-  the other is the `visibility="hidden"` clip child the step-54 lead
-  claims - and what remains is half-pixel edges;
+  `masking-path-08-b` (0.7 K) is 1.1 against 1.7, but both of its whole
+  squares are gone now - step 53 took the broken-clip one, step 54 the
+  `visibility="hidden"` clip child - and what remains is half-pixel edges;
   `color-prof-01-f` (6.8 K) 1.5 against 1.9, DRAFT band included, which also
   retires step 46's "still waits on a profile reader" reading of it;
   `imp-path-01-f` (5.1 K) 1.3 against 1.5; `pservers-pattern-02-f` (4.0 K)
@@ -2167,6 +2216,13 @@ flip needs a sample that distinguishes the two.
   land at the reference's place and size, so the fit is right and the
   colour is the capture's. `filters-gauss-01-b` (632 after step 51) is
   the same drift: its PNG says `$Revision: 1.6 $` and `suite/` holds 1.7.
+  `text-align-07-t` (6.3 K) drifts the other way - its PNG carries the
+  black test frame but *no* DRAFT band at all, while the 1.9 file still
+  has the group: 9,556 of its 11,608 raw diff pixels are that empty red
+  strip. The rest is hairline placement - the 1-px guide lines are
+  opaque on one row in the capture and split 127/127 over two in ours,
+  the same thin-stroke snapping question every 351x2 residual in the
+  family points at.
 
 ## Backlog (small, opportunistic)
 

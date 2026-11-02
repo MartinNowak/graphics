@@ -2673,10 +2673,14 @@ private struct Renderer
         {
             // Painting a clip mask: a <clipPath> child contributes its
             // filled outline fully opaque - fill/stroke paint and the
-            // opacity properties are all irrelevant, and so is
-            // visibility (masking-path-08-b). display:none children
-            // never get here; renderChild drops those.
-            doFill = true;
+            // opacity properties are all irrelevant, and stroke never
+            // adds clip area (masking-path-08-b's grid). An invisible
+            // child is the exception: §14.3.5 ends "If a child element
+            // is made invisible by 'display' or 'visibility' it does not
+            // contribute to the clipping path", so it leaves the clip
+            // empty. display:none children never get here; renderChild
+            // drops those.
+            doFill = s.visible;
             doStroke = false;
             fillP = Paint(Color.Black);
         }
@@ -3826,8 +3830,9 @@ private struct Renderer
         if (clipMode)
         {
             // Clip mask: text contributes its glyph outlines, opaque
-            // (masking-path-04-b clips with <text> inside the clipPath).
-            doFill = true;
+            // (masking-path-04-b clips with <text> inside the clipPath),
+            // and an invisible run contributes nothing at all (§14.3.5).
+            doFill = s.visible;
             doStroke = false;
             fillP = Paint(Color.Black);
         }
@@ -7897,23 +7902,35 @@ unittest
     assert(bmp.getLine!PMColor(25)[5].a == 0, "empty clipPath: not rendered");
     assert(bmp.getLine!PMColor(35)[5].a == 0, "display:none kids only: not rendered");
 
-    // Mask children: geometry only. visibility:hidden still clips;
-    // opacity / fill=none / a fat stroke are all irrelevant, and stroke
-    // never adds clip area (08-b's case grid).
+    // Clip children are geometry, not paint: opacity, fill=none and a
+    // fat stroke are all irrelevant, and stroke never adds clip area
+    // (08-b's grid). An invisible child is the exception - §14.3.5 ends
+    // "If a child element is made invisible by 'display' or 'visibility'
+    // it does not contribute to the clipping path" - so it leaves the
+    // clip empty and 08-b's hiddenclip cell shows the lime underneath.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
-        <clipPath id="v"><rect width="10" height="100" visibility="hidden"/></clipPath>
-        <clipPath id="o"><rect width="20" height="100" opacity="0" fill="none" stroke="black" stroke-width="4"/></clipPath>
-        <clipPath id="sw"><rect x="40" y="40" width="20" height="20" stroke="black" stroke-width="80"/></clipPath>
-        <rect width="100" height="100" fill="red" clip-path="url(#v)"/>
-        <rect width="100" height="100" fill="lime" clip-path="url(#o)"/>
+        <clipPath id="o"><rect x="10" y="10" width="20" height="20" opacity="0" fill="none" stroke="black" stroke-width="4"/></clipPath>
+        <clipPath id="sw"><rect x="70" y="10" width="20" height="20" stroke="black" stroke-width="80"/></clipPath>
+        <clipPath id="hid"><rect x="10" y="70" width="20" height="20" visibility="hidden"/></clipPath>
+        <clipPath id="inh"><g visibility="hidden"><rect x="70" y="70" width="20" height="20"/></g></clipPath>
+        <rect x="10" y="10" width="20" height="20" fill="lime"/>
+        <rect width="100" height="100" fill="red" clip-path="url(#o)"/>
+        <rect x="70" y="10" width="20" height="20" fill="lime"/>
         <rect width="100" height="100" fill="blue" clip-path="url(#sw)"/>
+        <rect x="10" y="70" width="20" height="20" fill="lime"/>
+        <rect width="100" height="100" fill="yellow" clip-path="url(#hid)"/>
+        <rect x="70" y="70" width="20" height="20" fill="lime"/>
+        <rect width="100" height="100" fill="gold" clip-path="url(#inh)"/>
         </svg>`);
-    assert(bmp.getLine!PMColor(50)[5].g == 255 && bmp.getLine!PMColor(50)[5].b == 0,
-        "visibility/opacity/fill=none irrelevant: lime clips at x5");
-    assert(bmp.getLine!PMColor(50)[15].g == 255 && bmp.getLine!PMColor(50)[15].b == 0,
-        "stroke adds no clip area: lime survives, blue did not overwrite at x15");
-    assert(bmp.getLine!PMColor(45)[45].b == 255, "stroked child: its fill outline clips at (45,45)");
-    assert(bmp.getLine!PMColor(30)[45].a == 0, "and nothing outside the 20px outline (y30 clear)");
+    assert(bmp.getLine!PMColor(20)[20].r == 255,
+        "opacity=0 / fill=none child: it still clips, red paints");
+    assert(bmp.getLine!PMColor(20)[80].b == 255,
+        "a child under an 80-unit stroke: its fill outline clips at (80,20)");
+    assert(bmp.getLine!PMColor(20)[60].a == 0, "stroke adds no clip area");
+    assert(bmp.getLine!PMColor(80)[20].g == 255,
+        "visibility=hidden child: clip empty, yellow gone, lime shows");
+    assert(bmp.getLine!PMColor(80)[80].g == 255,
+        "hidden <g> inside the clipPath: same, by inheritance");
 
     // clip-rule (masking-path-05-f): nested squares on the clipPath CHILD,
     // evenodd punches a hole, nonzero fills solid.
