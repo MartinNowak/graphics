@@ -161,6 +161,11 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | through the current point (§9.3.2); the parser |            |
 |                       | seeded the handle with the current point and   |            |
 |                       | moved the parsed one instead of the first      |            |
+| step 50               | 'overflow' starts at 'hidden' and applies      | 2.95 M     |
+|                       | to every viewport, so an inner `svg` - and     |            |
+|                       | a `use` instance of a `symbol` or `svg` -      |            |
+|                       | clips what it holds to its box (§7.6.4,        |            |
+|                       | §7.7, §19.4)                                   |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1692,10 +1697,76 @@ paths inside `visibility="hidden"` groups that its `<set>` elements
 uncover further along the timeline, which is the operator-activation
 ceiling, not the grammar.
 
+Step 50 landed the clip a viewport comes with. §7.6.4 and §7.7:
+'overflow' applies to viewport-creating elements and its initial value is
+`hidden`, so an inner `<svg>` cuts what it draws at the box its own
+x/y/width/height make, and §19.4 gives a `<use>` instance of a `<symbol>`
+- or of a referenced `<svg>`, §5.6 - that same viewport and that same
+cut. The box was always there: `openViewport` places it and `viewFit`
+maps the viewBox into it. Nothing ever cut at its edge, so whatever the
+fit let past the edge went on painting into the parent.
+`masking-path-03-b`, the suite's own test of the property, puts two
+labels and a green rule outside its inner `<svg>` and its reference shows
+them gone; `coords-viewattr-01-b`'s `slice` cells scale a face to 1.5x a
+30x60 viewport and its reference cuts the face at the frame.
+
+`clipViewport` maps the box itself with `matrix.mapRect` and runs the
+clip under an identity CTM. The engine clips a device-space AABB and
+`Canvas.clipRect` maps the whole-number `IRect` it is handed through the
+current CTM, so handing it x/y/w/h as integers would truncate them before
+the map and put a fitted viewport a pixel off. An axis-aligned CTM -
+every inner viewport the suite has - makes that box exact; a rotated one
+gets a bounding box, which is how the marker viewport's clip, the
+renderer's only other `clipRect`, has always behaved (§22.4).
+`overflow="visible"` skips it, read off the element's own attributes the
+way the marker clip reads it: 'overflow' does not inherit, and CSS rules
+are folded in at `pushStyle`, out of reach of both.
+
+The nested-`<svg>` unittest gained three cases: a rect that starts
+outside the box stops at all four edges and a sibling paints where it
+could not, so the clip ends with the viewport; `overflow="visible"`
+spills; and a `<symbol>` instance cuts at its own 20x20.
+
+Five rows moved, -8,244 in all - 526 rows, 2,948,329 AE.
+`masking-path-03-b` 7,025 -> 1,689 and `coords-viewattr-01-b`
+3,618 -> 681 are the property's own two tests, and what is left of them
+is the host-font label floor and the antialiasing along each fitted edge;
+`filters-color-01-b` gave up 6. Two went up, +35 together, and both are
+`use`-of-`<svg>` instances whose fit is exact, so only a shape's own
+half-pixel stroke reaches past the viewport: `struct-dom-07-f` +26, whose
+three squares its `onload` script paints green while the file authors
+them red, and `struct-use-06-b` +9, whose capture is test revision 1.4 -
+a UA that showed the file's own "external use isn't implemented" red
+fallback - against the revision 1.5 file in `suite/`, which we resolve to
+its lime external squares. Both were ceilings before the clip and both
+stay ceilings.
+
+Up next - step 51: `primitiveUnits`, §15.1's second coordinate system
+inside a filter. Seven files set it - `filters-offset-02-b` (4,176),
+`filters-felem-02-f` (2,912), `filters-image-04-f` (1,298),
+`filters-image-03-f` (1,185), `filters-tile-01-b` (1,076),
+`filters-light-03-f` (915) and `filters-conv-05-f` (153.6 K, one of the
+white-page rows) - and `filters-offset-02-b` measures the gap directly.
+Its three boxes each put a filtered square exactly over an unfiltered
+one, so the correct answer is three green squares; the reference is three
+green squares and ours has a red band down the right and a red band along
+the bottom of the first - `dx="0.1" dy="0.2"` at a 100-unit bbox is 10
+and 20 device pixels, and our lime stops at x=139 and y=219 inside a
+frame at 50..150 / 130..230 - and half of the third (`dx="-1"`, our lime
+stops at the middle of the box). The middle one, `dx="1" dy="1"`, does
+land, so the primitive scale is reaching some parameters and not others;
+the rest of that row, 989 + 115, is its DRAFT band and a
+`$Revision: 1.2 $` label set against our 1.4, which makes the capture
+stale on its own terms.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
   end-states — a CLI renderer has no DOM API surface; verdicts stay as-is.
+  `struct-dom-07-f` (8.0 K) is one of them: its `onload` script paints the
+  three cloned squares green where the file authors them red, so step 50's
+  viewport clip moving it 26 AE is a stroke edge on pixels that already
+  disagree in colour.
   struct-image-11-b (22 K) belongs here too: the references were captured
   after the W3C checker clicked every `<image>` (`onclick` makeGreen), so
   the correct static (blue) state can never match.
@@ -1740,7 +1811,11 @@ ceiling, not the grammar.
   which we paint; its reference was captured without it. Mask the band and the
   row is 580 AE, so the altGlyph rows themselves are at their floor.
   `imp-path-01-f` (5.1 K since step 42) is a second member of that class:
-  4,748 of its 5,055 is that same y=0..25 band.
+  4,748 of its 5,055 is that same y=0..25 band. `text-ws-01-t` (5.3 K),
+  `-02-t` (6.4 K), `-03-t` (5.0 K) and `fonts-glyph-03-t` (6.2 K) are that
+  band and nothing else: each has exactly one diff cluster, 9,556-9,563 px
+  of y=1..22, and what remains of the four rows is 435, 456, 153 and 0 raw
+  pixels - their §10.2.1 whitespace and their glyph runs are at their floor.
 - `text-dom-01-f` (3.5 K), +3 at step 32: the line that carries
   `<tspan rotate="45,90">is</tspan>` is not visible in its reference at all.
   The file's DRAFT band is painted *over* it there, and the only ink the PNG
@@ -1768,7 +1843,10 @@ ceiling, not the grammar.
   aims at the external `svg-root` itself, whose 450x450 lime square is
   scaled into that `use` element's own 122x122. 04-b's reference shows
   colored shapes no spec-correct render of the referenced files produces;
-  07-b's nested-`<svg>` fit is already handled to §7.7.
+  07-b's nested-`<svg>` fit is already handled to §7.7. 06-b's own label
+  reads `$Revision: 1.4 $` against the 1.5 file in `suite/`, and step 50's
+  viewport clip costs 9 AE there - the outer half of that 122x122 clone's
+  stroke, trimmed at the instance's viewport.
 - styling-css-09-f (18.9 K) / styling-css-10-f (9.8 K) / styling-pres-
   05-f (14.3 K): step 12 triage proved the external-sheet machinery
   works end to end (`@import` fetch, unquoted `[id=...]` selectors,
@@ -1888,6 +1966,28 @@ ceiling, not the grammar.
   cannot come from the file's own stop list and no `spreadMethod` gives
   it: `pad` and `reflect` agree with ours until t=1 and `repeat` puts
   yellow at the seam. Keep our reading; the pair is the reference's.
+- Stale captures: the archived PNG is of an *older test revision* than the
+  SVG in `suite/`, so the row is scored against markup that no longer
+  exists. Reading each montage's own `$Revision:` label sorts the family:
+  `conform-viewers-02-f` (7.8 K) 1.2 against 1.6, its page the script-driven
+  `viewport.zoomAndPan` state the class note above already covers;
+  `masking-path-08-b` (3.2 K) 1.1 against 1.7, the two 50x50 squares it
+  misses being clipPath children the 1.7 file draws and §14.4 says to draw;
+  `color-prof-01-f` (6.8 K) 1.5 against 1.9, DRAFT band included, which also
+  retires step 46's "still waits on a profile reader" reading of it;
+  `imp-path-01-f` (5.1 K) 1.3 against 1.5; `pservers-pattern-02-f` (4.0 K)
+  1.2 against 1.3 - and there an independent lattice built from the 1.3
+  markup, 48-unit tiles at objectBoundingBox 0.1 of a 480x480 rect, its
+  `viewBox` at 0.48, `patternTransform=rotate(45)` about the origin, blue in
+  the two off-diagonal quadrants, agrees with our render over the interior
+  to 341 antialiased pixels while the capture sits 10,222 away, so the tile
+  phase is the capture's. `filters-image-02-b` (5.5 K) is that drift plus a
+  timeline: 1.1 against our 1.9, and both of its boxes hold the *pink*
+  squid, the state its `<set attributeName="xlink:href"
+  to="../images/pinksquidj.png" begin="2s">` reaches 2 s in - the authored
+  state, ours, is the blue one. Its `feImage` box and its `<image>` twin
+  land at the reference's place and size, so the fit is right and the
+  colour is the capture's.
 
 ## Backlog (small, opportunistic)
 

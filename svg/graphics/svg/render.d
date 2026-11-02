@@ -4253,7 +4253,8 @@ private struct Renderer
     }
 
     // Push a nested <svg> viewport: x/y/width/height place the viewport,
-    // viewBox + preserveAspectRatio map user space into it.
+    // viewBox + preserveAspectRatio map user space into it, and the
+    // viewport clips what it holds (§7.6.4's overflow: hidden).
     void openViewport(in string[string] a, size_t idx = Document.unknown)
     {
         pushStyle(a, idx); // presentation attrs (incl. transform) wrap the viewport
@@ -4274,6 +4275,7 @@ private struct Renderer
 
         canvas.save();
         canvas.matrix = canvas.matrix.preTranslate(x, y);
+        clipViewport(a, FRect(0, 0, w, h));
         canvas.matrix = canvas.matrix * viewFit(vb, w, h,
             parsePAR(a.get("preserveAspectRatio", "xMidYMid meet")));
 
@@ -4281,6 +4283,32 @@ private struct Renderer
         vpW = vb[2];
         vpH = vb[3];
         ++viewportDepth;
+    }
+
+    // §7.6.4 + §7.7: 'overflow' applies to viewport-creating elements and
+    // its initial value is 'hidden', so an inner <svg> - and a <use>
+    // instance of a <symbol> or <svg>, which is one too - clips what it
+    // draws to the viewport rect. The suite proves the two halves of it:
+    // masking-path-03-b puts content that starts outside its inner <svg>,
+    // and coords-viewattr-01-b's slice cells scale content past the edge.
+    // overflow="visible" opts out.
+    //
+    // The engine clips a device-space axis-aligned box, and Canvas.clipRect
+    // maps the whole-number IRect it is handed through the current CTM -
+    // so truncating x/y/w/h to ints first would move the edge. Run the
+    // clip under an identity CTM with the device rectangle this viewport
+    // really occupies. Every inner viewport in the suite is axis-aligned,
+    // which makes that box exact; a rotated one gets a bounding box, as
+    // the marker viewport's clip does.
+    void clipViewport(in string[string] a, in FRect box)
+    {
+        if (equalCase(a.get("overflow", ""), "visible"))
+            return;
+        immutable IRect dev = canvas.matrix.mapRect(box).round();
+        immutable Matrix placed = canvas.matrix;
+        canvas.matrix.reset();
+        canvas.clipRect(dev);
+        canvas.matrix = placed;
     }
 
     void closeViewport()
@@ -4713,6 +4741,7 @@ private struct Renderer
                 if (sx || sy)
                     canvas.matrix = canvas.matrix.preTranslate(sx, sy);
             }
+            clipViewport(orig.attrs, FRect(0, 0, w, h));
             canvas.matrix = canvas.matrix * viewFit(vb, w, h,
                 parsePAR(orig.attrs.get("preserveAspectRatio", "xMidYMid meet")));
             savedViewports ~= FSize(vpW, vpH);
@@ -7396,6 +7425,48 @@ unittest
         <rect x="5" y="5" width="5" height="5" fill="lime"/>
         </svg>`);
     assert(bmp.getLine!PMColor(15)[35].g == 255);
+
+    // ... and the viewport clips what it holds: 'overflow' applies to
+    // viewport-creating elements and starts out 'hidden' (§7.6.4 + §7.7), so
+    // content that lands outside the x/y/width/height box stops at its edge.
+    // masking-path-03-b puts content in an inner <svg> that starts outside
+    // the box; coords-viewattr-01-b's slice cells scale it past the edge.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <svg x="10" y="10" width="20" height="20">
+            <rect x="-10" y="-10" width="40" height="40" fill="lime"/>
+        </svg>
+        <rect x="30" y="30" width="10" height="10" fill="red"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(20)[20].g == 255, "inside the viewport paints");
+    assert(bmp.getLine!PMColor(20)[9].a == 0, "nothing left of the viewport");
+    assert(bmp.getLine!PMColor(9)[20].a == 0, "nothing above it");
+    assert(bmp.getLine!PMColor(20)[30].a == 0, "nothing past its right edge");
+    assert(bmp.getLine!PMColor(35)[35].r == 255, "the clip ends with the viewport");
+
+    // overflow="visible" is the way out.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <svg x="10" y="10" width="20" height="20" overflow="visible">
+            <rect x="-10" y="-10" width="40" height="40" fill="lime"/>
+        </svg>
+        </svg>`);
+    assert(bmp.getLine!PMColor(20)[20].g == 255, "inside the viewport paints");
+    assert(bmp.getLine!PMColor(20)[4].g == 255, "overflow=visible spills out of the viewport");
+    assert(bmp.getLine!PMColor(35)[35].g == 255, "and below it");
+
+    // A <use> instance of a <symbol> - or of a referenced <svg>, §5.6 - is a
+    // viewport too, so §19.4's clip applies to it.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="40" height="40" viewBox="0 0 40 40">
+        <defs>
+            <symbol id="s" viewBox="0 0 10 10">
+                <rect x="-5" y="-5" width="20" height="20" fill="blue"/>
+            </symbol>
+        </defs>
+        <use xlink:href="#s" x="10" y="10" width="20" height="20"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(20)[20].b == 255, "the instance paints its viewport");
+    assert(bmp.getLine!PMColor(4)[4].a == 0, "and clips at its viewport");
+    assert(bmp.getLine!PMColor(35)[35].a == 0, "on every side");
 }
 
 unittest

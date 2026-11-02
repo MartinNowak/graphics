@@ -113,14 +113,14 @@ coords-transformattr-05-f.svg OK 556
 coords-units-01-b.svg OK 1336
 coords-units-02-b.svg OK 570
 coords-units-03-b.svg OK 1733
-coords-viewattr-01-b.svg OK 3618
+coords-viewattr-01-b.svg OK 681
 coords-viewattr-02-b.svg OK 531
 coords-viewattr-03-b.svg OK 1520
 coords-viewattr-04-f.svg OK 1610
 extend-namespace-01-f.svg OK 23580
 filters-background-01-f.svg OK 2680
 filters-blend-01-b.svg OK 7426
-filters-color-01-b.svg OK 2480
+filters-color-01-b.svg OK 2474
 filters-color-02-b.svg OK 747
 filters-composite-02-b.svg OK 2174
 filters-composite-03-f.svg OK 9647
@@ -222,7 +222,7 @@ masking-mask-02-f.svg OK 440
 masking-opacity-01-b.svg OK 1280
 masking-path-01-b.svg OK 1209
 masking-path-02-b.svg OK 459
-masking-path-03-b.svg OK 7025
+masking-path-03-b.svg OK 1689
 masking-path-04-b.svg OK 15512
 masking-path-05-f.svg OK 418
 masking-path-06-b.svg OK 7584
@@ -370,7 +370,7 @@ struct-dom-03-b.svg OK 2152
 struct-dom-04-b.svg OK 2690
 struct-dom-05-b.svg OK 3189
 struct-dom-06-b.svg OK 78948
-struct-dom-07-f.svg OK 7993
+struct-dom-07-f.svg OK 8019
 struct-dom-08-f.svg OK 835
 struct-dom-11-f.svg OK 1702
 struct-dom-12-b.svg OK 22404
@@ -418,7 +418,7 @@ struct-use-01-t.svg OK 960
 struct-use-03-t.svg OK 718
 struct-use-04-b.svg OK 15599
 struct-use-05-b.svg OK 600
-struct-use-06-b.svg OK 30387
+struct-use-06-b.svg OK 30396
 struct-use-07-b.svg OK 36127
 struct-use-08-b.svg OK 1169
 struct-use-09-b.svg OK 8294
