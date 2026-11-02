@@ -4700,6 +4700,14 @@ private struct Renderer
         auto oc = new Canvas(scratch);
         oc.matrix = canvas.matrix;
 
+        // §15.4/§15.6 read BackgroundImage and BackgroundAlpha as what the
+        // document already holds *beneath* the filtered element, so the
+        // page has to be named here, before the swap below makes `bmp` the
+        // subtree: asking for the backdrop afterwards feeds the filter its
+        // own source. filters-overview-01/02/03-b, filters-blend-01-b and
+        // filters-background-01-f are the suite's tests of the difference.
+        auto backdrop = bmp;
+
         auto oldCanvas = canvas;
         auto oldBmp = bmp;
         immutable oldTrack = bboxTrack;
@@ -4745,7 +4753,8 @@ private struct Renderer
         // primitives that spread (blur) see transparent black beyond it.
         src.clipTo(region);
 
-        auto res = runChain(f, src, region, basis, ctm, doc.nodes[ch].attrs, local);
+        auto res = runChain(f, src, backdrop, region, basis, ctm, doc.nodes[ch].attrs,
+                            local);
         res.clipTo(region);
         // Blend back into the real destination: `bmp` still names the
         // scratch here, so point it at the pre-offscreen bitmap first
@@ -4792,10 +4801,13 @@ private struct Renderer
     // Run the primitive chain (§15.7.2). Inputs resolve by name - the
     // built-ins plus earlier `result`s - and a primitive's implicit
     // input is the previous primitive's output (SourceGraphic before
-    // the first one). Unrecognised primitives are ignored (§15.1); a
-    // chain that ends up executing nothing yields transparent black.
-    Raster runChain(in FilterSpec f, Raster src, in IBox4 region, in IBox4 basis,
-                    in Matrix ctm, in string[string] a, in FRect basisUser)
+    // the first one). `backdrop` is the destination as it stood before
+    // this element was drawn, which is what BackgroundImage and
+    // BackgroundAlpha read (§15.4/§15.6). Unrecognised primitives are
+    // ignored (§15.1); a chain that ends up executing nothing yields
+    // transparent black.
+    Raster runChain(in FilterSpec f, Raster src, in Bitmap backdrop, in IBox4 region,
+                    in IBox4 basis, in Matrix ctm, in string[string] a, in FRect basisUser)
     {
         immutable clut = srgbDecodeLUT(); // flood colors join the working space
 
@@ -4822,7 +4834,7 @@ private struct Renderer
         {
             if (haveBg)
                 return;
-            bg = rasterFrom(bmp, f.linearRGB); // live canvas = the backdrop
+            bg = rasterFrom(backdrop, f.linearRGB); // the page beneath
             bg.clipTo(region); // BackgroundImage is "under the filter
             haveBg = true;    // region" (§15.6)
         }
@@ -8031,6 +8043,38 @@ unittest
     assert(ha.a == 255, "hueRotate leaves the alpha alone");
     assert(ha.r < 5 && ha.b < 5, `red and blue are gone: ${to!string(ha)}`);
     assert(ha.g > 155 && ha.g < 167, `0.356 linear green: ${to!string(ha)}`);
+}
+
+unittest
+{
+    // §15.4/§15.6: BackgroundImage and BackgroundAlpha read what the
+    // document already holds *beneath* the filtered element, not the
+    // element itself. The lime bar drawn before the group is that
+    // backdrop; the group's own red circle is not. (10, 20) sits over the
+    // bar and 6 px clear of the circle, (22, 20) is the circle's centre
+    // and 8 px clear of the bar, so a chain fed by its own source reads
+    // those two exactly the wrong way round.
+    string doc(string prim)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+            <filter id="b" filterUnits="objectBoundingBox" x="-100%" y="-100%" width="300%" height="300%">
+                ` ~ prim ~ `</filter>
+            <rect x="4" y="6" width="10" height="30" fill="lime"/>
+            <g filter="url(#b)"><circle cx="22" cy="20" r="6" fill="red"/></g>
+            </svg>`;
+    }
+
+    auto alpha = renderSVG(doc(`<feGaussianBlur in="BackgroundAlpha" stdDeviation="1"/>`));
+    immutable onBar = alpha.getLine!PMColor(20)[10];
+    immutable onCircle = alpha.getLine!PMColor(20)[22];
+    assert(onBar.a > 240 && onBar.r < 8 && onBar.g < 8 && onBar.b < 8,
+        `the bar's coverage, in black: ${to!string(onBar)}`);
+    assert(onCircle.a < 10, `the element is not its own backdrop: ${to!string(onCircle)}`);
+
+    immutable pi = renderSVG(doc(`<feGaussianBlur in="BackgroundImage" stdDeviation="1"/>`))
+        .getLine!PMColor(20)[10];
+    assert(pi.a > 240 && pi.g > 240 && pi.r < 8 && pi.b < 8,
+        `the backdrop keeps its lime paint: ${to!string(pi)}`);
 }
 
 unittest

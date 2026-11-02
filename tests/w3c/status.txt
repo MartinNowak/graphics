@@ -118,7 +118,7 @@ coords-viewattr-02-b.svg OK 531
 coords-viewattr-03-b.svg OK 1520
 coords-viewattr-04-f.svg OK 5941
 extend-namespace-01-f.svg OK 23580
-filters-background-01-f.svg OK 4968
+filters-background-01-f.svg OK 2680
 filters-blend-01-b.svg OK 7422
 filters-color-01-b.svg OK 2480
 filters-color-02-b.svg OK 747
@@ -154,9 +154,9 @@ filters-light-05-f.svg OK 2768
 filters-morph-01-f.svg OK 8369
 filters-offset-01-b.svg OK 435
 filters-offset-02-b.svg OK 4176
-filters-overview-01-b.svg OK 3540
-filters-overview-02-b.svg OK 8408
-filters-overview-03-b.svg OK 8505
+filters-overview-01-b.svg OK 1178
+filters-overview-02-b.svg OK 6047
+filters-overview-03-b.svg OK 6144
 filters-specular-01-f.svg OK 760
 filters-tile-01-b.svg OK 1076
 filters-turb-01-f.svg OK 1313

@@ -138,6 +138,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 43               | a feColorMatrix type keeps the case the spec   | 3.02 M     |
 |                       | writes it in: hueRotate and luminanceToAlpha   |            |
 |                       | fell to the identity matrix (§6.7, §15.10)     |            |
+| step 44               | a filter's background inputs read the page     | 3.01 M     |
+|                       | beneath the element, not the element itself:   |            |
+|                       | the page is named before the swap (§15.4)      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1451,29 +1454,60 @@ floor: ~1.9 K in its five Verdana labels, host substitution, and ~540 in
 the two frame rings, 128 along the top and 258 along the bottom, the
 half-pixel stroker convention recorded under step 27.
 
-Up next - step 44: the four filter inputs that are not the element
-itself, and `filters-overview-03-b` (8,505) is the suite's test of them
-- six panels, one per `in` value, each a blurred `<g>` of three dashed
-circles over an unfiltered green bar. Cropped per panel, the two that
-name the element are already at the floor (SourceAlpha 142,
-SourceGraphic 157) and the four that do not are nowhere near it:
-BackgroundAlpha 1,838, BackgroundImage 1,164, FillPaint 1,453,
-StrokePaint 2,442. The first pair is one bug: `filteredElement` swaps
-`bmp` to its scratch, paints the subtree there, and runs the chain only
-afterwards, so `initBg()`'s snapshot of `bmp` is the subtree - the
-filter is fed its own source and the green bar beneath is never seen.
-A probe pins both halves: a bare `feGaussianBlur in="BackgroundAlpha"`
-on a group whose circle overlaps a lime bar drawn before it paints a
-dark band 20 px wide - the disc's diameter - where the bar is 8, and
-nothing at all 4 px above the disc's top, though the bar runs on
-through that row. The fix is to name the page before the swap. `filters-background-01-f` (4,968), `filters-blend-01-b` (7,422)
-and `filters-overview-01/02-b` (3,540/8,408) are the other rows that
-read those inputs. FillPaint and StrokePaint are a second, smaller
-question: ours paints the element's paint server over the region with
-that element's bbox as the gradient's basis, and at the centre of the
-FillPaint panel the reference reads `#F17292` against our `#FE7B7B`,
-which is a different basis for a container's gradient rather than a
-different primitive.
+Step 44 landed the two background inputs, BackgroundImage and
+BackgroundAlpha (SVG 1.1 §15.4/§15.6): what they name is "an image
+snapshot of the canvas under the filter region at the time that the
+'filter' element is invoked" - the page as it stood *beneath* the
+element, not what the element drew. `filteredElement` puts the subtree
+on an offscreen scratch first, which it must, because the chain's output
+replaces the element; but it took the snapshot after that swap, so the
+backdrop was the subtree and every background input was fed the
+element's own paint. The page is now named before the swap
+(`auto backdrop = bmp;`) and handed to `runChain` beside the source, and
+`initBg()` rasterises that; nothing else in the chain moves.
+
+The four rows that read those inputs moved: `filters-overview-03-b`
+8,505 -> 6,144, `filters-overview-01-b` 3,540 -> 1,178,
+`filters-overview-02-b` 8,408 -> 6,047 and `filters-background-01-f`
+4,968 -> 2,680, -9,372 in all. `filters-blend-01-b` (7,422) did not
+move: its one background `in=` sits on an `feFlood`, which ignores `in`.
+Cropped per panel, -03-b's background pair now scores 117 and 125, which
+is the floor the two Source* panels sit at (142 and 157). What is left
+of that row is the paint-server pair, recorded under ceilings, about
+1.7 K of watermark, frame and labels, and a few hundred along the region
+edges. In `filters-background-01-f` the residual sits inside the
+filtered groups - 1,954 of 2,680 across y=160..240 - and it is not an
+offset: rolling the crop 1-2 px finds no better alignment, and the
+band's mean colour is the reference's 64 against our 71, so it is
+soft-edge drift in the blur.
+
+§15.6 also gates these inputs: a container ancestor must declare
+`enable-background` before BackgroundImage/BackgroundAlpha mean
+anything, and without it the value is in error and paints nothing. That
+gate is not modelled - any chain that asks gets the live page. It costs
+nothing in this suite: every file that reads those inputs declares it
+(`filters-background-01-f` four times, the three `filters-overview`
+files once each), so the `accumulate`/`new` bookkeeping stays behind it.
+
+Up next - step 45: `svgImageBitmap` renders a reference to an SVG
+document, from `image` or `feImage`, on the default 480x360 page and
+then fits that raster into the element's viewport, so the fit runs twice
+and the second time against the wrong aspect. §5.7 fits it once: for an
+SVG reference the referenced root's `x`/`y`/`width`/`height`, its `clip`
+and `overflow` and - unless the element's `preserveAspectRatio` starts
+with `defer` - its own `preserveAspectRatio` are all ignored, and what
+fits the referencing element's viewport is that element's
+`preserveAspectRatio` over the referenced outermost `viewBox`.
+`coords-viewattr-04-f` (5,941) is the suite's test of the options:
+thirteen `image`s of `../images/happysmiley.svg`, an
+`<svg viewBox="0 0 30 40">` with no width or height, fit through every
+align times meet/slice. Cropped per case the nine scored boxes are
+69-522 AE and only the `xMid` ones are low, and only by luck: ours is
+the inner scale min(480/30, 360/40) = 9 times the element's meet, so the
+30x60 `xMinYMin meet` case lands at 0.5625 with an x offset of 6.56
+where the reference is 1.0 flush at x=0, and the 50x30 case lands at the
+right 0.75 but 8.75 px right of where `xMin` puts it. The `feImage` rows
+ride the same call, so this wants a full gate run.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -1635,6 +1669,19 @@ different primitive.
   composited over white: (127,255,127) and (102,102,102), opaque. Flattening
   both sides over white collapses the row to 2,386, the AA of the three guide
   rings; the harness composites nothing, so the alpha gap stays as the AE.
+- The paint-server pair in `filters-overview-03-b` (FillPaint 1,452 and
+  StrokePaint 2,442, 3,894 of the row's 6,144): ours paints the target's
+  paint over the whole region - §15.7.2's "conceptually infinite
+  extent" - with the target's bbox as the gradient's basis and the §4.5
+  pad past its ends. That reproduces the file's axis and stop list at
+  every sample down to t=0.52: over a bbox of y=60..135 its
+  `y1="-3%" y2="106%"` is a period of 81.75, and at y=100 the reference
+  reads (241,114,146) against our (254,123,123). Past the red stop at
+  offset 0.67 the reference turns blue - (0,0,253) from y=120 to y=145 -
+  where the file's last stop is `#ffff00` at offset 1.0, so that wrap
+  cannot come from the file's own stop list and no `spreadMethod` gives
+  it: `pad` and `reflect` agree with ours until t=1 and `repeat` puts
+  yellow at the seam. Keep our reading; the pair is the reference's.
 
 ## Backlog (small, opportunistic)
 
