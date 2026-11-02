@@ -5205,6 +5205,18 @@ private struct Renderer
                 return true;
             basis = bboxToDevice(local, ctm);
         }
+        else if (f.primsObjBB)
+        {
+            // §15.3: with primitiveUnits="objectBoundingBox" the primitive
+            // numbers are fractions of the filtered element's bounding box
+            // whatever filterUnits says, so a userSpaceOnUse region still
+            // needs the basis. The §15.5 zero-bbox disable belongs to
+            // filterUnits alone: here the filter paints inside its own
+            // region and the box only scales the numbers - and an empty
+            // basis scales them to nothing, which is what a zero-area box
+            // is worth in fractions.
+            basis = bboxToDevice(local, ctm);
+        }
         IBox4 region = lengthBox(f.x, f.y, f.width, f.height, f.objBB, basis, ctm);
         if (region.empty)
             return true; // empty effects region: nothing renders (§15.5)
@@ -8772,6 +8784,73 @@ unittest
     assert(lime(62, 40), "and reaches 4 px past it along x");
     assert(lime(40, 66), "and 8 px past it along y");
     assert(!lime(22, 26), "the region, not bbox -10%, is where it starts");
+}
+
+unittest
+{
+    // §15.3: primitiveUnits="objectBoundingBox" measures a primitive's
+    // numbers against the filtered element's bounding box whatever
+    // filterUnits says. With a userSpaceOnUse region the basis box used to
+    // stay empty, so those numbers scaled to nothing: bbox 20x10 at
+    // 0..20 x 0..10 and dx/dy="1" is one whole box, so the red 20x10 lands
+    // at 20..40 x 10..20 and its own position stays empty.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="40">
+        <filter id="u" filterUnits="userSpaceOnUse" primitiveUnits="objectBoundingBox"
+                x="0" y="0" width="60" height="40">
+            <feOffset dx="1" dy="1"/>
+        </filter>
+        <rect width="20" height="10" fill="red" filter="url(#u)"/>
+        </svg>`);
+    bool red(int x, int y)
+    {
+        immutable p = bmp.getLine!PMColor(y)[x];
+        return p.a > 200 && p.r > 200 && p.g < 80;
+    }
+    assert(red(30, 15), "one primitive unit is one bounding box, not one pixel");
+    assert(red(39, 19), "and the shifted box still measures 20x10");
+    assert(!red(5, 5), "the position it was drawn at is left empty");
+    assert(!red(45, 25), "no further than the shift it asked for");
+
+    // The same basis carries a subregion's percentages: 25%/50% of that
+    // 20x10 box is 5..15 x 2..7, not the whole region an empty basis fell
+    // back to, and a zero-area geometry only disables the filter when the
+    // *region* is objectBoundingBox (§15.5) - the primitive units alone
+    // leave the chain inside its user-space region free to paint.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="40">
+        <filter id="u" filterUnits="userSpaceOnUse" primitiveUnits="objectBoundingBox"
+                x="0" y="0" width="60" height="40">
+            <feFlood flood-color="lime" x="25%" y="25%" width="50%" height="50%"/>
+        </filter>
+        <rect width="20" height="10" fill="red" filter="url(#u)"/>
+        </svg>`);
+    bool lime(int x, int y)
+    {
+        immutable p = bmp.getLine!PMColor(y)[x];
+        return p.a > 200 && p.g > 200 && p.r < 80;
+    }
+    assert(lime(10, 5), "the quarter-box the percentages ask for is flooded");
+    assert(!lime(3, 5), "starting a quarter of the width in, not at the region");
+    assert(!lime(16, 5), "and ending three quarters of it along");
+    assert(lime(10, 7), "25% of the 10-unit height reaches row 7");
+    assert(!lime(10, 9), "and stops below the bottom quarter");
+
+    auto obb = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <filter id="u" x="0" y="0" width="100%" height="100%">
+            <feFlood flood-color="lime"/>
+        </filter>
+        <line x1="10" y1="10" x2="10" y2="30" stroke="black" stroke-width="4" filter="url(#u)"/>
+        </svg>`);
+    auto sou = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <filter id="u" filterUnits="userSpaceOnUse" x="0" y="0" width="40" height="40">
+            <feFlood flood-color="lime"/>
+        </filter>
+        <line x1="10" y1="10" x2="10" y2="30" stroke="black" stroke-width="4" filter="url(#u)"/>
+        </svg>`);
+    assert(obb.getLine!PMColor(20)[20].a == 0,
+        "a zero-area bbox with an objectBoundingBox region renders nothing");
+    immutable p = sou.getLine!PMColor(20)[20];
+    assert(p.a > 200 && p.g > 200 && p.r < 80,
+        "the same chain inside a user-space region paints: " ~ p.to!string);
 }
 
 unittest

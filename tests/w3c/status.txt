@@ -137,7 +137,7 @@ filters-displace-01-f.svg OK 1970
 filters-displace-02-f.svg OK 647
 filters-example-01-b.svg OK 1925
 filters-felem-01-b.svg OK 62
-filters-felem-02-f.svg OK 2495
+filters-felem-02-f.svg OK 440
 filters-gauss-01-b.svg OK 214
 filters-gauss-02-f.svg OK 495
 filters-gauss-03-f.svg OK 46

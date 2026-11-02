@@ -201,6 +201,11 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | centres it covers, ours integrates the cell    |            |
 |                       | and splits it 128/127, so nearly every test's  |            |
 |                       | frame paid a quarter of a pixel per side       |            |
+| step 57               | a filter's primitiveUnits box is the filtered  | 2.69 M     |
+|                       | element's bounding box whatever filterUnits    |            |
+|                       | says: with a userSpaceOnUse region the basis   |            |
+|                       | stayed empty, so oBB dx/dy and every fraction  |            |
+|                       | scaled to nothing, so feOffset drew no shift   |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2032,21 +2037,54 @@ Everything the lead named moved. `painting-fill-01-t` is exact now
 explained first, was the missing tile edge and not the convention, and
 came along anyway: 3,192 -> 2,545.
 
-Up next - step 57: `filters-felem-02-f` (2,495), three blocks only,
-reads §15.1 at the primitive. Each row pairs a 50x50 red decoy with a
-100x100 square carrying a filter whose `feFlood` itself says
-`x="25" y="25" width="50" height="50"`, so the lime flood should cover
-the decoy exactly. The objectBoundingBox row (`x="25%"`) and the row
-that names no `primitiveUnits` are already exact - lime at
-305..354 x 25..74 in both - while the row that names
-`primitiveUnits="userSpaceOnUse"` paints a 75x75 block out from the
-filtered element's own corner: lime at x=80..154, y=25..99, 449 px
-more than the capture keeps. The `feOffset` and `feGaussianBlur` rows
-under it carry lime up through y=100..207 where the capture keeps it
-below 208. `primitiveUnits` does reach the reader (filter.d's
-`primsObjBB`), so what is wrong is the subregion's origin, not its
-scale. `render-groups-01-b` (2,741) and `pservers-grad-11-b` (4,905)
-follow it.
+Step 57 is the primitive coordinate system, and the lead above was
+wrong about it in a way worth keeping. All three `feFlood` boxes were
+already exact: the "75x75 block at x=80" was a probe window's artifact
+- the window ran x=80..180, y=0..100, and the lime it counted was the
+star row's blob at x=40..115, y=65..137 leaking over its corner, not a
+misplaced flood. What that file really tests, and what was broken, is
+§15.3: `primitiveUnits` and `filterUnits` are independent, and the box
+the primitive numbers are fractions of is the filtered element's
+bounding box either way. `primsObjBB` reached the chain correctly; the
+chain only built its `basis` box when the *region* was
+objectBoundingBox, so a filter spelling its region in user units and
+its primitives in fractions of the box had no basis at all, and the
+primitive scale answered 0 for every number in it. The middle star's
+`feOffset dx="2" dy="2"` - two box widths, 152 px across and 146 down -
+drew no shift at all: the star stayed at x=40..115, and where the
+capture has its shifted self, x=190..270, only the 667-px decoy outline
+stood instead of 2,774 px of star.
+
+So: one branch in the filter path. When the primitives are fractions of
+the box and the region is spelled in user units, take the basis
+anyway. The §15.5 rule that a zero-area bbox disables rendering stays
+where the spec puts it, on the objectBoundingBox *region* - that filter
+still paints nothing - while the same chain inside a user-space region
+paints, its own fractions scaled to nothing by the empty box.
+
+One row moved and none moved back: `filters-felem-02-f` 2,495 -> 440,
+-2,055. The other five files in the suite that name `primitiveUnits`
+were unchanged by it - `filters-conv-05-f` 153,636,
+`filters-offset-02-b` 2,773 and `filters-tile-01-b` 621 exactly as
+they were, `filters-image-03-f` 24 and `filters-light-03-f` 395 within
+a pixel of themselves. 526 rows, 2,685,982 AE. What is left of that
+file is not the coordinate system: 1,030 raw pixels sit in the middle
+circle's halo, where obb2's `stdDeviation="0.2"` of a 60x60 box -
+sigma 12 - darkens the same extent in both rasters and shapes the tail
+apart, the filters-blur question, and the rest is a one-row lime
+fringe beside the two offset stars.
+
+Up next - step 58: `render-groups-01-b` (2,741). Step 56 took its
+1,717-px frame shell; what is left is spread over edges - at the
+pattern's white guide line, device x=112 is 96 in the capture and 111
+in ours, one pixel of coverage the two rasters place differently under
+`scale(1.8)` - and over the `<image>` band the inline SVG-font "SVG"
+sits on. `pservers-grad-11-b` (4,905) follows it, still diffuse.
+Two rows triaged out of the way and ruled out: `fonts-desc-04-t` (4,966) and
+`fonts-desc-05-t` (5,001) are the DRAFT band and nothing else -
+9,063 raw pixels of their 9,063 and 9,108, all of it x=2..478 y=2..20,
+their SVG fonts exact - and `text-tselect-02-f` (4,249) is the
+selection state its `onclick` buttons drive; all are ceilings.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2096,6 +2134,10 @@ follow it.
   `fill-opacity="0"` until the same `<a xlink:href="#fadein">` click
   starts a second `begin="indefinite"` fade, and its reference shows the
   fade frozen at 1 - so the square's whole area counts as a delta here.
+  `text-tselect-02-f` (4.2 K) is that class at text size: its two 91x70
+  blocks are the `startIndex`/`numChars` selection its `onclick` handlers
+  drive through `selectSubString`, over a run of Hebrew letters under a host
+  font, and no static state of the file shows it.
 - `animate-elem-85-t` (22.3 K): the reference contradicts the file it is
   scored against. The source documents the freeze state (at t = 10 s both
   `color` and `fill` are `#00ffff`) and we paint exactly that — cyan rects,
@@ -2114,6 +2156,10 @@ follow it.
   band and nothing else: each has exactly one diff cluster, 9,556-9,563 px
   of y=1..22, and what remains of the four rows is 435, 456, 153 and 0 raw
   pixels - their §10.2.1 whitespace and their glyph runs are at their floor.
+  `fonts-desc-04-t` (5.0 K) and `fonts-desc-05-t` (5.0 K), measured at step
+  57, are that band alone: 9,063 diff pixels of their 9,063 and 9,108, all of
+  it x=2..478 y=2..20, so the `<font>` boxes, their `missing-glyph` outlines
+  and the `units-per-em` scaling they test are already exact.
 - `text-dom-01-f` (3.5 K), +3 at step 32: the line that carries
   `<tspan rotate="45,90">is</tspan>` is not visible in its reference at all.
   The file's DRAFT band is painted *over* it there, and the only ink the PNG
