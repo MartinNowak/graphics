@@ -195,6 +195,12 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the element instead of painting it - which     |            |
 |                       | is what empty 'requiredExtensions' and         |            |
 |                       | 'systemLanguage' already did (§5.8.3-5)        |            |
+| step 56               | an axis-aligned hairline centred on a pixel    | 2.69 M     |
+|                       | boundary is one whole pixel in the captures -  |            |
+|                       | their raster decides an edge by the pixel      |            |
+|                       | centres it covers, ours integrates the cell    |            |
+|                       | and splits it 128/127, so nearly every test's  |            |
+|                       | frame paid a quarter of a pixel per side       |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1971,25 +1977,76 @@ pixels of DRAFT band, which is the white label and its host-font AA,
 the revision text under it, and two 2x100 columns at x=0..1 where the
 test frame's stroke disagrees.
 
-Up next - step 56: that last disagreement is worth one experiment
-instead of more assumptions, because it repeats at small scale nearly
-everywhere. Where an axis-aligned 1-px stroke is centred on an integer
-device coordinate our raster splits its coverage evenly across the two
-pixels it straddles - columns 0 and 1 for the test frame's edge at
-x="1", rows 0 and 1 for the DRAFT band's stroke at y="1" - while the
-captures put the whole line in the pixel that *starts* at that
-coordinate and leave the other untouched: opaque black at (240,1)
-here, one opaque green row 70 in `text-align-07-t` where we lay 127
-and 127 across rows 69 and 70, and a single clean column of frame in
-`render-groups-01-b` (3,158), whose 1,717-pixel shell is that stroke
-and little else. Fills are not in question - the same captures agree
-with our 0..100 blue box column for column - so the only question is
-what the stroke raster does when its two coverages are exactly equal.
-It needs measuring gate-wide before being believed, and
-`pservers-pattern-01-b` (3,192) is the counter-case to explain first:
-there the thin line is missing from our side, a pattern tile edge
-rather than a hairline convention. `filters-felem-02-f` (2,912), three
-blocks only, and `text-tselect-02-f` (4,667) follow it.
+Step 56 was that experiment, and it is the largest single move the gate
+has seen: 507 rows better, 8 worse, -247,601 AE over all, the total
+down to 2,688,037.
+
+The disagreement is the suite's own furniture rather than any test.
+Every W3C file carries `<rect id="test-frame" x="1" y="1" width="478"
+height="358" fill="none" stroke="#000"/>` - one pixel wide, centred on
+an integer device coordinate, four sides of it - and the same shape
+recurs inside the tests: the DRAFT band's strokes at y="1" and y="21",
+fonts-kern-01-t's 200x50 sample boxes, coords-units-03-b's grid. The
+captures resolve such an edge by the *pixel centres* it covers, so
+painting-fill-01-t is opaque black at (1,50) with (0,50) untouched and
+at (240,1), (479,180) and (240,359), and the DRAFT band's own rows 1
+and 21 are solid. Ours integrates coverage over the pixel cell, which
+splits that band 128/127, and the harness charges about a quarter of a
+pixel for each extra half-covered one - a whole one where the frame
+crosses something coloured.
+
+`Path`'s raster sits in the prebuilt guip dependency, so the
+correction is geometry rather than sampling: `snapHairline` walks the
+path a stroke is about to consume and moves every axis-aligned vertex
+half a device pixel toward larger coordinates, which puts the band on
+the pixel the captures light. It fires only where that convention is
+forced - a CTM with no rotation or skew, the same scale on both axes,
+a device stroke width of exactly one pixel, and a contour whose every
+edge runs along an axis. A plain `<rect>` qualifies: addRoundRect
+emits four degenerate cubics even with no radius, so the test looks at
+the verb's points and not at the verb. One tilted edge disqualifies
+the whole contour instead of part of it, because a half-snapped stroke
+would tear open at the join. Nothing already lying between pixel
+centres moves - the test is per vertex and per coordinate - and fills
+are left alone, because cell integration and centre sampling agree at
+an integer edge, which the captures confirm. The rule is in the SVG
+layer at the one call that hands geometry to `strokePath`; the text
+site keeps its own raster.
+
+Fills' agreement is why the rule is stroke-only; the counter-family
+is why it is a rule and not a law. Some captures came from a
+raster that splits the frame exactly as ours used to: the test frame
+of painting-stroke-05-t reads 127/127 across columns 0 and 1 there,
+as do those of text-fonts-202-t and filters-light-02-f, so those three
+now pay 651, 418 and 53 AE more and five other rows a handful each -
+1,144 in all against the 248,745 recovered. The two conventions belong
+to the captures, not to us; the split-family rows are listed under the
+ceilings.
+
+Everything the lead named moved. `painting-fill-01-t` is exact now
+(645 -> 0), `painting-control-05-f` and `pservers-grad-16-b` too
+(1,099 and 1,075 -> 0), `struct-cond-overview-03-f` 604 -> 37,
+`fonts-kern-01-t` 2,617 -> 467, `coords-units-03-b` 1,733 -> 480,
+`text-align-07-t` 6,338 -> 5,611, `render-groups-01-b` 3,158 ->
+2,741. `pservers-pattern-01-b`, the counter-case that had to be
+explained first, was the missing tile edge and not the convention, and
+came along anyway: 3,192 -> 2,545.
+
+Up next - step 57: `filters-felem-02-f` (2,495), three blocks only,
+reads §15.1 at the primitive. Each row pairs a 50x50 red decoy with a
+100x100 square carrying a filter whose `feFlood` itself says
+`x="25" y="25" width="50" height="50"`, so the lime flood should cover
+the decoy exactly. The objectBoundingBox row (`x="25%"`) and the row
+that names no `primitiveUnits` are already exact - lime at
+305..354 x 25..74 in both - while the row that names
+`primitiveUnits="userSpaceOnUse"` paints a 75x75 block out from the
+filtered element's own corner: lime at x=80..154, y=25..99, 449 px
+more than the capture keeps. The `feOffset` and `feGaussianBlur` rows
+under it carry lime up through y=100..207 where the capture keeps it
+below 208. `primitiveUnits` does reach the reader (filter.d's
+`primsObjBB`), so what is wrong is the subregion's origin, not its
+scale. `render-groups-01-b` (2,741) and `pservers-grad-11-b` (4,905)
+follow it.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2175,6 +2232,14 @@ blocks only, and `text-tselect-02-f` (4,667) follow it.
   `scale(1.8)`, where a 5-unit dash is 9 device pixels wide and a
   2-unit one 3.6 - which is where all of it sits, y=99..117 (the
   `5,2,5,5,2,5` pair) and y=153..171 (`2` with `stroke-dashoffset="2"`).
+- The split-frame captures: in `painting-stroke-05-t` (735),
+  `text-fonts-202-t` (5,360) and `filters-light-02-f` (134,853) the
+  1-px `test-frame` is two half-covered pixels, the corner-sampled
+  answer step 56 moved away from, and what is left of each row is its
+  thin-stroke sweep and the host-font AA around it. Those three pay
+  +651, +418 and +53 and five more rows a handful each, the 1,144 AE
+  step 56 spends against the 248,745 it recovers - matching both
+  captures' conventions at once would be a per-file raster policy.
 - White-page references (~1.46 M, 44% of the 3.33 M baseline): ten tests'
   reference PNGs were captured over an *opaque white page* while our canvas
   is transparent, so their AE is page background, not content. Re-comparing

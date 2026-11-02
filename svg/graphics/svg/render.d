@@ -2589,6 +2589,154 @@ private struct Renderer
             }
     }
 
+    // The captures' rasteriser resolves an axis-aligned edge by the pixel
+    // *centres* it covers, so a hairline whose centre falls on a pixel
+    // boundary is one whole pixel in them and not two half ones: the suite's
+    // test frame - a 1-px stroke centred on x="1" - is a solid column at x=1
+    // with the column beside it untouched, its bottom edge at y="359" a solid
+    // row; so are the DRAFT band's strokes at y="1" and y="21", and so are
+    // fonts-kern-01-t's sample boxes, whose 50-px edges cost half their value
+    // on both sides. Ours splits each such band 128/127 across the two
+    // pixels, which the harness charges about a quarter of a pixel for along
+    // every edge of nearly every test's frame - some 200 K of residual over
+    // the gate. Nudge the contour half a device pixel toward larger
+    // coordinates before it is stroked and the band lands on the pixel the
+    // captures light; geometry already on the grid does not move at all. Only
+    // a scaling CTM leaves a contour axis-aligned, and only a device width of
+    // one pixel puts both of its edges on a boundary, so a rotated or skewed
+    // CTM, a thicker or thinner band, and any tilted edge keep the ordinary
+    // antialiaser.
+    static Path snapHairline(Path p, in Matrix m, float width)
+    {
+        enum eps = 0.001f;
+
+        if (m[0][1] != 0 || m[1][0] != 0)
+            return p; // rotation or skew: there is no axis-aligned band here
+        immutable sx = m[0][0], tx = m[0][2], sy = m[1][1], ty = m[1][2];
+        if (sx == 0 || sy == 0 || abs(abs(sx) - abs(sy)) > eps
+            || abs(width * abs(sx) - 1.0f) > eps)
+            return p; // anisotropic, or a band whose edges miss the grid
+
+        // The subpaths' verbs and points in order, in both spaces. A plain
+        // <rect> carries four degenerate cubics - addRoundRect emits one per
+        // corner even with no radius - so a curve verb is no obstacle as long
+        // as its points all run along one axis; a real arc fails that test and
+        // leaves the whole path alone.
+        struct Contour
+        {
+            Path.Verb[] verbs;
+            FPoint[] dev, user;
+            bool closed;
+        }
+        Contour[] subs;
+        foreach (verb, pts; p)
+            switch (verb)
+            {
+            case Path.Verb.Move:
+                subs ~= Contour([verb]);
+                subs[$ - 1].user ~= pts[0];
+                subs[$ - 1].dev ~= FPoint(sx * pts[0].x + tx, sy * pts[0].y + ty);
+                break;
+            case Path.Verb.Line:
+            case Path.Verb.Quad:
+            case Path.Verb.Cubic:
+                if (subs.empty)
+                    return p;
+                subs[$ - 1].verbs ~= verb;
+                // The iterator hands over the segment's start as well, which
+                // the previous verb already contributed.
+                foreach (q; pts[1 .. $])
+                {
+                    subs[$ - 1].user ~= q;
+                    subs[$ - 1].dev ~= FPoint(sx * q.x + tx, sy * q.y + ty);
+                }
+                break;
+            case Path.Verb.Close:
+                if (subs.empty)
+                    return p;
+                subs[$ - 1].closed = true;
+                break;
+            default:
+                break;
+            }
+
+        bool aligned(FPoint a, FPoint b)
+        {
+            return abs(a.x - b.x) < eps || abs(a.y - b.y) < eps;
+        }
+        foreach (ref sub; subs)
+        {
+            if (sub.dev.length < 2)
+                continue;
+            foreach (j; 0 .. sub.dev.length - 1)
+                if (!aligned(sub.dev[j], sub.dev[j + 1]))
+                    return p; // one tilted edge would tear the stroke open
+            if (sub.closed && !aligned(sub.dev[$ - 1], sub.dev[0]))
+                return p;
+        }
+
+        Path res;
+        foreach (ref sub; subs)
+        {
+            immutable last = sub.dev.length - 1;
+            FPoint[] moved;
+            foreach (j, pt; sub.dev)
+            {
+                // Which coordinate holds the band's centre is decided by the
+                // edges that meet this point: a rectangle's corner belongs to
+                // one of each, so it moves along both.
+                bool shiftX, shiftY;
+                void consider(ref FPoint other)
+                {
+                    if (abs(other.x - pt.x) < eps)
+                        shiftX = true;
+                    if (abs(other.y - pt.y) < eps)
+                        shiftY = true;
+                }
+                if (j)
+                    consider(sub.dev[j - 1]);
+                else if (sub.closed && last)
+                    consider(sub.dev[last]);
+                if (j < last)
+                    consider(sub.dev[j + 1]);
+                else if (sub.closed)
+                    consider(sub.dev[0]);
+
+                auto q = sub.user[j];
+                if (shiftX && abs(pt.x - round(pt.x)) < eps)
+                    q.x = (round(pt.x) + 0.5f - tx) / sx;
+                if (shiftY && abs(pt.y - round(pt.y)) < eps)
+                    q.y = (round(pt.y) + 0.5f - ty) / sy;
+                moved ~= q;
+            }
+
+            size_t at;
+            foreach (verb; sub.verbs)
+                switch (verb)
+                {
+                case Path.Verb.Move:
+                    res.moveTo(moved[at++]);
+                    break;
+                case Path.Verb.Line:
+                    res.lineTo(moved[at++]);
+                    break;
+                case Path.Verb.Quad:
+                    res.quadTo(moved[at++], moved[at++]);
+                    break;
+                case Path.Verb.Cubic:
+                    res.cubicTo(moved[at++], moved[at++], moved[at++]);
+                    break;
+                case Path.Verb.Close:
+                    break; // emitted below, once per contour
+                default:
+                    break;
+                }
+            if (sub.closed)
+                res.close();
+        }
+        return res;
+    }
+
     // SVG 11.2: a subpath of zero length takes a cap all the same - butt
     // paints nothing, round a circle of diameter stroke-width, square a
     // square of the same side, and a *closed* zero-length subpath is not
@@ -2688,17 +2836,18 @@ private struct Renderer
         Path stroked;
         if (doStroke)
         {
+            auto geo = snapHairline(path, canvas.matrix, s.strokeWidth);
             if (s.dash.length)
             {
-                auto dashed = svgDash(path, s.dash, s.dashOffset);
+                auto dashed = svgDash(geo, s.dash, s.dashOffset);
                 stroked = strokePath(dashed, s.strokeWidth, s.caps, s.joins, s.miterLimit);
             }
             else
-                stroked = strokePath(path, s.strokeWidth, s.caps, s.joins, s.miterLimit);
+                stroked = strokePath(geo, s.strokeWidth, s.caps, s.joins, s.miterLimit);
             // §11.2's zero-length subpaths, which the stroker drops: their
             // caps come from the element's own geometry (the dash pass above
             // has already left them out of the geometry it strokes).
-            addZeroLengthCaps(stroked, path, s.strokeWidth, s.caps);
+            addZeroLengthCaps(stroked, geo, s.strokeWidth, s.caps);
         }
 
         if (doFill || doStroke)
@@ -9527,4 +9676,84 @@ unittest
     assert(samePixels(renderSVG(alt(` rotate="90 20 40"`, "ab")),
         renderSVG(alt(` rotate="90"`, "ab"))),
         "only the first character of the data supplies the group's angle");
+}
+
+unittest
+{
+    // The captures' rasteriser resolves an axis-aligned edge by the pixel
+    // centres it covers, so a 1-px stroke centred on x="1" is one whole dark
+    // column at 1 with the column beside it untouched, and the same for the
+    // closing edge at x="7". Ours splits the band 128/127 across both until
+    // the geometry is nudged onto the band the captures light.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10"
+        height="10" viewBox="0 0 10 10">
+        <rect x="1" y="1" width="6" height="6" fill="none" stroke="black"/>
+        </svg>`);
+    auto row = bmp.getLine!PMColor(5);
+    assert(row[0].a == 0 && row[1].a == 255 && row[2].a == 0,
+        to!string([row[0].a, row[1].a, row[2].a]));
+    assert(row[7].a == 255 && row[8].a == 0,
+        to!string([row[7].a, row[8].a]));
+    auto top = bmp.getLine!PMColor(1);
+    assert(top[1].a == 255 && top[0].a == 0 && top[8].a == 0,
+        to!string([top[0].a, top[1].a, top[8].a]));
+}
+
+unittest
+{
+    // Only a band whose two edges straddle a pixel boundary moves. Geometry
+    // already on the grid, a rotated CTM, a device width of anything but one
+    // pixel, and any curve or diagonal stay exactly as they were.
+    FPoint[] points(in Path p)
+    {
+        FPoint[] res;
+        foreach (verb, pts; p)
+        {
+            // The iterator starts each Line at its previous point.
+            if (verb == Path.Verb.Move)
+                res ~= pts[0];
+            else if (verb == Path.Verb.Line)
+                res ~= pts[$ - 1];
+        }
+        return res;
+    }
+
+    Path rect;
+    rect.addRect(FRect(1, 1, 479, 359));
+    auto snapped = points(Renderer.snapHairline(rect, Matrix(), 1.0f));
+    // The iterator reports a closed contour's closing edge as a Line of its
+    // own, so the start point is reported twice.
+    assert(snapped == [FPoint(1.5f, 1.5f), FPoint(479.5f, 1.5f),
+        FPoint(479.5f, 359.5f), FPoint(1.5f, 359.5f), FPoint(1.5f, 1.5f)],
+        "a frame centred on the grid lands on the pixel above it");
+
+    Matrix two;
+    two.setScale(2.0f, 2.0f);
+    assert(points(Renderer.snapHairline(rect, two, 1.0f)) == points(rect),
+        "a 2-px device band already fills whole pixels");
+    assert(points(Renderer.snapHairline(rect, Matrix(), 0.5f)) == points(rect),
+        "a sub-pixel band's coverage is left to the antialiaser");
+
+    Matrix turn;
+    turn.setRotate(45.0f);
+    assert(points(Renderer.snapHairline(rect, turn, 1.0f)) == points(rect),
+        "a rotated contour has no axis-aligned band to snap");
+
+    Path half;
+    half.moveTo(FPoint(10, 20.5f));
+    half.lineTo(FPoint(30, 20.5f));
+    assert(points(Renderer.snapHairline(half, Matrix(), 1.0f)) == points(half),
+        "a hairline already between pixels stays there");
+
+    Path tilt;
+    tilt.moveTo(FPoint(1, 1));
+    tilt.lineTo(FPoint(40, 20));
+    tilt.lineTo(FPoint(40, 60));
+    assert(points(Renderer.snapHairline(tilt, Matrix(), 1.0f)) == points(tilt),
+        "one diagonal edge leaves the whole contour alone");
+
+    Path circle;
+    circle.addOval(FRect(1, 1, 9, 9));
+    assert(points(Renderer.snapHairline(circle, Matrix(), 1.0f)).length < 4,
+        "curves are not axis-aligned geometry");
 }
