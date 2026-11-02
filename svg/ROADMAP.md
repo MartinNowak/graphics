@@ -153,6 +153,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | so every dash length came out NaN-wide: a      |            |
 |                       | stroke-dasharray with no dashoffset drew       |            |
 |                       | nothing at all                                 |            |
+| step 48               | a closepath leaves the current point at the    | 2.96 M     |
+|                       | subpath's own start (§9.3.2), and `Path.close` |            |
+|                       | adds no point to read back, so every relative  |            |
+|                       | command after a `z` measured from a stale one  |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1616,6 +1620,44 @@ point of its own, so after a `z` that is still the last point the
 *previous* command wrote. §9.3.2 says a closepath leaves the subpath's
 start as the current point; read the wrong way round, `m70 0` starts
 at 492,10 and its curve runs off through the top of the canvas.
+
+Step 48 landed that. `addSVGPath` asked `path.points[$-1]` for the
+current point of every relative command, and `Path.close` appends a
+Close verb with no point of its own, so after a `z` it was still the
+last point the command *before* the close had written. The builder now
+carries the grammar's own current point: `curPt`, alongside the
+subpath's `subStart`, both set by `M`/`m`, with `z` putting `curPt`
+back where `subStart` is; and `addArc` takes its start as a parameter
+for the same reason - the last point held is not the point the grammar
+is standing on. The two files that spell the pattern out moved:
+`paths-data-03-f` 5,109 -> 897 and `paths-data-02-t` 5,496 -> 1,497,
+-8,211 in all - 526 rows, 2,961,737 AE, and no verdict changed.
+`Arc_MaZmAzmaz` in 03-f is the clearest case, three subpaths closed and
+reopened as `Z ... m 30 30 ... Z ... m 40 24`; in 02-t it is
+`Bez_fill_MQzmqz`'s second leaf, `m70 0` measured from 372,130 -
+exactly where that file's own 4x4 vertex markers say it must land -
+rather than from the 422,10 the quad ended on. What is left in both is
+edge and antialiasing noise, no raw cluster over 600 pixels.
+
+Up next - step 49: the smooth cubic is the other half of the same
+grammar, and it is wrong. `Lscubic` seeds `pts[0]` with the current
+point and then adds `cur - prevC2` to the *parsed second* handle, so an
+`S` after a `C` meets it with a cusp instead of a continuation, and
+case `s` never assigns `pts[0]` at all - it reads whatever the previous
+command left there. `T`/`t` get it right one label below, reflecting
+into `pts[0]`. Probe `out/gsvg-st.svg`: the `M 10 50 C 30 10 50 90
+70 50 S 110 10 130 50` chain loops away into the top right, the Q/T
+chain drawn under it is smooth. Seven suite files use it -
+`animate-elem-35-t` (4,296), `conform-viewers-01-t` (3,014),
+`paths-data-01-t` (2,657), `animate-elem-83-t` (1,796),
+`paths-data-19-f` (1,780), `paths-data-12-t` (847) and
+`metadata-example-01-t` (758) - and one core.d unittest pins the
+present shape as though it were intended, so it is rewritten with the
+fix. One trap in fixing it: the reflection is gated on
+`path.verbs[$-1] == Cubic`, but `addArc` decomposes an arc into cubic
+verbs, so an `A` followed by an `S` reflects off a handle the grammar
+never drew - the gate wants the previous *command*, not the previous
+verb.
 
 ## Deferred / accepted ceilings (do not chase)
 

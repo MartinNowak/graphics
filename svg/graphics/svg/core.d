@@ -112,17 +112,17 @@ in(s.length)
     return res;
 }
 
-/// Append the SVG elliptical arc `d`-grammar segment from the path's current
-/// point to `to` (SVG 1.1 F.6.5: endpoint -> centre parameterisation, then
-/// cubic approximation of <= 90 degree segments).
+/// Append the SVG elliptical arc `d`-grammar segment from `from` to `to`
+/// (SVG 1.1 F.6.5: endpoint -> centre parameterisation, then cubic
+/// approximation of <= 90 degree segments). `from` is passed in because
+/// the `d` grammar's current point is not always the last point held.
 private void addArc(Path)(ref Path path, float rx, float ry, float xRotation,
-                         bool largeArc, bool arcSweep, FPoint to)
+                         bool largeArc, bool arcSweep, FPoint from, FPoint to)
 {
     import std.math : abs, cos, sin, sqrt, tan, ceil, PI, atan2;
     import std.algorithm : max;
     import std.exception : enforce;
 
-    immutable from = path.points[$-1];
     rx = abs(rx);
     ry = abs(ry);
     if (rx == 0 || ry == 0 || from == to)
@@ -201,6 +201,15 @@ void addSVGPath(Path)(ref Path path, string s)
     }();
 
     FPoint[3] pts=void;
+    // The current point of the `d` grammar, which is not always the last
+    // point the Path holds: a closepath leaves the start of the subpath
+    // it closed as the current point (SVG 1.1 §9.3.2), and Path.close
+    // appends a Close verb with no point of its own, so after a z the
+    // last point is still wherever the command before it put one. The
+    // relative commands, and the fixed coordinate of H and V, all read
+    // through here. Both start at the origin, which is also what makes
+    // a relative moveto on an empty path absolute (§9.3.2).
+    FPoint curPt = FPoint(0, 0), subStart = FPoint(0, 0);
     skipCW(s);
     char c;
     while (!s.empty)
@@ -221,44 +230,45 @@ void addSVGPath(Path)(ref Path path, string s)
             goto Lmove;
         case 'm':
             c = 'l'; // implicit lineto
-        {
-            immutable p0 = parse!FPoint(s);
-            //! a relative moveto on an empty path is absolute (SVG 1.1, "rendering errors")
-            pts[0] = path.points.length ? p0 + path.points[$-1] : p0;
+            pts[0] = parse!FPoint(s) + curPt;
             goto Lmove;
-        }
 
         Lmove:
             path.moveTo(pts[0]);
+            subStart = curPt = pts[0];
             break;
 
         case 'Z', 'z':
             path.close();
+            // §9.3.2: the close leaves the subpath's own start as the
+            // current point, whatever point the command before it wrote
+            curPt = subStart;
             break;
 
         case 'L':
             pts[0] = parse!FPoint(s);
             goto Lline;
         case 'l':
-            pts[0] = parse!FPoint(s) + path.points[$-1];
+            pts[0] = parse!FPoint(s) + curPt;
             goto Lline;
         case 'H':
-            pts[0] = FPoint(parse!float(s), path.points[$-1].y);
+            pts[0] = FPoint(parse!float(s), curPt.y);
             goto Lline;
         case 'h':
-            pts[0] = path.points[$-1];
+            pts[0] = curPt;
             pts[0].x += parse!float(s);
             goto Lline;
         case 'V':
-            pts[0] = FPoint(path.points[$-1].x, parse!float(s));
+            pts[0] = FPoint(curPt.x, parse!float(s));
             goto Lline;
         case 'v':
-            pts[0] = path.points[$-1];
+            pts[0] = curPt;
             pts[0].y += parse!float(s);
             goto Lline;
 
         Lline:
             path.lineTo(pts[0]);
+            curPt = pts[0];
             break;
 
         case 'C':
@@ -268,7 +278,7 @@ void addSVGPath(Path)(ref Path path, string s)
             goto Lcubic;
         case 'c':
         {
-            immutable rel = path.points[$-1];
+            immutable rel = curPt;
             pts[0] = parse!FPoint(s) + rel;
             pts[1] = parse!FPoint(s) + rel;
             pts[2] = parse!FPoint(s) + rel;
@@ -276,13 +286,13 @@ void addSVGPath(Path)(ref Path path, string s)
         }
 
         case 'S':
-            pts[0] = path.points[$-1];
+            pts[0] = curPt;
             pts[1] = parse!FPoint(s);
             pts[2] = parse!FPoint(s);
             goto Lscubic;
         case 's':
         {
-            immutable rel = path.points[$-1];
+            immutable rel = curPt;
             pts[0] = pts[0];
             pts[1] = parse!FPoint(s) + rel;
             pts[2] = parse!FPoint(s) + rel;
@@ -291,11 +301,12 @@ void addSVGPath(Path)(ref Path path, string s)
 
         Lscubic:
             if (!path.verbs.empty && path.verbs[$-1] == Path.Verb.Cubic)
-                pts[1] += path.points[$-1] - path.points[$-2];
+                pts[1] += curPt - path.points[$-2];
             goto Lcubic;
 
         Lcubic:
             path.cubicTo(pts[0], pts[1], pts[2]);
+            curPt = pts[2];
             break;
 
         case 'Q':
@@ -304,19 +315,19 @@ void addSVGPath(Path)(ref Path path, string s)
             goto Lquad;
         case 'q':
         {
-            immutable rel = path.points[$-1];
+            immutable rel = curPt;
             pts[0] = parse!FPoint(s) + rel;
             pts[1] = parse!FPoint(s) + rel;
             goto Lquad;
         }
 
         case 'T':
-            pts[0] = path.points[$-1];
+            pts[0] = curPt;
             pts[1] = parse!FPoint(s);
             goto Lsquad;
         case 't':
         {
-            immutable rel = path.points[$-1];
+            immutable rel = curPt;
             pts[0] = rel;
             pts[1] = parse!FPoint(s) + rel;
             goto Lsquad;
@@ -324,22 +335,24 @@ void addSVGPath(Path)(ref Path path, string s)
 
         Lsquad:
             if (!path.verbs.empty && path.verbs[$-1] == Path.Verb.Quad)
-                pts[0] += path.points[$-1] - path.points[$-2];
+                pts[0] += curPt - path.points[$-2];
             goto Lquad;
 
         Lquad:
             path.quadTo(pts[0], pts[1]);
+            curPt = pts[1];
             break;
 
         case 'A':
         case 'a':
         {
-            immutable rel = c == 'a' ? path.points[$-1] : FPoint(0, 0);
+            immutable rel = c == 'a' ? curPt : FPoint(0, 0);
             immutable rx = parse!float(s), ry = parse!float(s);
             immutable xRotation = parse!float(s);
             immutable largeArc = parseArcFlag(s), sweep = parseArcFlag(s);
             immutable to = parse!FPoint(s) + rel;
-            addArc(path, rx, ry, xRotation, largeArc, sweep, to);
+            addArc(path, rx, ry, xRotation, largeArc, sweep, curPt, to);
+            curPt = to;
             break;
         }
         }
@@ -539,6 +552,24 @@ unittest
     addSVGPath(path, "M 5 5 Z M 10 10 L 20 20");
     assert(path.verbs == [Path.Verb.Move, Path.Verb.Line]);
     assert(path.points == [FPoint(10, 10), FPoint(20, 20)]);
+
+    // §9.3.2: a closepath leaves the subpath's own start as the current
+    // point. Path.close writes a Close verb and no point, so the last
+    // point held is wherever the command before the z put one, and every
+    // relative command after the z used to read that stale point.
+    path = Path.init;
+    addSVGPath(path, "M 10 20 L 30 20 z l 5 10 h 5 v 5");
+    assert(path.verbs == [Path.Verb.Move, Path.Verb.Line, Path.Verb.Close,
+                          Path.Verb.Line, Path.Verb.Line, Path.Verb.Line]);
+    assert(path.points[2 .. $] == [FPoint(15, 30), FPoint(20, 30), FPoint(20, 35)]);
+
+    // paths-data-02-t's second leaf: m70 0 is measured from 372,130, the
+    // start of the subpath the z just closed, not from 422,10
+    path = Path.init;
+    addSVGPath(path, "M372 130Q272 50 422 10zm70 0q50-150-80-90z");
+    assert(path.points[3] == FPoint(442, 130));
+    assert(path.points[4] == FPoint(492, -20));
+    assert(path.points[5] == FPoint(362, 40));
 }
 
 unittest

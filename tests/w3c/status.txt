@@ -267,8 +267,8 @@ painting-stroke-08-t.svg OK 1201
 painting-stroke-09-t.svg OK 642
 painting-stroke-10-t.svg OK 629
 paths-data-01-t.svg OK 2657
-paths-data-02-t.svg OK 5496
-paths-data-03-f.svg OK 5109
+paths-data-02-t.svg OK 1497
+paths-data-03-f.svg OK 897
 paths-data-04-t.svg OK 614
 paths-data-05-t.svg OK 610
 paths-data-06-t.svg OK 550
