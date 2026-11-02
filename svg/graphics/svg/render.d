@@ -1033,11 +1033,12 @@ private struct Renderer
         Path.FillRule clipRule = Path.FillRule.NonZero;
 
         // clip-path="url(#id)" (§14.3). A broken reference - unknown id,
-        // non-clipPath target, cycle - means the element is NOT rendered
-        // (unlike paint servers, which fall back). The list accumulates
-        // the chain of clip-paths declared on ancestors: the CSS
-        // property *replaces* on each element, but rendering-wise every
-        // ancestor group is clipped as a whole, and a paint buried in
+        // non-clipPath target, cycle - is dropped from the chain and the
+        // element renders unclipped, per §14.3.5's "treated as if it hadn't
+        // been specified"; an empty clipPath is what hides the paint. The
+        // list accumulates the chain of clip-paths declared on ancestors:
+        // the CSS property *replaces* on each element, but rendering-wise
+        // every ancestor group is clipped as a whole, and a paint buried in
         // those groups carries all of their masks - none of which a
         // deeper clip-path or even clip-path="none" can escape. Binary
         // masks commute, so accumulating and intersecting them is
@@ -1046,7 +1047,9 @@ private struct Renderer
 
         // mask="url(#id)" (§14.4): same accumulation chain as clipUrls -
         // mask values are per-pixel scalars on premultiplied pixels, so
-        // stacking them multiplies exactly and order never matters.
+        // stacking them multiplies exactly and order never matters. A
+        // FuncIRI that does not resolve is dropped the same way §14.3.5
+        // describes for clip-path, so the element paints unmasked.
         string[] maskUrls;
 
         // marker-start/mid/end (§11.6.3). Unlike clip/mask these are
@@ -1898,12 +1901,7 @@ private struct Renderer
     // coverage (Style.clipUrls) and every <mask>'s value (Style.maskUrls)
     // into it, then sprite-composite the result. The engine has no path
     // boolean ops, so clipping is offscreen compositing at the SVG
-    // layer. A broken reference (unknown id, wrong target kind, cycle)
-    // drops the paint entirely - §14.3.1 renders the element not at
-    // all, no fallback (masking-path-08-b's `url(#unknown)`; the same
-    // nonexistent-reference rule covers `mask`) - and so does an empty
-    // layer: empty clipPath, all children display:none, or
-    // objectBoundingBox units against a degenerate bbox.
+    // layer.
     //
     // The fill is the member `path`; `bbox`/`geom` describe the element's
     // geometry - its box (what objectBoundingBox units, §7.11, are
@@ -1935,12 +1933,20 @@ private struct Renderer
         if (doMarkers)
             drawMarkers(s, oc, scratch);
 
+        // A clip-path or mask whose FuncIRI does not resolve (unknown id,
+        // wrong element kind, reference cycle) is treated as if the property
+        // had not been specified. §14.3.5 says exactly that for clip-path;
+        // §14.4 only calls the mask case an error, and masking-path-08-b and
+        // -10-b - the clip and mask halves of the same test - both paint the
+        // referencing element at their `url(#unknown)` cell.
+        // What does drop the paint is a layer that resolves and then covers
+        // nothing: an empty clipPath or mask, all children display:none,
+        // objectBoundingBox units against a degenerate bbox, or a zero-size
+        // mask region.
         foreach (clipId; s.clipUrls)
-            if (!clipMultiply(clipId, scratch, bbox, geom))
-                return; // broken reference or empty clip: not rendered
+            clipMultiply(clipId, scratch, bbox, geom);
         foreach (maskId; s.maskUrls)
-            if (!maskMultiply(maskId, scratch, bbox, geom))
-                return; // broken reference or empty mask: not rendered
+            maskMultiply(maskId, scratch, bbox, geom);
 
         bool any;
         foreach (y; 0 .. bmp.height)
@@ -2032,22 +2038,24 @@ private struct Renderer
     }
 
     // Rasterise the clipPath `id` as a mask (same user-space CTM as the
-    // paint) and multiply its coverage into `scratch`. Returns false on
-    // a broken reference or an empty mask - either way the painted
-    // element is not rendered.
-    bool clipMultiply(string id, ref Bitmap scratch, in FRect bbox,
+    // paint) and multiply its coverage into `scratch`. A reference that
+    // does not resolve (unknown id, wrong target kind, cycle) leaves
+    // `scratch` alone: §14.3.5 drops the declaration, so the paint carries
+    // on unclipped. A clipPath that resolves and covers nothing is the
+    // opposite - it zeroes `scratch`, and the element shows nothing.
+    void clipMultiply(string id, ref Bitmap scratch, in FRect bbox,
         in Matrix geom)
     {
         auto scoped = enterScope(id);
         scope (exit) if (scoped) leaveScope();
         immutable idx = doc.byId(id);
         if (idx == Document.unknown)
-            return false;
+            return; // §14.3.5: as if clip-path had not been specified
         bool invalid;
         const string[] clipKinds = ["clipPath"];
         auto chain = hrefChain(doc, idx, invalid, clipKinds);
         if (invalid || chain.empty || chain[0].name != "clipPath")
-            return false;
+            return; // same: broken reference, no clip at all
 
         // clipPathUnits="objectBoundingBox" (§14.3.1) puts the children
         // in fractions of the painted geometry's bbox, mapped along the
@@ -2077,7 +2085,13 @@ private struct Renderer
             if (toLower(u) == "objectboundingbox")
             {
                 if (bbox.width <= 0 || bbox.height <= 0)
-                    return false;
+                {
+                    // No basis to put fractions on: the clip covers
+                    // nothing, which is a layer that resolves and paints
+                    // nothing, not a broken reference.
+                    scratch.eraseColor(Color(0));
+                    return;
+                }
                 Matrix bb;
                 bb.reset();
                 bb[0][0] = bbox.width;
@@ -2104,7 +2118,6 @@ private struct Renderer
                 break;
             }
 
-        bool any;
         foreach (y; 0 .. bmp.height)
         {
             auto r = scratch.getLine!PMColor(y);
@@ -2114,10 +2127,8 @@ private struct Renderer
                 // (assign _color, not px: the implicit PMColor(Color)
                 // constructor would premultiply the pixel twice)
                 px._color = alphaMul(px, alphaScale(k[x].a));
-                any |= px.a != 0;
             }
         }
-        return any;
     }
 
     // Rasterise the <mask> `id` (§14.4) with normal paint semantics -
@@ -2130,25 +2141,31 @@ private struct Renderer
     // sum already equals luminance x alpha. The mask region (maskUnits
     // frame, defaults -10%,-10%,120%,120%) bounds where anything can show:
     // referrer pixels whose user-space centres fall outside it multiply
-    // by zero.
-    bool maskMultiply(string id, ref Bitmap scratch, in FRect bbox,
+    // by zero. As with a clipPath, a reference that does not resolve leaves
+    // `scratch` alone - the declaration is dropped and the element paints
+    // unmasked - while a mask that resolves over an empty region zeroes it.
+    void maskMultiply(string id, ref Bitmap scratch, in FRect bbox,
         in Matrix geom)
     {
         auto scoped = enterScope(id);
         scope (exit) if (scoped) leaveScope();
         immutable idx = doc.byId(id);
         if (idx == Document.unknown)
-            return false;
+            return; // §14.4 + the masking-path-10-b capture: no mask at all
         bool invalid;
         const string[] maskKinds = ["mask"];
         auto chain = hrefChain(doc, idx, invalid, maskKinds);
         if (invalid || chain.empty || chain[0].name != "mask")
-            return false;
+            return; // same: broken reference, paint carries on
 
         immutable bboxUnits =
             !equalCase(strAttr(chain, "maskUnits"), "userspaceonuse");
         if (bboxUnits && (bbox.width <= 0 || bbox.height <= 0))
-            return false; // degenerate bbox: empty region, not rendered
+        {
+            // No basis for the region's fractions: an empty mask.
+            scratch.eraseColor(Color(0));
+            return;
+        }
 
         // The region attributes as fractions (objectBoundingBox) or
         // lengths (userSpaceOnUse); a trailing % scales by the unit
@@ -2183,7 +2200,13 @@ private struct Renderer
         immutable rw = region("width", 1.20f, wx);
         immutable rh = region("height", 1.20f, wy);
         if (!(rw > 0) || !(rh > 0))
-            return false; // negative or malformed extent: invalid
+        {
+            // Zero or negative extent: a region that covers nothing, so
+            // the masked paint shows nothing (a negative value is an error
+            // the reference resolves the same way).
+            scratch.eraseColor(Color(0));
+            return;
+        }
         immutable FRect reg = FRect(rx, ry, rx + rw, ry + rh);
 
         // Mask content renders under the plain pipeline (no clipMode):
@@ -2257,7 +2280,6 @@ private struct Renderer
         if (lumLinear)
             lut = srgbDecodeLUT();
         immutable inv = geom.inverted;
-        bool any;
         foreach (y; 0 .. bmp.height)
         {
             auto r = scratch.getLine!PMColor(y);
@@ -2293,10 +2315,8 @@ private struct Renderer
                 // clip masks, but not on a soft mask's AA ramp).
                 px._color = alphaMul(px,
                     alphaScale(to!ubyte(round(clamp(v, 0f, 1f) * 255))));
-                any |= px.a != 0;
             }
         }
-        return any;
     }
 
     // §14.4's linearRGB reading of the mask value: take the
@@ -7858,9 +7878,11 @@ unittest
     assert(bmp.getLine!PMColor(10)[5].r == 255, "inside the clip paints");
     assert(bmp.getLine!PMColor(10)[15].a == 0, "outside the clip paints nothing");
 
-    // Broken references and empty clips mean NOT rendered - no fallback
-    // paint server style (masking-path-08-b): unknown id, non-clipPath
-    // target, empty clipPath, only-display:none children.
+    // A clip-path reference that does not resolve is dropped and the
+    // element paints unclipped - §14.3.5's "treated as if it hadn't been
+    // specified", and masking-path-08-b's url(#unknown) cell shows the lime
+    // square. What does hide the paint is a clipPath that resolves and
+    // covers nothing: empty, or only display:none children.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="40" viewBox="0 0 20 40">
         <rect id="notclip" width="5" height="5"/>
         <clipPath id="empty"/>
@@ -7870,8 +7892,8 @@ unittest
         <rect y="20" width="10" height="10" fill="red" clip-path="url(#empty)"/>
         <rect y="30" width="10" height="10" fill="red" clip-path="url(#gonekid)"/>
         </svg>`);
-    assert(bmp.getLine!PMColor(3)[10].a == 0, "unknown id: not rendered");
-    assert(bmp.getLine!PMColor(15)[5].a == 0, "non-clipPath target: not rendered");
+    assert(bmp.getLine!PMColor(3)[10].r == 255, "unknown id: paints unclipped");
+    assert(bmp.getLine!PMColor(15)[5].r == 255, "non-clipPath target: paints unclipped");
     assert(bmp.getLine!PMColor(25)[5].a == 0, "empty clipPath: not rendered");
     assert(bmp.getLine!PMColor(35)[5].a == 0, "display:none kids only: not rendered");
 
@@ -7954,9 +7976,11 @@ unittest
     foreach (y; 0 .. 20)
         assert(bmp.getLine!PMColor(y)[30].a == 0, "nothing beyond the glyph");
 
-    // clip-path cycles between clipPath elements terminate (href cycles
-    // invalidate; clip-path-attribute cycles hit the depth cap) and paint
-    // nothing.
+    // An href cycle between clipPath elements makes the reference invalid,
+    // and an invalid reference is dropped: the element paints unclipped,
+    // like any other broken clip-path. A clip-path *attribute* cycle is the
+    // other case - the references resolve, the depth cap stops the
+    // recursion, and the clip that ends up covering nothing hides the paint.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
         xmlns:xlink="http://www.w3.org/1999/xlink" width="20" height="20" viewBox="0 0 20 20">
         <clipPath id="h1" xlink:href="#h2"><rect width="20" height="20"/></clipPath>
@@ -7966,7 +7990,7 @@ unittest
         <rect width="10" height="10" fill="red" clip-path="url(#h1)"/>
         <rect y="10" width="10" height="10" fill="red" clip-path="url(#a)"/>
         </svg>`);
-    assert(bmp.getLine!PMColor(5)[5].a == 0, "clipPath href cycle: invalid, not rendered");
+    assert(bmp.getLine!PMColor(5)[5].r == 255, "clipPath href cycle: paints unclipped");
     assert(bmp.getLine!PMColor(15)[5].a == 0, "clip-path attr cycle: capped, paints nothing");
 }
 
@@ -7996,8 +8020,9 @@ unittest
     assert(alf.a > 126 && alf.a < 130 && alf.g >= 250,
         "maskType=alpha: half-transparent black passes 0.5");
 
-    // Broken mask references and empty masks: the element is not
-    // rendered (same nonexistent-reference rule as clip: §14.3.5/§14.4).
+    // Same split as clip: an unresolvable mask reference is dropped and the
+    // element paints (masking-path-10-b's url(#unknown) cell), while a mask
+    // that resolves and covers nothing hides the paint.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="40" viewBox="0 0 20 40">
         <rect id="notmask" x="-6" y="10" width="5" height="5"/>
         <mask id="mempty"/>
@@ -8009,8 +8034,8 @@ unittest
         <rect y="20" width="10" height="10" fill="red" mask="url(#mempty)"/>
         <rect x="10" y="20" width="10" height="10" fill="red" mask="url(#mgone)"/>
         </svg>`);
-    assert(bmp.getLine!PMColor(5)[5].a == 0, "unknown id: not rendered");
-    assert(bmp.getLine!PMColor(5)[15].a == 0, "non-mask target: not rendered");
+    assert(bmp.getLine!PMColor(5)[5].r == 255, "unknown id: paints unmasked");
+    assert(bmp.getLine!PMColor(5)[15].r == 255, "non-mask target: paints unmasked");
     assert(bmp.getLine!PMColor(15)[5].a == 0, "empty mask: not rendered");
     assert(bmp.getLine!PMColor(25)[15].a == 0, "display:none content: empty mask too");
 
@@ -8027,6 +8052,22 @@ unittest
         "userSpaceOnUse region cuts the mask at x=10");
     assert(bmp.getLine!PMColor(30)[5].g == 255 && bmp.getLine!PMColor(30)[15].a == 0,
         "bbox region x=0 width=0.5 cuts at half the shape");
+
+    // The other kind of empty is a region that covers nothing: no extent,
+    // or an objectBoundingBox frame with no basis to be fractions of. Both
+    // hide the paint, which is exactly what a reference that fails to
+    // resolve does NOT do.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <mask id="zero" maskUnits="userSpaceOnUse" width="0" height="20"><rect width="20" height="20" fill="white"/></mask>
+        <rect width="20" height="20" fill="lime" mask="url(#zero)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[10].a == 0, "zero-width mask region: not rendered");
+
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
+        <mask id="mzero"><rect width="1" height="1" fill="white"/></mask>
+        <rect x="5" y="2" width="0" height="10" fill="none" stroke="blue" stroke-width="3" mask="url(#mzero)"/>
+        </svg>`);
+    assert(bmp.getLine!PMColor(5)[5].a == 0, "degenerate bbox: empty mask region");
 
     // maskContentUnits="objectBoundingBox": children are bbox fractions.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
@@ -8420,7 +8461,8 @@ unittest
     // graphics element (§14.3.5/§14.4) - masking-path-04-b's clipped
     // image. The objectBoundingBox basis is the image's geometry box, the
     // viewport rect (§5.7), NOT the natural-pixel rect the image shader
-    // fills, and a broken reference drops the paint like everywhere else.
+    // fills, and an unresolvable reference is simply no clip/mask at all
+    // (§14.3.5/§14.4), so this image paints right through.
     // (format, not ${}: a wysiwyg backtick string keeps the dollars)
     immutable px = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12P4z8DwHwAFAAH/cpxSZwAAAABJRU5ErkJggg==";
     auto bmp = renderSVG(format(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="80">
@@ -8436,7 +8478,7 @@ unittest
     assert(bmp.getLine!PMColor(10)[15].a == 0, "userSpaceOnUse clip: nothing outside");
     assert(bmp.getLine!PMColor(25)[5].r == 255, "bbox clip: top half of the viewport rect paints");
     assert(bmp.getLine!PMColor(35)[5].a == 0, "bbox clip: bottom half stays clear");
-    assert(bmp.getLine!PMColor(50)[5].a == 0, "broken clip reference: image not rendered");
+    assert(bmp.getLine!PMColor(50)[5].r == 255, "broken clip reference: image paints");
     assert(bmp.getLine!PMColor(70)[5].r == 255, "mask: white mask geometry passes the image");
     assert(bmp.getLine!PMColor(70)[15].a == 0, "mask: nothing outside it");
 }

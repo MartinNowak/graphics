@@ -177,6 +177,12 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | a flood giving only width/height sat 10%       |
 |                       | of the bbox off both leading edges             |
 |                       | (§15.1, §15.7.3)                               |            |
+| step 53               | a clip-path or mask FuncIRI that does not      | 2.94 M     |
+|                       | resolve is dropped rather than fatal - the     |            |
+|                       | declaration counts as never written, so the    |            |
+|                       | element paints; only a layer that resolves     |            |
+|                       | and then covers nothing hides the paint        |            |
+|                       | (§14.3.5, §14.4)                               |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1829,19 +1835,77 @@ leaving the corner it used to fill clear.
 
 One row moved, -837 - 526 rows, 2,941,257 AE.
 
-Up next - step 53: the filter family's remaining non-ceiling rows, led
-by `filters-blend-01-b` (7,426) and the twins `filters-overview-02-b`
-(5,633) and `filters-overview-03-b` (5,731). The twins are the cheaper
-read: their diff clusters are byte-identical, both dominated by one
-122x102 box at x=317..438, so a single shared primitive is wrong rather
-than two features, and the rest of both rows is DRAFT band and label.
-`filters-blend-01-b` is the colour case - 36,623 strong-delta pixels
-spread over the 360x294 union of its overlapping circles but only 7,426
-past the compare's fuzz, which says the blend result is a slightly
-different colour everywhere rather than a different shape anywhere, so
-the thing to test is §15.3's linearRGB default and §15.5's mode
-arithmetic on top of step 46's profiles. `pservers-grad-11-b` (5,323)
-and `masking-path-10-b` (1,921) are the next two after those.
+Step 53 is the difference between a masking reference that does not
+resolve and a masking layer that resolves to nothing. `clipMultiply` and
+`maskMultiply` both answered false for an unknown id, a target of the
+wrong kind and a reference cycle, and `maskedPaint` read that false as
+"paint nothing" - the same answer an empty layer gives. The two are not
+the same and only one of them hides anything. §14.3.5's 'clip-path'
+entry says the first case in as many words: "If the IRI reference is not
+valid (e.g. it points to an object that doesn't exist or the object is
+not a 'clipPath' element) the 'clip-path' property must be treated as if
+it hadn't been specified." §14.4 goes no further than "It is an error if
+the 'mask' property references a non-existent object", leaving the mask
+half to Error Processing, so the harness decides that one - and
+`masking-path-08-b` and `masking-path-10-b` are the clip and mask halves
+of a single test, each carrying a cell aimed at `url(#unknown)` under
+the comment "This has an intentionally broken clip-path url". Both
+captures show the referencing element in that cell: 50x50 of lime over
+the red behind it, which is what an ignored declaration paints.
+
+So both multipliers return nothing now. A reference that does not
+resolve leaves the scratch alone and the paint carries on; the layers
+that resolve and then cover nothing zero the scratch instead - an empty
+`clipPath` or `mask`, children all `display:none`, objectBoundingBox
+units with no bbox to be fractions of, a mask region with no extent -
+and those are the other half of the file's own grid, the `emptyclip` and
+`displayclip` cells two columns over. The per-primitive `any`
+accumulators went with the return values: `maskedPaint` already scans the
+scratch before compositing, and that scan is what now decides whether
+there is anything to sprite. An `href` cycle between `clipPath` elements
+belongs to the broken half - the chain cannot be read, so the declaration
+is not valid - while a `clip-path` *attribute* cycle belongs to the
+empty half: both references resolve, the depth cap stops the recursion,
+and the inner clip ends up covering nothing.
+
+Filters keep the opposite answer and it is not an inconsistency to
+smooth over. §15.4's 'filter' entry never mentions a broken reference at
+all, but `filters-felem-01-b`'s circle at 330,60 carries
+`filter="url(#notthere)"` and the capture has no red there - the green
+behind it shows, on our side too, at 479 AE. Broken clip-path or mask:
+paint. Broken filter: do not.
+
+The clip, mask and image unittests moved with the split - unknown id,
+wrong target and `href` cycle now assert the paint, empty content,
+`display:none` children and the attribute cycle still assert nothing -
+and two new ones pin the half that could regress silently: a
+`maskUnits="userSpaceOnUse" width="0"` region, and an objectBoundingBox
+mask on a zero-width rect, both hide the paint.
+
+Two rows moved, -1,238 each - 526 rows, 2,938,781 AE. What is left of
+them is one residue on both sides: four ~98-pixel clusters and three
+50-pixel 1-px lines, all on the edges of cells whose red square is inset
+`x="0.5" width="99"` under a 0.5 scale, so its edges fall on half
+pixels. `masking-path-08-b` keeps one more whole 50x50 block and that
+one is ours, which is why it no longer sits in the stale-capture list
+below.
+
+Up next - step 54: that block, x=215..264 y=100..149 in
+`masking-path-08-b` (1,968), is a rule held backwards. The cell is
+`clip-path="url(#hiddenclip)"`, whose `clipPath` holds one 100x100 rect
+with `visibility="hidden"`, and §14.3.5's geometry paragraph ends: "If a
+child element is made invisible by 'display' or 'visibility' it does not
+contribute to the clipping path." The clip therefore covers nothing and
+the red must vanish; the capture shows lime and we show red, 2,500 raw
+pixels in one cell. `display:none` is already honoured on clip children,
+which is why the `displayclip` cell beside it sits at 98 pixels of edge.
+The paragraph *above* that sentence is the regression guard: the
+geometry counts "exclusive of rendering properties", so the grid's
+`opacity="0"`, `fill="none"`, `fill-opacity="0"` and `stroke-opacity="0"`
+children must all keep contributing. The module's own clip unittest
+already claims "visibility:hidden still clips" in a comment, with an
+assert that cannot see it - lime wins at that sample either way - so the
+flip needs a sample that distinguishes the two.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2059,13 +2123,34 @@ and `masking-path-10-b` (1,921) are the next two after those.
   cannot come from the file's own stop list and no `spreadMethod` gives
   it: `pad` and `reflect` agree with ours until t=1 and `repeat` puts
   yellow at the seam. Keep our reading; the pair is the reference's.
+- The twins `filters-overview-02-b` (5,633) and `filters-overview-03-b`
+  (5,731) are that same pair counted twice: their diff-cluster profiles
+  are byte-identical - 10,829 and 5,926 raw pixels in the two 122x102
+  boxes at x=317..438, 989 of DRAFT band, one 18x16 revision label and
+  four small text clusters - and only the servers differ, `grad1`/`grad2`
+  in `userSpaceOnUse` here against `grad1`'s objectBoundingBox there. Our
+  FillPaint/StrokePaint rasteriser fills the whole region with that
+  server at a near-uniform alpha of ~150, and no reading of the server
+  explains the capture: `grad2` runs y=192.75..274.5 with white at 0.33,
+  red at 0.67 and yellow at 1.0, while the capture's lower box is flat
+  blue straight through y=195..275. Step 52 moved both rows; what is
+  left of them is the bullet above, twice.
+- `filters-blend-01-b` (7,426) is shape-right and a hair off colour
+  everywhere at once: its clusters are the whole 360x294 union of the
+  overlapping circles - 36,623 raw pixels, 7,426 of them past the 10%
+  fuzz - plus two 119x30 bands, with no edge or extent disagreement
+  anywhere, which is what a mode-arithmetic gap looks like; and its PNG
+  says `$Revision: 1.7 $` against 1.9 in `suite/`, so the field being
+  scored is markup that changed under it.
 - Stale captures: the archived PNG is of an *older test revision* than the
   SVG in `suite/`, so the row is scored against markup that no longer
   exists. Reading each montage's own `$Revision:` label sorts the family:
   `conform-viewers-02-f` (7.8 K) 1.2 against 1.6, its page the script-driven
   `viewport.zoomAndPan` state the class note above already covers;
-  `masking-path-08-b` (3.2 K) 1.1 against 1.7, the two 50x50 squares it
-  misses being clipPath children the 1.7 file draws and §14.4 says to draw;
+  `masking-path-08-b` (2.0 K) is 1.1 against 1.7, but its two whole
+  squares are both accounted for now - step 53 took the broken-clip one,
+  the other is the `visibility="hidden"` clip child the step-54 lead
+  claims - and what remains is half-pixel edges;
   `color-prof-01-f` (6.8 K) 1.5 against 1.9, DRAFT band included, which also
   retires step 46's "still waits on a profile reader" reading of it;
   `imp-path-01-f` (5.1 K) 1.3 against 1.5; `pservers-pattern-02-f` (4.0 K)
