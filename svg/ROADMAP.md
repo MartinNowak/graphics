@@ -157,6 +157,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | subpath's own start (§9.3.2), and `Path.close` |            |
 |                       | adds no point to read back, so every relative  |            |
 |                       | command after a `z` measured from a stale one  |            |
+| step 49               | a smooth cubic reflects the cubic before it    | 2.96 M     |
+|                       | through the current point (§9.3.2); the parser |            |
+|                       | seeded the handle with the current point and   |            |
+|                       | moved the parsed one instead of the first      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1659,6 +1663,35 @@ verbs, so an `A` followed by an `S` reflects off a handle the grammar
 never drew - the gate wants the previous *command*, not the previous
 verb.
 
+Step 49 landed that. `Lscubic` reflects into `pts[0]` now, which is the
+one line `Lsquad` had always run, and case `s` assigns `pts[0] = rel`
+instead of the `pts[0] = pts[0]` that re-read whatever the previous
+command had left in the scratch array. The gate went with it: both
+smooth commands ask `lastCmd`, the class of the command the grammar
+last ran - 'm', 'l', 'c', 'q', 'a' or 'z' - and not `path.verbs[$-1]`,
+because `addArc` fills the path with cubic verbs and
+`M 0 0 C 1 1 2 2 3 3 A 10 10 0 0 1 20 20 S 30 30 40 40` had been
+reflecting off an arc's last handle. Unittests pin both halves:
+`C 1 1 2 2 3 3 S 4 4 5 5` and `c 1 1 2 2 3 3 s 1 1 2 2` land on the
+same seven points, the smooth handle at 4,4 - 2,2 reflected through
+3,3 - and the `S` after that `A` keeps its handle at 20,20.
+
+Ten rows moved, -5,164 in all - 526 rows, 2,956,573 AE.
+`paths-data-01-t` 2,657 -> 754 and `conform-viewers-01-t`
+3,014 -> 1,112 are the same three drawings twice: `X_curve_MCSmcs`,
+`Rem_Rib_mcs` and `Circle_Mcssz`. Then `paths-data-19-f` -461,
+`animate-elem-83-t` -329, `paths-data-12-t` -276 and
+`metadata-example-01-t` -262. Three rows moved by a handful of pixels
+- `text-text-03-b` -16, `text-tspan-01-b` -14, `animate-elem-77-t` -2
+- and they carry no path of their own: their letters come from the
+suite's own SVG fonts in `resources/`, whose glyph outlines are
+`d` strings too, FreeSerif alone holding 59 smooth cubics. Every
+`S` join in those glyph runs had a cusp in it. `animate-elem-35-t`
+(4,296) has four smooth cubics and did not move: they are the icon
+paths inside `visibility="hidden"` groups that its `<set>` elements
+uncover further along the timeline, which is the operator-activation
+ceiling, not the grammar.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -1752,6 +1785,14 @@ verb.
   to the md5, so neither capture holds a shape - while 04-f's own
   inline `<style>` asks for the same all-green answer through
   descendant, child and adjacency selectors, and we paint it.
+  `styling-pres-03-f` (7.3 K) is the same kind of mismatch one level
+  up: the archived capture is of test revision 1.4, whose body element
+  is `fill="red"` carrying an inline `fill: none`, so that page is
+  white; the SVG in `suite/` is revision 1.3, whose same element says
+  `style="fill: green"`, so we paint a 200x100 green rectangle there -
+  which is what 1.3 asks, the style attribute outranking the
+  presentation attribute (§6.6) - and the row sets our `$Revision:
+  1.3 $` label against the capture's `$Revision: 1.4 $`.
 - types-basic-02-f (8.2 K), from the step-23 sweep: its pass criteria ask for
   "six circles with the same thick green stroke visible, and no red", which is
   what we paint, and the archived PNG is the state its own description carves

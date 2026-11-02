@@ -210,6 +210,12 @@ void addSVGPath(Path)(ref Path path, string s)
     // through here. Both start at the origin, which is also what makes
     // a relative moveto on an empty path absolute (§9.3.2).
     FPoint curPt = FPoint(0, 0), subStart = FPoint(0, 0);
+    // The command class last run - 'm', 'l', 'c', 'q', 'a' or 'z' - which
+    // the two smooth commands ask about directly. The verb held does not
+    // answer the question: addArc decomposes an arc into cubic verbs, so
+    // an `A` followed by an `S` would reflect off a handle the grammar
+    // never drew, and §9.3.2 reflects only off a cubic that was written.
+    char lastCmd;
     skipCW(s);
     char c;
     while (!s.empty)
@@ -236,6 +242,7 @@ void addSVGPath(Path)(ref Path path, string s)
         Lmove:
             path.moveTo(pts[0]);
             subStart = curPt = pts[0];
+            lastCmd = 'm';
             break;
 
         case 'Z', 'z':
@@ -243,6 +250,7 @@ void addSVGPath(Path)(ref Path path, string s)
             // §9.3.2: the close leaves the subpath's own start as the
             // current point, whatever point the command before it wrote
             curPt = subStart;
+            lastCmd = 'z';
             break;
 
         case 'L':
@@ -269,6 +277,7 @@ void addSVGPath(Path)(ref Path path, string s)
         Lline:
             path.lineTo(pts[0]);
             curPt = pts[0];
+            lastCmd = 'l';
             break;
 
         case 'C':
@@ -286,27 +295,31 @@ void addSVGPath(Path)(ref Path path, string s)
         }
 
         case 'S':
-            pts[0] = curPt;
+            pts[0] = curPt; // replaced by the reflection below
             pts[1] = parse!FPoint(s);
             pts[2] = parse!FPoint(s);
             goto Lscubic;
         case 's':
         {
             immutable rel = curPt;
-            pts[0] = pts[0];
+            pts[0] = rel; // replaced by the reflection below
             pts[1] = parse!FPoint(s) + rel;
             pts[2] = parse!FPoint(s) + rel;
             goto Lscubic;
         }
 
         Lscubic:
-            if (!path.verbs.empty && path.verbs[$-1] == Path.Verb.Cubic)
-                pts[1] += curPt - path.points[$-2];
+            // §9.3.2: the first handle is the second handle of the cubic
+            // before it, reflected through the current point - and just
+            // the current point if the command before was not a cubic
+            if (lastCmd == 'c')
+                pts[0] += curPt - path.points[$-2];
             goto Lcubic;
 
         Lcubic:
             path.cubicTo(pts[0], pts[1], pts[2]);
             curPt = pts[2];
+            lastCmd = 'c';
             break;
 
         case 'Q':
@@ -334,13 +347,14 @@ void addSVGPath(Path)(ref Path path, string s)
         }
 
         Lsquad:
-            if (!path.verbs.empty && path.verbs[$-1] == Path.Verb.Quad)
+            if (lastCmd == 'q')
                 pts[0] += curPt - path.points[$-2];
             goto Lquad;
 
         Lquad:
             path.quadTo(pts[0], pts[1]);
             curPt = pts[1];
+            lastCmd = 'q';
             break;
 
         case 'A':
@@ -353,6 +367,7 @@ void addSVGPath(Path)(ref Path path, string s)
             immutable to = parse!FPoint(s) + rel;
             addArc(path, rx, ry, xRotation, largeArc, sweep, curPt, to);
             curPt = to;
+            lastCmd = 'a';
             break;
         }
         }
@@ -498,10 +513,23 @@ unittest
     path = Path.init;
     addSVGPath(path, "M 0 0 C 1 1 2 2 3 3 S 4 4 5 5");
     assert(path.verbs == [Path.Verb.Move, Path.Verb.Cubic, Path.Verb.Cubic]);
-    // S seeds the first handle with the current point and shifts the parsed
-    // handle by the previous cubic's leg reflection.
+    // §9.3.2: S takes the cubic's other handle, (2,2), reflects it through
+    // the current point (3,3) into (4,4), and keeps the parsed handle.
     assert(path.points == [FPoint(0, 0), FPoint(1, 1), FPoint(2, 2), FPoint(3, 3),
-                           FPoint(3, 3), FPoint(5, 5), FPoint(5, 5)]);
+                           FPoint(4, 4), FPoint(4, 4), FPoint(5, 5)]);
+
+    // the same path written relative lands on the same seven points
+    path = Path.init;
+    addSVGPath(path, "M 0 0 c 1 1 2 2 3 3 s 1 1 2 2");
+    assert(path.points == [FPoint(0, 0), FPoint(1, 1), FPoint(2, 2), FPoint(3, 3),
+                           FPoint(4, 4), FPoint(4, 4), FPoint(5, 5)]);
+
+    // a smooth command after anything else starts its handle at the current
+    // point, even though addArc filled the path with cubic verbs
+    path = Path.init;
+    addSVGPath(path, "M 0 0 C 1 1 2 2 3 3 A 10 10 0 0 1 20 20 S 30 30 40 40");
+    assert(near(path.points[$-1], FPoint(40, 40)));
+    assert(path.points[$-3] == FPoint(20, 20));
 
     // quads and smooth quads
     path = Path.init;

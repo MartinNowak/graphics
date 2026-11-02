@@ -53,12 +53,12 @@ animate-elem-67-t.svg OK 970
 animate-elem-68-t.svg OK 921
 animate-elem-69-t.svg OK 955
 animate-elem-70-t.svg OK 1067
-animate-elem-77-t.svg OK 166277
+animate-elem-77-t.svg OK 166275
 animate-elem-78-t.svg OK 2318
 animate-elem-80-t.svg OK 2706
 animate-elem-81-t.svg OK 1416
 animate-elem-82-t.svg OK 2535
-animate-elem-83-t.svg OK 1796
+animate-elem-83-t.svg OK 1467
 animate-elem-84-t.svg OK 442
 animate-elem-85-t.svg OK 22282
 animate-elem-86-t.svg OK 726
@@ -82,7 +82,7 @@ color-prop-02-f.svg OK 442
 color-prop-03-t.svg OK 442
 color-prop-04-t.svg OK 922
 color-prop-05-t.svg OK 430
-conform-viewers-01-t.svg OK 3014
+conform-viewers-01-t.svg OK 1112
 conform-viewers-02-f.svg OK 7817
 conform-viewers-03-f.svg OK 3540
 coords-coord-01-t.svg OK 393
@@ -234,7 +234,7 @@ masking-path-11-b.svg OK 734
 masking-path-12-f.svg OK 1402
 masking-path-13-f.svg OK 418
 masking-path-14-f.svg OK 381
-metadata-example-01-t.svg OK 758
+metadata-example-01-t.svg OK 496
 painting-control-01-f.svg OK 322
 painting-control-02-f.svg OK 1208
 painting-control-03-f.svg OK 538
@@ -266,7 +266,7 @@ painting-stroke-07-t.svg OK 1351
 painting-stroke-08-t.svg OK 1201
 painting-stroke-09-t.svg OK 642
 painting-stroke-10-t.svg OK 629
-paths-data-01-t.svg OK 2657
+paths-data-01-t.svg OK 754
 paths-data-02-t.svg OK 1497
 paths-data-03-f.svg OK 897
 paths-data-04-t.svg OK 614
@@ -276,14 +276,14 @@ paths-data-07-t.svg OK 550
 paths-data-08-t.svg OK 614
 paths-data-09-t.svg OK 610
 paths-data-10-t.svg OK 1116
-paths-data-12-t.svg OK 847
+paths-data-12-t.svg OK 571
 paths-data-13-t.svg OK 553
 paths-data-14-t.svg OK 623
 paths-data-15-t.svg OK 624
 paths-data-16-t.svg OK 703
 paths-data-17-f.svg OK 666
 paths-data-18-f.svg OK 461
-paths-data-19-f.svg OK 1780
+paths-data-19-f.svg OK 1319
 paths-data-20-f.svg OK 790
 paths-dom-01-f.svg OK 876
 paths-dom-02-f.svg OK 5525
@@ -450,7 +450,7 @@ svgdom-over-01-f.svg OK 3201
 text-align-01-b.svg OK 1287
 text-align-02-b.svg OK 2537
 text-align-03-b.svg OK 2270
-text-align-04-b.svg OK 2214
+text-align-04-b.svg OK 2215
 text-align-05-b.svg OK 1614
 text-align-06-b.svg OK 2950
 text-align-07-t.svg OK 6338
@@ -488,7 +488,7 @@ text-path-01-b.svg OK 3079
 text-path-02-b.svg OK 2748
 text-spacing-01-b.svg OK 5308
 text-text-01-b.svg OK 5546
-text-text-03-b.svg OK 1740
+text-text-03-b.svg OK 1724
 text-text-04-t.svg OK 879
 text-text-05-t.svg OK 782
 text-text-06-t.svg OK 796
@@ -504,7 +504,7 @@ text-tref-03-b.svg OK 462
 text-tselect-01-b.svg OK 485
 text-tselect-02-f.svg OK 4667
 text-tselect-03-f.svg OK 3915
-text-tspan-01-b.svg OK 1198
+text-tspan-01-b.svg OK 1184
 text-tspan-02-b.svg OK 726
 text-ws-01-t.svg OK 5277
 text-ws-02-t.svg OK 6369
