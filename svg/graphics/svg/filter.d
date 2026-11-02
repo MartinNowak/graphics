@@ -492,7 +492,10 @@ unittest
 
 /// feColorMatrix §15.10: build the row-major 5x4 matrix named by
 /// `type` from its `values` shortcut. Unknown types, short value lists and
-/// non-matrix types with values present behave as the identity.
+/// non-matrix types with values present behave as the identity. `type` is
+/// matched exactly as §15.10 spells it - matrix, saturate, hueRotate,
+/// luminanceToAlpha - because §6.7 makes a presentation-attribute keyword
+/// case-sensitive.
 float[20] cmMatrix(in string type, const float[] v)
 {
     float[20] m = 0.0f;

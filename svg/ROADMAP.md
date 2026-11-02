@@ -135,6 +135,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 42               | a zero-length edge still has its first and     | 3.03 M     |
 |                       | final vertex, so its markers paint even with   |            |
 |                       | butt caps (SVG 1.1 §11.6.3)                    |            |
+| step 43               | a feColorMatrix type keeps the case the spec   | 3.02 M     |
+|                       | writes it in: hueRotate and luminanceToAlpha   |            |
+|                       | fell to the identity matrix (§6.7, §15.10)     |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -1405,25 +1408,72 @@ band on the sides, 248 along its bottom edge, that half-pixel stroker
 convention recorded under step 27. Between those two floors the two
 marker squares agree.
 
-Up next - step 43: `filters-color-01-b` (7,811). The bigger filter rows
-are the wrong shape for a feature - `filters-displace-01-f` (13.4 K)
-drives four feDisplacementMaps from feImage bitmaps, and
-`filters-overview-02-b`/`-03-b` (8.4/8.5 K) blur a gradient, so their
-difference is spread across a ramp or a noise picture rather than sitting
-anywhere. This one sits: five rectangles across one blue-to-yellow
-gradient - unfiltered, `feColorMatrix type="matrix"`, `saturate`,
-`hueRotate`, `luminanceToAlpha` - and 4,264 of its 7,811 AE is the
-y=240..280 band, with 1,247 in the band above it. The first band is the
-luminanceToAlpha panel, `<rect y="420">` inside the file's nested
-`<svg x="-10" y="5" width="500" height="290" viewBox="0 0 800 500">`, so
-it lands at device y=249..272. Its chain ends in `feComposite
-in="SourceGraphic" in2="a" operator="in"`, which makes the panel's alpha
-the matrix's A row and nothing else, and the file's `#Matrix` region is
-the tightest in the suite - `x="0%" y="0%" width="100%" height="100%"`,
-where the other three run -5%/-5%/110%/110%. Those two readings, the
-Rec.709-style luminance coefficients and a filter region clipped exactly
-to the bbox, are worth probing before the row is filed as arithmetic
-drift alongside its `filters-turb`/`filters-conv` neighbours.
+Step 43 landed the case of a feColorMatrix `type` keyword (SVG 1.1
+§15.10). The filter walk read the attribute through `toLower` before
+handing it to `cmMatrix`, whose switch is labelled with the spellings the
+spec itself writes - `matrix`, `saturate`, `hueRotate`,
+`luminanceToAlpha` - so the two mixed-case keywords matched nothing and
+fell through to the default branch, which builds the identity unless
+twenty numbers come with them. The primitive ran, wrote its input back
+out unchanged, and reported success. filter.d's own unittest of
+`cmMatrix` never caught it because that one calls it with the exact
+spelling.
+
+§6.7 is the sentence behind the fix: presentation attributes are XML
+attributes, and "keyword values, such as italic in font-style="italic",
+are also case-sensitive and must be specified using the exact case used
+in the specification which defines the given keyword" - the same
+sentence that settles "the keyword sRGB must have lowercase s and
+uppercase RGB". The value now goes through verbatim.
+
+Asked of every other keyword the walk lowercases, the same reading comes
+out clean: fill-rule and clip-rule, visibility, overflow, display, the
+line cap/join/alignment sets, feComposite's `operator`, feBlend's
+`mode`, feFunc's `type`, feTurbulence's `stitchTiles`, feConvolveMatrix's
+`edgeMode` and `preserveAlpha` - each of those SE keyword sets is
+spelled all lowercase, so lower-casing both sides loses nothing. The
+mixed-case values the engine does read, `sRGB` and `linearRGB` for
+`color-interpolation` and `color-interpolation-filters`, are compared
+case-insensitively against the exact literal, so they were already
+reaching their branch. feColorMatrix's `type` was the one value sent, by
+the walk, into a branch it could never reach.
+
+Suite: one row moves, `filters-color-01-b` 7,811 -> 2,480, and it moves
+completely. Its five panels - unfiltered, `type="matrix"`, `saturate`,
+`hueRotate 90`, and the `luminanceToAlpha` panel whose alpha comes only
+from the matrix's A row, through `feComposite in="SourceGraphic"
+in2="a" operator="in"` - each compare at AE 0 in their tight 442x24
+crops, including the `#Matrix` filter's region clipped exactly to the
+bbox, `x="0%" y="0%" width="100%" height="100%"`, where the file's other
+three filters run -5%/-5%/110%/110%. Before the fix the first three were
+at 0 and the last two at 1,155 and 4,163. What is left of the row is its
+floor: ~1.9 K in its five Verdana labels, host substitution, and ~540 in
+the two frame rings, 128 along the top and 258 along the bottom, the
+half-pixel stroker convention recorded under step 27.
+
+Up next - step 44: the four filter inputs that are not the element
+itself, and `filters-overview-03-b` (8,505) is the suite's test of them
+- six panels, one per `in` value, each a blurred `<g>` of three dashed
+circles over an unfiltered green bar. Cropped per panel, the two that
+name the element are already at the floor (SourceAlpha 142,
+SourceGraphic 157) and the four that do not are nowhere near it:
+BackgroundAlpha 1,838, BackgroundImage 1,164, FillPaint 1,453,
+StrokePaint 2,442. The first pair is one bug: `filteredElement` swaps
+`bmp` to its scratch, paints the subtree there, and runs the chain only
+afterwards, so `initBg()`'s snapshot of `bmp` is the subtree - the
+filter is fed its own source and the green bar beneath is never seen.
+A probe pins both halves: a bare `feGaussianBlur in="BackgroundAlpha"`
+on a group whose circle overlaps a lime bar drawn before it paints a
+dark band 20 px wide - the disc's diameter - where the bar is 8, and
+nothing at all 4 px above the disc's top, though the bar runs on
+through that row. The fix is to name the page before the swap. `filters-background-01-f` (4,968), `filters-blend-01-b` (7,422)
+and `filters-overview-01/02-b` (3,540/8,408) are the other rows that
+read those inputs. FillPaint and StrokePaint are a second, smaller
+question: ours paints the element's paint server over the region with
+that element's bbox as the gradient's basis, and at the centre of the
+FillPaint panel the reference reads `#F17292` against our `#FE7B7B`,
+which is a different basis for a container's gradient rather than a
+different primitive.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -1551,9 +1601,12 @@ drift alongside its `filters-turb`/`filters-conv` neighbours.
   `text-text-08-b` (15.1 K), triaged at step 42, is the substitution half of
   that floor: 13.7 K of it lies in its four Verdana text bands, 2,002 in the
   y=0..20 band where its 1-unit `test-frame` ring is the half-pixel stroker
-  convention recorded under step 27, and 298 at y>=340. Its blue there reads `#0000FE80` against the reference's
-  `#0000FF80`, inside the compare's fuzz, so the opacity halves themselves cost
-  no AE.
+  convention recorded under step 27, and 298 at y>=340. Its blue there
+  reads `#0000FE80` against the reference's `#0000FF80`, inside the
+  compare's fuzz, so the opacity halves themselves cost no AE.
+  `filters-color-01-b`'s 2,480, all that is left of it once step 43 put
+  its five panels at AE 0, is that same floor: ~1.9 K across its five
+  Verdana labels, and ~540 in the frame ring.
 - White-page references (~1.46 M, 44% of the 3.33 M baseline): ten tests'
   reference PNGs were captured over an *opaque white page* while our canvas
   is transparent, so their AE is page background, not content. Re-comparing

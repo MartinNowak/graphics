@@ -5037,10 +5037,16 @@ private struct Renderer
             case "feColorMatrix":
             {
                 // type defaults to "matrix"; values is a whitespace-or-comma
-                // separated number list (§15.10).
+                // separated number list (§15.10). The keyword arrives exactly
+                // as §15.10 writes it - matrix, saturate, hueRotate,
+                // luminanceToAlpha - because §6.7 makes presentation-attribute
+                // keywords case-sensitive ("must be specified using the exact
+                // case used in the specification"). Lowercasing it here sent
+                // hueRotate and luminanceToAlpha down the identity branch,
+                // which is filters-color-01-b's fourth and fifth panels.
                 string type = "matrix";
                 if (auto p = "type" in e.attrs)
-                    type = toLower(strip(*p));
+                    type = strip(*p);
                 float[] vals;
                 if (auto p = "values" in e.attrs)
                     foreach (t; numList(*p))
@@ -7996,6 +8002,35 @@ unittest
     assert(px.r > 60 && px.r < 68, `red is the white showing through: ${to!string(px)}`);
     assert(px.g > 177 && px.g < 185, `green straight 1/3: ${to!string(px)}`);
     assert(px.b > 219 && px.b < 227, `blue straight 2/3: ${to!string(px)}`);
+}
+
+unittest
+{
+    // §15.10's two spelled-with-capitals types, which the walk used to
+    // lowercase into the identity branch: on opaque red, in the §15.2
+    // linearRGB working space, luminanceToAlpha leaves black behind with
+    // A = 0.2125 (54/255), and hueRotate 90 moves the red's 1.0 to
+    // G = 0.213 + 0.143 = 0.356 with B going negative, i.e. sRGB green 161.
+    auto lta = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30">
+        <filter id="l">
+            <feColorMatrix type="luminanceToAlpha"/>
+        </filter>
+        <rect x="10" y="10" width="10" height="10" fill="red" filter="url(#l)"/>
+        </svg>`);
+    immutable la = lta.getLine!PMColor(15)[15];
+    assert(la.r < 5 && la.g < 5 && la.b < 5, `the colours are emptied: ${to!string(la)}`);
+    assert(la.a > 50 && la.a < 58, `A is the luminance: ${to!string(la)}`);
+
+    auto hue = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30">
+        <filter id="h">
+            <feColorMatrix type="hueRotate" values="90"/>
+        </filter>
+        <rect x="10" y="10" width="10" height="10" fill="red" filter="url(#h)"/>
+        </svg>`);
+    immutable ha = hue.getLine!PMColor(15)[15];
+    assert(ha.a == 255, "hueRotate leaves the alpha alone");
+    assert(ha.r < 5 && ha.b < 5, `red and blue are gone: ${to!string(ha)}`);
+    assert(ha.g > 155 && ha.g < 167, `0.356 linear green: ${to!string(ha)}`);
 }
 
 unittest
