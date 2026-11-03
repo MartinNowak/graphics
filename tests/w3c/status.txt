@@ -118,7 +118,7 @@ coords-viewattr-02-b.svg OK 113
 coords-viewattr-03-b.svg OK 1102
 coords-viewattr-04-f.svg OK 1056
 extend-namespace-01-f.svg OK 23162
-filters-background-01-f.svg OK 2114
+filters-background-01-f.svg OK 1694
 filters-blend-01-b.svg OK 7428
 filters-color-01-b.svg OK 2057
 filters-color-02-b.svg OK 329
@@ -219,7 +219,7 @@ masking-filter-01-f.svg OK 0
 masking-intro-01-f.svg OK 196
 masking-mask-01-b.svg OK 427
 masking-mask-02-f.svg OK 23
-masking-opacity-01-b.svg OK 862
+masking-opacity-01-b.svg OK 0
 masking-path-01-b.svg OK 792
 masking-path-02-b.svg OK 42
 masking-path-03-b.svg OK 1144
@@ -326,7 +326,7 @@ render-elems-03-t.svg OK 323
 render-elems-06-t.svg OK 0
 render-elems-07-t.svg OK 802
 render-elems-08-t.svg OK 746
-render-groups-01-b.svg OK 2741
+render-groups-01-b.svg OK 1126
 render-groups-03-t.svg OK 1220
 script-handle-01-b.svg OK 1113
 script-handle-02-b.svg OK 5319

@@ -5105,8 +5105,87 @@ private struct Renderer
         }
 
         element(n.name, n.attrs, ch);
-        walk(ch);
+        // §9.2/§9.3.1: a container's `opacity` is not a per-child property.
+        // The subtree paints fully opaque offscreen and lands on the canvas
+        // once, at the group's alpha, so an opaque child hides what it
+        // covers (render-groups-01-b spells that out: "none of the 'A'
+        // under the rectangle should show"). Folding opacity into each
+        // child is the same picture only while the children cannot see one
+        // another. An element that names a filter is already offscreen and
+        // its own path folds the alpha at the primitive, so it stays as it
+        // was; clipPath children paint no colour at all.
+        immutable groupOp = (n.name == "g" || n.name == "a")
+            && !clipMode && !("filter" in n.attrs)
+            ? clamp(styles.data.back.opacity, 0.0f, 1.0f)
+            : 1.0f;
+        if (groupOp > 0.0f && groupOp < 1.0f)
+            opacityWalk(ch, groupOp);
+        else
+            walk(ch);
         closeElement(n.name);
+    }
+
+    // One group's subtree at a group alpha (§9.2): paint into a scratch,
+    // then blend that back once. The alpha is consumed on the way in -
+    // the style slot answers 1 for everything below, so the children
+    // paint opaque and a child naming `opacity` of its own opens a layer
+    // of its own rather than multiplying this one a second time. As in
+    // maskedPaint and filteredElement, the scratch is the whole canvas:
+    // it is the same size as `bmp`, so the blend needs no clip of its own.
+    void opacityWalk(size_t ch, float op)
+    {
+        styles.data.back.opacity = 1.0f;
+        auto scratch = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
+        scratch.eraseColor(Color(0));
+        auto oc = new Canvas(scratch);
+        oc.matrix = canvas.matrix;
+
+        auto oldCanvas = canvas;
+        auto oldBmp = bmp;
+        canvas = oc;
+        bmp = scratch;
+        scope (exit)
+        {
+            canvas = oldCanvas;
+            bmp = oldBmp;
+        }
+        walk(ch);
+        bmp = oldBmp; // as in filteredElement: the blend back is the
+                      // destination's job, so end the swap before it
+        blendLayer(scratch, op);
+    }
+
+    // blendPM for a whole layer: the group's alpha scales the scratch
+    // first, then the standard PM src-over runs. The scratch is already
+    // premultiplied, so one multiply over all four channels is exactly
+    // the alpha the compositing below reads, and the same rounding as
+    // resolvePaint gives an opaque child at opacity 0.5 an alpha of 128 -
+    // which is how the red rect of a 0.5 group over a #C0C0C0 page lands on
+    // #A16079, the colour the capture puts there.
+    void blendLayer(in Bitmap scratch, float op)
+    {
+        immutable ubyte q = to!ubyte(round(clamp(op, 0.0f, 1.0f) * 255.0f));
+        if (!q)
+            return; // opacity 0: the layer is simply not painted
+        if (q == 255)
+        {
+            blendPM(scratch);
+            return;
+        }
+        foreach (y; 0 .. bmp.height)
+        {
+            auto d = bmp.getLine!PMColor(y);
+            foreach (x, ref px; scratch.getLine!PMColor(y))
+            {
+                if (!px.a)
+                    continue;
+                immutable Color src = alphaMul(px._color, alphaScale(q));
+                if (src.a == 255)
+                    d[x]._color = src;
+                else
+                    d[x]._color = src + alphaMul(d[x], invAlphaScale(src.a));
+            }
+        }
     }
 
     // Filtered paint (§15.1): render the element's subtree into an
@@ -9185,6 +9264,54 @@ unittest
     assert(overNothing.r == alsoLinear.r && overNothing.g == alsoLinear.g
         && overNothing.b == alsoLinear.b && overNothing.a == alsoLinear.a,
         `over nothing the two spaces agree: ${to!string(overNothing)} / ${to!string(alsoLinear)}`);
+}
+
+unittest
+{
+    // Group opacity (§9.2, §9.3.1): the group is painted offscreen at full
+    // strength and composited once, so an opaque child hides the ones under
+    // it - masking-opacity-01-b's "the opacity of the group and the
+    // individual rectangles" rows are the suite's own before/after, and
+    // render-groups-01-b says it outright ("none of the 'A' under the
+    // rectangle should show"). Folding the alpha into each child instead
+    // lets the hidden child show through the covering one: red 0.5 over
+    // black 0.5 over white lands on #BF3F3F where the group picture is the
+    // plain red-over-white #FF7F7F.
+    immutable coverSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10">
+        <rect width="20" height="10" fill="white"/>
+        %s
+        <rect width="20" height="10" fill="black"/>
+        <rect x="10" width="10" height="10" fill="red"/>
+        %s
+        </svg>`;
+    auto layer(in string open, in string close)
+    {
+        return renderSVG(format(coverSVG, open, close));
+    }
+    auto group = layer(`<g opacity="0.5">`, "</g>");
+    immutable uncovered = group.getLine!PMColor(5)[5];
+    immutable covered = group.getLine!PMColor(5)[15];
+    assert(uncovered.a == 255 && covered.a == 255, "the page stays opaque");
+    assert(uncovered.r == 127 && uncovered.g == 127 && uncovered.b == 127,
+        `black at the group alpha over white: ${to!string(uncovered)}`);
+    assert(covered.r > 250 && covered.g > 124 && covered.g < 130
+        && covered.b > 124 && covered.b < 130,
+        `the black under the red does not show through it: ${to!string(covered)}`);
+
+    // <a> is the same kind of container (§9.3.1), and a group nested in a
+    // layer has an opacity of its own rather than its parent's a second
+    // time: 0.5 x 0.5 of white over black is 64, not 0.125 of it at 32.
+    auto link = layer("<a opacity=\"0.5\">", "</a>");
+    immutable linked = link.getLine!PMColor(5)[15];
+    assert(linked.r > 250 && linked.g > 124 && linked.g < 130,
+        `a link composites as a group too: ${to!string(linked)}`);
+    auto nested = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+        <rect width="10" height="10" fill="black"/>
+        <g opacity="0.5"><g opacity="0.5"><rect width="10" height="10" fill="white"/></g></g>
+        </svg>`);
+    immutable twice = nested.getLine!PMColor(5)[5];
+    assert(twice.a == 255 && twice.r > 60 && twice.r < 68,
+        `two groups, two halvings: ${to!string(twice)}`);
 }
 
 // Painted-pixel bounds, for the text-placement tests below: where the ink

@@ -206,6 +206,11 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | says: with a userSpaceOnUse region the basis   |            |
 |                       | stayed empty, so oBB dx/dy and every fraction  |            |
 |                       | scaled to nothing, so feOffset drew no shift   |            |
+| step 58               | a group's opacity lands once, not per child:   | 2.68 M     |
+|                       | the subtree paints opaque offscreen, so an     |            |
+|                       | opaque child hides the ones under it, which    |            |
+|                       | is what masking-opacity-01-b's four rows and   |            |
+|                       | render-groups-01-b spell out (§9.2, §9.3.1)    |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2074,17 +2079,65 @@ sigma 12 - darkens the same extent in both rasters and shapes the tail
 apart, the filters-blur question, and the rest is a one-row lime
 fringe beside the two offset stars.
 
-Up next - step 58: `render-groups-01-b` (2,741). Step 56 took its
-1,717-px frame shell; what is left is spread over edges - at the
-pattern's white guide line, device x=112 is 96 in the capture and 111
-in ours, one pixel of coverage the two rasters place differently under
-`scale(1.8)` - and over the `<image>` band the inline SVG-font "SVG"
-sits on. `pservers-grad-11-b` (4,905) follows it, still diffuse.
 Two rows triaged out of the way and ruled out: `fonts-desc-04-t` (4,966) and
 `fonts-desc-05-t` (5,001) are the DRAFT band and nothing else -
 9,063 raw pixels of their 9,063 and 9,108, all of it x=2..478 y=2..20,
 their SVG fonts exact - and `text-tselect-02-f` (4,249) is the
 selection state its `onclick` buttons drive; all are ceilings.
+
+Step 58 is the group offscreen that the lead above called a spread of
+edges. The colour census gave it away: the capture has *no* pixel of
+either colour that ink under a half-alpha red rect makes - (128,63,88) of
+red over glyph-on-a-guide-line, (113,48,73) of red over the #C0C0C0 page -
+while we had 5,485 of the two; and its red-over-white (12,042) plus
+red-over-#C0C0C0 (11,322) come to 23,364, which is exactly the picture's
+area under that rect outside the `<image>`. The text that rect covers is
+simply not in the capture: the group paints at full strength and
+composites once, which is §9.2 and §9.3.1 saying so outright, and
+`masking-opacity-01-b` - the suite's own four rows of group opacity
+against the rectangles' own, run through in the same file to show the
+difference - is the test of it. Folding the alpha into every child draws
+the same picture only while no child can see another; here it let covered
+text shine through an opaque rect.
+
+One wrapper in the dispatch and one blend. A `g` or `a` whose own style
+alpha is between 0 and 1 paints its subtree into a full-canvas scratch and
+lands it on the destination once, at that alpha; `a` joins `g` because
+§9.3.1 makes it the same kind of container. The alpha is consumed on the
+way in, so the style answers 1 for everything below and a child naming
+`opacity` opens a layer of its own instead of multiplying this one twice -
+two nested 0.5 groups over black land on 64, not 32. The blend scales the
+premultiplied scratch by round(op*255) through alphaMul/alphaScale, the
+rounding resolvePaint already uses, so an opaque child of a 0.5 group
+carries alpha 128 and its red over #C0C0C0 is (161,96,121) in both
+rasters. And, exactly as in filteredElement, `bmp` goes back *before* the
+blend: blend while `bmp` is still the scratch and the layer composites
+onto itself, which is how that row read 13,202 for one build. An element
+that names a `filter` keeps its old path - it is offscreen already and
+folds its alpha at the primitive.
+
+Seven fractional container opacities sit in the whole suite, in three
+files, and all three rows moved: `masking-opacity-01-b` 862 -> 0,
+`render-groups-01-b` 2,741 -> 1,126, `filters-background-01-f`
+2,114 -> 1,694, its one filtered group left as it was. Nothing else can
+move: the `filters-overview-*-b` groups that spell 0.6 also name a
+`filter`, `filters-conv-01-f` spells only 1, and no file puts `opacity`
+on a `use`, `switch` or nested `svg`, so those containers stay unwired on
+purpose. 526 rows, 2,683,085 AE: -2,897, three rows better, none worse,
+no verdict changed.
+
+What is left of `render-groups-01-b` is the edge family after all:
+1,717 raw px of frame, whose 1-px stroke is 1.8 device px under
+`scale(1.8)` and which the capture spreads over three pixels as
+0.2/1.0/0.2 where we integrate the area into 0.9/0.9 across two - step 56's
+snap answers a hairline exactly one pixel wide and nothing else. The rest
+is that same 1-px call at the .5 edges of the guide lines below the grey
+rect (six 71-px clusters at y=298..315) and one column down the `<image>`'s
+right edge at 435.6.
+
+Up next - step 59: `pservers-grad-11-b` (4,905), still diffuse - 6,241 raw
+pixels in 40 clusters, none bigger than 351, over the gradient chips at
+y=236..271 and the wide band at x=230..440 y=10..150.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2286,6 +2339,15 @@ selection state its `onclick` buttons drive; all are ceilings.
   +651, +418 and +53 and five more rows a handful each, the 1,144 AE
   step 56 spends against the 248,745 it recovers - matching both
   captures' conventions at once would be a per-file raster policy.
+- The same family at other widths. `render-groups-01-b` (1,126) is what
+  step 58 left behind once its compositing went right, and it is all
+  raster: that test's 1-px `test-frame` under `scale(1.8)` is 1.8 device
+  px, which the capture spreads over three pixels as 0.2/1.0/0.2 while we
+  integrate the area into 0.9/0.9 across two - 1,717 raw px, and step 56's
+  snap answers a hairline exactly one pixel wide and nothing else. Its
+  rest is the whole-pixel answer our centre test gives at the .5 edges of
+  the 27-px guide lines (six 71-px clusters at y=298..315) and one column
+  down an image edge that lands on 435.6.
 - White-page references (~1.46 M, 44% of the 3.33 M baseline): ten tests'
   reference PNGs were captured over an *opaque white page* while our canvas
   is transparent, so their AE is page background, not content. Re-comparing
