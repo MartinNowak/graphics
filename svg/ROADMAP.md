@@ -211,6 +211,11 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | opaque child hides the ones under it, which    |            |
 |                       | is what masking-opacity-01-b's four rows and   |            |
 |                       | render-groups-01-b spell out (§9.2, §9.3.1)    |            |
+| step 59               | every axis-aligned stroke band shifts half a   | 2.65 M     |
+|                       | device pixel, not just a hairline: their band  |            |
+|                       | is ours translated by half a pixel, at width 1 |            |
+|                       | and 40 alike; a zero-length subpath has no     |            |
+|                       | band, only §11.2's cap, and stays put          |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2006,12 +2011,13 @@ pixel for each extra half-covered one - a whole one where the frame
 crosses something coloured.
 
 `Path`'s raster sits in the prebuilt guip dependency, so the
-correction is geometry rather than sampling: `snapHairline` walks the
-path a stroke is about to consume and moves every axis-aligned vertex
-half a device pixel toward larger coordinates, which puts the band on
-the pixel the captures light. It fires only where that convention is
-forced - a CTM with no rotation or skew, the same scale on both axes,
-a device stroke width of exactly one pixel, and a contour whose every
+correction is geometry rather than sampling: `snapHairline` (step 59
+renames it `snapStrokeBand`) walks the path a stroke is about to consume
+and moves every axis-aligned vertex half a device pixel toward larger
+coordinates, which puts the band on the pixel the captures light. It
+fired only where that convention was forced - a CTM with no rotation or
+skew, the same scale on both axes, a device stroke width of exactly one
+pixel (the test step 59 drops), and a contour whose every
 edge runs along an axis. A plain `<rect>` qualifies: addRoundRect
 emits four degenerate cubics even with no radius, so the test looks at
 the verb's points and not at the verb. One tilted edge disqualifies
@@ -2130,14 +2136,93 @@ What is left of `render-groups-01-b` is the edge family after all:
 1,717 raw px of frame, whose 1-px stroke is 1.8 device px under
 `scale(1.8)` and which the capture spreads over three pixels as
 0.2/1.0/0.2 where we integrate the area into 0.9/0.9 across two - step 56's
-snap answers a hairline exactly one pixel wide and nothing else. The rest
+snap answered a hairline exactly one pixel wide and nothing else, the
+condition step 59 drops. The rest
 is that same 1-px call at the .5 edges of the guide lines below the grey
 rect (six 71-px clusters at y=298..315) and one column down the `<image>`'s
-right edge at 435.6.
+right edge at 435.6, which is all that is left of it now.
 
-Up next - step 59: `pservers-grad-11-b` (4,905), still diffuse - 6,241 raw
-pixels in 40 clusters, none bigger than 351, over the gradient chips at
-y=236..271 and the wide band at x=230..440 y=10..150.
+Step 59 is the rest of step 56's convention, and the lead above walked
+into it by accident. `pservers-grad-11-b`'s right-hand rect is
+`x="250" y="30" width="170" height="100"` with `stroke-width="40"`, so the
+band it paints runs 230..270 in x and 10..150 in y, every edge along a
+grid line. Ours bounds each edge with the pixel it covers: column 230 is
+ink the whole height, 229 untouched. The capture gives column 230 alpha
+128 and column 231 full ink, and the same at 440, at y=10 and y=150, and
+at the hole's edges 270 and 50 - a band that is ours translated half a
+device pixel toward larger coordinates. That is the hairline finding
+again: a 1-px band centred on `x="1"` spans 0.5..1.5, half a pixel over
+is 1.0..2.0, one whole lit column at x=1. One rule covers both widths,
+and the "device width exactly one pixel" test goes away.
+
+The control that keeps it a stroke rule and not a geometry rule is that
+file's left rect - `x="10" width="210"`, fill only - where the capture
+lights column 10 and not 9, 219 and not 220, agreeing with our
+cell-integrated fill to the pixel. So the shift rides on the stroked
+outline alone: `snapStrokeBand`, step 56's `snapHairline` renamed and
+without its width test, nudges the contour a stroke is about to consume
+and the fill path never sees it.
+
+What still has to hold is what held before, all of it measured in device
+space: no rotation or skew, the same |scale| on both axes, every edge of
+the contour along an axis - one tilted edge would tear the stroke open -
+and only a vertex already on a grid line moves. Two things are new. The shift
+goes *across* the band and not along it: the coordinate that separates
+the two edges moves, the cap and corner coordinates that run along the
+axis do not, so §11.2's square caps still end where §11.2 puts them and
+`painting-stroke-02-t`'s three linecap variants come to 1 AE. And a
+zero-length subpath has no band at all, only the cap §11.2 gives it, so
+its contour stays where it is; nudged, the round dot of `M 12 10 L 12 10`
+at width 8 moves its centre to (12.5, 10.5) and the disc stops ending at
+x=16, which the module's §11.2 unittest pins. Such a contour is flagged
+as it is read and left alone, and that costs 346 AE against shifting the
+caps too - no file with a zero-length subpath regressed either way.
+
+Four module unittests had pinned the cell answer for a band - the 2-px
+`<line>`, the gradient-stroke bbox sample, and the bare polyline under
+markers twice - and now read half, full, half, 127 at the boundary
+column; the snap's own cases swap the width sweep for the 40-px band and
+a 2x CTM, where the nudge is half a *device* pixel and so half as far in
+user units.
+
+The gate is the argument for taking the majority convention: 526 rows,
+2,653,290 AE, 103 rows better by 31,143 and four worse by 1,348, no
+verdict changed. Rows going to essentially nothing are the tell:
+`painting-fill-04-t` 961 -> 0, `masking-path-01-b` 792 -> 1,
+`painting-stroke-02-t` 692 -> 1, `styling-class-01-f` 395 -> 1,
+`fonts-overview-201-t` 589 -> 3, `animate-elem-13-t` 2,234 -> 5,
+`painting-stroke-08-t` 784 -> 62, `painting-render-02-b` 767 -> 79. The
+scaled ones come along: `render-groups-01-b` 1,126 -> 195, its
+1.8-device-px frame band spread over the right three pixels at last,
+`render-groups-03-t` 1,220 -> 289, and `painting-stroke-06-t`'s dash
+boundaries 1,208 -> 869, since under `scale(1.8)` its 9-device-px dashes
+start on a grid line and carry the band with them. The wide band that
+started this is fixed and the row barely moves: `pservers-grad-11-b`
+4,905 -> 4,530, because 5,701 of its raw pixels sit in the y=236..271
+glyph band of the 45-px `Gradient on text stroke` line, not on the chips.
+
+The four that pay are the counter-family the step-56 note already
+records, now seen whole. `painting-stroke-05-t` (+1,120) is the file that
+*probes* stroke widths, so it reads the reference's raster directly, and
+there the other convention runs end to end: not only is its frame 127/127
+across two columns, every vertical stroke is split symmetrically about
+its own centre line and quantized to 1/8 - 64/64 at width 0.5, 255/255 at
+2.1, mass conserved, no half-covered boundary pixel anywhere.
+`masking-path-02-b` (+187) is the same at width 4: full pixels at
+48..51 where the shifted convention half-covers 48 and 52. The split
+belongs to the captures file by file, not to any declared intent - of
+the ten files that spell `shape-rendering="geometricPrecision"`,
+`masking-path-01-b` and `masking-path-03-b` gain 791 and 884 while those
+two lose 187 and 1,120 - so holding both would be a per-file raster
+policy and we take the majority.
+
+Up next - step 60: `struct-group-03-t` (1,568), 10,907 raw pixels in one
+cluster at x=55..432 y=44..255, its whole 22-px cell grid. That grid
+lives under `<g transform="translate(70, 150) rotate(-90)">`: the cells
+are axis-aligned in user space and a quarter turn leaves them
+axis-aligned in device space, so step 59's rule only reaches it if the
+nudge is made in device space and mapped back through the inverse CTM -
+which is exactly what the rotation guard now refuses to do.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2301,7 +2386,7 @@ y=236..271 and the wide band at x=230..440 y=10..150.
   giving every filter raster an origin and padding the scratch past the page
   edge.
 - Gradient ramps that change colour across a `stop-opacity` change
-  (`pservers-grad-13-b` 2.8 K, `-05-b` 1.0 K, `-18-b` 1.1 K): the archived
+  (`pservers-grad-13-b` 0.9 K, `-05-b` 0.6 K, `-18-b` 0.7 K): the archived
   references interpolate `stop-color` and `stop-opacity` separately - step 22
   pinpoints composited blue as `139*w^2` there against our `139*w`, whole
   columns to a mean of 1.3 levels - while we interpolate premultiplied, as
@@ -2324,30 +2409,35 @@ y=236..271 and the wide band at x=230..440 y=10..150.
   `filters-color-01-b`'s 2,480, all that is left of it once step 43 put
   its five panels at AE 0, is that same floor: ~1.9 K across its five
   Verdana labels, and ~540 in the frame ring.
-- `painting-stroke-06-t` (1.6 K) is what step 47 left of it, and the
-  rest is not a feature. Cropped to its two dash rows, ours and the
+- `painting-stroke-06-t` (869) is what steps 47 and 59 left of it, and the
+  rest is not a feature - step 59 carries its dash boundaries along with
+  the band, 1,208 -> 869. Cropped to its two dash rows, ours and the
   reference put the dashes at the same places and the same widths; what
   is left is the 1-px decision every dash boundary makes under
   `scale(1.8)`, where a 5-unit dash is 9 device pixels wide and a
   2-unit one 3.6 - which is where all of it sits, y=99..117 (the
   `5,2,5,5,2,5` pair) and y=153..171 (`2` with `stroke-dashoffset="2"`).
-- The split-frame captures: in `painting-stroke-05-t` (735),
-  `text-fonts-202-t` (5,360) and `filters-light-02-f` (134,853) the
+- The split-frame captures: in `painting-stroke-05-t` (1,855),
+  `text-fonts-202-t` (5,360) and `filters-light-02-f` (134,888) the
   1-px `test-frame` is two half-covered pixels, the corner-sampled
   answer step 56 moved away from, and what is left of each row is its
   thin-stroke sweep and the host-font AA around it. Those three pay
   +651, +418 and +53 and five more rows a handful each, the 1,144 AE
   step 56 spends against the 248,745 it recovers - matching both
   captures' conventions at once would be a per-file raster policy.
-- The same family at other widths. `render-groups-01-b` (1,126) is what
-  step 58 left behind once its compositing went right, and it is all
-  raster: that test's 1-px `test-frame` under `scale(1.8)` is 1.8 device
-  px, which the capture spreads over three pixels as 0.2/1.0/0.2 while we
-  integrate the area into 0.9/0.9 across two - 1,717 raw px, and step 56's
-  snap answers a hairline exactly one pixel wide and nothing else. Its
-  rest is the whole-pixel answer our centre test gives at the .5 edges of
-  the 27-px guide lines (six 71-px clusters at y=298..315) and one column
-  down an image edge that lands on 435.6.
+  Step 59 widens that family: `painting-stroke-05-t` is the test that
+  *probes* widths, and there every band is split symmetrically about its
+  own centre line and quantized to 1/8 - 64/64 at width 0.5, 255/255 at
+  2.1, mass conserved, no half-covered boundary pixel anywhere - so its
+  sweep pays +1,120 on top. `masking-path-02-b` (229, +187) splits the
+  same way at width 4, full pixels at 48..51 where the shifted band
+  half-covers 48 and 52, though its own `test-frame` follows the shifted
+  hairline convention like the majority's.
+- `render-groups-01-b` (195) is what step 58 left, and all of it is one
+  column: 144 raw px at x=435, y=135..278, down the `<image>`'s right
+  edge, which lands on 435.6 and is a fill edge, so the band shift
+  neither reaches it nor should. Its 1.8-device-px frame and the guide
+  lines under the grey rect went with step 59's band.
 - White-page references (~1.46 M, 44% of the 3.33 M baseline): ten tests'
   reference PNGs were captured over an *opaque white page* while our canvas
   is transparent, so their AE is page background, not content. Re-comparing
@@ -2369,7 +2459,7 @@ y=236..271 and the wide band at x=230..440 y=10..150.
   all. Census: we paint 68,317 opaque pixels, the reference 54,772, and the gap
   is exactly the 10-unit border of the two 200x120 image boxes; the spec's
   reading would drop all 48,000 image pixels and put the row near 35 K.
-- `filters-composite-03-f` (9,647): arithmetic feComposite, including its
+- `filters-composite-03-f` (8,731): arithmetic feComposite, including its
   FillPaint/StrokePaint inputs, is right - the identical and clamped squares
   compare at AE 0. The two that miss are semi-transparent (alpha 0.5 for
   `2F - 1.5F`, 0.6 black for `-0.5F - 0.1`) and each reference pixel is ours

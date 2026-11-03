@@ -2589,33 +2589,30 @@ private struct Renderer
             }
     }
 
-    // The captures' rasteriser resolves an axis-aligned edge by the pixel
-    // *centres* it covers, so a hairline whose centre falls on a pixel
-    // boundary is one whole pixel in them and not two half ones: the suite's
-    // test frame - a 1-px stroke centred on x="1" - is a solid column at x=1
-    // with the column beside it untouched, its bottom edge at y="359" a solid
-    // row; so are the DRAFT band's strokes at y="1" and y="21", and so are
-    // fonts-kern-01-t's sample boxes, whose 50-px edges cost half their value
-    // on both sides. Ours splits each such band 128/127 across the two
-    // pixels, which the harness charges about a quarter of a pixel for along
-    // every edge of nearly every test's frame - some 200 K of residual over
-    // the gate. Nudge the contour half a device pixel toward larger
-    // coordinates before it is stroked and the band lands on the pixel the
-    // captures light; geometry already on the grid does not move at all. Only
-    // a scaling CTM leaves a contour axis-aligned, and only a device width of
-    // one pixel puts both of its edges on a boundary, so a rotated or skewed
-    // CTM, a thicker or thinner band, and any tilted edge keep the ordinary
-    // antialiaser.
-    static Path snapHairline(Path p, in Matrix m, float width)
+    // An axis-aligned stroke band sits half a device pixel toward larger
+    // coordinates in the captures than in ours, at every width. A hairline
+    // centred on a grid line - the suite's test frame, stroke-width 1 on
+    // x="1" - is one whole lit column at x=1 there and two half ones here;
+    // a 40-px band whose edges land on grid lines, pservers-grad-11-b's
+    // Grad2 stroke over rect x="250" width="170", half-covers the boundary
+    // pixel there (alpha 128 at x=230 and x=440, y=10 and y=150) and lights
+    // it wholly here. One rule covers both: their rasteriser samples each
+    // pixel over the unit box centred on its centre, ours over the cell that
+    // starts there, and the two differ by exactly that half pixel - while a
+    // *fill* edge on a grid line agrees with ours to the pixel, so it is
+    // only the stroked outline that carries the shift. Nudge the contour
+    // half a device pixel before it is stroked; vertices already between
+    // pixels do not move, and a rotated or skewed CTM or any tilted edge
+    // leaves the contour to the ordinary antialiaser.
+    static Path snapStrokeBand(Path p, in Matrix m)
     {
         enum eps = 0.001f;
 
         if (m[0][1] != 0 || m[1][0] != 0)
             return p; // rotation or skew: there is no axis-aligned band here
         immutable sx = m[0][0], tx = m[0][2], sy = m[1][1], ty = m[1][2];
-        if (sx == 0 || sy == 0 || abs(abs(sx) - abs(sy)) > eps
-            || abs(width * abs(sx) - 1.0f) > eps)
-            return p; // anisotropic, or a band whose edges miss the grid
+        if (sx == 0 || sy == 0 || abs(abs(sx) - abs(sy)) > eps)
+            return p; // anisotropic: the band would shift by two amounts
 
         // The subpaths' verbs and points in order, in both spaces. A plain
         // <rect> carries four degenerate cubics - addRoundRect emits one per
@@ -2627,6 +2624,7 @@ private struct Renderer
             Path.Verb[] verbs;
             FPoint[] dev, user;
             bool closed;
+            bool degenerate = true; // never covers any distance: §11.2's dot
         }
         Contour[] subs;
         foreach (verb, pts; p)
@@ -2669,8 +2667,12 @@ private struct Renderer
             if (sub.dev.length < 2)
                 continue;
             foreach (j; 0 .. sub.dev.length - 1)
+            {
                 if (!aligned(sub.dev[j], sub.dev[j + 1]))
                     return p; // one tilted edge would tear the stroke open
+                if (sub.dev[j] != sub.dev[j + 1])
+                    sub.degenerate = false;
+            }
             if (sub.closed && !aligned(sub.dev[$ - 1], sub.dev[0]))
                 return p;
         }
@@ -2680,7 +2682,9 @@ private struct Renderer
         {
             immutable last = sub.dev.length - 1;
             FPoint[] moved;
-            foreach (j, pt; sub.dev)
+            if (sub.degenerate)
+                moved = sub.user; // a zero-length subpath has no band, only a cap
+            else foreach (j, pt; sub.dev)
             {
                 // Which coordinate holds the band's centre is decided by the
                 // edges that meet this point: a rectangle's corner belongs to
@@ -2836,7 +2840,7 @@ private struct Renderer
         Path stroked;
         if (doStroke)
         {
-            auto geo = snapHairline(path, canvas.matrix, s.strokeWidth);
+            auto geo = snapStrokeBand(path, canvas.matrix);
             if (s.dash.length)
             {
                 auto dashed = svgDash(geo, s.dash, s.dashOffset);
@@ -7807,8 +7811,13 @@ unittest
     auto row = bmp.getLine!PMColor(3);
     assert(row[1].a == 0 && row[2].r == 255, "segment starts at x1");
     assert(row[17].r == 255 && row[18].a == 0, "segment ends at x2");
-    assert(bmp.getLine!PMColor(2)[9].r == 255
-        && bmp.getLine!PMColor(4)[9].a == 0, "stroke-width 2 centred on y1");
+    // The band sits half a pixel out at each edge, as the captures put it:
+    // a 2-px stroke centred on y="3" lights row 3 wholly, rows 2 and 4 half.
+    immutable bandUp = bmp.getLine!PMColor(2)[9], bandDn = bmp.getLine!PMColor(4)[9];
+    assert(bmp.getLine!PMColor(1)[9].a == 0 && bandUp.a == 127 && bandUp.r > 250
+        && bmp.getLine!PMColor(3)[9].a == 255
+        && bandDn.a == 127 && bandDn.r > 250 && bmp.getLine!PMColor(5)[9].a == 0,
+        "stroke-width 2 centred on y1, half a pixel at each edge");
 
     // §11.2: a zero-length line is a zero-length subpath, so a round cap
     // makes it a dot of diameter stroke-width and a butt one still paints
@@ -7999,7 +8008,9 @@ unittest
         <rect x="5" y="3" width="10" height="4" fill="none" stroke="url(#g)" stroke-width="2"/>
         </svg>`);
     auto row = bmp.getLine!PMColor(5);
-    assert(row[4].r == 255 && row[4].b == 0, "left band: ramp start pads");
+    // x=4 lies in the pad left of the bbox and so carries stop[0] whole, at
+    // half coverage: the band's outer edge lands half a pixel out (step 59).
+    assert(row[4].r > 250 && row[4].b == 0 && row[4].a < 200, "left band: ramp start pads");
     assert(row[15].b == 255 && row[15].r == 0, to!string([row[15].r, row[15].b]));
     assert(row[10].a == 0, "fill=none keeps the interior empty");
 }
@@ -8451,8 +8462,10 @@ unittest
     assert(bmp.getLine!PMColor(16)[2].r == 255 && bmp.getLine!PMColor(23)[9].r == 255,
         "strokeWidth units scale the viewport: the box spans v-4 .. v+3");
     assert(bmp.getLine!PMColor(25)[20].a == 0, "nothing outside the marker boxes");
-    immutable bare = bmp.getLine!PMColor(19)[12]; // between markers: just the stroke
+    immutable bare = bmp.getLine!PMColor(20)[12]; // between markers: just the stroke
     assert(bare.a == 255 && bare.r == 0 && bare.b == 0, "the stroke itself paints on");
+    assert(bmp.getLine!PMColor(19)[12].a == 127, "its band edges half a pixel out (step 59)");
+    assert(bmp.getLine!PMColor(22)[12].a == 0, "and no further than that");
 
     // No stroke and no fill: no markers.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
@@ -8617,7 +8630,7 @@ unittest
             clip-path="url(#ch)" marker-end="url(#sq)"/>
         </svg>`);
     assert(bmp.getLine!PMColor(17)[34].a == 0, "the element's clip covers its markers too");
-    assert(bmp.getLine!PMColor(19)[24].a == 255, "the stroke paints inside the clip");
+    assert(bmp.getLine!PMColor(20)[24].a == 255, "the stroke paints inside the clip");
 }
 
 unittest
@@ -9907,9 +9920,8 @@ unittest
 
 unittest
 {
-    // Only a band whose two edges straddle a pixel boundary moves. Geometry
-    // already on the grid, a rotated CTM, a device width of anything but one
-    // pixel, and any curve or diagonal stay exactly as they were.
+    // Every axis-aligned band shifts; vertices already between pixels, a
+    // rotated CTM, and any curve or diagonal stay exactly as they were.
     FPoint[] points(in Path p)
     {
         FPoint[] res;
@@ -9926,40 +9938,52 @@ unittest
 
     Path rect;
     rect.addRect(FRect(1, 1, 479, 359));
-    auto snapped = points(Renderer.snapHairline(rect, Matrix(), 1.0f));
+    auto snapped = points(Renderer.snapStrokeBand(rect, Matrix()));
     // The iterator reports a closed contour's closing edge as a Line of its
     // own, so the start point is reported twice.
     assert(snapped == [FPoint(1.5f, 1.5f), FPoint(479.5f, 1.5f),
         FPoint(479.5f, 359.5f), FPoint(1.5f, 359.5f), FPoint(1.5f, 1.5f)],
         "a frame centred on the grid lands on the pixel above it");
 
+    // The band's width does not matter, only where its vertices sit: the
+    // 40-px Grad2 stroke of pservers-grad-11-b is cell-aligned, and its
+    // reference half-covers the pixel each of its four edges runs along.
+    Path band;
+    band.addRect(FRect(250, 30, 420, 130));
+    assert(points(Renderer.snapStrokeBand(band, Matrix()))
+        == [FPoint(250.5f, 30.5f), FPoint(420.5f, 30.5f),
+            FPoint(420.5f, 130.5f), FPoint(250.5f, 130.5f),
+            FPoint(250.5f, 30.5f)],
+        "a wide band on the grid shifts half a pixel with the rest");
+
     Matrix two;
     two.setScale(2.0f, 2.0f);
-    assert(points(Renderer.snapHairline(rect, two, 1.0f)) == points(rect),
-        "a 2-px device band already fills whole pixels");
-    assert(points(Renderer.snapHairline(rect, Matrix(), 0.5f)) == points(rect),
-        "a sub-pixel band's coverage is left to the antialiaser");
+    assert(points(Renderer.snapStrokeBand(rect, two))
+        == [FPoint(1.25f, 1.25f), FPoint(479.25f, 1.25f),
+            FPoint(479.25f, 359.25f), FPoint(1.25f, 359.25f),
+            FPoint(1.25f, 1.25f)],
+        "the shift is half a *device* pixel, so a 2x CTM moves half as far");
 
     Matrix turn;
     turn.setRotate(45.0f);
-    assert(points(Renderer.snapHairline(rect, turn, 1.0f)) == points(rect),
+    assert(points(Renderer.snapStrokeBand(rect, turn)) == points(rect),
         "a rotated contour has no axis-aligned band to snap");
 
     Path half;
     half.moveTo(FPoint(10, 20.5f));
     half.lineTo(FPoint(30, 20.5f));
-    assert(points(Renderer.snapHairline(half, Matrix(), 1.0f)) == points(half),
-        "a hairline already between pixels stays there");
+    assert(points(Renderer.snapStrokeBand(half, Matrix())) == points(half),
+        "a band already between pixels stays there");
 
     Path tilt;
     tilt.moveTo(FPoint(1, 1));
     tilt.lineTo(FPoint(40, 20));
     tilt.lineTo(FPoint(40, 60));
-    assert(points(Renderer.snapHairline(tilt, Matrix(), 1.0f)) == points(tilt),
+    assert(points(Renderer.snapStrokeBand(tilt, Matrix())) == points(tilt),
         "one diagonal edge leaves the whole contour alone");
 
     Path circle;
     circle.addOval(FRect(1, 1, 9, 9));
-    assert(points(Renderer.snapHairline(circle, Matrix(), 1.0f)).length < 4,
+    assert(points(Renderer.snapStrokeBand(circle, Matrix())).length < 4,
         "curves are not axis-aligned geometry");
 }
