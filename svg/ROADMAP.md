@@ -248,6 +248,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | a record, not a shove: the accepted            |            |
 |                       | 05-t sits every outline's corner on            |            |
 |                       | the pen whatever the origin says               |            |
+| step 67               | the scripting rows we assumed                  | 2.63 M*    |
+|                       | get rendered: indicator squares                |            |
+|                       | and stale captures - five rows                 |            |
+|                       | join the deferred list, AE holds               |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -277,6 +281,13 @@ byte-identical again.
 no `@media`, and three `@import` none of which carries a clause, so the
 gate must stay flat by construction - 526 rows came back byte-identical
 a fourth time.
+
+\* step 67 is measurement, not pixels: the two animate-dom rows are
+script-drawn indicator squares over matching pages, the two
+script-specify captures were shot from revisions older than their own
+markup, and `pservers-pattern-01-b`'s diff is nothing but the Arial
+captions of a pattern that already matches - five ceilings confirmed by
+rendering, so the 526 rows came back byte-identical a fifth time.
 
 ## Next steps
 
@@ -2561,19 +2572,39 @@ five rows above the baseline. In the gate 05-t falls 1,462 to 126
 zero - and the total comes down to 2,631,915 over 526 rows, no
 verdict changed.
 
-Up next - step 67: four rows the deferred list has assumed
-scripting for without ever measuring them - `animate-dom-01-f`
-(1,356), `animate-dom-02-f` (404), `script-specify-01-f` (963)
-and `script-specify-02-f` (411). The renders settle them: the
-animate pair's diffs are the indicator squares only a script
-could have drawn, and both script-specify captures were shot
-from older revisions of their files - the 01-f PNG lays out a
-"Click on target" line the current markup does not contain -
-while our renders already paint "Good, script didn't run." in
-the green the pass criteria demand. Measurement is the step:
-those four, and `pservers-pattern-01-b` (2,198), whose whole
-diff is the Arial captions of a pattern render that already
-matches, join the deferred list with the AE holding.
+Step 67 is measurement, not pixels. The two animate-dom rows
+answer for themselves once rendered: their diffs are columns of
+solid squares - the `getStartTime()` and `ElementTimeControl`
+indicators only a script could have drawn - on pages that
+otherwise agree but for the revision line. The script-specify
+pair ask that a bogus-language script NOT run, which is exactly
+what a scriptless engine does, and both renders already paint
+"Good, script didn't run." in the green the pass criteria
+demand; the captures answer to older revisions instead - the
+01-f PNG lays out a "Click on target" line the markup no
+longer contains, and 02-f's title is worded differently there.
+`pservers-pattern-01-b` (2,198) is the odd one out, and only
+in kind: its pattern rects, fill tile and stroke tile alike,
+land pixel for pixel, and every pixel of its remainder is an
+Arial caption, host-glyph debt like every other Arial row.
+Five rows to the deferred list; the gate came back
+byte-identical - 526 rows, 2,631,915 AE, no verdict moved.
+
+Up next - step 68: the miter joins, waiting in the shapes
+family. `shapes-polyline-02-t` (946) and `shapes-polygon-02-t`
+(808) end their thin double edge outlines - the recorded
+stroker-convention ceiling - with solid arrowheads at acute
+joins: at the V of polyline-01, stroke-width 8, the reference's
+ink stops at the vertex row while ours spikes 13 px past it.
+§11.6.3 is explicit - "miterLength / stroke-width = 1 / sin (
+theta / 2 )", and a limit of 4.0 converts miters to bevels for
+theta under about 29 degrees - and that vertex turns 28, so
+the bevel is the spec answer and ours is the deviation: the
+shared joiner culls on half that ratio, keeping a spike the
+spec says to shave. The rule lives in
+`src/graphics/core/stroke_detail/joiner.d`, shared with every
+stroked path in the library - the first step to edit it, so
+every stroker edge in the gate has to hold.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2687,6 +2718,22 @@ matches, join the deferred list with the AE holding.
   reads `$Revision: 1.4 $` against the 1.5 file in `suite/`, and step 50's
   viewport clip costs 9 AE there - the outer half of that 122x122 clone's
   stroke, trimmed at the instance's viewport.
+- The four scripting rows this list had assumed without ever rendering,
+  measured at step 67: `animate-dom-01-f` (1,356) and `animate-dom-02-f`
+  (404) are the indicator squares only a script could draw - the
+  `getStartTime()` column and the `ElementTimeControl` box - planted on
+  pages that otherwise agree but for the `$Revision` line.
+  `script-specify-01-f` (963) / `-02-f` (411) ask that a bogus-language
+  script NOT run, which is exactly what this engine does - both renders
+  paint "Good, script didn't run." in the green the pass criteria ask
+  for - but their captures answer to older revisions of the files: the
+  01-f PNG lays out a "Click on target" line the current markup no
+  longer contains, and 02-f's title is worded differently there. Stale
+  captures over an absent scripting model, twice over. Measured the same
+  step, `pservers-pattern-01-b` (2,198) is a ceiling of another kind:
+  its pattern rects, fill tile and stroke tile alike, land pixel for
+  pixel, and every pixel of the remainder is a `font-family="Arial"`
+  caption - host-glyph debt like every other Arial row in the suite.
 - styling-css-09-f (18.9 K) / styling-css-10-f (9.8 K) / styling-pres-
   05-f (14.3 K): step 12 triage proved the external-sheet machinery
   works end to end (`@import` fetch, unquoted `[id=...]` selectors,
