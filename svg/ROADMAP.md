@@ -226,6 +226,11 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | is the whole rule, and the enumerations that   |            |
 |                       | reached for an initial value - linecap, -join, |            |
 |                       | -dasharray - are the ones that noticed         |            |
+| step 62               | the `<style>` element's `type` names the       | 2.65 M     |
+|                       | language of its contents: absent or text/css   |            |
+|                       | is the one sheet language this engine reads,   |            |
+|                       | and one that names anything else is not a      |            |
+|                       | sheet at all - not even a name like text/css2  |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2355,15 +2360,44 @@ the dashes at x=199, where the capture runs each dash one device pixel
 longer than we do (160..165 against 160..164, 170..172 against 170..171)
 at an identical phase. All raster, none of it inheritance.
 
-Up next - step 62: §6.10's `<style>` element and its `type`.
-`styling-elem-01-b` (956) is one clean square - the whole of rect `r2`,
-2,500 raw px at x=10..59 y=110..159 - and it is red in our render because
-its second sheet, `<style type='text/some-unknown-styling-language'>`, is
-parsed as a style sheet. The file's other sheet names no `type` at all
-and is honoured correctly - it falls through to text/css, §6.13's
-default - while a `type` naming anything else means the element is not a
-style sheet: §6.10 gives the element HTML's attributes, and HTML ignores
-a style element whose language the user agent does not support.
+Step 62 is §6.10's `type` on `<style>`. The attribute is a content-type
+naming the language the element's contents are written in; absent, the
+element takes the document's default style sheet language (§6.13), and
+CSS - `text/css` - is the only language this engine reads. The element's
+attributes come from HTML, and HTML's rule for a language the user
+agent does not support is that the style element and its children are
+ignored completely: not parsed, not cascaded, never rendered. The gate
+at the head of `collectStyles` is that rule entire: absent or `text/css`
+- case-insensitive, media-type parameters like `charset=` along per
+RFC 2046 §3.6 - is a sheet; anything else is not one, and `text/css2`,
+HTML's own example of a language to ignore, is not `text/css` merely
+because it starts the same way. The unittests pin all five shapes: the
+untyped sheet, the two spellings of `text/css`, and both rejects.
+
+The suite spells the attribute just three ways across its 47 `<style>`
+elements: 43 say `text/css`, 3 say nothing, and one says
+`text/some-unknown-styling-language` - the last in styling-elem-01-b,
+whose lower rectangle sits on the 50x50 square that bogus sheet was
+never meant to fill. One row moved: 956 to 17, and the 17 is what
+magick's 10% fuzz makes of a render with zero pixels differing by more
+than 4/255 anywhere - the square is exact, the bogus sheet is inert,
+and the file's untyped sheet is still honoured. Total 2,651,071 to
+2,650,132 across 526 rows, no verdict changed.
+
+Up next - step 63: §6.9's `xml-stylesheet` processing instruction.
+`struct-use-04-b` (15,089) is four external fragments - `use` of
+`#alpha`, `#beta`, `#gamma` and `#delta` in `../images/svgRef4.svg` -
+painted black by us and fuchsia, blue, green and gold by the capture.
+The ink agrees, 29.5% of the canvas apiece, and not one fill pixel
+does; the reason is the only `xml-stylesheet` PI in the suite, in that
+file's prolog - `<?xml-stylesheet type="text/css" href="svgRef4.css"?>`
+- and `svgRef4.css` is exactly `rect { fill: fuchsia }`,
+`circle { fill: blue }`, `polygon { fill: green }`, `ellipse { fill:
+gold }`. The fragment's internal `<style>` already rides the external
+swap, so this is that same sheet path one PI short. (`struct-use-07-b`
+(35,561) triaged on the way here: its capture holds no pink at all,
+every rectangle clicked to blue by the file's own `onclick` handlers -
+the script and DOM family's, not the cascade's.)
 
 ## Deferred / accepted ceilings (do not chase)
 

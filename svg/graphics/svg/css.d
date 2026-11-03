@@ -153,8 +153,9 @@ Rule[] parseSheet(string src, ref size_t order, string baseDir = "", int depth =
     return rules;
 }
 
-/// All rules of every <style> element, in document order; `baseDir` is
-/// the document's directory for resolving `@import` targets. The text is
+/// All rules of every `<style>` element that is a style sheet in a language
+/// this engine reads, in document order; `baseDir` is the document's
+/// directory for resolving `@import` targets. The text is
 /// already what XML says it is: the parser resolves the references of
 /// character data (XML §4.1), and the suite writes the same `>` selector
 /// both ways - styling-css-04-f escapes it, struct-use-10-f hides it in a
@@ -169,7 +170,8 @@ Rule[] collectStyles(in Document doc, string baseDir = "")
     {
         foreach (ch; doc.nodes[idx].children)
         {
-            if (doc.nodes[ch].name == "style")
+            if (doc.nodes[ch].name == "style"
+                && sheetIsCSS(doc.nodes[ch].attrs.get("type", "")))
             {
                 string src;
                 foreach (t; doc.nodes[ch].children)
@@ -183,6 +185,29 @@ Rule[] collectStyles(in Document doc, string baseDir = "")
 
     walk(0);
     return rules;
+}
+
+/// §6.10: `type` on `<style>` is a content type naming the language the
+/// contents are written in, and where it is absent the element takes the
+/// document's default style sheet language (§6.13), which is the one this
+/// engine reads. §6.10 gives the element HTML's attributes, and HTML's
+/// rule for a language the user agent does not support is that the style
+/// element and its children must be ignored completely - which is what
+/// styling-elem-01-b's lower rectangle measures. Media-type parameters
+/// (`charset=`, RFC 2046 §3.6) ride along with the type this engine reads;
+/// `text/css2` is a different type and does not.
+private bool sheetIsCSS(string type)
+{
+    auto t = strip(type);
+    if (t.empty)
+        return true;
+    if (t.length < 8)
+        return false;
+    static immutable css = "text/css"; // media types are case-insensitive
+    foreach (i, ch; css)
+        if (toLower(t[i]) != ch)
+            return false;
+    return t.length == 8 || t[8] == ';' || t[8] == ' ';
 }
 
 /// parent[i] = arena index of node i's parent, -1 for nodes[0]
@@ -1120,6 +1145,27 @@ unittest
     assert(rules.length == 2);
     assert(rules[0].chain[0].type == "g" && rules[0].order == 0);
     assert(rules[1].chain[0].type == "rect" && rules[1].order == 1);
+}
+
+unittest
+{
+    // §6.10/§6.13: `type` says what language the element's contents are
+    // written in. Absent or text/css, this engine reads them; a type it
+    // does not support means the element is not a sheet at all, and a
+    // type that merely *starts* like one is not text/css either.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <style>#a { fill: green }</style>
+        <style type="text/css">#b { fill: green }</style>
+        <style type="TEXT/CSS; charset=utf-8">#c { fill: green }</style>
+        <style type="text/some-unknown-styling-language">#d { fill: red }</style>
+        <style type="text/css2">#e { fill: red }</style>
+        </svg>`);
+    auto rules = collectStyles(doc);
+    assert(rules.length == 3);
+    assert(rules[0].chain[0].id == "a" && rules[1].chain[0].id == "b"
+        && rules[2].chain[0].id == "c");
+    foreach (r; rules)
+        assert(r.vals[0] == "green");
 }
 
 unittest

@@ -439,7 +439,7 @@ styling-css-07-f.svg OK 0
 styling-css-08-f.svg OK 45
 styling-css-09-f.svg OK 18312
 styling-css-10-f.svg OK 9252
-styling-elem-01-b.svg OK 956
+styling-elem-01-b.svg OK 17
 styling-inherit-01-b.svg OK 203
 styling-pres-01-t.svg OK 37
 styling-pres-02-f.svg OK 703
