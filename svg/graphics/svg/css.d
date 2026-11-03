@@ -8,9 +8,13 @@ module graphics.svg.css;
 // Core: type/`*`/`.class`/`#id`/`[attr]` compounds with descendant, `>`
 // and `+` combinators, `:first-child`/`:lang()`, the specificity triple,
 // `!important`, and `@import` spliced in at the import point (CSS 2.1
-// §6.4.3 sheet order). Constructs not yet applied (interaction
-// pseudo-classes, @media, @font-face) compile away: the at-rules are
-// skipped, and unsupported selectors keep their rules but never match.
+// §6.4.3 sheet order). Media filtering applies wherever a sheet can
+// name the media it is written for - `<style media>`, an @import
+// clause and @media blocks alike (§10.3.1); this engine paints one
+// medium, named by `all` and by `screen`. Constructs not yet applied
+// (interaction pseudo-classes, @font-face) compile away: the at-rules
+// are skipped, and unsupported selectors keep their rules but never
+// match.
 
 import std.algorithm : canFind, find, sort;
 import std.array : appender, join, split;
@@ -95,20 +99,41 @@ Rule[] parseSheet(string src, ref size_t order, string baseDir = "", int depth =
 
         if (src[i] == '@')
         {
-            // @import is the one at-rule whose content applies: its sheet
-            // splices in right at the import point, so its rules cascade
-            // exactly as if written there (CSS 2.1 §6.4.3). The rest are
-            // noise: a statement ends at its top-level `;`, a block at
-            // its matching `}` (@font-face; @media is skipped whole too).
-            string url;
+            // @import and @media are the at-rules whose contents can
+            // apply: an @import splices its sheet in right at the
+            // import point, so its rules cascade exactly as if written
+            // there (CSS 2.1 §6.4.3), and that statement may carry a
+            // media clause - a clause naming media that do not apply
+            // means no sheet is fetched at all (§10.3.1). An @media
+            // block applies when its selector does: its contents are
+            // then parsed as if written at the block's place; when it
+            // does not, the block is dropped whole, inner rules and
+            // all. The rest are noise: a statement ends at its
+            // top-level `;`, a block at its matching `}` (@font-face).
+            string url, media;
             immutable semi = topAt(src, i, ';');
-            if (depth < 8 && parseImport(src[i .. $], url) && semi != npos)
+            if (depth < 8 && parseImport(src[i .. $], url, media) && semi != npos)
             {
                 immutable brace = findFrom(src, i, '{');
                 if (brace == npos || semi < brace)
                 {
-                    rules ~= importRules(url, baseDir, order, depth);
+                    if (mediaMatches(media))
+                        rules ~= importRules(url, baseDir, order, depth);
                     i = semi + 1;
+                    continue;
+                }
+            }
+            if (atIs(src, i, "media"))
+            {
+                immutable brace = findFrom(src, i, '{');
+                if (brace != npos && (semi == npos || brace < semi))
+                {
+                    immutable close = closeBrace(src, brace);
+                    if (mediaMatches(src[i + 6 .. brace]))
+                        rules ~= parseSheet(src[brace + 1
+                            .. close == npos ? src.length : close],
+                            order, baseDir, depth + 1);
+                    i = close == npos ? src.length : close + 1;
                     continue;
                 }
             }
@@ -184,7 +209,8 @@ Rule[] collectStyles(in Document doc, string baseDir = "")
         foreach (ch; doc.nodes[idx].children)
         {
             if (doc.nodes[ch].name == "style"
-                && sheetIsCSS(doc.nodes[ch].attrs.get("type", "")))
+                && sheetIsCSS(doc.nodes[ch].attrs.get("type", ""))
+                && mediaMatches(doc.nodes[ch].attrs.get("media", "")))
             {
                 string src;
                 foreach (t; doc.nodes[ch].children)
@@ -228,9 +254,9 @@ private bool sheetIsCSS(string type)
 /// §1.1: the value is quoted, and href plus one of type/title are
 /// required). This engine acts on the default sheet - no title to
 /// choose between - written in the one sheet language it reads, for
-/// the one medium it paints: a media descriptor list matches only if
-/// it names that medium, "all". A PI missing any of that is not the
-/// engine's, and the next PI gets its turn; the first that is wins.
+/// a medium it paints (`mediaMatches`, below). A PI missing any of
+/// that is not the engine's, and the next PI gets its turn; the
+/// first that is wins.
 private string piSheet(string pi)
 {
     string href, type, media, title;
@@ -278,19 +304,82 @@ private string piSheet(string pi)
     if (type is null || !sheetIsCSS(type))
         return null; // a named language this engine does not read - and
                      // unlike <style>, this element must name one
-    if (media !is null && !media.empty)
-    {
-        // The PI says which media the sheet is written for; this engine
-        // paints one, and a descriptor list names it only by "all"
-        // (print, braille, a named speech medium: not this one).
-        bool all;
-        foreach (d; split(media, ','))
-            if (strip(d) == "all")
-                all = true;
-        if (!all)
-            return null;
-    }
+    if (!mediaMatches(media is null ? "" : media))
+        return null; // written for another medium
     return href;
+}
+
+/// CSS 2.1 §10.3.1's media descriptor, as this engine judges it: a
+/// comma-separated list of media groups, each a medium name optionally
+/// qualified by `only` or negated by `not`, and the list matches when
+/// any group does. The engine paints one medium, and both `all` and
+/// `screen` name it; a group that asserts a media feature in parens
+/// does not match, because a clause the engine cannot evaluate it is
+/// not a clause it can call true. An empty list restricts nothing.
+private bool mediaMatches(string list)
+{
+    if (list.strip.empty)
+        return true; // no descriptor at all: no restriction
+    foreach (group; split(list, ','))
+        if (mediaGroup(strip(group)))
+            return true;
+    return false;
+}
+
+private bool mediaGroup(string g)
+{
+    bool negate, feature;
+    string medium;
+    size_t i = 0;
+    while (i < g.length)
+    {
+        while (i < g.length && isWhite(g[i]))
+            ++i;
+        if (i >= g.length)
+            break;
+        if (g[i] == '(')
+        {
+            feature = true; // jump the whole parenthesised feature
+            int parens = 1;
+            for (++i; i < g.length && parens; ++i)
+            {
+                if (g[i] == '(')
+                    ++parens;
+                else if (g[i] == ')')
+                    --parens;
+            }
+            continue;
+        }
+        size_t j = i;
+        while (j < g.length && !isWhite(g[j]) && g[j] != '(')
+            ++j;
+        string word;
+        foreach (ch; g[i .. j]) // media types are case-insensitive
+            word ~= cast(char) toLower(ch);
+        i = j;
+        if (word == "only" || word == "not")
+            negate = negate || word == "not";
+        else if (word != "and" && medium.empty)
+            medium = word;
+    }
+    immutable hit = (medium.empty || medium == "all" || medium == "screen")
+        && !feature;
+    return negate ? !hit : hit;
+}
+
+/// Is the at-rule keyword at s[i] (`s[i] == '@')` this one, spelled any
+/// way CSS spells it - case-insensitively?
+private bool atIs(string s, size_t i, string kw)
+{
+    size_t j = i + 1;
+    while (j < s.length && isIdent(s[j]))
+        ++j;
+    if (j - i - 1 != kw.length)
+        return false;
+    foreach (k, ch; kw)
+        if (toLower(s[i + 1 + k]) != ch)
+            return false;
+    return true;
 }
 
 /// parent[i] = arena index of node i's parent, -1 for nodes[0]
@@ -882,7 +971,7 @@ private size_t skipAtRule(string s, size_t i) // s[i] == '@'
 // comes back with any quotes gone. Trailing media queries are not the
 // caller's problem: an `@import` that is not a plain statement fails
 // the caller's `;`-before-`{` test and is skipped whole anyway.
-private bool parseImport(string s, out string url)
+private bool parseImport(string s, out string url, out string media)
 {
     size_t i = 1;
     while (i < s.length && isIdent(s[i]))
@@ -942,6 +1031,14 @@ private bool parseImport(string s, out string url)
     }
     else
         return false;
+
+    // CSS 2.1 §6.4.3: after the URI comes an optional media clause, and
+    // the statement ends at the `;` (or the deprecated `{`). Whatever
+    // sits in between is the clause; empty when there is none.
+    size_t k = i;
+    while (k < s.length && s[k] != ';' && s[k] != '{')
+        ++k;
+    media = s[i .. k];
     return !url.empty;
 }
 
@@ -1283,6 +1380,84 @@ unittest
         && rules[0].order == 0); // the PI's sheet leads, and leads alone
     assert(rules[1].chain[0].type == "rect" && rules[1].vals[0] == "green"
         && rules[1].order == 1);
+}
+
+unittest
+{
+    // CSS 2.1 §10.3.1's media selector as this engine judges it: the one
+    // medium it paints is named by `all` and by `screen`, `only`
+    // qualifies and `not` inverts, and a group that asserts a media
+    // feature the engine cannot evaluate never holds. An empty list
+    // restricts nothing.
+    assert(mediaMatches(""));
+    assert(mediaMatches("all"));
+    assert(mediaMatches("ScReEn"));
+    assert(mediaMatches("print, screen"));
+    assert(mediaMatches("only screen"));
+    assert(mediaMatches("not print"));
+    assert(!mediaMatches("print"));
+    assert(!mediaMatches("braille, print"));
+    assert(!mediaMatches("only print"));
+    assert(!mediaMatches("(min-width: 10px)"));
+    assert(!mediaMatches("screen and (min-width: 10px)"));
+}
+
+unittest
+{
+    // @media: a block that matches splices its contents in at the
+    // block's place, order carrying them in document order; a block
+    // that does not is dropped whole, inner rules and all.
+    size_t order = 0;
+    auto rules = parseSheet(`
+        @media print { rect { fill: red } circle { fill: red } }
+        @media screen { rect { fill: lime } }
+        rect { fill: gold }
+        @media (min-width: 10px) { rect { fill: blue } }
+        @media not print { ellipse { fill: olive } }`, order);
+    assert(rules.length == 3);
+    assert(rules[0].vals[0] == "lime" && rules[0].order == 0);
+    assert(rules[1].vals[0] == "gold" && rules[1].order == 1);
+    assert(rules[2].vals[0] == "olive" && rules[2].order == 2);
+}
+
+unittest
+{
+    // The media clause of @import (§6.4.3): a clause naming a medium
+    // that does not apply means the fetch never happens, and the
+    // statement still ends clean at its `;`.
+    import std.file : remove, write;
+    enum target = "css64_import_test.css";
+    write(target, `ellipse { fill: fuchsia }`);
+    scope (exit) remove(target);
+
+    size_t order = 0;
+    auto rules = parseSheet(
+        `@import url(css64_import_test.css) print; circle { fill: gold }`,
+        order);
+    assert(rules.length == 1 && rules[0].vals[0] == "gold");
+
+    order = 0;
+    rules = parseSheet(
+        `@import url(css64_import_test.css) screen; circle { fill: gold }`,
+        order);
+    assert(rules.length == 2);
+    assert(rules[0].vals[0] == "fuchsia" && rules[0].order == 0);
+    assert(rules[1].vals[0] == "gold" && rules[1].order == 1);
+}
+
+unittest
+{
+    // <style media="..."> (§6.10): the attribute restricts the element's
+    // sheet the way an @import clause restricts its fetch, and no
+    // attribute is no restriction.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg"><defs>
+        <style media="print">rect { fill: red }</style>
+        <style media="all">circle { fill: lime }</style>
+        <style>ellipse { fill: gold }</style></defs>
+        <rect/><circle/><ellipse/></svg>`);
+    auto rules = collectStyles(doc);
+    assert(rules.length == 2);
+    assert(rules[0].vals[0] == "lime" && rules[1].vals[0] == "gold");
 }
 
 unittest

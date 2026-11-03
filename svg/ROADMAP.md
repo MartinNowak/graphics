@@ -236,6 +236,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the external fragment carries and this         |            |
 |                       | engine never read - and its rules lead         |            |
 |                       | the cascade as if written in the prolog        |            |
+| step 64               | wherever a sheet can name the media it is      | 2.64 M*    |
+|                       | written for it is finally asked: the PI,       |            |
+|                       | style, @import, @media - all one matcher,      |            |
+|                       | and the one painted medium is screen           |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -260,6 +264,11 @@ so this row cannot move either - byte-identical again.
 `§` cites across the sources, every distinct number matched against the
 SE's expanded table of contents, and the 526 rows came back
 byte-identical again.
+
+\* step 64 is spec-completeness too: the suite writes no `<style media>`,
+no `@media`, and three `@import` none of which carries a clause, so the
+gate must stay flat by construction - 526 rows came back byte-identical
+a fourth time.
 
 ## Next steps
 
@@ -2422,16 +2431,55 @@ type="TEXT/CSS"` is acted on once, and its rules lead the document's
 own sheet with no later PI riding along. Total 2,650,132 to 2,635,431
 across 526 rows, no verdict changed.
 
-Up next - step 64: the other half of §6.10, `media`. The PI side asks
-whether the sheet is written for this medium (`piSheet` above), but the
-`<style>` element's `media` attribute and CSS's own `@media` rule and
-`@import` statement are never asked: every sheet the engine finds
-splices into one cascade. And the suite never asks either - 47
-`<style>` elements, zero `media` attributes, zero `@media`, three
-`@import` and none carries a descriptor - so the gate must stay flat
-by construction, and the unittests are the whole evidence. This engine
-paints one medium; a sheet written for print is not a sheet written
-for this rendering.
+Step 64 is the media selector of CSS 2.1 §10.3.1, asked wherever a
+sheet can name the media it is written for: §6.10's `media` attribute
+on `<style>`, the media clause of §6.4.3's `@import`, the `@media`
+rule itself, and - replacing a hand-rolled all-only test - the
+xml-stylesheet PI's descriptor from step 63. One function decides them
+all. `mediaMatches` splits the list at commas into groups; a group is
+a medium name, optionally qualified by `only` or inverted by `not`,
+and this engine paints one medium, the one CSS calls `screen` and
+`all` also names. A group asserting a media feature in parens does
+not match: the engine implements no media features at all, and a
+clause it cannot evaluate is not a clause it can call true. An empty
+list restricts nothing.
+
+The three places ask it in their own way. A `<style media>` that fails
+is not a sheet at all, like `type` at step 62. An @import's clause
+sits between the URI and its `;`, and when it fails the fetch never
+happens. An `@media` block whose selector matches splices its
+contents into the cascade at the block's place - the order counter
+rides through by reference, and the block's own `@media` and `@import`
+reparse recursively - and when it does not, the block is dropped
+whole, inner rules and all.
+
+Four unittests pin it: the matcher's table (the empty list, `all`,
+`ScReEn`, `print, screen`, `only screen` and `not print` hold;
+`print`, `braille, print`, `only print` and the parenthesised feature
+do not); @media splicing and dropping; the @import clauses that fetch
+and don't; and a `<style>` whose `media="print"` steps aside while
+`all` and the absent attribute stay. The gate came back
+byte-identical, 2,635,431 over 526 rows, and that flatness is the
+result: the suite writes zero `media` attributes, zero `@media`, and
+three `@import` none of which carries a clause.
+
+Up next - step 65: CSS `@font-face`. `fonts-elem-07-b` (1,354) and
+`fonts-elem-04-b` (1,357) each draw the same five-character string
+twice: the upper line is hand-placed `<path>` glyphs of an SVG-font
+Comic Sans, the lower is that text rendered in the same face, and the
+test asks the two lines to agree in size, baseline and advance. We
+are off by exactly 1,354 and 1,357 because the lower line comes out in
+a host face - and the one thing tying those `<text>` elements to the
+font is an `@font-face` block that css.d still throws away as noise.
+In 07-b the embedded `<font id="InternalFont">` has no name at all -
+its `<font-face>` carries no `font-family` - and the rule
+`font-family: TestComic; src: url("#InternalFont")` is what names it
+for `#foo {font-family: TestComic}`; 04-b's font sits in an external
+file that only `src: url("../images/ext-TestComic.svg#Font")` points
+at. The machinery exists: step 7's `collectFonts` reads every `<font>`
+in the document and loads external font documents through
+`font-face-uri` - which is why `fonts-elem-02-t` sits at 41 - and only
+the road from the sheet into that store is missing.
 
 ## Deferred / accepted ceilings (do not chase)
 
