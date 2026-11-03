@@ -263,6 +263,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the 100-300 rows block-scan to                 |            |
 |                       | zero solid regions - all ceiling,              |            |
 |                       | AE holds                                       |            |
+| step 71               | working images get a device origin: a          | 2.63 M     |
+|                       | region spilling off the page pads and          |            |
+|                       | repaints its scratch - offset-02-b             |            |
+|                       | 2,512 -> 87, total -2,425                      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2709,21 +2713,36 @@ capture, the state only its script's probe reaches after a
 second of waiting. Step 67's kind of ceiling, recorded with the
 band.
 
-Up next - step 71: the filter offscreen the deferred list says
-how to close. `Raster` carries a width and a height but no
-origin, so a source graphic lying outside the page never
-reaches a filter chain. `filters-offset-02-b` (2,512) is that
-row's third box: the region is 330..430, the lime square it
-must offset into it runs 430..530 with the page ending at 480,
-so only the 430..479 strip exists to be shifted and our lime
-stops mid-frame where the reference fills the box. The fix is
-named - give every filter raster an origin and pad the scratch
-past the page edge - and §15.2's filter region is already
-computed in user units; what is left is carrying that region's
-corner through `rasterFrom` and `bitmapFrom` instead of the
-page's. The tile and blur rows are the regression watch:
-padding changes what kernels see at the page border, so every
-filters row has to hold before this one lands.
+Step 71 gave the working image an address. `Raster` had a width
+and a height but no origin, so every offscreen was the page and a
+source graphic lying outside it never reached a chain - the
+deferred list's named fix, closed as named: a raster now carries
+`ox, oy`, the device position of its pixel (0,0), and
+`rasterFrom`/`bitmapFrom`/`blendPM`/`clipTo` all honour it.
+The region arrives first, and where it sticks past the page edge
+the offscreen becomes page union region, the union's corner the
+raster's origin, with the subtree repainted into it once;
+`postTranslate` carries the shift because the CTM may ride a
+scale. Inside the chain the primitive boxes stay raster-local and
+`toLocal` shifts each device box at the call site, while
+feTurbulence's lattice anchor and the light positions get the
+origin handed back, so a chain spanning the padding samples the
+same noise and the same specular surface as a page-aligned one.
+A row whose region fits the page keeps the old page-aligned
+buffer untouched: the gate moved exactly one line, and all
+forty-three `filters` rows held. `filters-offset-02-b` landed at
+87 - the third box's lime square now spans its full shifted
+width, and the 87 that remain are the fixture's own 1-px hairline
+rings, drawn identically around the two boxes this step never
+touched. 526 rows, 2,628,280 AE, that one line -2,425.
+
+Up next - step 72: the last feature the renderer marks absent in
+its own comments - text markers, §11.6.4's `marker-start`/
+`marker-mid`/`marker-end` on the text content elements, where
+render.d still says they are not supported (yet). The suite
+places markers on paths only, so no gate row exercises them and
+the step is completeness in the style of steps 6 and 39: the
+gate must come back byte-identical a seventh time.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2900,15 +2919,11 @@ filters row has to hold before this one lands.
   result boxes (144x117, 142x117, 130x92, 128x105) carry 10.9 K strong-delta
   pixels, and the only unit content in the file, a `12pt` label, was worth the
   158 AE step 24 took off it.
-- Filter offscreens are page-sized and page-originated: `Raster` carries a
-  width and a height but no origin, so source graphic lying outside the page
-  never reaches the chain. That is the whole of `filters-offset-02-b`'s third
-  box, 5,145 of its strong-delta pixels: the region is 330..430, the lime
-  square it must offset into that region runs 430..530 with the page ending at
-  480, so only the 430..479 strip exists to be shifted and our lime stops at
-  the middle of the frame where the reference fills it. Closing it means
-  giving every filter raster an origin and padding the scratch past the page
-  edge.
+- `filters-offset-02-b` (87): closed at step 71 by giving the filter
+  rasters an origin and padding the scratch past the page edge, as this
+  bullet planned; the third box's lime square reaches the chain, and what
+  is left of the row is 1-px hairline rings drawn identically around all
+  four boxes, two of them untouched.
 - Gradient ramps that change colour across a `stop-opacity` change
   (`pservers-grad-13-b` 0.9 K, `-05-b` 0.6 K, `-18-b` 0.7 K): the archived
   references interpolate `stop-color` and `stop-opacity` separately - step 22

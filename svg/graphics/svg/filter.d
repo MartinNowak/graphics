@@ -101,9 +101,14 @@ bool bbFraction(string v, out float r)
 }
 
 /// One filter working image: premultiplied RGBA floats, row-major.
+/// (ox,oy) is where pixel (0,0) sits in device space: a raster for a
+/// chain whose region spills off the page starts at the region's corner,
+/// not the page's, so source graphics outside the page reach the chain
+/// (filters-offset-02-b's third box). Default origin (0,0) is the page.
 struct Raster
 {
     int w, h;
+    int ox, oy; // device coords of raster pixel (0,0)
     float[] px; // 4 per pixel
 
     this(int w, int h)
@@ -115,25 +120,41 @@ struct Raster
         // (.length= alone can hand back recycled GC memory uncleaned)
     }
 
+    this(int ox, int oy, int w, int h)
+    {
+        this(w, h);
+        this.ox = ox;
+        this.oy = oy;
+    }
+
     Raster dup() const
     {
-        auto r = Raster(w, h);
+        auto r = Raster(ox, oy, w, h);
         r.px[] = px[];
         return r;
     }
 
     /// Zero everything outside the box: the filter effects region bounds
     /// every intermediate (§15.5: offscreens are "the intersection ...
-    /// with the filter region").
+    /// with the filter region"). The box is device-space, like IBox4
+    /// itself; ox/oy put the raster's pixels in that same space.
     void clipTo(in IBox4 b)
     {
         foreach (y; 0 .. h)
+        {
+            immutable row = cast(size_t) y * w * 4;
+            if (y + oy < b.y0 || y + oy >= b.y1)
+            {
+                px[row .. row + cast(size_t) w * 4] = 0.0f;
+                continue;
+            }
             foreach (x; 0 .. w)
-                if (x < b.x0 || x >= b.x1 || y < b.y0 || y >= b.y1)
+                if (x + ox < b.x0 || x + ox >= b.x1)
                 {
-                    immutable i = (cast(size_t) y * w + x) * 4;
+                    immutable i = row + cast(size_t) x * 4;
                     px[i .. i + 4] = 0.0f;
                 }
+        }
     }
 
     /// The painted-coverage box in raster coordinates - the
@@ -155,6 +176,45 @@ struct Raster
     }
 }
 
+/// A transparent-black buffer with the same size and device origin as
+/// `o`: every intermediate of one chain shares its source's geometry.
+Raster like(in Raster o)
+{
+    return Raster(o.ox, o.oy, o.w, o.h);
+}
+
+/// A device-space box in `r`'s raster coordinates. The box arguments the
+/// primitives below take are raster-local exactly as before; only a
+/// chain off the page needs the shift.
+IBox4 toLocal(in IBox4 b, in Raster r)
+{
+    return IBox4(b.x0 - r.ox, b.y0 - r.oy, b.x1 - r.ox, b.y1 - r.oy);
+}
+
+/// Re-index a raster under a new device rectangle: the same picture at
+/// the same device positions, transparent where the new geometry
+/// reveals area the old one did not cover.
+void fitTo(ref Raster r, int ox, int oy, int w, int h)
+{
+    auto n = Raster(ox, oy, w, h);
+    foreach (y; 0 .. r.h)
+    {
+        immutable ny = y + r.oy - oy;
+        if (ny < 0 || ny >= h)
+            continue;
+        foreach (x; 0 .. r.w)
+        {
+            immutable nx = x + r.ox - ox;
+            if (nx < 0 || nx >= w)
+                continue;
+            immutable s = (cast(size_t) y * r.w + x) * 4,
+                        d = (cast(size_t) ny * w + nx) * 4;
+            n.px[d .. d + 4] = r.px[s .. s + 4];
+        }
+    }
+    r = n;
+}
+
 unittest
 {
     auto r = Raster(4, 3);
@@ -170,6 +230,30 @@ unittest
     r.clipTo(IBox4(1, 0, 2, 2));
     assert(r.px[0 .. 4] == [0.0f, 0.0f, 0.0f, 0.0f]);
     assert(r.px[4 .. 8] == [1.0f, 1.0f, 1.0f, 1.0f]);
+
+    // A raster with a device origin clips on its device position, not
+    // its pixel index, and carries that origin through dup and like.
+    r = Raster(-2, 10, 4, 2); // device x -2..2, y 10..12
+    r.px[] = 1.0f;
+    r.clipTo(IBox4(-1, 10, 1, 12)); // keep device x -1..1: local x 1..3
+    assert(r.px[0 .. 4] == [0.0f, 0.0f, 0.0f, 0.0f]);
+    assert(r.px[4 .. 8] == [1.0f, 1.0f, 1.0f, 1.0f]);
+    assert(r.px[(cast(size_t) 0 * 4 + 3) * 4 .. 16] == [0.0f, 0.0f, 0.0f, 0.0f]);
+    auto d = r.dup();
+    assert(d.ox == -2 && d.oy == 10 && d.px == r.px);
+    d = like(r);
+    assert(d.ox == -2 && d.oy == 10 && d.px.all!"a == 0.0f");
+
+    // fitTo re-indexes the picture under a new origin: the same device
+    // pixels land on the same device positions, and the newly covered
+    // area starts transparent.
+    Raster f2 = Raster(0, 0, 2, 1);
+    f2.px[0 .. 4] = [1.0f, 0.0f, 0.0f, 1.0f]; // device pixel (0,0)
+    fitTo(f2, -2, 0, 4, 1); // covers device x -2..2
+    assert(f2.px[0 .. 4] == [0.0f, 0.0f, 0.0f, 0.0f]);
+    assert(f2.px[8 .. 12] == [1.0f, 0.0f, 0.0f, 1.0f], to!string(f2.px[8 .. 12]));
+    assert(f2.ox == -2 && f2.oy == 0 && f2.w == 4 && f2.h == 1);
+    assert(toLocal(IBox4(0, 0, 2, 1), f2) == IBox4(2, 0, 4, 1));
 }
 
 // The guip buffer already holds premultiplied bytes (the engine's own
@@ -191,9 +275,9 @@ private ubyte straightByte(in PMColor p, int c)
 }
 
 /// Bitmap bytes -> working floats, in the filter's working space.
-Raster rasterFrom(in Bitmap src, bool linearRGB)
+Raster rasterFrom(in Bitmap src, bool linearRGB, int ox = 0, int oy = 0)
 {
-    auto r = Raster(cast(int) src.width, cast(int) src.height);
+    auto r = Raster(ox, oy, cast(int) src.width, cast(int) src.height);
     immutable lut = srgbDecodeLUT();
     foreach (y; 0 .. r.h)
     {
@@ -302,7 +386,7 @@ unittest
 /// feOffset: shift the whole image by device-pixel amounts.
 void offsetShift(ref Raster dst, in Raster src, int dx, int dy)
 {
-    dst = Raster(src.w, src.h);
+    dst = like(src);
     foreach (y; 0 .. src.h)
     {
         immutable ty = y + dy;
@@ -541,7 +625,7 @@ float[20] cmMatrix(in string type, const float[] v)
 /// per §15.10; only the resulting alpha is clamped, colours stay raw.
 void colorMatrix(ref Raster dst, in Raster src, in float[20] m)
 {
-    dst = Raster(src.w, src.h);
+    dst = like(src);
     foreach (i; 0 .. cast(int) (src.px.length / 4))
     {
         immutable p = cast(size_t) i * 4;
@@ -644,7 +728,7 @@ struct TransferFunc
 /// only that result is clamped before the re-premultiply.
 void componentTransfer(ref Raster dst, in Raster src, const TransferFunc[4] fn)
 {
-    dst = Raster(src.w, src.h);
+    dst = like(src);
     foreach (i; 0 .. cast(int) (src.px.length / 4))
     {
         immutable p = cast(size_t) i * 4;
@@ -723,7 +807,7 @@ enum ConvEdge { duplicate, wrap, none }
 void convolve(ref Raster dst, in Raster src, in IBox4 img, in float[] k, int ox, int oy,
     int tx, int ty, float divisor, float bias, ConvEdge edge, bool preserveAlpha)
 {
-    dst = Raster(src.w, src.h);
+    dst = like(src);
     // Keep the box inside the raster and every rule below can index freely.
     immutable IBox4 ib = intersect(img, IBox4(0, 0, src.w, src.h));
     immutable iw = ib.x1 - ib.x0, ih = ib.y1 - ib.y0;
@@ -984,14 +1068,15 @@ unittest
 /// feTile §15.23: the input replicates through the whole output; the
 /// top/left corner of tile (i,j) sits at (ax + i·tw, ay + j·th), where
 /// (ax,ay,tw,th) is the INPUT image's filter primitive subregion - in
-/// the same absolute device coordinates the rasters are indexed in,
-/// so tile (0,0) coincides with the source's own position and content
+/// the same raster index coordinates the rasters are addressed in (a
+/// page-aligned raster indexes device space directly), so tile (0,0)
+/// coincides with the source's own position and content
 /// is sampled verbatim. A tile position falling outside the source
 /// image (its raster was cropped smaller than the subregion) stays
 /// transparent black.
 void tileRaster(ref Raster dst, in Raster src, int ax, int ay, int tw, int th)
 {
-    dst = Raster(src.w, src.h);
+    dst = like(src);
     if (tw <= 0 || th <= 0)
         return;
 
@@ -1037,16 +1122,17 @@ unittest
     assert(d.px == zero.px, to!string(d.px[0 .. 8]));
 }
 
-/// feImage §15.18: resample the working-space image into the device
-/// placement rect. (sx,sy,tx,ty) is the viewFit matrix mapping natural
+/// feImage §15.18: resample the working-space image into the placement
+/// rect. (sx,sy,tx,ty) is the viewFit matrix mapping natural
 /// image pixels into the rect's viewport - uniform for meet/slice,
-/// per-axis for "none". Sampling uses the <image> path's half-texel
+/// per-axis for "none". The rect (rx,ry) is in the raster's own
+/// coordinates. Sampling uses the <image> path's half-texel
 /// registration (pixel centres at integer+0.5, bilinear on PM channels,
 /// clamp at the border), so 1:1 placement is pixel exact.
 void placeImage(ref Raster dst, in Raster img, float rx, float ry,
     float sx, float sy, float tx, float ty)
 {
-    dst = Raster(dst.w, dst.h);
+    dst = like(dst);
     if (sx <= 0.0f || sy <= 0.0f || img.w < 1 || img.h < 1)
         return;
 
@@ -1411,7 +1497,7 @@ unittest
 void displaceMap(ref Raster dst, in Raster src, in Raster map,
     double scaleX, double scaleY, int xc, int yc)
 {
-    dst = Raster(src.w, src.h);
+    dst = like(src);
     if (scaleX == 0.0 && scaleY == 0.0)
     {
         dst.px[] = src.px[]; // scale 0: "no effect on the source image"
@@ -1503,7 +1589,7 @@ unittest
 
 void morphology(ref Raster dst, in Raster src, int rx, int ry, bool dilate)
 {
-    dst = Raster(src.w, src.h);
+    dst = like(src);
     if (rx <= 0 || ry <= 0)
         return; // radius 0: "the result is a transparent black image"
 
@@ -1578,13 +1664,14 @@ unittest
 // Z = surfaceScale * I(x,y); the §15.14 Sobel 3x3 kernels - nine position
 // classes, so the support never leaves the image the primitive sees - give
 // the surface normal, and the Phong diffuse/specular terms follow the
-// spec's formulas literally. All lengths arrive in device pixels (the
-// renderer scales primitive-unit numbers for positions); angles are degrees.
+// spec's formulas literally. All lengths arrive in the raster's own
+// pixel coordinates (the renderer scales primitive-unit numbers for
+// positions); angles are degrees.
 // ---------------------------------------------------------------------------
 
 /// One light source child element (§15.8.2-§15.8.4), positions already in
-/// device pixels. limitingConeAngle keeps float.max as the "attribute
-/// absent" sentinel: no cone limit.
+/// raster pixel coordinates. limitingConeAngle keeps float.max as the
+/// "attribute absent" sentinel: no cone limit.
 struct Light
 {
     int kind = 0;                      // 0 feDistantLight, 1 point, 2 spot
@@ -1648,7 +1735,7 @@ void lighting(ref Raster dst, in Raster src, const Light lit, bool specular,
     float surfaceScale, float kConstant, float specExp,
     const float[3] lightRGB, int dx, int dy, in IBox4 box)
 {
-    dst = Raster(src.w, src.h);
+    dst = like(src);
 
     // A distant light gives a constant L; az/el are device-space angles.
     float[3] cL;

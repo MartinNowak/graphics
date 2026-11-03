@@ -1983,15 +1983,21 @@ private struct Renderer
     // src-over. Not canvas.drawBitmap: the sprite blit premultiplies its
     // source while blending (S32A_Opaque_BlitRow32), i.e. it wants a
     // straight-ARGB buffer, and scratch is already premultiplied - its own
-    // alpha would scale twice. scratch is exactly as big as bmp, so the
-    // viewport clip is a no-op and a plain blend matches it.
-    void blendPM(in Bitmap scratch)
+    // alpha would scale twice. scratch is normally exactly as big as bmp, so
+    // the viewport clip is a no-op and a plain blend matches it; an offset
+    // blends a chain raster that starts off the page (filters-offset-02-b),
+    // and the overlap is what lands on the page.
+    void blendPM(in Bitmap scratch, int ox = 0, int oy = 0)
     {
-        foreach (y; 0 .. bmp.height)
+        immutable x1 = min(cast(int) bmp.width, ox + cast(int) scratch.width),
+                  y1 = min(cast(int) bmp.height, oy + cast(int) scratch.height);
+        foreach (y; max(0, oy) .. y1)
         {
             auto d = bmp.getLine!PMColor(y);
-            foreach (x, ref px; scratch.getLine!PMColor(y))
+            auto s = scratch.getLine!PMColor(y - oy);
+            foreach (x; max(0, ox) .. x1)
             {
+                immutable px = s[x - ox];
                 if (px.a == 255)
                     d[x]._color = px;
                 else if (px.a)
@@ -5336,7 +5342,6 @@ private struct Renderer
         // -height region disables rendering (§15.5) - a filtered stroked
         // line with a zero-area bbox vanishes exactly as the browsers'
         // references show.
-        auto src = rasterFrom(scratch, f.linearRGB);
         IBox4 basis;
         if (f.objBB)
         {
@@ -5360,6 +5365,37 @@ private struct Renderer
         if (region.empty)
             return true; // empty effects region: nothing renders (§15.5)
 
+        // The scratch above is page-sized, but page-clipping cuts source
+        // graphics off at the page edge and §15.5 makes the *region* the
+        // only source a chain reads: filters-offset-02-b's third box has
+        // its lime square half off-canvas inside a region that reaches
+        // to device x=530, and feOffset dx=-100% needs that off-page
+        // half. When the region sticks out, widen the offscreen to
+        // page ∪ region with the union's corner as device origin (the
+        // raster's ox/oy remember where that is) and repaint the subtree
+        // once; rows whose region fits the page keep the page-aligned
+        // scratch, and their rasters, byte-identical.
+        int sox = 0, soy = 0;
+        if (region.x0 < 0 || region.y0 < 0
+            || region.x1 > cast(int) scratch.width || region.y1 > cast(int) scratch.height)
+        {
+            immutable ux0 = min(region.x0, 0), uy0 = min(region.y0, 0);
+            immutable ux1 = max(region.x1, cast(int) scratch.width),
+                    uy1 = max(region.y1, cast(int) scratch.height);
+            scratch = Bitmap(Bitmap.Config.ARGB_8888, to!uint(ux1 - ux0), to!uint(uy1 - uy0));
+            scratch.eraseColor(Color(0));
+            oc = new Canvas(scratch);
+            // postTranslate, not pre: the shift is in device space, and
+            // the CTM may carry scale that a user-space shift would ride.
+            oc.matrix = canvas.matrix.postTranslate(-ux0, -uy0);
+            canvas = oc;
+            bmp = scratch;
+            paintSubtree(ch); // repaint into the widened buffer
+            sox = ux0;
+            soy = uy0;
+        }
+        auto src = rasterFrom(scratch, f.linearRGB, sox, soy);
+
         // §15.5: every offscreen is the intersection with the effects
         // region - so the source enters the chain region-clipped, and
         // primitives that spread (blur) see transparent black beyond it.
@@ -5372,21 +5408,22 @@ private struct Renderer
         // scratch here, so point it at the pre-offscreen bitmap first
         // (the scope(exit) restore below then becomes a no-op).
         bmp = oldBmp;
-        blendPM(bitmapFrom(res, f.linearRGB));
+        blendPM(bitmapFrom(res, f.linearRGB), res.ox, res.oy);
         return true;
     }
 
-    // Paint a referenced element into a fresh full-canvas offscreen and
-    // bring it back in working space: feImage's non-image href (§15.18),
-    // "rendered according to the behavior of the 'use' element". The
-    // element lands where it stands in the current user space - the same
-    // canvas matrix the SourceGraphic snapshot above used - and the
-    // `clip` box (the primitive subregion) is the only thing that trims
-    // it. Canvas-sized and device-aligned, because that is what every
-    // raster in the chain is.
-    Raster referencedRaster(size_t target, bool linearRGB, in IBox4 clip)
+    // Paint a referenced element into a fresh offscreen and bring it back
+    // in working space: feImage's non-image href (§15.18), "rendered
+    // according to the behavior of the 'use' element". The element lands
+    // where it stands in the current user space - the same canvas matrix
+    // the SourceGraphic snapshot above used, which already maps user
+    // space to chain-raster coordinates - and the `clip` box (the
+    // primitive subregion) is the only thing that trims it. Sized and
+    // origin-aligned to `geom`, because that is what every raster in the
+    // chain is.
+    Raster referencedRaster(size_t target, bool linearRGB, in IBox4 clip, in Raster geom)
     {
-        auto off = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
+        auto off = Bitmap(Bitmap.Config.ARGB_8888, to!uint(geom.w), to!uint(geom.h));
         off.eraseColor(Color(0));
         auto oc = new Canvas(off);
         oc.matrix = canvas.matrix;
@@ -5405,7 +5442,7 @@ private struct Renderer
         }
         paintSubtree(target);
 
-        auto r = rasterFrom(off, linearRGB);
+        auto r = rasterFrom(off, linearRGB, geom.ox, geom.oy);
         r.clipTo(clip);
         return r;
     }
@@ -5423,7 +5460,7 @@ private struct Renderer
     {
         immutable clut = srgbDecodeLUT(); // flood colors join the working space
 
-        Raster sa = Raster(src.w, src.h); // SourceAlpha: coverage as black (§15.7.2)
+        Raster sa = like(src); // SourceAlpha: coverage as black (§15.7.2)
         foreach (i; 0 .. sa.px.length / 4)
             sa.px[i * 4 + 3] = src.px[i * 4 + 3];
 
@@ -5435,7 +5472,7 @@ private struct Renderer
         // subregion, so the box travels alongside the raster.
         IBox4 lastSub = region;
         IBox4[string] namedSub;
-        Raster res = Raster(src.w, src.h); // transparent unless a primitive writes it
+        Raster res = like(src); // transparent unless a primitive writes it
 
         // Lazy inputs: snapshotting the backdrop or painting the
         // element's paint servers is pure cost for simple chains.
@@ -5447,6 +5484,7 @@ private struct Renderer
             if (haveBg)
                 return;
             bg = rasterFrom(backdrop, f.linearRGB); // the page beneath
+            fitTo(bg, src.ox, src.oy, src.w, src.h); // indexed like the chain,
             bg.clipTo(region); // BackgroundImage is "under the filter
             haveBg = true;    // region" (§15.6)
         }
@@ -5466,7 +5504,7 @@ private struct Renderer
                 if (nm == "BackgroundAlpha")
                 {
                     initBg();
-                    Raster ba = Raster(bg.w, bg.h);
+                    Raster ba = like(bg);
                     foreach (i; 0 .. ba.px.length / 4)
                         ba.px[i * 4 + 3] = bg.px[i * 4 + 3];
                     return ba;
@@ -5476,17 +5514,17 @@ private struct Renderer
                     immutable isFill = nm == "FillPaint";
                     if (isFill && !haveFill)
                     {
-                        fillP = paintServerRaster(true, f, region, ctm, a, basisUser);
+                        fillP = paintServerRaster(true, f, region, ctm, a, basisUser, src);
                         haveFill = true;
                     }
                     else if (!isFill && !haveStroke)
                     {
-                        strokeP = paintServerRaster(false, f, region, ctm, a, basisUser);
+                        strokeP = paintServerRaster(false, f, region, ctm, a, basisUser, src);
                         haveStroke = true;
                     }
                     return isFill ? fillP : strokeP;
                 }
-                return Raster(src.w, src.h); // dangling result name: transparent
+                return like(src); // dangling result name: transparent
             }
             return last;
         }
@@ -5570,8 +5608,8 @@ private struct Renderer
                 col[2] = f.linearRGB ? clut[fc.b] : fc.b / 255.0f;
                 col[3] = fc.a / 255.0f * fo; // alpha is linear (§15.7.1)
                 col[0 .. 3] *= col[3]; // store premultiplied
-                Raster o = Raster(src.w, src.h);
-                flood(o, intersect(primSubregion(e, f, region, basis, ctm), region), col);
+                Raster o = like(src);
+                flood(o, toLocal(sub, src), col); // the raster's own coordinates
                 res = o;
                 ran = true;
                 break;
@@ -5592,7 +5630,7 @@ private struct Renderer
                     }
                 float[4] k = [num(e.attrs, "k1", 0), num(e.attrs, "k2", 0),
                               num(e.attrs, "k3", 0), num(e.attrs, "k4", 0)];
-                Raster d = Raster(src.w, src.h);
+                Raster d = like(src);
                 composite(d, input(e.attrs, "in"), input(e.attrs, "in2"), op, k);
                 res = d;
                 ran = true;
@@ -5611,7 +5649,7 @@ private struct Renderer
                     case "lighten": mode = BlendMode.lighten; break;
                     default: break; // normal, and unknown modes per §15.9
                     }
-                Raster d = Raster(src.w, src.h);
+                Raster d = like(src);
                 blend(d, input(e.attrs, "in"), input(e.attrs, "in2"), mode);
                 res = d;
                 ran = true;
@@ -5620,7 +5658,7 @@ private struct Renderer
 
             case "feMerge":
             {
-                Raster acc = Raster(src.w, src.h);
+                Raster acc = like(src);
                 foreach (cn; e.children)
                 {
                     immutable ce = doc.nodes[cn];
@@ -5824,12 +5862,12 @@ private struct Renderer
                             isub = region; // SourceGraphic & friends span the region
                     }
                     Raster o;
-                    convolve(o, input(e.attrs, "in"), isub, k, ord[0], ord[1], tx, ty,
+                    convolve(o, input(e.attrs, "in"), toLocal(isub, src), k, ord[0], ord[1], tx, ty,
                         div, num(e.attrs, "bias", 0.0f), em, pa);
                     res = o;
                 }
                 else
-                    res = Raster(src.w, src.h); // disabled: transparent
+                    res = like(src); // disabled: transparent
                 ran = true;
                 break;
             }
@@ -5849,8 +5887,9 @@ private struct Renderer
                         isub = region; // SourceAlpha & friends span the region
                 }
                 Raster o;
-                tileRaster(o, input(e.attrs, "in"), isub.x0, isub.y0,
-                    isub.x1 - isub.x0, isub.y1 - isub.y0);
+                immutable it = toLocal(isub, src); // the raster's own index space
+                tileRaster(o, input(e.attrs, "in"), it.x0, it.y0,
+                    it.x1 - it.x0, it.y1 - it.y0);
                 res = o;
                 ran = true;
                 break;
@@ -5866,7 +5905,7 @@ private struct Renderer
                 const fr = feImageRect(e, f, region, basis, ctm);
                 sub = intersect(IBox4(cast(int) floor(fr.left), cast(int) floor(fr.top),
                     cast(int) ceil(fr.right), cast(int) ceil(fr.bottom)), region);
-                Raster o = Raster(src.w, src.h);
+                Raster o = like(src);
                 immutable href = e.attrs.get("href", e.attrs.get("xlink:href", ""));
                 if (auto path = resolveHref(docBase, href))
                 {
@@ -5910,8 +5949,9 @@ private struct Renderer
                         immutable fit = viewFit(vb, fr.right - fr.left,
                             fr.bottom - fr.top,
                             parsePAR(e.attrs.get("preserveAspectRatio", "")));
-                        placeImage(o, bitmapRaster(img, f.linearRGB), fr.left,
-                            fr.top, fit[0][0], fit[1][1], fit[0][2], fit[1][2]);
+                        placeImage(o, bitmapRaster(img, f.linearRGB),
+                            fr.left - src.ox, fr.top - src.oy,
+                            fit[0][0], fit[1][1], fit[0][2], fit[1][2]);
                     }
                 }
                 else if (!href.empty && href[0] == '#')
@@ -5937,7 +5977,7 @@ private struct Renderer
                         {
                             useStack ~= target;
                             scope (exit) useStack = useStack[0 .. $ - 1];
-                            o = referencedRaster(target, f.linearRGB, sub);
+                            o = referencedRaster(target, f.linearRGB, sub, src);
                         }
                     }
                 }
@@ -5991,7 +6031,11 @@ private struct Renderer
                 // space over the CTM's axis scales (the absolute
                 // anchoring the suite's references show), for
                 // objectBoundingBox normalized fractions of the bbox.
-                double ax = 0.0, ay = 0.0, x0 = 0.0, y0 = 0.0;
+                // x0/y0 shift raster indices into that anchor space:
+                // the origin when the chain covers a region that
+                // starts off the page.
+                double ax = 0.0, ay = 0.0;
+                double x0 = cast(double) src.ox, y0 = cast(double) src.oy;
                 if (f.primsObjBB)
                 {
                     immutable bw = basis.x1 - basis.x0, bh = basis.y1 - basis.y0;
@@ -6001,8 +6045,8 @@ private struct Renderer
                     {
                         ax = freq[0] / bw;
                         ay = freq[1] / bh;
-                        x0 = -cast(double) basis.x0;
-                        y0 = -cast(double) basis.y0;
+                        x0 = src.ox - cast(double) basis.x0;
+                        y0 = src.oy - cast(double) basis.y0;
                     }
                 }
                 else
@@ -6017,15 +6061,15 @@ private struct Renderer
                 {
                     immutable seed = clamp(num(e.attrs, "seed", 0.0f),
                         -2_147_483_647.0f, 2_147_483_647.0f);
-                    Raster o = Raster(src.w, src.h);
-                    turbulenceFill(o, sub, cast(long) seed, ax, ay, oct,
+                    Raster o = like(src);
+                    turbulenceFill(o, toLocal(sub, src), cast(long) seed, ax, ay, oct,
                         strip(e.attrs.get("type", "")) == "fractalNoise",
                         strip(e.attrs.get("stitchTiles", "")) == "stitch",
                         x0, y0);
                     res = o;
                 }
                 else
-                    res = Raster(src.w, src.h); // disabled: transparent
+                    res = like(src); // disabled: transparent
                 ran = true;
                 break;
             }
@@ -6102,7 +6146,7 @@ private struct Renderer
                     res = o;
                 }
                 else
-                    res = Raster(src.w, src.h); // disabled: transparent
+                    res = like(src); // disabled: transparent
                 ran = true;
                 break;
             }
@@ -6182,14 +6226,14 @@ private struct Renderer
                     }
 
                     immutable p = toDev(lit.x, lit.y);
-                    lit.x = p.x;
-                    lit.y = p.y;
+                    lit.x = p.x - src.ox; // raster-local: the shader
+                    lit.y = p.y - src.oy; // samples at pixel indices
                     lit.z = scaleZ(lit.z);
                     if (lit.kind == 2)
                     {
                         immutable q = toDev(lit.pointsAtX, lit.pointsAtY);
-                        lit.pointsAtX = q.x;
-                        lit.pointsAtY = q.y;
+                        lit.pointsAtX = q.x - src.ox;
+                        lit.pointsAtY = q.y - src.oy;
                         lit.pointsAtZ = scaleZ(lit.pointsAtZ);
                     }
                 }
@@ -6249,7 +6293,7 @@ private struct Renderer
                 lighting(o, input(e.attrs, "in"), lit, spec,
                     num(e.attrs, "surfaceScale", 1.0f),
                     num(e.attrs, spec ? "specularConstant" : "diffuseConstant", 1.0f),
-                    num(e.attrs, "specularExponent", 1.0f), lrgb, kx, ky, sub);
+                    num(e.attrs, "specularExponent", 1.0f), lrgb, kx, ky, toLocal(sub, src));
                 res = o;
                 ran = true;
                 break;
@@ -6281,14 +6325,16 @@ private struct Renderer
     // paint server as a continuous-tone image - literally painting the
     // region rect with that paint under the element's CTM, so gradients,
     // patterns, and plain colors resolve exactly as they would when the
-    // element itself paints.
+    // element itself paints. The offscreen matches `geom`'s size and
+    // device origin, so the raster joins the chain directly.
     Raster paintServerRaster(bool isFill, in FilterSpec f, in IBox4 region,
-                             in Matrix ctm, in string[string] a, in FRect basisUser)
+                             in Matrix ctm, in string[string] a, in FRect basisUser,
+                             in Raster geom)
     {
         // A singular CTM maps nothing anywhere: transparent input.
         immutable det = ctm[0][0] * ctm[1][1] - ctm[0][1] * ctm[1][0];
         if (det == 0.0f)
-            return Raster(cast(int) bmp.width, cast(int) bmp.height);
+            return like(geom);
 
         const s = pushStyle(a);
         scope (exit) popStyle();
@@ -6316,12 +6362,12 @@ private struct Renderer
         rp.lineTo(FPoint(rx0, ry1));
         rp.close();
 
-        auto pb = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
+        auto pb = Bitmap(Bitmap.Config.ARGB_8888, to!uint(geom.w), to!uint(geom.h));
         pb.eraseColor(Color(0));
         Canvas pc = new Canvas(pb);
-        pc.matrix = ctm;
+        pc.matrix = ctm.postTranslate(-geom.ox, -geom.oy); // device shift to the raster's corner
         pc.drawPath(rp, paint);
-        auto r = rasterFrom(pb, f.linearRGB);
+        auto r = rasterFrom(pb, f.linearRGB, geom.ox, geom.oy);
         r.clipTo(region);
         return r;
     }
