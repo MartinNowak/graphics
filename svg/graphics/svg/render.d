@@ -1127,6 +1127,23 @@ private struct Renderer
         // it. All explicitly initialised, as above.
         ubyte deco=0;
         int decoSnap=-1;
+
+        // Writing system (§10.7.1). lr-tb is the ordinary horizontal
+        // top-to-bottom flow everything else in this renderer assumes;
+        // tb-rl (abbreviated `tb`) turns each line on end so glyphs
+        // run down the page, and tb-lr differs from it only in which
+        // side further columns of a multi-column block would fall -
+        // and SE text never wraps, so there are no such columns.
+        // rl-tb parses and stores but lays out left-to-right: the SE
+        // ties its inline reversal to the bidi rules this renderer
+        // does not run, and reversing unshaped runs would only trade
+        // one error for another. All explicitly initialised, as above.
+        ubyte wmode=0; // 0 lr-tb, 1 rl-tb, 2 tb-rl, 3 tb-lr
+        // glyph-orientation-vertical (§10.9.7): NaN is `auto`, which
+        // turns a vertical run's glyphs 90 degrees unless the script
+        // is one the upright table keeps square; 0 keeps every glyph
+        // upright, and any other angle turns every glyph by it.
+        float glyphOrientV=float.nan;
     }
 
     LengthCtx lengthCtx()
@@ -1454,6 +1471,73 @@ private struct Renderer
                 }
                 break;
             }
+
+            case "writing-mode":
+                // §10.7.1: lr-tb | rl-tb | tb-rl | tb-lr, plus the
+                // lr/rl/tb shorthands the SE grammar still allows.
+                // A value the grammar does not admit leaves the
+                // inherited writing mode alone. rl-tb's reversal is
+                // deferred with the bidi machinery - see the Style
+                // note.
+                switch (toLower(v))
+                {
+                case "lr-tb": case "lr":
+                    style.wmode = 0;
+                    break;
+                case "rl-tb": case "rl":
+                    style.wmode = 1;
+                    break;
+                case "tb-rl": case "tb":
+                    style.wmode = 2;
+                    break;
+                case "tb-lr":
+                    style.wmode = 3;
+                    break;
+                default:
+                    break;
+                }
+                break;
+
+            case "glyph-orientation-vertical":
+                // §10.9.7: `auto` or an angle (degrees unless a
+                // unit says otherwise); malformed values keep the
+                // inherited orientation, as everywhere here.
+                if (v == "auto")
+                    style.glyphOrientV = float.nan;
+                else
+                {
+                    float ang = float.nan; // gdc leaves bare floats as garbage
+                    foreach (u; ["grad", "turn", "deg", "rad"]) // longest suffix first
+                    {
+                        if (!isNaN(ang) || v.length <= u.length
+                            || v[$ - u.length .. $] != u)
+                            continue;
+                        try
+                            ang = to!float(v[0 .. $ - u.length]);
+                        catch (ConvException)
+                            ang = float.nan;
+                        if (!isNaN(ang))
+                        {
+                            if (u == "grad")
+                                ang *= 360.0f / 400.0f;
+                            else if (u == "rad")
+                                ang *= 180.0f / 3.1415926535897932f;
+                            else if (u == "turn")
+                                ang *= 360.0f;
+                        }
+                    }
+                    if (isNaN(ang))
+                    {
+                        try
+                            ang = to!float(v);
+                        catch (ConvException)
+                        {
+                        }
+                    }
+                    if (!isNaN(ang))
+                        style.glyphOrientV = ang;
+                }
+                break;
 
             case "font":
                 // CSS shorthand, enough for the suite: the first
@@ -3178,6 +3262,38 @@ private struct Renderer
              : a == TextPaint.TextAlign.Right ? 1.0f : 0.0f;
     }
 
+    // Whether `auto` glyph orientation keeps a code point upright in
+    // vertical text (§10.9.7). The upright table the SE defers to
+    // tc609 runs to thousands of code points; these blocks are the
+    // Han, kana, Hangul and Yi scripts and the punctuation and
+    // fullwidth forms they live among - the whole of the suite's
+    // vertical samples. Everything else turns.
+    static bool scriptUpright(dchar cp)
+    {
+        return (cp >= 0x2E80 && cp <= 0x33FF)
+            || (cp >= 0x3400 && cp <= 0x4DBF)
+            || (cp >= 0x4E00 && cp <= 0x9FFF)
+            || (cp >= 0xA000 && cp <= 0xA4CF)
+            || (cp >= 0xAC00 && cp <= 0xD7AF)
+            || (cp >= 0xF900 && cp <= 0xFAFF)
+            || (cp >= 0xFE10 && cp <= 0xFE19)
+            || (cp >= 0xFE30 && cp <= 0xFE6F)
+            || (cp >= 0xFF01 && cp <= 0xFF60)
+            || (cp >= 0xFFE0 && cp <= 0xFFE6)
+            || (cp >= 0x20000 && cp <= 0x2FA1F);
+    }
+
+    // The same question for a run's full orientation setting: an
+    // explicit glyph-orientation-vertical of 0 stands every glyph up
+    // (even Latin), any other angle turns every glyph, and `auto`
+    // (NaN) answers from the script table.
+    static bool tbUpright(ref const Style s, dchar cp)
+    {
+        if (!isNaN(s.glyphOrientV))
+            return s.glyphOrientV == 0.0f;
+        return scriptUpright(cp);
+    }
+
     // §10.9.2 baseline keywords to table selector; the non-shifting words
     // (auto, use-script, no-change, reset-size, baseline) and garbage all
     // land on the `parent` sentinel.
@@ -3840,7 +3956,9 @@ private struct Renderer
                 // reduction, so folding it into va keeps paint, anchoring
                 // and textLength all consistent. A substitute slot carries
                 // its own font, whose units-per-em and default advance go
-                // with the outline (§10.14.1).
+                // with the outline (§10.14.1). Vertical writing modes do
+                // not reach this branch: no vertical sample uses an SVG
+                // font or an altGlyph, so slots keep horizontal advances.
                 auto slots = glyphSlots(run, sf);
                 foreach (i, ref sl; slots)
                 {
@@ -3868,6 +3986,16 @@ private struct Renderer
                 foreach (ref v; va)
                 {
                     immutable dchar cp = decode(run.text, ti);
+                    // §10.7.1/§10.9.7: in a tb run the inline axis is
+                    // down the page, and an upright glyph presents a
+                    // square box to the line: it advances a full em
+                    // and stands on the box's bottom edge (the
+                    // references stack upright columns at one em
+                    // pitch even where proportional advances
+                    // differ). A turned glyph keeps its own advance
+                    // width - it already lies along the line.
+                    if (run.style.wmode >= 2 && tbUpright(run.style, cp))
+                        v = run.style.fontSize;
                     v += run.style.letterSpacing;
                     if (cp == ' ')
                         v += run.style.wordSpacing;
@@ -3952,7 +4080,19 @@ private struct Renderer
             foreach (k; ri .. j)
                 foreach (v; advs[k])
                     width += v;
-            if (textRuns[ri].xs.empty)
+            if (textRuns[ri].style.wmode >= 2)
+            {
+                // §10.7.1/§10.9.1: a tb chunk's inline axis is down
+                // the page, so the anchor shift slides the whole
+                // chain of glyph boxes along y instead of x - start
+                // puts the first box's top at the chunk's y, end the
+                // last box's bottom, and middle centres the chain.
+                // A multi-value y list pins glyphs one at a time,
+                // where (as on the x side) the anchor is moot.
+                if (textRuns[ri].ys.empty)
+                    pen.y -= anchorFrac(textRuns[ri].style.anchor) * width;
+            }
+            else if (textRuns[ri].xs.empty)
                 pen.x -= anchorFrac(textRuns[ri].style.anchor) * width;
             foreach (k; ri .. j)
                 paintRun(textRuns[k], advs[k], pen);
@@ -4005,7 +4145,12 @@ private struct Renderer
         // curved decoration, and no test decorates a textPath. A clip
         // mask pass draws none: §14.3.5 gives the clip the element's
         // geometry, and a decoration is paint, not geometry.
-        int decoBits = !clipMode && pp is null ? run.style.deco : 0;
+        // Underline, overline and line-through are ruled along the
+        // horizontal baseline; the SE defines no vertical equivalent
+        // and no fixture decorates a tb run, so vertical runs draw
+        // none rather than a baseline that would cross their boxes.
+        int decoBits = !clipMode && pp is null && s.wmode < 2
+            ? run.style.deco : 0;
         float dx0 = 0, dx1 = 0, dyBase = 0;
         // The lines paint with the *specifying* element's resolved fill
         // and stroke (§10.12), which the run's copied bits index; the
@@ -4227,6 +4372,8 @@ private struct Renderer
             }
         }
         else
+        {
+            size_t tidx; // tb placement decodes run.text in step with gi
             foreach (gl; cache.glyphStream(run.text,
                     Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
             {
@@ -4238,6 +4385,81 @@ private struct Renderer
                         ++gi;
                         continue;
                     }
+                }
+                else if (s.wmode >= 2)
+                {
+                    // §10.7.1/§10.9.7: a vertical run. The two
+                    // positioning lists swap roles: x (and dx) pin
+                    // the vertical baseline a glyph is centred on,
+                    // and y (and dy) pin the top edge of the em box
+                    // the layout pass gave it - the references place
+                    // the box, not an alphabetic baseline, so no
+                    // dominant-baseline rise applies. An upright
+                    // glyph stands on the box's bottom edge; a
+                    // turned one hangs from the top edge, turned 90
+                    // degrees (or the glyph-orientation-vertical
+                    // angle) with its ink box centred on the
+                    // baseline just like an upright one, and the
+                    // §10.5 rotate value adds to that turn as on a
+                    // path. baseline-shift goes to the block-start
+                    // side - +x, the references' offset 7 - which in
+                    // the turned frame is local -y.
+                    float bx = (gi < run.xs.length ? run.xs[gi] : pen.x)
+                             + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
+                    float ty = pen.y;
+                    if (gi < run.ys.length)
+                        ty = pen.y = run.ys[gi];
+                    ty += (gi < run.dys.length ? run.dys[gi] : 0.0f);
+
+                    immutable dchar cp = tidx < run.text.length
+                        ? decode(run.text, tidx) : 0xFFFD;
+                    immutable float adv = gi < va.length
+                        ? va[gi] : gl.advance.x;
+                    immutable float rot = rotAt(gi);
+                    immutable FRect ink = gl.path.bounds;
+                    if (tbUpright(s, cp))
+                    {
+                        // The references centre each glyph's ink box
+                        // on the vertical baseline - every column of
+                        // text-align-05-b lands its glyph centres on
+                        // x = B whatever the side bearings - so the
+                        // outline bounds, not the advance box, set
+                        // the cross position; an outline-less glyph
+                        // (an ideographic space) falls back to the
+                        // advance box centre.
+                        immutable float cx = ink.width > 0.0f
+                            ? 0.5f * (ink.left + ink.right) : 0.5f * adv;
+                        m.setTranslate(bx - cx + s.baselineShift,
+                                       ty + s.fontSize);
+                        if (rot != 0.0f)
+                        {
+                            Matrix r;
+                            r.setRotate(rot);
+                            m = m * r;
+                        }
+                    }
+                    else
+                    {
+                        immutable float gov = s.glyphOrientV; // NaN: auto
+                        // Turned: the outline's y extent maps to x,
+                        // and the face's signed ascent/descent stand
+                        // in when the glyph carries no outline.
+                        immutable float oy = ink.height > 0.0f
+                            ? bx + 0.5f * (ink.top + ink.bottom)
+                            : bx - (fm.ascent + fm.descent) * 0.5f;
+                        m.setTranslate(oy, ty);
+                        Matrix r;
+                        r.setRotate((isNaN(gov) ? 90.0f : gov) + rot);
+                        m = m * r;
+                        if (s.baselineShift != 0.0f)
+                        {
+                            Matrix q;
+                            q.setTranslate(0.0f, -s.baselineShift);
+                            m = m * q;
+                        }
+                    }
+                    pen.x = bx;
+                    pen.y = ty + adv;
                 }
                 else
                 {
@@ -4271,6 +4493,7 @@ private struct Renderer
                 appendGlyph(gl.path, m, scale, false, 0.0f);
                 ++gi;
             }
+        }
 
         // Same effective-opacity compositing as flushPath; glyph outlines
         // keep the non-zero winding rule.

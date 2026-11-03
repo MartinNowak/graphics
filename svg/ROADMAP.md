@@ -271,6 +271,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | lines ride the cascade, painted with the       |            |
 |                       | specifying element's own paint - deco-01-b     |            |
 |                       | 951 -> 690, 03-b +116, total -145              |            |
+| step 73               | writing-mode tb-rl layout: §10.7.1 vertical    | 2.63 M     |
+|                       | runs: upright glyphs ride one-em boxes with    |            |
+|                       | ink centred on the baseline - 05-b 1,196 ->    |            |
+|                       | 207, 06-b 2,533 -> 2,319, total -1,203         |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2784,17 +2788,71 @@ text-deco-01-b, the test written for this property, wins and
 951 -> 690. 526 rows, 2,628,135 AE, two lines moved: -261 and
 +116.
 
-Up next - step 73: §10.7.1's `writing-mode`, the suite's own
-vertical text. It is set three times: text-align-05-b,
-text-align-06-b and text-intro-03-b carry writing-mode="tb" with
-glyph-orientation-vertical="0" (§10.9.7: glyphs stacked down the
-line, unrotated), and text-intro-10-f asks for rl-tb, letters
-running right-to-left. render.d parses neither, so all four
-samples lay out flat and horizontal. The rows sit behind the
-text family's host-glyph debt, and 03-b behind the white-page
-ceiling - 11.0 K of its 164.5 K is content - so the honest
-budget is vertical layout's share of those remainders, not the
-row totals.
+Step 73 laid out §10.7.1's vertical text. `writing-mode` parses
+lr-tb/rl-tb/tb-rl/tb-lr and the lr/rl/tb abbreviations, and
+`glyph-orientation-vertical` takes auto or an angle; both ride
+the inherited style copy like every other property here, so the
+suite's habit of setting them on <g> tags spans whole subtrees.
+tb-rl turns the line on end: the inline axis becomes y, the cross
+axis x, the positioning lists swap roles - x and dx pin a glyph
+across its column, y and dy push it down the page - and
+text-anchor slides a chunk's whole chain of glyph boxes along y
+instead of x.
+
+The placement came back from the captures pixel by pixel. A tb
+run's glyphs ride one-em boxes with their top edges at the y
+position - dominant-baseline's rise plays no part - and every
+glyph, upright or turned, centres its ink box on the vertical
+baseline: all of 05-b's ink centres land on the
+column's x whatever the side bearings, so advance-box centring
+is out by half a side bearing's sum. Upright glyphs stand on
+their box's bottom edge and advance exactly one em; turned ones
+hang from the top edge, a quarter turn (or the orientation
+angle) with §10.5's rotate value added on top as on a path,
+advancing by their own advance widths. baseline-shift moves the
+glyph across instead of up - +x, which is 06-b's pass text
+spelled out: '7' offset slightly right, super right, sub and
+-70% left. `auto` stands a glyph upright when its script is one
+the tc609 upright table keeps square; the blocks stored here
+are Han, kana, Hangul, Yi and the fullwidth punctuation living
+among them, which covers every vertical sample the suite has.
+
+The two tb captures disagree about line pitch and the engine
+picks a side. 05-b stacks upright Latin a full em apart - its
+baselines sit exactly on the y + em grid - while 06-b stacks at
+its face's ascent-plus-descent (27.4 at fs24) and, quirkier,
+drifts every glyph after the baseline-shifted '7' down the
+column, its capture pen having followed the shift. One em wins:
+the test written for text-anchor then lands glyph for glyph
+(1,196 -> 207), and 06-b pays the difference twice, pitch and
+pen drift both left unemulated - 2,533 -> 2,319.
+
+Four known gaps stay open. Decorations draw nothing on a
+vertical run: SE rules them along horizontal baselines,
+defines no vertical equivalent, and no sample decorates a tb
+run. rl-tb - text-intro-10-f - parses and stores but keeps
+flowing left-to-right, because SE bundles that mode's inline
+reversal with the bidirectional shaping the renderer does not
+run; reversing unshaped Arabic only trades one wrong for
+another, and 10-f holds its 6,823. SVG font runs, altGlyph runs
+and textLength never take the vertical branch - no vertical
+sample uses them. And text-intro-03-b stays as transparent as
+it was before the step: its font list - 'Arial Unicode MS',
+'LucidaSansUnicode', 'MS-Gothic' - names no face this host
+carries, so not one glyph is produced and its 164.5 K is the
+CJK host-font ceiling entire; the earlier lead's content
+budget was a guess at a rendering this suite never draws. 526
+rows, 2,626,932 AE, two rows moved: -989 and -214.
+
+Up next - step 74: §16.3's `font-variant`, small-caps.
+text-fonts-203-t (1,891) sets the presentation attribute,
+204-t (4,640) sets it in CSS, and styling-pres-02-f (703)
+at least asks that the attribute on an ellipse parse without
+consequence; render.d does not parse the property at all. The
+first forensic question is what the captures drew - a face's
+real small-caps glyphs or Batik synthesising capitals of the
+lowercase letters at a reduced size - and if synthetic, at
+what ratio.
 
 ## Deferred / accepted ceilings (do not chase)
 

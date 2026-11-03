@@ -451,8 +451,8 @@ text-align-01-b.svg OK 841
 text-align-02-b.svg OK 2119
 text-align-03-b.svg OK 1749
 text-align-04-b.svg OK 1698
-text-align-05-b.svg OK 1196
-text-align-06-b.svg OK 2533
+text-align-05-b.svg OK 207
+text-align-06-b.svg OK 2319
 text-align-07-t.svg OK 5611
 text-align-08-b.svg OK 10407
 text-altglyph-01-b.svg OK 1749
