@@ -259,6 +259,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 69               | stroke-dasharray entries are lengths,          | 2.63 M     |
 |                       | so 10px 20px 20px dashes return;               |            |
 |                       | the 300-1,500 band swept clean                 |            |
+| step 70               | sweep the last unclassified band:              | 2.63 M*    |
+|                       | the 100-300 rows block-scan to                 |            |
+|                       | zero solid regions - all ceiling,              |            |
+|                       | AE holds                                       |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -295,6 +299,14 @@ script-specify captures were shot from revisions older than their own
 markup, and `pservers-pattern-01-b`'s diff is nothing but the Arial
 captions of a pattern that already matches - five ceilings confirmed by
 rendering, so the 526 rows came back byte-identical a fifth time.
+
+\* step 70 is measurement too: every 100-300 row scanned for solid
+content, the scan dilating the diff's matching background 1 px inward
+twice and asking for surviving 100-px components - in a band where a
+row's whole diff budget is 299 pixels, no lost or misplaced element can
+hide a 10x30 swatch from that, and none carries one. The lone flag,
+`animate-script-elem-01-b`, is another black-to-green script indicator
+square, recorded with the band. 526 rows byte-identical a sixth time.
 
 ## Next steps
 
@@ -2676,13 +2688,42 @@ of `render-elems-07-t` and `-08-t` outline-doubled edge to edge,
 and `styling-pres-02-f`'s fourteen solid squares being script
 indicators: black in the markup, green in the capture.
 
-Up next - step 70: the 100-300 band - 93 rows, the last stretch
-of the gate with no verdict on any of them. Step 69's sweep hit
-one real fix in sixteen rows, and this band is where a
-parse-grammar find like that hides: specks too big for the
-settled families' residue and too small for the classify lines.
-Same protocol - render, diff, solid blocks to the engine,
-outline and glyph doubling cited to the deferred list.
+Step 70 swept the 100-300 band - 93 rows, the last stretch of
+the gate with no verdict on any of them - and the sweep ran as
+scan, not eyeballs. Each row's diff image had its matching
+background dilated 1 px inward twice, which eats every hairline
+a stroke edge or glyph stem leaves and preserves any solid
+region of 100 px or more. The band answered with nothing:
+ninety-three rows, zero surviving components - no mispainted
+fill, no missing element, no misplaced swatch. The scan's floor
+is a 14x14 block, and a row's whole diff budget in the band is
+at most 299 pixels, so no real content change the band could
+hold hides under it; the detector was calibrated against known
+solids, where the script squares of `styling-pres-02-f` light
+up fourteen times at 256 px each.
+
+The one flag earned its hand-read: `animate-script-elem-01-b`
+diffs to a single 30x30 square at (12, 52) - the fixture's
+upper result rect, black in our static render and green in the
+capture, the state only its script's probe reaches after a
+second of waiting. Step 67's kind of ceiling, recorded with the
+band.
+
+Up next - step 71: the filter offscreen the deferred list says
+how to close. `Raster` carries a width and a height but no
+origin, so a source graphic lying outside the page never
+reaches a filter chain. `filters-offset-02-b` (2,512) is that
+row's third box: the region is 330..430, the lime square it
+must offset into it runs 430..530 with the page ending at 480,
+so only the 430..479 strip exists to be shifted and our lime
+stops mid-frame where the reference fills the box. The fix is
+named - give every filter raster an origin and pad the scratch
+past the page edge - and §15.2's filter region is already
+computed in user units; what is left is carrying that region's
+corner through `rasterFrom` and `bitmapFrom` instead of the
+page's. The tile and blur rows are the regression watch:
+padding changes what kernels see at the page border, so every
+filters row has to hold before this one lands.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -3051,6 +3092,15 @@ outline and glyph doubling cited to the deferred list.
   times over: its revision row - same `1.11` string both sides -
   is 458 AE of glyph drift by itself, with the leaf and circle
   clip results and the dashed guides exact to the edge.
+
+- The 100-300 band scanned whole at step 70 - 93 rows, every one
+  hairline residue of the settled families (frame-ring splits,
+  dash-end halves, caption glyph specks), no solid diff region
+  anywhere in the band. `animate-script-elem-01-b` (113) is
+  lone-flagged by the scan and is the script-indicator family
+  again: its upper result square sits black in the static
+  markup and green in the capture, which only a second of
+  script running turns.
 
 ## Backlog (small, opportunistic)
 
