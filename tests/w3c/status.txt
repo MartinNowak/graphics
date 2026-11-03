@@ -236,7 +236,7 @@ masking-path-13-f.svg OK 0
 masking-path-14-f.svg OK 0
 metadata-example-01-t.svg OK 82
 painting-control-01-f.svg OK 0
-painting-control-02-f.svg OK 762
+painting-control-02-f.svg OK 133
 painting-control-03-f.svg OK 120
 painting-control-04-f.svg OK 159
 painting-control-05-f.svg OK 0

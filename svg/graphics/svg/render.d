@@ -685,9 +685,11 @@ auto numList(string s)
 }
 
 // Parse `stroke-dasharray`: null means "none" or invalid (the attribute is
-// then ignored). SVG: an odd count of entries is repeated to an even one;
-// a list that sums to zero renders like none; negative values are an error.
-float[] parseDash(string v)
+// then ignored). SVG: the entries are `<length>`/`<percentage>` values, so
+// painting-control-02-f's `10px 20px 20px` is a three-entry pattern, not a
+// parse failure; an odd count of entries is repeated to an even one; a list
+// that sums to zero renders like none; negative values are an error.
+float[] parseDash(string v, const(LengthCtx) lc = LengthCtx.init)
 {
     v = strip(v);
     if (v.empty || equalCase(v, "none"))
@@ -698,8 +700,8 @@ float[] parseDash(string v)
     {
         float x;
         try
-            x = to!float(tok);
-        catch (ConvException)
+            x = parseLength(tok, lc);
+        catch (Exception)
             return null;
         if (x < 0)
             return null;
@@ -1451,7 +1453,8 @@ private struct Renderer
                 break;
 
             case "stroke-dasharray":
-                style.dash = parseDash(v);
+                lc.pctRef = arcDiagonal(lc); // same reference as the offset
+                style.dash = parseDash(v, lc);
                 break;
 
             case "stroke-dashoffset":
@@ -6936,6 +6939,15 @@ unittest
     assert(parseDash("0 0") is null); // sums to zero: like none
     assert(parseDash("-1") is null); // negative: invalid
     assert(parseDash("x") is null);
+    // Entries are `<length>`s: painting-control-02-f's px-suffixed triple
+    // is a pattern, not a rejected list - and the odd count repeats.
+    assert(parseDash("10px 20px 20px") == [10.0f, 20.0f, 20.0f, 10.0f, 20.0f, 20.0f]);
+    // ... and `<percentage>`, against the arc diagonal like stroke-width:
+    // a 400x400 viewport's diagonal normalizes to 400, so "50%" is 200.
+    LengthCtx lc;
+    lc.vpW = lc.vpH = 400;
+    lc.pctRef = arcDiagonal(lc);
+    assert(isClose(parseDash("50%", lc)[0], 200.0f, 1e-3f));
 
     // dash lengths stay exact and the offset shifts the pattern start
     Path line;

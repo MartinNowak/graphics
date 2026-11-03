@@ -256,6 +256,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | ratio, 1 / sin(theta/2): joins                 |            |
 |                       | tighter than ~29 degrees bevel                 |            |
 |                       | at the default limit of 4                      |            |
+| step 69               | stroke-dasharray entries are lengths,          | 2.63 M     |
+|                       | so 10px 20px 20px dashes return;               |            |
+|                       | the 300-1,500 band swept clean                 |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2634,21 +2637,52 @@ half-pixel outline convention and caption text: the rest of
 the stroked shapes family, `shapes-polygon-02-t` included,
 sits at that ceiling, measured this step.
 
-Up next - step 69: the 300-1,500 band's last unmeasured rows
-get triaged by render and diff, the way step 67 settled the
-script rows. Several were rendered along the way here and
-point the way: `painting-stroke-06-t` (869) diffs to thin
-edges on every dash, the recorded convention; `linking-a-04-t`
-(588) to doubled arrow outlines plus a revision glyph;
-`struct-use-01-t` (513) is host-glyph caption debt over clone
-outlines; and `coords-viewattr-03-b` (1,102) carries a
-revision-digit mismatch into the stale-capture family. What
-the sweep still owes: `linking-a-05-t`,
-`painting-control-02-f`, `painting-render-01-b`,
-`render-elems-07-t` and `-08-t`, `struct-image-19-f`,
-`coords-units-01-b` and the shapes remainder - solid blocks
-first, outline-only diffs cited to the convention. If the
-band proves all ceiling, the deferred list simply absorbs it.
+Step 69 started as the band sweep the step-68 lead set out, and
+found its engine fix in the first solid blocks the sweep met. In
+`painting-control-02-f` both test columns were solid black in our
+render against the capture's alternating orange and black bands:
+the fixture writes `stroke-dasharray="10px 20px 20px"`, and the
+parser fed every token to bare `to!float` - `10px` threw, the
+whole list was dropped as invalid, dasharray gone, stroke solid.
+§11.4's grammar is a list of `<length>`/`<percentage>` values,
+percentages of the normalized viewport diagonal - the very
+reference `stroke-dashoffset` next door already used.
+
+The fix parses each entry with `parseLength` under the same
+arc-diagonal percentage reference the offset and `stroke-width`
+set. The suite holds no other unit-suffixed dash value, so the
+blast radius is the one row; the unittests pin the px triple
+repeating to six entries and `50%` of a 400x400 diagonal
+measuring 200. The audit this invites - each remaining bare
+number parse against its property's spec grammar - comes back
+clean: opacity, miterlimit and the coordinate lists are bare
+`<number>`s by spec, and dasharray was the only length list
+hiding behind numbers.
+
+In the gate exactly one row moved: `painting-control-02-f` 762
+-> 133, its dashes landing on the reference's places and widths
+in both subtests; what is left is a hairline at each dash's butt
+cap - the recorded dash-end convention `painting-stroke-06-t`
+lives at - and the revision glyph. Total 2,631,334 -> 2,630,705
+over 526 rows, no ERROR, no verdict changed.
+
+The sweep itself closed the 300-1,500 band: sixteen rows triaged
+by render and diff, fifteen measured at ceiling and recorded
+below with their content verified - the marker squares of
+`painting-marker-02-f` pixel-exact under crops, all three
+`color-interpolation` bars of `painting-render-01-b` inside one
+LSB (the engine already interpolates in linearRGB), the spirals
+of `render-elems-07-t` and `-08-t` outline-doubled edge to edge,
+and `styling-pres-02-f`'s fourteen solid squares being script
+indicators: black in the markup, green in the capture.
+
+Up next - step 70: the 100-300 band - 93 rows, the last stretch
+of the gate with no verdict on any of them. Step 69's sweep hit
+one real fix in sixteen rows, and this band is where a
+parse-grammar find like that hides: specks too big for the
+settled families' residue and too small for the classify lines.
+Same protocol - render, diff, solid blocks to the engine,
+outline and glyph doubling cited to the deferred list.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2988,6 +3022,35 @@ band proves all ceiling, the deferred list simply absorbs it.
   strip. The rest is hairline placement - the 1-px guide lines are
   opaque on one row in the capture and split 127/127 over two in ours,
   the same question the step-56 lead takes up.
+
+- Step 69's 300-1,500 sweep measured its twelve ceiling rows, and
+  the captions own most of them: `filters-comptran-01-b` (1,413),
+  `coords-units-01-b` (785) and `painting-render-01-b` (371) put
+  the entire diff in text rows - the filter outputs, the unit
+  squares and all three `color-interpolation` bars match, the
+  linearRGB ramp to within one LSB (`5D00F2` against `5E00F2`),
+  so only the caption glyphs move. `text-align-01-b` (841) and
+  `-05-b` (1,196), `struct-cond-02-t` (319) and `text-text-12-t`
+  (1,383) join the host-glyph floor with their anchors and
+  conditional branches landed right: doubled letter shapes at
+  matching extents.
+- `styling-pres-02-f` (703) is step 67's script kind: its
+  fourteen indicator rects sit black in the markup - "black if
+  the sub-test did not run" - and green in the capture, and
+  every text label matches.
+- The rest is verified content at the stroker's edge:
+  `painting-marker-02-f` (1,079) places every marker pixel-exact
+  under crops, squares and `refX` centring identical, only the
+  closing diagonals' 1-px decision doubled; `render-elems-07-t`
+  (802) and `-08-t` (746), static-render tests with no timeline
+  excuse, diff to the whole spiral outline doubled at a pixel;
+  `linking-a-05-t` (572) is 04-t's family - arrow outlines plus
+  revision glyph; and `struct-image-19-f` (682) and
+  `conform-viewers-01-t` (670) are DRAFT bands over doubled
+  outlines. `masking-path-07-b` (1,038) is caption debt three
+  times over: its revision row - same `1.11` string both sides -
+  is 458 AE of glyph drift by itself, with the leaf and circle
+  clip results and the dashed guides exact to the edge.
 
 ## Backlog (small, opportunistic)
 
