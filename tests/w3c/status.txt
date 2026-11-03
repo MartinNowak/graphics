@@ -459,7 +459,7 @@ text-altglyph-01-b.svg OK 1749
 text-altglyph-02-b.svg OK 1
 text-altglyph-03-b.svg OK 4810
 text-bidi-01-t.svg OK 248
-text-deco-01-b.svg OK 951
+text-deco-01-b.svg OK 690
 text-dom-01-f.svg OK 2958
 text-dom-02-f.svg OK 337
 text-dom-03-f.svg OK 667
@@ -488,7 +488,7 @@ text-path-01-b.svg OK 2225
 text-path-02-b.svg OK 2330
 text-spacing-01-b.svg OK 5108
 text-text-01-b.svg OK 3821
-text-text-03-b.svg OK 1087
+text-text-03-b.svg OK 1203
 text-text-04-t.svg OK 462
 text-text-05-t.svg OK 14
 text-text-06-t.svg OK 279

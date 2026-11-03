@@ -267,6 +267,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | region spilling off the page pads and          |            |
 |                       | repaints its scratch - offset-02-b             |            |
 |                       | 2,512 -> 87, total -2,425                      |            |
+| step 72               | text-decoration painted: §10.12's three        | 2.63 M     |
+|                       | lines ride the cascade, painted with the       |            |
+|                       | specifying element's own paint - deco-01-b     |            |
+|                       | 951 -> 690, 03-b +116, total -145              |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2736,13 +2740,61 @@ width, and the 87 that remain are the fixture's own 1-px hairline
 rings, drawn identically around the two boxes this step never
 touched. 526 rows, 2,628,280 AE, that one line -2,425.
 
-Up next - step 72: the last feature the renderer marks absent in
-its own comments - text markers, §11.6.4's `marker-start`/
-`marker-mid`/`marker-end` on the text content elements, where
-render.d still says they are not supported (yet). The suite
-places markers on paths only, so no gate row exercises them and
-the step is completeness in the style of steps 6 and 39: the
-gate must come back byte-identical a seventh time.
+Step 72 shipped a different feature from the one its lead named.
+The lead chased render.d's own comment - text markers "not
+supported (yet)" - but §11.6.1 and the §11.6.3 property tables
+attach `marker-start`/`marker-mid`/`marker-end` to path, line,
+polyline and polygon alone; the `<text>` attribute summary's
+wholesale listing is the spec contradicting itself, SVG 2 dropped
+those properties from text, and the references agree - no capture
+draws a marker on a text vertex. The comment now records that
+finding in place of the phantom gap.
+
+The feature that shipped is the one text feature the suite tests
+and the renderer lacked: §10.12's `text-decoration`. The property
+table says it does not inherit while the prose makes a decoration
+cover the specifying element's content and its descendants until
+one specifies its own, so the effective bits - 1 underline,
+2 overline, 4 line-through - ride the style copy and only a fresh
+specification replaces them. The lines paint with the specifying
+element's own fill and stroke, so each specifying element's
+resolved style, after its currentColor binding, is snapshotted
+into an append-only vector and the bits carry that index; the
+use-scope swap tags and restores that vector's url() paints
+exactly as it does the style stack's. `blink` parses and draws
+nothing - SE does not require viewers to support it, and a static
+line for a flashing one would be a lie.
+
+A run's line spans its placed glyphs - the positioning lists and
+advances the layout pass committed to - and rides the alphabetic
+line the outlines ride; underline and overline land under the
+run's fill and stroke, line-through over it. A run on a path
+draws none: SE defines no curved decoration and no test decorates
+a textPath. A clip-mask pass draws none: §14.3.5 gives the clip
+the element's geometry, and a decoration is paint, not geometry.
+SE leaves the lines' offset and thickness implementation-defined,
+so they are fitted: the underline bar spans -0.040em..+0.045em
+about the baseline and the strike bar -0.330em..-0.270em, both on
+the named fixture. The captures disagree about the underline -
+text-text-03-b's fs32 reference drew it a tenth of an em deeper
+below the baseline, the work of a capture font with a lower
+underline position - and no single em placement serves both, so
+text-deco-01-b, the test written for this property, wins and
+03-b pays for the miss: 1,087 -> 1,203. `text-deco-01-b` fell
+951 -> 690. 526 rows, 2,628,135 AE, two lines moved: -261 and
++116.
+
+Up next - step 73: §10.7.1's `writing-mode`, the suite's own
+vertical text. It is set three times: text-align-05-b,
+text-align-06-b and text-intro-03-b carry writing-mode="tb" with
+glyph-orientation-vertical="0" (§10.9.7: glyphs stacked down the
+line, unrotated), and text-intro-10-f asks for rl-tb, letters
+running right-to-left. render.d parses neither, so all four
+samples lay out flat and horizontal. The rows sit behind the
+text family's host-glyph debt, and 03-b behind the white-page
+ceiling - 11.0 K of its 164.5 K is content - so the honest
+budget is vertical layout's share of those remainders, not the
+row totals.
 
 ## Deferred / accepted ceilings (do not chase)
 

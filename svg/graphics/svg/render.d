@@ -816,6 +816,16 @@ private struct Renderer
     Bitmap bmp;
     Canvas canvas;
     Appender!(Style[]) styles;
+    // Resolved styles of the elements that *specified* `text-decoration`
+    // (§10.12): the decorations over an element's text and that of its
+    // descendants paint with the fill and stroke of the element that
+    // specified them, and a Style carries an index into this append-only
+    // vector - indices never go stale, and the use-scope swap below
+    // tags/restores it exactly like the style stack.
+    Style[] decoSnapshots;
+    enum ubyte decoUnder = 1;
+    enum ubyte decoOver = 2;
+    enum ubyte decoStrike = 4;
     Path path;
     float zoom;
     bool inRoot; // latches at the first <svg> element; nodes before it are inert
@@ -1103,6 +1113,20 @@ private struct Renderer
         // as garbage.
         float letterSpacing=0, wordSpacing=0, baselineShift=0;
         bool preserveWS=false;
+
+        // Text decoration (§10.12). The property table says it does not
+        // inherit, but the second edition's prose makes a decoration
+        // specified on an element apply to its content and all of its
+        // descendants - painted with that element's own fill and stroke -
+        // until a descendant specifies it and overrides. So the effective
+        // bits ride the style copy and only a fresh specification
+        // replaces them, and `decoSnap` indexes the specifying element's
+        // resolved snapshot in Document.decoSnapshots. The bits are
+        // 1 underline, 2 overline, 4 line-through; `blink` parses but
+        // contributes none - the SE does not require viewers to support
+        // it. All explicitly initialised, as above.
+        ubyte deco=0;
+        int decoSnap=-1;
     }
 
     LengthCtx lengthCtx()
@@ -1164,6 +1188,12 @@ private struct Renderer
         style.dominantBaseline = style.alignmentBaseline = BaseKind.parent; // §10.9.2: not inherited
 
         auto lc = lengthCtx(); // percentages/em against the *parent* context
+
+        // Set when this element specifies `text-decoration` itself, as
+        // opposed to copying an ancestor's (§10.12); it decides whether
+        // the element's own resolved paint becomes the decoration line's
+        // paint in the snapshot below.
+        bool decoHere = false;
 
         void apply(string k, string v, bool fromCss)
         {
@@ -1377,6 +1407,53 @@ private struct Renderer
                     apply("marker-end", v, true);
                 }
                 break;
+
+            case "text-decoration":
+                // §10.12: none | [ underline || overline || line-through
+                // || blink ]. `inherit` was consumed at the head of
+                // apply. Tokens the grammar does not admit are dropped,
+                // and a value with no keyword at all is malformed - that
+                // leaves the inherited decoration alone. `blink` parses
+                // but contributes no bit: conforming viewers are not
+                // required to support it, and drawing a static line for
+                // a flashing one would be a lie.
+            {
+                ubyte bits = 0;
+                bool known = false;
+                foreach (tok; splitter(v))
+                {
+                    switch (toLower(tok))
+                    {
+                    case "underline":
+                        bits |= decoUnder;
+                        known = true;
+                        break;
+                    case "overline":
+                        bits |= decoOver;
+                        known = true;
+                        break;
+                    case "line-through":
+                        bits |= decoStrike;
+                        known = true;
+                        break;
+                    case "blink":
+                        known = true;
+                        break;
+                    case "none":
+                        bits = 0;
+                        known = true;
+                        break;
+                    default:
+                        break;
+                    }
+                }
+                if (known)
+                {
+                    style.deco = bits;
+                    decoHere = true;
+                }
+                break;
+            }
 
             case "font":
                 // CSS shorthand, enough for the suite: the first
@@ -1674,6 +1751,17 @@ private struct Renderer
         {
             style.cstroke = style.curColor;
             style.strokeIsCurrent = false;
+        }
+
+        // §10.12: the lines over this element's text (and its
+        // descendants' text, until one specifies its own) paint with
+        // *this* element's fill and stroke, so take the snapshot after
+        // the currentColor binding - it is exactly the style that would
+        // paint the element's own geometry.
+        if (decoHere && style.deco)
+        {
+            decoSnapshots ~= style;
+            style.decoSnap = cast(int) decoSnapshots.length - 1;
         }
 
         styles ~= style;
@@ -2912,7 +3000,12 @@ private struct Renderer
             // Markers paint at vertices when the element is stroked OR
             // filled (§11.6.4) - painting-marker-07-f's fill-only paths
             // carry markers; marker content itself never nests markers.
-            // Text markers are not supported (yet).
+            // Markers on text are no gap to close: §11.6.1 and the
+            // §11.6.3 property tables attach marker-* to
+            // path/line/polyline/polygon alone, so the text pass never
+            // consults them (the <text> attribute summary listing them
+            // wholesale is the spec's own inconsistency - SVG 2 dropped
+            // them from text, and a reference render confirms none).
             immutable doMarkers = (doFill || doStroke) && !markerMode
                 && (s.markerStart.length || s.markerMid.length
                     || s.markerEnd.length);
@@ -2966,6 +3059,101 @@ private struct Renderer
             target.drawPath(stroked, strokeP);
         if (doMarkers)
             drawMarkers(s, target, dev);
+    }
+
+    // §10.12's decoration line: a thin rectangle spanning [x0, x1] at
+    // baseline y, filled and stroked under the specifying element's
+    // snapshot style - "the same fill and stroke properties". Neither
+    // SE nor the CSS2 §16.3.1 definition it delegates to fixes the
+    // line's offset or thickness (both implementation-dependent), so
+    // the fractions are fitted to the suite's reference captures: the
+    // underline bar runs 0.040em above the baseline to 0.045em below
+    // it, fitted on text-deco-01-b, whose underline straddles the
+    // baseline row; text-text-03-b's capture drew its fs32 underline
+    // 0.1em deeper still, and no single em placement serves both, so
+    // the dedicated fixture wins and that row's AE absorbs the miss.
+    // The line-through bar sits 0.33em to 0.27em above the baseline
+    // (fits both captures' bars within a row), and the overline - no
+    // gate test draws one, so nothing to fit - just above the cap
+    // line. The rectangle's own bounds feed objectBoundingBox paint
+    // servers; a gradient on a decoration line is outside anything SE
+    // tests.
+    void paintDecoLine(in Style d, float x0, float x1, float y, ubyte kind)
+    {
+        float t0, t1; // bar edges against the baseline, in em
+        if (kind == decoUnder)
+        {
+            t0 = -0.040f;
+            t1 = 0.045f;
+        }
+        else if (kind == decoStrike)
+        {
+            t0 = -0.330f;
+            t1 = -0.270f;
+        }
+        else // decoOver
+        {
+            t0 = -0.820f;
+            t1 = -0.755f;
+        }
+        immutable fs = d.fontSize;
+        path.reset();
+        path.moveTo(FPoint(x0, y + t0 * fs));
+        path.lineTo(FPoint(x1, y + t0 * fs));
+        path.lineTo(FPoint(x1, y + t1 * fs));
+        path.lineTo(FPoint(x0, y + t1 * fs));
+
+        immutable op = clamp(d.opacity, 0f, 1f);
+        immutable bbox = path.bounds;
+        if (bboxTrack)
+            bboxAccum = unionBox(bboxAccum, bbox); // filters see the line too
+        Paint fillP = resolvePaint(true, d, op * clamp(d.fillOpacity, 0f, 1f), bbox);
+        Paint strokeP = resolvePaint(false, d, op * clamp(d.strokeOpacity, 0f, 1f), bbox);
+        auto doFill = d.visible && (fillP.shader !is null || fillP.color.a != 0);
+        auto doStroke = d.visible
+            && (strokeP.shader !is null || strokeP.color.a != 0) && d.strokeWidth > 0;
+
+        if (doFill || doStroke)
+        {
+            Path stroked;
+            if (doStroke)
+            {
+                auto geo = snapStrokeBand(path, canvas.matrix);
+                if (d.dash.length)
+                {
+                    auto dashed = svgDash(geo, d.dash, d.dashOffset);
+                    stroked = strokePath(dashed, d.strokeWidth, d.caps,
+                        d.joins, d.miterLimit);
+                }
+                else
+                    stroked = strokePath(geo, d.strokeWidth, d.caps,
+                        d.joins, d.miterLimit);
+                addZeroLengthCaps(stroked, geo, d.strokeWidth, d.caps);
+            }
+            immutable solid = (!doFill || (fillP.shader is null && fillP.color.a == 255))
+                && (!doStroke || (strokeP.shader is null && strokeP.color.a == 255));
+            // The line is not element geometry, so it never carries
+            // markers, and a clip mask pass draws it like any other
+            // fill under the paint above.
+            if (d.clipUrls.length || d.maskUrls.length)
+                maskedPaint(d, fillP, strokeP, doFill, doStroke, stroked,
+                    bbox, canvas.matrix);
+            else if (d.linInterp && !solid)
+            {
+                auto scratch = Bitmap(Bitmap.Config.ARGB_8888,
+                    bmp.width, bmp.height);
+                scratch.eraseColor(Color(0));
+                Canvas oc = new Canvas(scratch);
+                oc.matrix = canvas.matrix;
+                paintOnto(oc, scratch, d, fillP, strokeP, doFill, doStroke,
+                    stroked, false);
+                blendPMlin(scratch);
+            }
+            else
+                paintOnto(canvas, bmp, d, fillP, strokeP, doFill, doStroke,
+                    stroked, false);
+        }
+        path.reset();
     }
 
     // Resolve the face from the (inherited) family/weight/slant.
@@ -3808,6 +3996,65 @@ private struct Renderer
             ? svgBaselineHeight(bKind, sf, fs)
             : baselineHeight(bKind, fm.ascent, fm.descent);
 
+        // §10.12: the run's decoration lines. Their extent follows the
+        // run's placed glyphs - the positioning lists and advances the
+        // layout pass committed to - and they sit on the alphabetic line
+        // the outlines ride, with the same rise the glyphs get. One
+        // segment per run: the suite's decorated runs never re-position
+        // mid-run. A run riding a path contributes none: SE defines no
+        // curved decoration, and no test decorates a textPath. A clip
+        // mask pass draws none: §14.3.5 gives the clip the element's
+        // geometry, and a decoration is paint, not geometry.
+        int decoBits = !clipMode && pp is null ? run.style.deco : 0;
+        float dx0 = 0, dx1 = 0, dyBase = 0;
+        // The lines paint with the *specifying* element's resolved fill
+        // and stroke (§10.12), which the run's copied bits index; the
+        // bits and index always travel together, so the self case is
+        // defence. Taken by value up front: a later mask/clip walk can
+        // append to (and reallocate) the snapshot vector.
+        const Style ds = s.decoSnap >= 0 ? decoSnapshots[s.decoSnap] : s;
+        if (decoBits)
+        {
+            immutable float rise = bShift - s.baselineShift;
+            float px = pen.x, py = pen.y; // copies: measuring the
+            // decoration's extent must never move the real pen
+            bool seen = false;
+            foreach (gi; 0 .. va.length)
+            {
+                float gx = (gi < run.xs.length ? run.xs[gi] : px)
+                         + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
+                float gy = py;
+                if (gi < run.ys.length)
+                    gy = py = run.ys[gi];
+                gy += (gi < run.dys.length ? run.dys[gi] : 0.0f);
+                immutable float adv = va[gi];
+                if (!seen)
+                {
+                    seen = true;
+                    dx0 = gx;
+                    dx1 = gx + adv;
+                    dyBase = gy + rise;
+                }
+                else
+                {
+                    if (gx < dx0)
+                        dx0 = gx;
+                    if (gx + adv > dx1)
+                        dx1 = gx + adv;
+                }
+                px = gx + adv;
+            }
+            if (!seen || dx1 <= dx0)
+                decoBits = 0;
+        }
+        // Underline and overline lie under the run's fill and stroke,
+        // line-through lands on top of it: the second edition's rule
+        // for the drawing order of decorations.
+        if (decoBits & decoUnder)
+            paintDecoLine(ds, dx0, dx1, dyBase, decoUnder);
+        if (decoBits & decoOver)
+            paintDecoLine(ds, dx0, dx1, dyBase, decoOver);
+
         // §10.13.3, the layout rules for text on a path: the glyph's advance
         // (its charwidth) is a distance along the path, its
         // endpoint-on-the-path is charwidth further, and the glyph is placed
@@ -4088,6 +4335,12 @@ private struct Renderer
                     canvas.drawPath(stroked, strokeP);
             }
         }
+        // §10.12: line-through rides over the text it crosses, the
+        // mirror of the pass that laid underline and overline under the
+        // glyphs. It overwrites the glyph outlines still in `path`, but
+        // those are painted, and the reset below clears the geometry.
+        if (decoBits & decoStrike)
+            paintDecoLine(ds, dx0, dx1, dyBase, decoStrike);
         path.reset();
     }
 
@@ -4816,6 +5069,8 @@ private struct Renderer
         Style[] snap; // external branch: the style stack as it stands
         // before this use pushes its own entry - the restore below runs
         // after that entry is popped, so lengths have to match that far.
+        Style[] decoSnap; // decoSnapshots likewise: it is indexed by the
+        // styles on that stack, so its url() paints get tagged with it.
         auto keepStack = useStack;
         immutable scopes = docScopes.length, docs = openDocs.length;
         scope (exit) if (external)
@@ -4827,6 +5082,7 @@ private struct Renderer
             svgFonts = keep.svgFonts;
             docBase = keep.base;
             styles.data[] = snap;
+            decoSnapshots = decoSnap;
             docScopes = docScopes[0 .. scopes];
             openDocs = openDocs[0 .. docs];
             useStack = keepStack;
@@ -4848,7 +5104,10 @@ private struct Renderer
             return;
 
         if (external)
+        {
             snap = styles.data.dup; // untagged, pre-use: see above
+            decoSnap = decoSnapshots.dup;
+        }
         // The use's own attributes (transform included) wrap the
         // instance - pushed here, in the referencing document, so the
         // use element's own cascade sees its real ancestry and baseUrl.
@@ -4900,6 +5159,14 @@ private struct Renderer
                 if (st.markerEnd.length) st.markerEnd = tag ~ st.markerEnd;
                 foreach (ref u; st.clipUrls) u = tag ~ u;
                 foreach (ref u; st.maskUrls) u = tag ~ u;
+            }
+            // The decoration snapshots ride the same inheritance chain:
+            // a style on the stack reaches its snapshot's url() paints
+            // by index, so they carry the tag too.
+            foreach (ref st; decoSnapshots)
+            {
+                if (st.fillUrl.length) st.fillUrl = tag ~ st.fillUrl;
+                if (st.strokeUrl.length) st.strokeUrl = tag ~ st.strokeUrl;
             }
             docScopes ~= DocSnap(doc, cssRules, cssParent, cssSib, svgFonts, docBase);
             doc = ext;
