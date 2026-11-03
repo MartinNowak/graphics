@@ -53,7 +53,8 @@ struct SvgFont
 {
     // font element (§20.3).
     float defaultAdv;      // horiz-adv-x: the glyph advance default
-    float originX, originY; // horiz-origin-x/y: the glyph origin
+    float originX, originY; // horiz-origin-x/y: recorded, never a
+                            // placement offset (see parseFont)
 
     // the face slot this font registers into (CSS font matching):
     // numeric CSS weight (400 normal, 700 bold) and 0 roman, 1 italic,
@@ -427,6 +428,10 @@ private SvgFont* parseFont(ref immutable(Element)[] nodes, size_t idx)
     auto f = new SvgFont;
     ref immutable(Element) fe = nodes[idx];
     f.defaultAdv = num(fe, "horiz-adv-x");
+    // The accepted `fonts-elem-05-t` demands each outline's corner on
+    // the pen whatever origin the font declares - its own third label
+    // reads "horiz-origin-x=1000 but ignored" - so the pair is kept as
+    // a declaration the engine records but never displaces outlines by.
     f.originX = num(fe, "horiz-origin-x");
     f.originY = num(fe, "horiz-origin-y");
 

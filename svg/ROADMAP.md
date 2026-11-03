@@ -244,6 +244,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the font store, not a rule for the             |            |
 |                       | page: family and src - this file's or          |            |
 |                       | a file's - pick the face it registers          |            |
+| step 66               | a font's declared glyph origin is              | 2.63 M     |
+|                       | a record, not a shove: the accepted            |            |
+|                       | 05-t sits every outline's corner on            |            |
+|                       | the pen whatever the origin says               |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2520,14 +2524,56 @@ and nothing else. In the gate, 07-b falls 1,354 to 264 and 04-b
 also sits at, 267 - and no other row moves: 2,635,431 to 2,633,251
 over 526 rows, no verdict changed.
 
-Up next - step 66: `fonts-elem-05-t` (1,462), the only file in the
-suite that sets a glyph origin: two `<font>` elements carry
-`horiz-origin-x` 500 and 1000, and the two rows of box-glyphs they
-drive hold some 1.5 K of the row. The engine maps an outline point
-by `(coord - origin)`, aligning the origin to the pen; the archived
-reference displaces the same boxes by `+origin` instead, and every
-other fonts row leaves the two readings indistinguishable because
-their origin is the default 0. The sign is the step.
+Step 66 is the `<font>` glyph origin, and the lead's guess about it
+was wrong. `fonts-elem-05-t` (1,462) is the only file in the suite
+that sets the pair anywhere: two of its three fonts carry
+`horiz-origin-x` 500 and 1000, and each of its three rows draws
+`1234` as boxes grown from the glyph coordinate origin - a square
+from (0, 0) up to the glyph's width - with a pale blue marker
+square at each pen position, the 500 and 1000 rows adding ticks
+15 and 30 px along to mark where an outline corner would land if
+the origin shoved it. Our engine shoved: it mapped outlines by
+`(coord - origin)`, the reading "the X coordinate in the font
+coordinate system of the origin of a glyph" (§20.3) invites, and
+measurement put its boxes at columns 290/335/380 - fifteen px left
+of the pens at 305/350/395. The archived reference put them at
+305/350/395 exactly: every box's left edge on the pen, at origin
+500 and 1000 alike. The lead guessed the capture shoved the other
+way, `+origin`; it ignores the pair entirely, and the test's own
+pass criteria agree - "a series of black squares whose lower-left
+corner aligns with the centre of the corresponding small, pale
+blue square" for each subtest alike - as does the third row's
+label, which reads "horiz-adv-x=1000 but ignored". The file is
+`status="accepted"`, its capture is the harness's ground truth,
+and both read the attribute one way: a declaration that moves
+nothing.
+
+So `appendGlyph` scales font units by the em and flips y, full
+stop - the ox/oy parameters are gone from its signature and from
+its one font-units call site - and `SvgFont` keeps the pair as a
+parse record: `parseFont` still reads the attributes, and
+placement never asks for them. The new unittest draws one square
+glyph from a font declaring `horiz-origin-x="50"` and
+`horiz-origin-y="25"` and from the same font without them, pixel
+for pixel identical, the ink pinned to the pen's five columns and
+five rows above the baseline. In the gate 05-t falls 1,462 to 126
+- the only mover, since every other row's origin is the default
+zero - and the total comes down to 2,631,915 over 526 rows, no
+verdict changed.
+
+Up next - step 67: four rows the deferred list has assumed
+scripting for without ever measuring them - `animate-dom-01-f`
+(1,356), `animate-dom-02-f` (404), `script-specify-01-f` (963)
+and `script-specify-02-f` (411). The renders settle them: the
+animate pair's diffs are the indicator squares only a script
+could have drawn, and both script-specify captures were shot
+from older revisions of their files - the 01-f PNG lays out a
+"Click on target" line the current markup does not contain -
+while our renders already paint "Good, script didn't run." in
+the green the pass criteria demand. Measurement is the step:
+those four, and `pservers-pattern-01-b` (2,198), whose whole
+diff is the Arial captions of a pattern render that already
+matches, join the deferred list with the AE holding.
 
 ## Deferred / accepted ceilings (do not chase)
 

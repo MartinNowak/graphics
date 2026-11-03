@@ -3248,21 +3248,24 @@ private struct Renderer
     }
 
     // Emit one glyph outline's verbs into `path` under `m`: an SVG font
-    // glyph first converts from font units (y up, glyph origin at
-    // (ox, oy)) to the user-space em (`fs`); then spacingAndGlyphs
-    // scales the outline in x (§10.4); then `m` places it on the
-    // baseline. The callback mutates the per-verb point copies only,
-    // never the stored outline.
+    // glyph first converts from font units (`fs`, y up) to the user-space
+    // em - the outline's (0, 0) is the current point, and the font
+    // element's horiz-origin-x/y is recorded but never a placement
+    // offset: the accepted `fonts-elem-05-t` puts the outline's corner
+    // on the pen even at origins 500 and 1000 units. Then
+    // spacingAndGlyphs scales the outline in x (§10.4); then `m` places
+    // it on the baseline. The callback mutates the per-verb point copies
+    // only, never the stored outline.
     void appendGlyph(ref const Path g, Matrix m, float gScale,
-                     bool fontUnits, float fs, float ox, float oy)
+                     bool fontUnits, float fs)
     {
         g.apply((ref Path.Verb v, ref FPoint[] pts)
         {
             if (fontUnits)
                 foreach (ref p; pts)
                 {
-                    p.x = (p.x - ox) * fs;
-                    p.y = -(p.y - oy) * fs;
+                    p.x *= fs;
+                    p.y = -p.y * fs;
                 }
             if (gScale != 1.0f) // spacingAndGlyphs scales outlines in x
                 foreach (ref p; pts)
@@ -3954,15 +3957,15 @@ private struct Renderer
                     // A missing glyph without an outline (or no
                     // missing-glyph element at all) advances silently. A
                     // substitute's font travels with it: its units-per-em
-                    // and origin are that font's, not the run's (§10.14.1).
+                    // is that font's, not the run's (§10.14.1).
                     if (sl.gs !is null && sl.gs.hasD)
                         appendGlyph(sl.gs.d, m, scale, true,
-                            s.fontSize / sl.sf.upem, sl.sf.originX, sl.sf.originY);
+                            s.fontSize / sl.sf.upem);
                 }
                 else
                     foreach (gl; cache.glyphStream(run.text[sl.lo .. sl.hi],
                             Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
-                        appendGlyph(gl.path, m, scale, false, 0.0f, 0.0f, 0.0f);
+                        appendGlyph(gl.path, m, scale, false, 0.0f);
 
                 ++gi;
             }
@@ -4009,7 +4012,7 @@ private struct Renderer
                     pen.x = gx + (gi < va.length ? va[gi] : gl.advance.x);
                 }
 
-                appendGlyph(gl.path, m, scale, false, 0.0f, 0.0f, 0.0f);
+                appendGlyph(gl.path, m, scale, false, 0.0f);
                 ++gi;
             }
 
@@ -10003,6 +10006,36 @@ unittest
     assert(samePixels(renderSVG(alt(` rotate="90 20 40"`, "ab")),
         renderSVG(alt(` rotate="90"`, "ab"))),
         "only the first character of the data supplies the group's angle");
+}
+
+unittest
+{
+    // §20.3's horiz-origin-x/-y are recorded but never applied: the
+    // accepted `fonts-elem-05-t` puts each outline's lower-left on the
+    // pen for origins 0, 500 and 1000 alike, and the reference draws
+    // its three rows' squares at the same places in all three.
+    string boxed(string o)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs><font horiz-adv-x="100"` ~ o ~ `>
+                <font-face font-family="Box" units-per-em="100"
+                    ascent="100" descent="0" alphabetic="0"/>
+                <glyph unicode="a" glyph-name="bx" d="M0 0h50v50h-50z"/>
+            </font></defs>
+            <text x="30" y="60" font-family="Box" font-size="10">a</text>
+            </svg>`;
+    }
+    auto plain = renderSVG(boxed(""));
+    auto shifted = renderSVG(boxed(` horiz-origin-x="50"`
+        ~ ` horiz-origin-y="25"`));
+    assert(samePixels(shifted, plain),
+        "a declared origin leaves the outline on the pen");
+    // The 50-unit square at font size 10 stands on the baseline from
+    // the pen: five columns wide, five rows up from the baseline row.
+    immutable box = inkBox(plain);
+    assert(box[0] == 30 && box[2] == 34 && box[1] == 55 && box[3] == 59,
+        to!string(box));
 }
 
 unittest
