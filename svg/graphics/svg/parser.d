@@ -86,6 +86,13 @@ struct Document
     size_t[string] ids;         // id attribute -> arena index (first occurrence wins)
     size_t root;                // first <svg> element in document order
 
+    // The raw contents (everything between the target and `?>`) of the
+    // `<?xml-stylesheet?>` processing instructions of the prolog, in
+    // document order - XML Style 1.1 §1.1 puts them before the document
+    // element, and SVG §6.9 says an SVG user agent supports them. The
+    // pseudo-attributes they carry are parsed where the sheet is loaded.
+    string[] sheetPIs;
+
     /// The arena index of the element carrying `id`, or `unknown`.
     size_t byId(string id) const
     {
@@ -526,6 +533,7 @@ Document parseSVG(string source)
     Element[] nodes = [Element.init]; // nodes[0]: the document pseudo-root
     size_t[string] ids;
     size_t root = Document.unknown;
+    string[] sheetPIs;
 
     // Prefix -> namespace URIs, live for the subtree currently being
     // walked. The empty prefix - the *default* namespace, XML Namespaces
@@ -640,9 +648,11 @@ Document parseSVG(string source)
     // Children of the arena node `parent`; the cursor sits on the first
     // child. Iterating siblings with next() skips over the end tags of
     // descended-into children (exit() parks the cursor on the parent's
-    // own end tag, which the caller's next() steps past). Comments,
-    // PIs and DTD noise are dropped; text and CDATA become text nodes, the
-    // first with its references resolved and the second as written.
+    // own end tag, which the caller's next() steps past). Comments and
+    // DTD noise are dropped; PIs are kept only when they name a style
+    // sheet before the document element; text and CDATA become text
+    // nodes, the first with its references resolved and the second as
+    // written.
     void walkChildren(size_t parent)
     {
         do switch (c.kind)
@@ -671,6 +681,15 @@ Document parseSVG(string source)
         case XMLKind.cdata:
             addText(parent, false); // §4.2: no references to resolve here
             break;
+        case XMLKind.processingInstruction:
+            // The only PI with rendering meaning here: an xml-stylesheet
+            // naming a sheet for the whole document (SVG §6.9). XML Style
+            // 1.1 §1.1 puts those PIs before the document element, so a
+            // target match below the prolog is somebody else's PI.
+            if (parent == 0 && root == Document.unknown
+                && c.name == "xml-stylesheet")
+                sheetPIs ~= c.content;
+            break;
         default:
             break;
         }
@@ -686,6 +705,7 @@ Document parseSVG(string source)
     doc.nodes = cast(immutable) nodes; // seal the arena
     doc.ids = ids;
     doc.root = root;
+    doc.sheetPIs = sheetPIs;
     return doc;
 }
 
@@ -748,6 +768,22 @@ unittest
     assert(doc.nodes[kids[1]].name == "tspan");
     auto tspanKids = doc.nodes[kids[1]].children;
     assert(tspanKids.length == 1 && doc.nodes[tspanKids[0]].text == "s");
+}
+
+unittest
+{
+    // sheetPIs: the xml-stylesheet PIs of the prolog, kept raw and in
+    // order. The xml declaration, other PI targets, and this PI at or
+    // after the document element are nothing's style sheet.
+    auto doc = parseSVG(`<?xml version="1.0" encoding="utf-8"?>
+        <?xml-stylesheet type="text/css" href="a.css"?>
+        <?author-thing whatever?>
+        <svg xmlns="http://www.w3.org/2000/svg"><g>
+            <?xml-stylesheet type="text/css" href="b.css"?>
+        </g></svg>
+        <?xml-stylesheet type="text/css" href="c.css"?>`);
+    assert(doc.sheetPIs.length == 1);
+    assert(canFind(doc.sheetPIs[0], `href="a.css"`));
 }
 
 unittest

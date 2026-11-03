@@ -155,7 +155,8 @@ Rule[] parseSheet(string src, ref size_t order, string baseDir = "", int depth =
 
 /// All rules of every `<style>` element that is a style sheet in a language
 /// this engine reads, in document order; `baseDir` is the document's
-/// directory for resolving `@import` targets. The text is
+/// directory, for resolving `@import` targets and the `href` of a
+/// `<?xml-stylesheet?>` instruction, whose sheet leads. The text is
 /// already what XML says it is: the parser resolves the references of
 /// character data (XML §4.1), and the suite writes the same `>` selector
 /// both ways - styling-css-04-f escapes it, struct-use-10-f hides it in a
@@ -165,6 +166,18 @@ Rule[] collectStyles(in Document doc, string baseDir = "")
 {
     Rule[] rules;
     size_t order = 0;
+
+    // §6.9: an xml-stylesheet PI in the prolog names an author sheet for
+    // the whole document, and the user agent acts on the first of them
+    // (in document order) whose attributes it can act on (XML Style 1.1
+    // §1.1). The sheet sits ahead of the document element's own: the PI
+    // precedes that element, and its rules cascade as if written there.
+    foreach (pi; doc.sheetPIs)
+        if (auto url = piSheet(pi))
+        {
+            rules ~= importRules(url, baseDir, order, 0);
+            break;
+        }
 
     void walk(size_t idx)
     {
@@ -208,6 +221,76 @@ private bool sheetIsCSS(string type)
         if (toLower(t[i]) != ch)
             return false;
     return t.length == 8 || t[8] == ';' || t[8] == ' ';
+}
+
+/// The href of an xml-stylesheet PI this engine can act on, or null.
+/// A PI is a run of `name="value"` pseudo-attributes (XML Style 1.1
+/// §1.1: the value is quoted, and href plus one of type/title are
+/// required). This engine acts on the default sheet - no title to
+/// choose between - written in the one sheet language it reads, for
+/// the one medium it paints: a media descriptor list matches only if
+/// it names that medium, "all". A PI missing any of that is not the
+/// engine's, and the next PI gets its turn; the first that is wins.
+private string piSheet(string pi)
+{
+    string href, type, media, title;
+    size_t i = 0;
+    while (i < pi.length)
+    {
+        while (i < pi.length && (isWhite(pi[i]) || pi[i] == '='))
+            ++i;
+        size_t j = i;
+        while (j < pi.length && !isWhite(pi[j]) && pi[j] != '=')
+            ++j;
+        immutable name = pi[i .. j];
+        i = j;
+        while (i < pi.length && isWhite(pi[i]))
+            ++i;
+        if (i >= pi.length || pi[i] != '=')
+            break; // a pseudo-attribute without a value ends the PI
+        ++i;
+        while (i < pi.length && isWhite(pi[i]))
+            ++i;
+        if (i >= pi.length || (pi[i] != '"' && pi[i] != '\''))
+            break; // and the value must be quoted
+        immutable quote = pi[i++];
+        size_t k = i;
+        while (k < pi.length && pi[k] != quote)
+            ++k;
+        if (k >= pi.length)
+            break; // unterminated
+        immutable value = pi[i .. k];
+        i = k + 1;
+        // the attribute grammar this one borrows: the first
+        // occurrence of a name owns it (XML 1.0 §3.2)
+        if (name == "href" && href is null)
+            href = value;
+        else if (name == "type" && type is null)
+            type = value;
+        else if (name == "media" && media is null)
+            media = value;
+        else if (name == "title" && title is null)
+            title = value;
+    }
+
+    if (href is null || href.empty || (title !is null && !title.empty))
+        return null; // no sheet to fetch, or an alternate to choose from
+    if (type is null || !sheetIsCSS(type))
+        return null; // a named language this engine does not read - and
+                     // unlike <style>, this element must name one
+    if (media !is null && !media.empty)
+    {
+        // The PI says which media the sheet is written for; this engine
+        // paints one, and a descriptor list names it only by "all"
+        // (print, braille, a named speech medium: not this one).
+        bool all;
+        foreach (d; split(media, ','))
+            if (strip(d) == "all")
+                all = true;
+        if (!all)
+            return null;
+    }
+    return href;
 }
 
 /// parent[i] = arena index of node i's parent, -1 for nodes[0]
@@ -1166,6 +1249,40 @@ unittest
         && rules[2].chain[0].id == "c");
     foreach (r; rules)
         assert(r.vals[0] == "green");
+}
+
+unittest
+{
+    // §6.9/§6.10: an xml-stylesheet PI names a sheet for the whole
+    // document, and the engine acts on the first PI whose attributes
+    // it can act on - an unknown type, a title to choose between and
+    // another medium's sheet all step aside for the one that applies,
+    // whose sheet then leads the document element's own, and no later
+    // PI rides along.
+    import std.file : remove, write;
+    enum one = "css63_pi_test.css", two = "css63_pi2_test.css";
+    write(one, `rect { fill: fuchsia }`);
+    write(two, `circle { fill: gold }`);
+    scope (exit)
+    {
+        remove(one);
+        remove(two);
+    }
+    auto doc = parseSVG(`<?xml-stylesheet type="text/some-unknown-language"
+            href="css63_pi2_test.css"?>
+        <?xml-stylesheet type="text/css" title="alt" href="css63_pi2_test.css"?>
+        <?xml-stylesheet type="text/css" media="print" href="css63_pi2_test.css"?>
+        <?xml-stylesheet media="screen, all" type="TEXT/CSS" href="css63_pi_test.css"?>
+        <?xml-stylesheet type="text/css" href="css63_pi2_test.css"?>
+        <svg xmlns="http://www.w3.org/2000/svg"><defs>
+        <style>rect { fill: green }</style></defs>
+        <rect/><circle/></svg>`);
+    auto rules = collectStyles(doc);
+    assert(rules.length == 2);
+    assert(rules[0].chain[0].type == "rect" && rules[0].vals[0] == "fuchsia"
+        && rules[0].order == 0); // the PI's sheet leads, and leads alone
+    assert(rules[1].chain[0].type == "rect" && rules[1].vals[0] == "green"
+        && rules[1].order == 1);
 }
 
 unittest

@@ -231,6 +231,11 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | is the one sheet language this engine reads,   |            |
 |                       | and one that names anything else is not a      |            |
 |                       | sheet at all - not even a name like text/css2  |            |
+| step 63               | the prolog's xml-stylesheet PI names a         | 2.64 M     |
+|                       | sheet for the whole document - the one         |            |
+|                       | the external fragment carries and this         |            |
+|                       | engine never read - and its rules lead         |            |
+|                       | the cascade as if written in the prolog        |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2384,20 +2389,49 @@ than 4/255 anywhere - the square is exact, the bogus sheet is inert,
 and the file's untyped sheet is still honoured. Total 2,651,071 to
 2,650,132 across 526 rows, no verdict changed.
 
-Up next - step 63: §6.9's `xml-stylesheet` processing instruction.
-`struct-use-04-b` (15,089) is four external fragments - `use` of
-`#alpha`, `#beta`, `#gamma` and `#delta` in `../images/svgRef4.svg` -
-painted black by us and fuchsia, blue, green and gold by the capture.
-The ink agrees, 29.5% of the canvas apiece, and not one fill pixel
-does; the reason is the only `xml-stylesheet` PI in the suite, in that
-file's prolog - `<?xml-stylesheet type="text/css" href="svgRef4.css"?>`
-- and `svgRef4.css` is exactly `rect { fill: fuchsia }`,
-`circle { fill: blue }`, `polygon { fill: green }`, `ellipse { fill:
-gold }`. The fragment's internal `<style>` already rides the external
-swap, so this is that same sheet path one PI short. (`struct-use-07-b`
-(35,561) triaged on the way here: its capture holds no pink at all,
-every rectangle clicked to blue by the file's own `onclick` handlers -
-the script and DOM family's, not the cascade's.)
+Step 63 is §6.9's `xml-stylesheet` processing instruction: an SVG user
+agent supports it, and XML Style 1.1 says where it lives and what it
+means - a PI in the prolog, before the document element, naming an
+author style sheet for the whole document, and the user agent acts on
+the first of them, in document order, whose attributes it can act on.
+The parser now keeps the raw content of every `xml-stylesheet` PI above
+the document element (`Document.sheetPIs`), and `collectStyles` reads
+them before it walks the element's own: an `href` to fetch, a `type`
+that passes the §6.10 gate, no `title` - a titled sheet is an alternate
+between sheets, and there is no user here to choose - and a `media`
+list that names the medium this engine paints. The PI's attributes are
+`name="value"` pairs (XML Style 1.1 §1.1: the value must be quoted, and
+the first occurrence of a name owns it, XML 1.0 §3.2), and a surviving
+href rides the `@import` machinery verbatim - same `resolveHref`, same
+`baseDir`, same splice at the head of the cascade. And for an external
+document that `baseDir` is that document's own directory, so a relative
+href lands beside the file that named it.
+
+That is the whole of `struct-use-04-b`: four `use` clones of fragments
+in `../images/svgRef4.svg`, whose prolog names `svgRef4.css` - four
+fill rules, fuchsia, blue, green and gold - through the only PI in the
+suite. The clones' geometry was already right down to the stroke band;
+only the fills disagreed, and now they agree: 15,089 to 388, what's
+left being stroke AA and caption text already known as debt. Two
+unittests pin the halves: the parser keeps exactly the prolog PIs whose
+target is `xml-stylesheet` - the xml declaration, other targets, and
+the same target below `<g>` or after `</svg>` are all dropped - and the
+cascade hands five PIs to one document: the unknown type, the titled
+sheet and the `media="print"` sheet step aside, `media="screen, all"
+type="TEXT/CSS"` is acted on once, and its rules lead the document's
+own sheet with no later PI riding along. Total 2,650,132 to 2,635,431
+across 526 rows, no verdict changed.
+
+Up next - step 64: the other half of §6.10, `media`. The PI side asks
+whether the sheet is written for this medium (`piSheet` above), but the
+`<style>` element's `media` attribute and CSS's own `@media` rule and
+`@import` statement are never asked: every sheet the engine finds
+splices into one cascade. And the suite never asks either - 47
+`<style>` elements, zero `media` attributes, zero `@media`, three
+`@import` and none carries a descriptor - so the gate must stay flat
+by construction, and the unittests are the whole evidence. This engine
+paints one medium; a sheet written for print is not a sheet written
+for this rendering.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2491,16 +2525,23 @@ the script and DOM family's, not the cascade's.)
 - struct-image-13/14/15-f (453 K): the reference PNGs deviate from the
   tile PNGs they composite; our tiles match ground truth at AE 0 — a
   reference-suite defect, documented in the `<image>` commit message.
-- struct-use-06-b (30 K) / 04-b (16 K) / 07-b (36 K): external-reference
+- struct-use-06-b (30 K) / 07-b (36 K): external-reference
   tests where step 11 renders to spec but the archived references do not.
   06-b's body still carries its own "external use isn't implemented, show
   red rects" fallback *under* the clones, and its reference was captured by
   a UA that showed exactly that fallback, so the correct lime external
   rect now paints over it (+6.8 K at the step-11 rebase); its second clone
   aims at the external `svg-root` itself, whose 450x450 lime square is
-  scaled into that `use` element's own 122x122. 04-b's reference shows
-  colored shapes no spec-correct render of the referenced files produces;
-  07-b's nested-`<svg>` fit is already handled to §7.7. 06-b's own label
+  scaled into that `use` element's own 122x122. 04-b left this list at
+  step 63: the colors its reference shows - fuchsia, blue, green, gold -
+  arrive from that external file's own `xml-stylesheet` PI, and §6.9
+  says a user agent applies it. 07-b's nested-`<svg>` fit is already
+  handled to §7.7, and its capture is the post-click state: every
+  rectangle turned blue by the file's own `onclick` handlers. That makes
+  it a member of the script family, like `struct-use-13-f` (6.8 K), whose
+  capture is the state its `<script>` builds at load with DOM edits, and
+  `struct-svg-01-f` (670), whose red FAIL text sits in the markup and is
+  hidden only by the pass script. 06-b's own label
   reads `$Revision: 1.4 $` against the 1.5 file in `suite/`, and step 50's
   viewport clip costs 9 AE there - the outer half of that 122x122 clone's
   stroke, trimmed at the instance's viewport.
