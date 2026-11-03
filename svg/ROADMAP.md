@@ -252,6 +252,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | get rendered: indicator squares                |            |
 |                       | and stale captures - five rows                 |            |
 |                       | join the deferred list, AE holds               |            |
+| step 68               | §11.6.3 culls the miter by its own             | 2.63 M     |
+|                       | ratio, 1 / sin(theta/2): joins                 |            |
+|                       | tighter than ~29 degrees bevel                 |            |
+|                       | at the default limit of 4                      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2590,21 +2594,61 @@ Arial caption, host-glyph debt like every other Arial row.
 Five rows to the deferred list; the gate came back
 byte-identical - 526 rows, 2,631,915 AE, no verdict moved.
 
-Up next - step 68: the miter joins, waiting in the shapes
-family. `shapes-polyline-02-t` (946) and `shapes-polygon-02-t`
-(808) end their thin double edge outlines - the recorded
-stroker-convention ceiling - with solid arrowheads at acute
-joins: at the V of polyline-01, stroke-width 8, the reference's
-ink stops at the vertex row while ours spikes 13 px past it.
-§11.6.3 is explicit - "miterLength / stroke-width = 1 / sin (
-theta / 2 )", and a limit of 4.0 converts miters to bevels for
-theta under about 29 degrees - and that vertex turns 28, so
-the bevel is the spec answer and ours is the deviation: the
-shared joiner culls on half that ratio, keeping a spike the
-spec says to shave. The rule lives in
-`src/graphics/core/stroke_detail/joiner.d`, shared with every
-stroked path in the library - the first step to edit it, so
-every stroker edge in the gate has to hold.
+Step 68 is the first change outside svg/, and it is a plain
+reading of §11.6.3 against our own rule. The joiner in the
+shared stroker - `MiterJoiner` in
+`src/graphics/core/stroke_detail/joiner.d` - culled on half
+the spec's ratio: it took the spike to be 1 / (2 sin(sweep/2))
+widths deep and beveled below 2 asin(0.5/ml), about 14 degrees
+at the default limit. The spec states the ratio outright -
+"miter length (distance between the outer tip and the inner
+corner of the miter) to stroke-width ... 1 / sin ( theta / 2 )"
+- and works the very cutoff we measure: "a limit of 4.0
+converts them for theta less than approximately 29 degrees".
+The captures were spec-literate all along. At the 28-degree V
+of `shapes-polyline-02-t` at (35, 150), stroke-width 8, the
+reference's ink stops at the vertex row y=150; the old rule
+spiked to y=163, the new one bevels and stops at 150 too. The
+polygon-02-t arrowheads triaged with them are 55-80 degree
+miters both rules keep - their outline-only diff was always
+the recorded stroker convention, and it stays.
+
+`painting-stroke-07-t` confirms from the other side: its
+description computes its shape's cutoff as 18.028 and its six
+panels step `stroke-miterlimit` 20, 18.1, 17.9, 17, 4, 1
+across that value. The old rule kept spikes at 17.9 and 17
+that the capture bevels; the new one lands all six right and
+the row falls 933 to 619. The joiner's unittests pin both
+sides of 29 degrees at the default limit; the 1.15-degree
+fold-back pair still bevels at limit 30 and keeps its point
+at 200 - by the spec's ratio a 100-width spike.
+
+In the gate nine rows fall and one - `filters-example-01-b`,
+one blurred pixel - rises: `painting-stroke-07-t` 933 -> 619,
+`shapes-polyline-02-t` 946 -> 771, `shapes-polyline-01-t`
+663 -> 635, `text-altglyph-01-b` 1,787 -> 1,749,
+`pservers-grad-08-b` 1,223 -> 1,200, and four rows by a point
+or two. The total comes down to 2,631,334 over 526 rows, no
+verdict changed. What remains of the movers is the recorded
+half-pixel outline convention and caption text: the rest of
+the stroked shapes family, `shapes-polygon-02-t` included,
+sits at that ceiling, measured this step.
+
+Up next - step 69: the 300-1,500 band's last unmeasured rows
+get triaged by render and diff, the way step 67 settled the
+script rows. Several were rendered along the way here and
+point the way: `painting-stroke-06-t` (869) diffs to thin
+edges on every dash, the recorded convention; `linking-a-04-t`
+(588) to doubled arrow outlines plus a revision glyph;
+`struct-use-01-t` (513) is host-glyph caption debt over clone
+outlines; and `coords-viewattr-03-b` (1,102) carries a
+revision-digit mismatch into the stale-capture family. What
+the sweep still owes: `linking-a-05-t`,
+`painting-control-02-f`, `painting-render-01-b`,
+`render-elems-07-t` and `-08-t`, `struct-image-19-f`,
+`coords-units-01-b` and the shapes remainder - solid blocks
+first, outline-only diffs cited to the convention. If the
+band proves all ceiling, the deferred list simply absorbs it.
 
 ## Deferred / accepted ceilings (do not chase)
 

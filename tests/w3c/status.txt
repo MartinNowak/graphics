@@ -30,7 +30,7 @@ animate-elem-30-t.svg OK 194
 animate-elem-31-t.svg OK 893
 animate-elem-32-t.svg OK 95
 animate-elem-33-t.svg OK 931
-animate-elem-34-t.svg OK 170
+animate-elem-34-t.svg OK 169
 animate-elem-35-t.svg OK 3728
 animate-elem-36-t.svg OK 605
 animate-elem-37-t.svg OK 489
@@ -38,7 +38,7 @@ animate-elem-38-t.svg OK 321
 animate-elem-39-t.svg OK 1010
 animate-elem-40-t.svg OK 294
 animate-elem-41-t.svg OK 717
-animate-elem-44-t.svg OK 170
+animate-elem-44-t.svg OK 169
 animate-elem-46-t.svg OK 268
 animate-elem-52-t.svg OK 4567
 animate-elem-53-t.svg OK 1307
@@ -135,7 +135,7 @@ filters-conv-05-f.svg OK 153642
 filters-diffuse-01-f.svg OK 180
 filters-displace-01-f.svg OK 1970
 filters-displace-02-f.svg OK 26
-filters-example-01-b.svg OK 1871
+filters-example-01-b.svg OK 1872
 filters-felem-01-b.svg OK 62
 filters-felem-02-f.svg OK 440
 filters-gauss-01-b.svg OK 50
@@ -249,7 +249,7 @@ painting-fill-05-b.svg OK 45
 painting-marker-01-f.svg OK 11
 painting-marker-02-f.svg OK 1079
 painting-marker-03-f.svg OK 1429
-painting-marker-04-f.svg OK 1409
+painting-marker-04-f.svg OK 1408
 painting-marker-05-f.svg OK 731
 painting-marker-06-f.svg OK 11
 painting-marker-07-f.svg OK 0
@@ -262,7 +262,7 @@ painting-stroke-03-t.svg OK 289
 painting-stroke-04-t.svg OK 321
 painting-stroke-05-t.svg OK 1855
 painting-stroke-06-t.svg OK 869
-painting-stroke-07-t.svg OK 933
+painting-stroke-07-t.svg OK 619
 painting-stroke-08-t.svg OK 62
 painting-stroke-09-t.svg OK 156
 painting-stroke-10-t.svg OK 212
@@ -294,7 +294,7 @@ pservers-grad-04-b.svg OK 42
 pservers-grad-05-b.svg OK 600
 pservers-grad-06-b.svg OK 348
 pservers-grad-07-b.svg OK 0
-pservers-grad-08-b.svg OK 1223
+pservers-grad-08-b.svg OK 1200
 pservers-grad-09-b.svg OK 21
 pservers-grad-10-b.svg OK 42
 pservers-grad-11-b.svg OK 4530
@@ -347,8 +347,8 @@ shapes-line-02-f.svg OK 84
 shapes-polygon-01-t.svg OK 675
 shapes-polygon-02-t.svg OK 808
 shapes-polygon-03-t.svg OK 41
-shapes-polyline-01-t.svg OK 663
-shapes-polyline-02-t.svg OK 946
+shapes-polyline-01-t.svg OK 635
+shapes-polyline-02-t.svg OK 771
 shapes-rect-01-t.svg OK 190
 shapes-rect-02-t.svg OK 69
 shapes-rect-03-t.svg OK 758
@@ -455,11 +455,11 @@ text-align-05-b.svg OK 1196
 text-align-06-b.svg OK 2533
 text-align-07-t.svg OK 5611
 text-align-08-b.svg OK 10407
-text-altglyph-01-b.svg OK 1787
+text-altglyph-01-b.svg OK 1749
 text-altglyph-02-b.svg OK 1
 text-altglyph-03-b.svg OK 4810
 text-bidi-01-t.svg OK 248
-text-deco-01-b.svg OK 952
+text-deco-01-b.svg OK 951
 text-dom-01-f.svg OK 2958
 text-dom-02-f.svg OK 337
 text-dom-03-f.svg OK 667

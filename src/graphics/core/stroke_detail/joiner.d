@@ -1,7 +1,7 @@
 module graphics.core.stroke_detail.joiner;
 
 private {
-  import std.math : abs, sin, asin, tan, PI;
+  import std.math : abs, sin, cos, asin, tan, PI;
   import std.algorithm : min, max;
   import graphics.core.paint;
   import graphics.core.path;
@@ -61,17 +61,24 @@ void MiterJoiner(FPoint pt, FVector normalBefore, FVector normalAfter,
   immutable ml = max(miterLimit, 1.0f); // SVG: a miterlimit below 1 is treated as 1
   auto r2 = radius * radius;
   // asin folds the sweep of the normals into (-90, 90]; both a straight
-  // continuation and a fold-back collapse to a near-zero sweep there, and
-  // the spike of the extended rail is 1 / (2 * sin(sweep/2)) stroke widths
-  // deep. The (SVG presentation attribute) limit cuts the spike when that
-  // exceeds ml, i.e. sweep < 2 * asin(1 / (2 * ml)) - the old hardcoded
-  // 15 degrees are exactly this rule for a miterlimit of 4.
+  // continuation and a fold-back collapse to a near-zero sweep there. At a
+  // sharp joint the fold recovers theta, the angle between the segments,
+  // and §11.6.3 gives the ratio of the join outright:
+  //
+  //   miterLength / stroke-width = 1 / sin ( theta / 2 )
+  //
+  // The limit converts the join to a bevel when that ratio exceeds ml,
+  // i.e. sweep < 2 * asin(1 / ml) - about 29 degrees at the default
+  // limit of 4, exactly as the spec's own worked example says. An older
+  // reading (half that ratio, culling near 14 degrees) kept spikes the
+  // spec shaves: the accepted shapes-polyline-02-t bevels its 28-degree
+  // joins at the default limit.
   // normalAfter's length can differ from radius by float noise, letting
   // crossP/r2 land just outside [-1, 1]; clamp rather than asin to NaN.
   auto ratio = crossP / r2;
   ratio = min(max(ratio, -1.0f), 1.0f);
   auto sweep = asin(ratio);
-  if (abs(sweep) < 2.0f * asin(0.5f / ml)) {
+  if (abs(sweep) < 2.0f * asin(1.0f / ml)) {
     BevelJoiner(pt, normalBefore, normalAfter, inner, outer);
   } else {
     auto angle = sweep;
@@ -134,9 +141,29 @@ unittest
     assert(inner.points.length == 2); // just the bevel line
     assert(outer.points.length == 2);
 
-    // The miterlimit chooses where the extended rail is cut: the same near
-    // fold-back (a ~57-width spike) bevels at limit 30 but keeps its point
-    // at a limit of 200.
+    // §11.6.3's worked example pins the cull outright: "a limit of 4.0
+    // converts them for theta less than approximately 29 degrees". The
+    // 28-degree joins of the accepted shapes-polyline-02-t bevel at the
+    // default limit; a 30-degree corner keeps its spike on the inner rail.
+    inner.reset(); outer.reset();
+    inner.moveTo(FPoint(0, 0));
+    outer.moveTo(FPoint(0, 0));
+    auto n28 = FVector(5.0f * sin(28.0f * PI / 180.0f),
+                       -5.0f * cos(28.0f * PI / 180.0f));
+    getJoiner(JoinStyle.Miter)(FPoint(10, 0), FVector(0, -5), n28, inner, outer, 4);
+    assert(inner.points.length == 2 && outer.points.length == 2); // beveled
+    inner.reset(); outer.reset();
+    inner.moveTo(FPoint(0, 0));
+    outer.moveTo(FPoint(0, 0));
+    auto n30 = FVector(5.0f * sin(30.0f * PI / 180.0f),
+                       -5.0f * cos(30.0f * PI / 180.0f));
+    getJoiner(JoinStyle.Miter)(FPoint(10, 0), FVector(0, -5), n30, inner, outer, 4);
+    assert(inner.points.length == 3); // spike kept
+    assert(outer.points.length == 2);
+
+    // The miterlimit chooses where the extended rail is cut: the same
+    // near fold-back (a ~100-width spike by the spec's ratio) bevels at
+    // limit 30 but keeps its point at a limit of 200.
     inner.reset(); outer.reset();
     inner.moveTo(FPoint(0, 0));
     outer.moveTo(FPoint(0, 0));
