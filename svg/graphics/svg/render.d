@@ -1165,13 +1165,31 @@ private struct Renderer
 
         void apply(string k, string v, bool fromCss)
         {
+            // Every property's value grammar ends in "| inherit" (§11.2,
+            // §10.x, ...), and §6.14 makes inheritance mean the parent's
+            // computed value - which is the style this element was copied
+            // from two lines up. So the keyword is a declaration that
+            // changes nothing, and dropping it is the whole rule.
+            //
+            // It matters because not every case below reads the value the
+            // same way: a length or a number fails to parse and the catch
+            // keeps the inherited answer, while an enumeration has a
+            // default arm that reaches for the property's initial value -
+            // stroke-linecap's butt, stroke-linejoin's miter, text-anchor's
+            // start, font-style's roman - and a list property such as
+            // stroke-dasharray simply assigns what it parsed, which for
+            // 'inherit' is nothing at all. That is why the keyword looked
+            // honoured for some properties and lost for others.
+            if (equalCase(v, "inherit"))
+                return;
+
             switch (k)
             {
             case "stroke-width":
                 lc.pctRef = arcDiagonal(lc);
                 try
                     style.strokeWidth = parseLength(v, lc);
-                catch (Exception) {} // inherit/garbage: keep the inherited value
+                catch (Exception) {} // a length that will not parse: keep it
                 break;
 
             case "fill":
@@ -1245,7 +1263,7 @@ private struct Renderer
                 case "nonzero":
                     style.fillRule = Path.FillRule.NonZero;
                     break;
-                default: // "inherit" and friends: keep the parent value
+                default: // a token the grammar does not allow: keep the parent's
                     break;
                 }
                 break;
@@ -1259,7 +1277,7 @@ private struct Renderer
                 case "nonzero":
                     style.clipRule = Path.FillRule.NonZero;
                     break;
-                default: // "inherit" and friends: keep the parent value
+                default: // a token the grammar does not allow: keep the parent's
                     break;
                 }
                 break;
@@ -1280,7 +1298,7 @@ private struct Renderer
                 case "auto":
                     style.linInterp = false;
                     break;
-                default: // "inherit" and friends: keep the parent value
+                default: // a token the grammar does not allow: keep the parent's
                     break;
                 }
                 break;
@@ -1398,7 +1416,7 @@ private struct Renderer
                 case "visible":
                     style.visible = true;
                     break;
-                default: // "inherit" and friends: keep the parent value
+                default: // a token the grammar does not allow: keep the parent's
                     break;
                 }
                 break;
@@ -1472,7 +1490,7 @@ private struct Renderer
                 lc.pctRef = style.fontSize;
                 try
                     style.fontSize = parseLength(v, lc);
-                catch (Exception) {} // inherit/garbage: keep the inherited size
+                catch (Exception) {} // a size that will not parse: keep it
                 break;
 
             case "font-weight":
@@ -1488,7 +1506,7 @@ private struct Renderer
                     try
                         w = to!int(strip(v));
                     catch (Exception)
-                        break; // inherit/garbage: keep the inherited weight
+                        break; // not a weight and will not parse: keep it
                     style.weight =
                         w <= 200 ? TypeFace.Weight.Thin :
                         w <= 300 ? TypeFace.Weight.Light :
@@ -1542,7 +1560,7 @@ private struct Renderer
                     try
                         res = parseLength(v, lc);
                     catch (Exception)
-                        break; // inherit/garbage: keep the inherited value
+                        break; // not a length: keep the inherited spacing
                 }
                 if (k == "letter-spacing")
                     style.letterSpacing = res;
@@ -7825,6 +7843,64 @@ unittest
     assert(bmpA.getLine!PMColor(10)[11].r == 255, "dasharray with no dashoffset");
     assert(bmpA.getLine!PMColor(10)[15].r == 0, "and the gap is still a gap");
     assert(bmpA.getLine!PMColor(10)[19].r == 255, "and the next dash still starts");
+}
+
+unittest
+{
+    // §6.4/§6.14: the `inherit` keyword asks for the parent element's
+    // computed value, not for the property's initial one. Three properties
+    // whose handlers read an unrecognised token as their initial value -
+    // struct-group-03-t's stroke-linecap, stroke-linejoin and
+    // stroke-dasharray samples - and each pair below is the inherited
+    // value against that initial value spelled out.
+
+    // §11.2: a round cap is a half disc of radius stroke-width/2 centred
+    // on the endpoint, so it reaches three device pixels left of x1="15".
+    auto bmpCap = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <g stroke="red" stroke-width="6" stroke-linecap="round">
+            <line x1="15" y1="20" x2="25" y2="20" stroke-linecap="inherit"/>
+        </g>
+        </svg>`);
+    assert(bmpCap.getLine!PMColor(20)[13].r == 255,
+        "stroke-linecap inherit keeps the round cap");
+    bmpCap = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <g stroke="red" stroke-width="6" stroke-linecap="round">
+            <line x1="15" y1="20" x2="25" y2="20" stroke-linecap="butt"/>
+        </g>
+        </svg>`);
+    assert(bmpCap.getLine!PMColor(20)[13].a == 0, "butt, spelled, still cuts it off");
+
+    // §11.3: the apex of that polyline stands 30 device px above its
+    // feet and closes to 30 degrees, so a miter join spikes nine pixels
+    // over the vertex while a round one is a 2.5-pixel arc.
+    auto bmpJoin = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="44">
+        <g stroke="red" stroke-width="5" fill="none" stroke-linejoin="round">
+            <polyline points="3,40 11,10 19,40" stroke-linejoin="inherit"/>
+        </g>
+        </svg>`);
+    assert(bmpJoin.getLine!PMColor(3)[11].a == 0,
+        "stroke-linejoin inherit keeps the round join");
+    bmpJoin = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="44">
+        <g stroke="red" stroke-width="5" fill="none" stroke-linejoin="round">
+            <polyline points="3,40 11,10 19,40" stroke-linejoin="miter"/>
+        </g>
+        </svg>`);
+    assert(bmpJoin.getLine!PMColor(3)[11].r == 255, "miter, spelled, still spikes");
+
+    // §11.4: the inherited dash list keeps its gaps.
+    auto bmpDash = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <g stroke="red" stroke-width="6" stroke-dasharray="4 4">
+            <path d="M2,20 h20" stroke-dasharray="inherit"/>
+        </g>
+        </svg>`);
+    assert(bmpDash.getLine!PMColor(20)[3].r == 255
+        && bmpDash.getLine!PMColor(20)[8].a == 0, "stroke-dasharray inherit keeps the gaps");
+    bmpDash = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <g stroke="red" stroke-width="6" stroke-dasharray="4 4">
+            <path d="M2,20 h20" stroke-dasharray="none"/>
+        </g>
+        </svg>`);
+    assert(bmpDash.getLine!PMColor(20)[8].r == 255, "none, spelled, closes them");
 }
 
 unittest

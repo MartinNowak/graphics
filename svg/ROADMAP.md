@@ -221,6 +221,11 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | view fit carry it too, so the CTM need only    |            |
 |                       | invert - the contour, not the matrix, has to   |            |
 |                       | be axis-aligned                                |            |
+| step 61               | `inherit` on a presentation attribute is       | 2.65 M     |
+|                       | the parent's value: dropping the declaration   |            |
+|                       | is the whole rule, and the enumerations that   |            |
+|                       | reached for an initial value - linecap, -join, |            |
+|                       | -dasharray - are the ones that noticed         |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2283,11 +2288,82 @@ y=160 and y=200 and we cut them square at 165 and 195. A probe says
 'inherit' is honoured for `fill-rule`, `visibility`, `display`, `fill` and
 `stroke-width` and is not routed for `stroke-linecap`.
 
-Up next - step 61: §6.2.1's `inherit` on a presentation attribute, which
-is all of that row's residue. The same test pins both answers - its top
-row spells the value 'inherit' and the row under it spells out what
-should be inherited - so eighteen samples say which of the cascade's
-properties consult their parent already and which do not.
+Step 61 is §6.4 and §6.14: the `inherit` keyword on a presentation
+attribute. `struct-group-03-t` is that rule made visible - seventeen
+property rows whose top row spells the word `inherit` and whose bottom
+row spells out the value that should arrive. Sixteen of the seventeen
+samples use the keyword, plus one more in the reference row, where
+`stroke-dasharray` was meant to be spelled out and is not; that is why
+both of that sample's rows are dashed in the capture.
+
+Every property's value grammar ends in `| inherit` - the local copy of
+the spec says so for `stroke-dasharray`, `text-anchor`, `font-style`,
+`fill-opacity` and the rest - and §6.14 makes inheritance mean the parent
+element's computed value. `pushStyle` already starts every element from a
+copy of its parent's whole `Style`, so the keyword asks for exactly what
+those fields already hold: dropping the declaration *is* the rule, and it
+lands as one early return at the top of `apply` rather than as an
+`inherit` arm per property. It also covers the properties no one
+enumerated - `color-interpolation`, `mask`, `overflow`, and the rest the
+cascade forwards to a field it never re-reads.
+
+What varies is what each handler does with a token it does not
+understand. A length or a number goes through `parseLength` or `to!float`,
+throws, and the `catch` keeps the inherited answer - which is why
+`stroke-width`, `stroke-miterlimit`, `stroke-dashoffset`, `font-size` and
+`font-weight` honoured the keyword already. An enumeration has a
+`default:` arm that reaches for the property's *initial* value -
+`stroke-linecap`'s butt, `stroke-linejoin`'s miter, `text-anchor`'s
+start, `font-style`'s roman - and a list property simply assigns what it
+parsed, which for `inherit` is nothing at all: `stroke-dasharray` turned
+the line solid. Hence a keyword that looked honoured for some properties
+and lost for others. The stale comments claiming `inherit` reaches those
+arms say "a token the grammar does not allow" now, which is what does
+reach them.
+
+526 rows, 2,651,152 -> 2,651,071 AE, and exactly one row moves:
+`struct-group-03-t` 298 -> 217. Everything else in the suite that spells
+the keyword - the eleven `stop-color="inherit"` and four `stop-opacity`
+uses across `pservers-grad-18-b`, `pservers-grad-23-f` and three
+`animate` rows, `color-prop-01-b`, `masking-path-12-f`,
+`interact-events-202-f`, and `styling-inherit-01-b`'s middle stop, whose
+green came from its gradient element - already kept the parent's answer
+and came back byte-identical.
+
+Three unittests pin the arms that changed, one per family: the round cap
+`stroke-linecap="inherit"` inherits, half a stroke-width past `x1`; the
+round join `stroke-linejoin="inherit"` inherits - that sample's polyline
+closes to 30 degrees at its apex, so a miter spikes nine device pixels
+over the vertex where a round join is a 2.5-pixel arc - and
+`stroke-dasharray="inherit"` keeps its gaps. Each is paired with the
+initial value spelled out on the same element, so each pair measures the
+keyword and not the stroker.
+
+Two things the rule does not buy, both unmeasurable here: the two
+baseline properties are reset to `parent` on every descent (step 6's
+footnote), so `inherit` there keeps the initial value rather than the
+ancestor's; and `opacity="inherit"` on a child of `<g opacity>` reads the
+1.0f that step 58's layer consumed. The suite never sets either, so the
+gate cannot see them and no code was written for them.
+
+What is left of `struct-group-03-t` is shared by both rows now: every
+cluster comes in a pair 50 px apart, so our two rows agree with each
+other and differ from the capture identically - the round join's top arc
+at x=240..244, the cell grid's band edges at x=219..223 and 285..289, the
+rotated property labels' antialiasing at x=258..265, and the *ends* of
+the dashes at x=199, where the capture runs each dash one device pixel
+longer than we do (160..165 against 160..164, 170..172 against 170..171)
+at an identical phase. All raster, none of it inheritance.
+
+Up next - step 62: §6.10's `<style>` element and its `type`.
+`styling-elem-01-b` (956) is one clean square - the whole of rect `r2`,
+2,500 raw px at x=10..59 y=110..159 - and it is red in our render because
+its second sheet, `<style type='text/some-unknown-styling-language'>`, is
+parsed as a style sheet. The file's other sheet names no `type` at all
+and is honoured correctly - it falls through to text/css, §6.13's
+default - while a `type` naming anything else means the element is not a
+style sheet: §6.10 gives the element HTML's attributes, and HTML ignores
+a style element whose language the user agent does not support.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2502,7 +2578,13 @@ properties consult their parent already and which do not.
   its 8-device-px band under `scale(8, 2)` as rows 46..53 with no edge
   half-covered at all, and the +64, +65 and +94 that `pservers-grad-17-b`,
   `pservers-grad-20-b` and `filters-light-02-f` pay sit on quarter-turn
-  bands the capture leaves where they are.
+  bands the capture leaves where they are. The split recurs *along* a
+  stroke rather than across it: at `struct-group-03-t`'s dashed sample at
+  x=199 the capture's every dash runs one device pixel longer than ours -
+  160..165 against 160..164, 170..172 against 170..171, and so on down,
+  with the phase and the pattern identical in both of the test's rows -
+  so each dash end carries half a pixel the capture lights and our
+  step-reduction does not.
 - `render-groups-01-b` (195) is what step 58 left, and all of it is one
   column: 144 raw px at x=435, y=135..278, down the `<image>`'s right
   edge, which lands on 435.6 and is a fill edge, so the band shift

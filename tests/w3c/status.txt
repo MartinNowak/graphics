@@ -390,7 +390,7 @@ struct-frag-05-t.svg OK 271
 struct-frag-06-t.svg OK 141
 struct-group-01-t.svg OK 45
 struct-group-02-b.svg OK 17
-struct-group-03-t.svg OK 298
+struct-group-03-t.svg OK 217
 struct-image-01-t.svg OK 41
 struct-image-02-b.svg OK 75
 struct-image-03-t.svg OK 45
