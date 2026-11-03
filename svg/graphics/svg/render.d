@@ -2602,17 +2602,36 @@ private struct Renderer
     // *fill* edge on a grid line agrees with ours to the pixel, so it is
     // only the stroked outline that carries the shift. Nudge the contour
     // half a device pixel before it is stroked; vertices already between
-    // pixels do not move, and a rotated or skewed CTM or any tilted edge
-    // leaves the contour to the ordinary antialiaser.
+    // pixels do not move, and any tilted device edge leaves the contour to
+    // the ordinary antialiaser.
+    //
+    // Which is all a device-space statement, so the CTM is only required to
+    // be invertible: the nudge is applied to the device point and mapped
+    // back through the matrix inverse. A quarter turn therefore carries it
+    // too - struct-group-03-t's cell grid under translate(70, 150)
+    // rotate(-90) is axis-aligned in user space *and* in device space -
+    // while a 45-degree one or a skew is refused by the edge test below
+    // rather than by the matrix.
     static Path snapStrokeBand(Path p, in Matrix m)
     {
         enum eps = 0.001f;
 
-        if (m[0][1] != 0 || m[1][0] != 0)
-            return p; // rotation or skew: there is no axis-aligned band here
-        immutable sx = m[0][0], tx = m[0][2], sy = m[1][1], ty = m[1][2];
-        if (sx == 0 || sy == 0 || abs(abs(sx) - abs(sy)) > eps)
-            return p; // anisotropic: the band would shift by two amounts
+        immutable a = m[0][0], b = m[0][1], tx = m[0][2];
+        immutable c = m[1][0], d = m[1][1], ty = m[1][2];
+        immutable det = a * d - b * c;
+        if (det == 0 || !isFinite(det))
+            return p; // nothing to map the nudged points back through
+
+        FPoint toDevice(FPoint q)
+        {
+            return FPoint(a * q.x + b * q.y + tx, c * q.x + d * q.y + ty);
+        }
+        FPoint toUser(float x, float y)
+        {
+            x -= tx;
+            y -= ty;
+            return FPoint((d * x - b * y) / det, (a * y - c * x) / det);
+        }
 
         // The subpaths' verbs and points in order, in both spaces. A plain
         // <rect> carries four degenerate cubics - addRoundRect emits one per
@@ -2633,7 +2652,7 @@ private struct Renderer
             case Path.Verb.Move:
                 subs ~= Contour([verb]);
                 subs[$ - 1].user ~= pts[0];
-                subs[$ - 1].dev ~= FPoint(sx * pts[0].x + tx, sy * pts[0].y + ty);
+                subs[$ - 1].dev ~= toDevice(pts[0]);
                 break;
             case Path.Verb.Line:
             case Path.Verb.Quad:
@@ -2646,7 +2665,7 @@ private struct Renderer
                 foreach (q; pts[1 .. $])
                 {
                     subs[$ - 1].user ~= q;
-                    subs[$ - 1].dev ~= FPoint(sx * q.x + tx, sy * q.y + ty);
+                    subs[$ - 1].dev ~= toDevice(q);
                 }
                 break;
             case Path.Verb.Close:
@@ -2707,10 +2726,17 @@ private struct Renderer
                     consider(sub.dev[0]);
 
                 auto q = sub.user[j];
-                if (shiftX && abs(pt.x - round(pt.x)) < eps)
-                    q.x = (round(pt.x) + 0.5f - tx) / sx;
-                if (shiftY && abs(pt.y - round(pt.y)) < eps)
-                    q.y = (round(pt.y) + 0.5f - ty) / sy;
+                bool onX = shiftX && abs(pt.x - round(pt.x)) < eps;
+                bool onY = shiftY && abs(pt.y - round(pt.y)) < eps;
+                if (onX || onY)
+                {
+                    // The half pixel is added to the *grid line*, not to the
+                    // device coordinate as transformed: a rotate() carries a
+                    // cosine of 1e-8 with it, and that drift is not part of
+                    // where the band belongs.
+                    q = toUser(onX ? round(pt.x) + 0.5f : pt.x,
+                        onY ? round(pt.y) + 0.5f : pt.y);
+                }
                 moved ~= q;
             }
 
@@ -9921,7 +9947,7 @@ unittest
 unittest
 {
     // Every axis-aligned band shifts; vertices already between pixels, a
-    // rotated CTM, and any curve or diagonal stay exactly as they were.
+    // tilted contour, and any curve stay exactly as they were.
     FPoint[] points(in Path p)
     {
         FPoint[] res;
@@ -9946,7 +9972,7 @@ unittest
         "a frame centred on the grid lands on the pixel above it");
 
     // The band's width does not matter, only where its vertices sit: the
-    // 40-px Grad2 stroke of pservers-grad-11-b is cell-aligned, and its
+    // 40-px Grad2 stroke of pservers-grad-11-b is grid-aligned, and its
     // reference half-covers the pixel each of its four edges runs along.
     Path band;
     band.addRect(FRect(250, 30, 420, 130));
@@ -9964,10 +9990,28 @@ unittest
             FPoint(1.25f, 1.25f)],
         "the shift is half a *device* pixel, so a 2x CTM moves half as far");
 
+    Matrix spin;
+    spin.setTranslate(70, 150);
+    Matrix quarter;
+    quarter.setRotate(-90.0f);
     Matrix turn;
     turn.setRotate(45.0f);
+
+    // A quarter turn leaves an axis-aligned contour axis-aligned, with its
+    // axes swapped and one of them flipped: translate(70, 150) rotate(-90) -
+    // the CTM struct-group-03-t's cell grid sits under - maps a point to
+    // (y + 70, 150 - x), so a nudge of +0.5 in each device coordinate lands
+    // on +0.5 of user y and -0.5 of user x.
+    auto turned = points(Renderer.snapStrokeBand(rect, spin * quarter));
+    foreach (i, q; [FPoint(0.5f, 1.5f), FPoint(478.5f, 1.5f),
+            FPoint(478.5f, 359.5f), FPoint(0.5f, 359.5f), FPoint(0.5f, 1.5f)])
+        assert(abs(turned[i].x - q.x) < 0.0001f && abs(turned[i].y - q.y) < 0.0001f,
+            to!string([turned[i].x, turned[i].y]));
+
+    // A 45-degree turn is a different matter: its edges leave the axes, and
+    // it is the contour that is refused here, not the matrix.
     assert(points(Renderer.snapStrokeBand(rect, turn)) == points(rect),
-        "a rotated contour has no axis-aligned band to snap");
+        "a tilted contour has no axis-aligned band to snap");
 
     Path half;
     half.moveTo(FPoint(10, 20.5f));

@@ -216,6 +216,11 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | is ours translated by half a pixel, at width 1 |            |
 |                       | and 40 alike; a zero-length subpath has no     |            |
 |                       | band, only §11.2's cap, and stays put          |            |
+| step 60               | the nudge rides the device point, not the      | 2.65 M     |
+|                       | user one: a quarter turn and an anisotropic    |            |
+|                       | view fit carry it too, so the CTM need only    |            |
+|                       | invert - the contour, not the matrix, has to   |            |
+|                       | be axis-aligned                                |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2216,13 +2221,73 @@ the ten files that spell `shape-rendering="geometricPrecision"`,
 two lose 187 and 1,120 - so holding both would be a per-file raster
 policy and we take the majority.
 
-Up next - step 60: `struct-group-03-t` (1,568), 10,907 raw pixels in one
-cluster at x=55..432 y=44..255, its whole 22-px cell grid. That grid
-lives under `<g transform="translate(70, 150) rotate(-90)">`: the cells
-are axis-aligned in user space and a quarter turn leaves them
-axis-aligned in device space, so step 59's rule only reaches it if the
-nudge is made in device space and mapped back through the inverse CTM -
-which is exactly what the rotation guard now refuses to do.
+Step 60 is what step 59's guards were really guarding. `struct-group-03-t`'s
+22-px cell grid sits under `<g transform="translate(70, 150) rotate(-90)">`,
+which carries a user point to the device point `(y + 70, 150 - x)`: the
+cells are axis-aligned in user space *and* in device space, axes swapped
+and one of them flipped, and their bands half-cover the boundary pixel in
+the capture just as they do at identity. Step 59 could not reach it because
+its nudge was computed in user space - a half-*device* pixel there means
+dividing by `sx` and `sy` separately, which is one translation only when
+the matrix has no rotation and equal |scale| on both axes. Those two
+conditions protected the arithmetic, not the rule.
+
+So the nudge moves to where the rule is stated. `snapStrokeBand` maps the
+contour into device space through the whole matrix, decides the shift
+there, and maps the nudged point back through the 2x2 inverse - `det =
+a*d - b*c`, and a zero or non-finite determinant has nothing to map back
+through, so such a matrix is refused outright. The half pixel is added to
+the *grid line*, `round(pt.x) + 0.5f` and deliberately not `pt.x + 0.5f`,
+because `rotate(-90)` carries a cosine of -2.5e-20 along with it and that
+drift is not part of where a band belongs. Nothing about *whether* to nudge
+changed: the test is still device-space, one tilted device edge still
+refuses a whole contour, and a vertex already between pixels still stays
+put.
+
+The equal-|scale| test was the open half, and there the captures split.
+Under `scale(1, 1.5)` `pservers-grad-07-b`'s 30-device-px band half-covers
+rows 150, 180, 195 and 225 - the shifted convention, and that row comes
+out exactly 0. `preserveAspectRatio="none"` makes `struct-frag-02-t`'s
+whole view fit anisotropic and it goes to 0 too, and `scale(1.2 2.5)` and
+`scale(0.75, 0.5)` take `coords-trans-11-f` and `interact-pevents-07-t`
+down 75 and 45. `paths-data-18-f` goes the other way: under `scale(8, 2)`
+its black band covers device rows 46..53 wholly, edge pixel included, and
+the nudge costs it 429. Four files follow the device rule at anisotropic
+scales against one that does not, and a non-uniform CTM stops making the
+shift ambiguous once the shift is one device vector instead of two user
+ones - so the guard goes with the arithmetic it was written for.
+
+526 rows, 2,653,290 -> 2,651,152 AE: ten rows better by 2,790, four worse
+by 652, no verdict changed. The target, `struct-group-03-t`, goes 1,568 ->
+298; `pservers-grad-07-b` 427 -> 0 and `struct-frag-02-t` 201 -> 0 come
+out exact; `animate-elem-82-t` 886 -> 492 and `animate-elem-36-t` 859 ->
+605 follow their `rotate(180)` and `rotate(90)` groups; and
+`coords-trans-12-f` 247 -> 206 is the suite's own proof that `rotate(90)`
+and `matrix(0 1 -1 0 0 0)` paint the same picture, since both halves snap
+the same way now. The payers are that split seen from the other side:
+`paths-data-18-f` +429, `pservers-grad-17-b` and `-20-b` +64 and +65,
+`filters-light-02-f` +94.
+
+One of the snap's unittests changes meaning. The 45-degree matrix step 59
+refused *as a matrix* is now refused *as a contour*, and a
+`translate(70, 150) rotate(-90)` case pins the quarter turn at
+(0.5, 1.5) -> (478.5, 1.5) -> (478.5, 359.5) -> (0.5, 359.5): user x back
+by half a pixel, user y forward by half, one device nudge arriving through
+a flipped axis. That one is compared at a tolerance of 1e-4 rather than
+`==`, for the same cosine hairline the nudge itself sheds.
+
+What is left of `struct-group-03-t` is not raster. Two green blobs, 54 raw
+px at x=216..226 y=195..200 and 43 px at y=160..164, are the round caps of
+the `stroke-linecap="inherit"` line sample: the capture rounds its ends to
+y=160 and y=200 and we cut them square at 165 and 195. A probe says
+'inherit' is honoured for `fill-rule`, `visibility`, `display`, `fill` and
+`stroke-width` and is not routed for `stroke-linecap`.
+
+Up next - step 61: §6.2.1's `inherit` on a presentation attribute, which
+is all of that row's residue. The same test pins both answers - its top
+row spells the value 'inherit' and the row under it spells out what
+should be inherited - so eighteen samples say which of the cascade's
+properties consult their parent already and which do not.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -2418,7 +2483,7 @@ which is exactly what the rotation guard now refuses to do.
   2-unit one 3.6 - which is where all of it sits, y=99..117 (the
   `5,2,5,5,2,5` pair) and y=153..171 (`2` with `stroke-dashoffset="2"`).
 - The split-frame captures: in `painting-stroke-05-t` (1,855),
-  `text-fonts-202-t` (5,360) and `filters-light-02-f` (134,888) the
+  `text-fonts-202-t` (5,360) and `filters-light-02-f` (134,982) the
   1-px `test-frame` is two half-covered pixels, the corner-sampled
   answer step 56 moved away from, and what is left of each row is its
   thin-stroke sweep and the host-font AA around it. Those three pay
@@ -2432,7 +2497,12 @@ which is exactly what the rotation guard now refuses to do.
   sweep pays +1,120 on top. `masking-path-02-b` (229, +187) splits the
   same way at width 4, full pixels at 48..51 where the shifted band
   half-covers 48 and 52, though its own `test-frame` follows the shifted
-  hairline convention like the majority's.
+  hairline convention like the majority's. Step 60 meets the same split at
+  turned and non-uniform CTMs: `paths-data-18-f` (473, +429) integrates
+  its 8-device-px band under `scale(8, 2)` as rows 46..53 with no edge
+  half-covered at all, and the +64, +65 and +94 that `pservers-grad-17-b`,
+  `pservers-grad-20-b` and `filters-light-02-f` pay sit on quarter-turn
+  bands the capture leaves where they are.
 - `render-groups-01-b` (195) is what step 58 left, and all of it is one
   column: 144 raw px at x=435, y=135..278, down the `<image>`'s right
   edge, which lands on 435.6 and is a fill edge, so the band shift
