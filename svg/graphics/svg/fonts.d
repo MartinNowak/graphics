@@ -3,7 +3,7 @@ module graphics.svg.fonts;
 import std.algorithm, std.ascii, std.conv, std.file, std.range, std.string, std.utf;
 import graphics.core.path;
 import graphics.svg.core : addSVGPath;
-import graphics.svg.css : resolveHref;
+import graphics.svg.css : resolveHref, sheetFaces;
 import graphics.svg.parser;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -160,7 +160,8 @@ struct SvgFont
 /// and a later declaration of the same (weight, style) slot replaces the
 /// earlier one. External font files follow the <image>/@import rules:
 /// plain paths resolved against `baseDir` (css.resolveHref), each file
-/// parsed at most once.
+/// parsed at most once. CSS @font-face rules ride the same road: their
+/// descriptor names the family, and their src URI picks the <font>.
 SvgFont*[][string] collectFonts(Document doc, string baseDir)
 {
     SvgFont*[][string] reg;
@@ -252,8 +253,9 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
                     continue;
 
                 string href = *hp, frag;
-                if (auto h = find(href, '#'))
-                {
+                auto h = find(href, '#');
+                if (!h.empty) // a miss is an empty slice, and slices are
+                {             // truthy even empty: test it, never `if (h)`
                     frag = h[1 .. $];
                     href = href[0 .. cast(ptrdiff_t)(h.ptr - href.ptr)];
                 }
@@ -299,6 +301,58 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
     }
 
     walk(0); // the document pseudo-root
+
+    // CSS @font-face rules (CSS 2.1 §5.5): the descriptor names the
+    // family, and the font element it points at may carry no name of
+    // its own, as the suite's fonts-elem-07-b writes one. The src URI
+    // picks the <font> exactly the way a font-face-uri does - bare
+    // fragment names this document's, a path loads a file - sharing
+    // the loaded-file cache; a src that names no readable SVG font
+    // (local(), a .ttf) contributes nothing. The descriptor's weight
+    // and style name the slot, and a face registered later replaces
+    // an element's face of the same slot, last declaration winning.
+    foreach (fc; sheetFaces(doc, baseDir))
+    {
+        // A slice's truth is non-null, not non-empty, and `find` miss
+        // is an empty slice at the end - so the found-test is spelled
+        // out. (A bare `if (auto h = find(...))` is always true.)
+        string href = fc.url, frag;
+        auto h = find(href, '#');
+        if (!h.empty)
+        {
+            frag = h[1 .. $];
+            href = href[0 .. cast(ptrdiff_t)(h.ptr - href.ptr)];
+        }
+
+        SvgFont* found;
+        if (href.empty) // same-document #id
+        {
+            immutable t = doc.byId(frag);
+            if (t != Document.unknown && doc.nodes[t].name == "font")
+                found = parseFont(doc.nodes, t);
+        }
+        else if (auto path = resolveHref(baseDir, href))
+        {
+            if (auto p = path in loaded)
+                found = fromFaceDoc(p.nodes, p.ids, frag);
+            else if (exists(path))
+            {
+                try
+                {
+                    auto ext = parseSVG(readText(path));
+                    loaded[path] = ext;
+                    found = fromFaceDoc(ext.nodes, ext.ids, frag);
+                }
+                catch (Exception) {} // not XML: a binary font, unreadable here
+            }
+        }
+        if (found is null)
+            continue;
+        found.weight = cssWeight(fc.weight);
+        found.faceStyle = cssStyle(fc.style);
+        put(fc.family, "", found);
+    }
+
     return reg;
 }
 
@@ -659,4 +713,37 @@ unittest
     g1 = f.select("45", 0, used); g2 = f.select("45", 1, used);
     assert(f.kernK(g1, g2) == 0, "'5' misses u2's 31-34 range: the pair is"
         ~ " asymmetric, and first/second never swap");
+}
+
+unittest
+{
+    // CSS @font-face into the store, in the shape fonts-elem-07-b
+    // writes: the font element is anonymous - its font-face names no
+    // family - and only the rule names it, points at it by id, and
+    // picks the slot its weight descriptor names. A local()-only
+    // source names a system face, which the host matcher already
+    // answers to by name, and registers nothing here.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <style><![CDATA[
+            @font-face { font-family: 'Test Comic'; src: local("Serif"),
+                         url("#IF") format("svg"); font-weight: bold }
+            @font-face { font-family: NopeFace; src: local("Serif") }
+          ]]></style>
+          <font id="IF" horiz-adv-x="959"><font-face units-per-em="2048"
+               ascent="1800" descent="-266"/>
+            <glyph unicode="A" glyph-name="A" horiz-adv-x="1200"
+                   d="M0 0L1200 0L1200 1400L0 1400Z"/>
+          </font>
+        </defs></svg>`);
+    auto fonts = collectFonts(doc, "");
+    assert("if" !in fonts && "nopeface" !in fonts,
+        "the anonymous element names nothing, local() fetches nothing");
+    assert("test comic" in fonts);
+    auto f = matchFace(fonts["test comic"], 700, 0);
+    assert(f.defaultAdv == 959 && f.upem == 2048);
+    size_t used;
+    auto g = f.select("A", 0, used);
+    assert(g !is null && g.name == "A",
+        "the descriptor's family is the road to the glyphs");
 }

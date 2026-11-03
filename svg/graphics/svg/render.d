@@ -3432,15 +3432,17 @@ private struct Renderer
         bool external;
         if (href.length && href[0] == '#')
             frag = href[1 .. $];
-        else if (auto h = find(href, '#'))
+        else
         {
+            // A find miss is an empty range, and an empty range is
+            // truthy; the miss and a bare `file#` both fail this
+            // length test, and both name no element.
+            auto h = find(href, '#');
             if (h.length < 2)
-                return null; // `file#`: an empty fragment names no element
+                return null;
             external = true;
             frag = h[1 .. $];
         }
-        else
-            return null; // no fragment at all: no element is addressed
         if (frag.length == 0)
             return null;
 
@@ -4819,10 +4821,14 @@ private struct Renderer
         }
         if (href[0] == '#')
             frag = href[1 .. $];
-        else if (auto h = find(href, '#'))
+        else
         {
+            // A find miss is an empty range, and an empty range is
+            // truthy; the miss and a bare `file#` both fail this
+            // length test, and both are unaddressable.
+            auto h = find(href, '#');
             if (h.length < 2)
-                return; // `file#`: empty fragment, unaddressable
+                return;
             external = true;
             frag = h[1 .. $];
         }

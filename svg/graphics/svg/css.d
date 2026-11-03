@@ -11,10 +11,12 @@ module graphics.svg.css;
 // §6.4.3 sheet order). Media filtering applies wherever a sheet can
 // name the media it is written for - `<style media>`, an @import
 // clause and @media blocks alike (§10.3.1); this engine paints one
-// medium, named by `all` and by `screen`. Constructs not yet applied
-// (interaction pseudo-classes, @font-face) compile away: the at-rules
-// are skipped, and unsupported selectors keep their rules but never
-// match.
+// medium, named by `all` and by `screen`. @font-face never enters
+// the cascade at all - it is descriptors, not element rules, and
+// `sheetFaces` carries it to the font store. The rest of what is
+// not yet applied (interaction pseudo-classes) compiles away: the
+// at-rules are skipped, and unsupported selectors keep their rules
+// but never match.
 
 import std.algorithm : canFind, find, sort;
 import std.array : appender, join, split;
@@ -83,8 +85,13 @@ private enum npos = size_t.max;
 /// Parse one style sheet. `order` is the document-wide rule counter the
 /// caller threads through every <style> element so sheet order survives;
 /// `baseDir` resolves this sheet's `@import` targets (nested imports
-/// resolve against their own file), `depth` caps import recursion.
-Rule[] parseSheet(string src, ref size_t order, string baseDir = "", int depth = 0)
+/// resolve against their own file), `depth` caps import recursion. The
+/// optional `faces` sink collects the @font-face blocks found anywhere
+/// in the sheet - at top level, inside an applying @media, inside an
+/// imported file - for the caller that wants the font store, not the
+/// cascade, to see them.
+Rule[] parseSheet(string src, ref size_t order, string baseDir = "",
+    int depth = 0, FontFace[]* faces = null)
 {
     Rule[] rules;
     src = stripComments(src);
@@ -108,8 +115,11 @@ Rule[] parseSheet(string src, ref size_t order, string baseDir = "", int depth =
             // block applies when its selector does: its contents are
             // then parsed as if written at the block's place; when it
             // does not, the block is dropped whole, inner rules and
-            // all. The rest are noise: a statement ends at its
-            // top-level `;`, a block at its matching `}` (@font-face).
+            // all. An @font-face block is not a rule about elements
+            // at all (CSS 2.1 §5.5): it is a set of descriptors, and
+            // it leaves the sheet only through the `faces` sink, for
+            // the font store. The rest are noise: a statement ends at
+            // its top-level `;`, a block at its matching `}`.
             string url, media;
             immutable semi = topAt(src, i, ';');
             if (depth < 8 && parseImport(src[i .. $], url, media) && semi != npos)
@@ -118,7 +128,7 @@ Rule[] parseSheet(string src, ref size_t order, string baseDir = "", int depth =
                 if (brace == npos || semi < brace)
                 {
                     if (mediaMatches(media))
-                        rules ~= importRules(url, baseDir, order, depth);
+                        rules ~= importRules(url, baseDir, order, depth, faces);
                     i = semi + 1;
                     continue;
                 }
@@ -132,7 +142,21 @@ Rule[] parseSheet(string src, ref size_t order, string baseDir = "", int depth =
                     if (mediaMatches(src[i + 6 .. brace]))
                         rules ~= parseSheet(src[brace + 1
                             .. close == npos ? src.length : close],
-                            order, baseDir, depth + 1);
+                            order, baseDir, depth + 1, faces);
+                    i = close == npos ? src.length : close + 1;
+                    continue;
+                }
+            }
+            if (faces !is null && atIs(src, i, "font-face"))
+            {
+                immutable brace = findFrom(src, i, '{');
+                if (brace != npos && (semi == npos || brace < semi))
+                {
+                    immutable close = closeBrace(src, brace);
+                    FontFace f;
+                    if (parseFontFace(src[brace + 1
+                        .. close == npos ? src.length : close], f))
+                        *faces ~= f;
                     i = close == npos ? src.length : close + 1;
                     continue;
                 }
@@ -224,6 +248,61 @@ Rule[] collectStyles(in Document doc, string baseDir = "")
 
     walk(0);
     return rules;
+}
+
+/// A CSS `@font-face` rule (CSS 2.1 §5.5): not a rule about elements
+/// but a set of descriptors naming a family and saying where its face
+/// lives, so it goes to the font store, not the cascade. Only the
+/// descriptors this engine reads are kept: the family name, the first
+/// url() of src (the `#fragment` included, for the same reason
+/// §20.8.5's font-face-uri keeps one), and the weight/style descriptor
+/// strings, left as written for the store's own matching. A block with
+/// no family or no url is not a face at all.
+struct FontFace
+{
+    string family;
+    string url;
+    string weight;
+    string style;
+}
+
+/// The @font-face rules of every sheet this document loads: the PI's
+/// sheet, every <style> element that passes the §6.10 gates, and the
+/// @imported and @media-nested sheets in between - gathered on the
+/// same parseSheet walk the cascade takes, in the same sheet order.
+FontFace[] sheetFaces(in Document doc, string baseDir = "")
+{
+    FontFace[] faces;
+    size_t order = 0;
+    FontFace[]* sink = &faces;
+
+    foreach (pi; doc.sheetPIs)
+        if (auto url = piSheet(pi))
+        {
+            importRules(url, baseDir, order, 0, sink);
+            break;
+        }
+
+    void walk(size_t idx)
+    {
+        foreach (ch; doc.nodes[idx].children)
+        {
+            if (doc.nodes[ch].name == "style"
+                && sheetIsCSS(doc.nodes[ch].attrs.get("type", ""))
+                && mediaMatches(doc.nodes[ch].attrs.get("media", "")))
+            {
+                string src;
+                foreach (t; doc.nodes[ch].children)
+                    if (doc.nodes[t].name.empty)
+                        src ~= doc.nodes[t].text;
+                parseSheet(src, order, baseDir, 0, sink);
+            }
+            walk(ch);
+        }
+    }
+
+    walk(0);
+    return faces;
 }
 
 /// §6.10: `type` on `<style>` is a content type naming the language the
@@ -1042,17 +1121,95 @@ private bool parseImport(string s, out string url, out string media)
     return !url.empty;
 }
 
+// The descriptor block of an @font-face rule: `name: value` pairs split
+// at their top-level `;` (a url( nests the `;` away, so only
+// statement-level ones count). Descriptors this engine does not read -
+// unicode-range above all - pass unremarked. A block is a face only if
+// it names a family and has a url() to fetch: local() names a
+// system-installed face, which the host font matcher already answers to
+// by family name without a road in.
+private bool parseFontFace(string block, out FontFace f)
+{
+    while (!block.empty)
+    {
+        immutable semi = topAt(block, 0, ';');
+        immutable piece = semi == npos ? block : block[0 .. semi];
+        block = semi == npos ? "" : block[semi + 1 .. $];
+        immutable colon = topAt(piece, 0, ':');
+        if (colon == npos)
+            continue;
+
+        string name;
+        foreach (ch; strip(piece[0 .. colon]))
+            name ~= cast(char) toLower(ch); // descriptor names are CI
+        immutable val = strip(piece[colon + 1 .. $]);
+
+        switch (name)
+        {
+        case "font-family": f.family = unquoted(val); break;
+        case "src":         f.url    = firstUrl(val); break;
+        case "font-weight": f.weight = val; break;
+        case "font-style":  f.style  = val; break;
+        default: break;
+        }
+    }
+    return !f.family.empty && !f.url.empty;
+}
+
+// A token with its matching pair of quotes taken off the ends.
+private string unquoted(string v)
+{
+    if (v.length >= 2 && (v[0] == '"' || v[0] == '\'') && v[$ - 1] == v[0])
+        return v[1 .. $ - 1];
+    return v;
+}
+
+// The target of a value's first url(), quotes dropped; "" when the
+// value carries no url() at all.
+private string firstUrl(string val)
+{
+    size_t i = 0;
+    while (i + 3 < val.length)
+    {
+        if ((val[i] == 'u' || val[i] == 'U')
+            && (val[i + 1] == 'r' || val[i + 1] == 'R')
+            && (val[i + 2] == 'l' || val[i + 2] == 'L')
+            && val[i + 3] == '(')
+        {
+            size_t j = i + 4;
+            while (j < val.length && isWhite(val[j]))
+                ++j;
+            if (j < val.length && (val[j] == '"' || val[j] == '\''))
+            {
+                immutable q = val[j++];
+                immutable start = j;
+                while (j < val.length && val[j] != q)
+                    ++j;
+                return val[start .. j];
+            }
+            immutable start = j;
+            while (j < val.length && val[j] != ')')
+                ++j;
+            return strip(val[start .. j]);
+        }
+        ++i;
+    }
+    return "";
+}
+
 // Read and parse one imported sheet. Missing files and URL schemes
 // contribute no rules; the target's own directory becomes the base
 // for anything IT imports. resolveHref wants its base slash-terminated,
 // and dirName() hands back one without.
-private Rule[] importRules(string url, string baseDir, ref size_t order, int depth)
+private Rule[] importRules(string url, string baseDir, ref size_t order,
+    int depth, FontFace[]* faces = null)
 {
     immutable base = baseDir.length && baseDir[$ - 1] != '/' ? baseDir ~ "/" : baseDir;
     immutable path = resolveHref(base, url);
     if (path.empty || canFind(path, ':') || !path.exists)
         return null;
-    return parseSheet(cast(string) readText(path), order, dirName(path) ~ "/", depth + 1);
+    return parseSheet(cast(string) readText(path), order, dirName(path) ~ "/",
+        depth + 1, faces);
 }
 
 // ------------------------------------------------------------------- URLs
@@ -1067,7 +1224,8 @@ string resolveHref(string base, string href)
 {
     if (href.empty || href[0] == '#')
         return null;
-    if (auto h = find(href, '#')) // drop the #fragment
+    auto h = find(href, '#'); // drop the #fragment (an empty miss is
+    if (!h.empty)             // still truthy, so test the range itself)
         href = href[0 .. cast(ptrdiff_t)(h.ptr - href.ptr)];
     if (href.empty)
         return null;
@@ -1458,6 +1616,53 @@ unittest
     auto rules = collectStyles(doc);
     assert(rules.length == 2);
     assert(rules[0].vals[0] == "lime" && rules[1].vals[0] == "gold");
+}
+
+unittest
+{
+    // @font-face descriptors reach the caller that wants the font
+    // store, not the cascade: the family and first url() unquoted,
+    // the fragment kept, weight and style as written. A block missing
+    // its family or its url() is not a face at all, and @media
+    // filters face blocks exactly like rule blocks.
+    size_t order = 0;
+    FontFace[] faces;
+    FontFace[]* sink = &faces;
+    parseSheet(`
+        @font-face { font-family: 'Test Comic'; src: local("x"),
+                     url( "a.svg#F" ) format("svg"); font-weight: bold }
+        @font-face { font-family: NoSrc }
+        @font-face { src: url("#NoFam") }
+        @media print { @font-face { font-family: Gone; src: url(#g) } }
+        @media screen { @font-face { font-family: KeptFace; src: url(#k) } }`,
+        order, "", 0, sink);
+    assert(faces.length == 2);
+    assert(faces[0].family == "Test Comic" && faces[0].url == "a.svg#F",
+        "first url() wins, local() is not a fetch");
+    assert(faces[0].weight == "bold" && faces[0].style.empty);
+    assert(faces[1].family == "KeptFace" && faces[1].url == "#k");
+}
+
+unittest
+{
+    // sheetFaces walks exactly the sheets collectStyles reads: an
+    // imported file's blocks ride along in import order, and a
+    // <style media="print"> contributes no faces at all.
+    import std.file : remove, write;
+    enum target = "css65_face_test.css";
+    write(target, `@font-face { font-family: ImportedFace;
+        src: url("imp.svg#F") }`);
+    scope (exit) remove(target);
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg"><defs>
+        <style>@import url(css65_face_test.css);
+               @font-face { font-family: LocalFace; src: url("#lf") }</style>
+        <style media="print">@font-face { font-family: PrintFace;
+               src: url("#pf") }</style>
+        </defs></svg>`);
+    auto faces = sheetFaces(doc);
+    assert(faces.length == 2);
+    assert(faces[0].family == "ImportedFace" && faces[0].url == "imp.svg#F");
+    assert(faces[1].family == "LocalFace" && faces[1].url == "#lf");
 }
 
 unittest

@@ -240,6 +240,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | written for it is finally asked: the PI,       |            |
 |                       | style, @import, @media - all one matcher,      |            |
 |                       | and the one painted medium is screen           |            |
+| step 65               | the @font-face block names a font to           | 2.63 M     |
+|                       | the font store, not a rule for the             |            |
+|                       | page: family and src - this file's or          |            |
+|                       | a file's - pick the face it registers          |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2463,23 +2467,67 @@ byte-identical, 2,635,431 over 526 rows, and that flatness is the
 result: the suite writes zero `media` attributes, zero `@media`, and
 three `@import` none of which carries a clause.
 
-Up next - step 65: CSS `@font-face`. `fonts-elem-07-b` (1,354) and
-`fonts-elem-04-b` (1,357) each draw the same five-character string
-twice: the upper line is hand-placed `<path>` glyphs of an SVG-font
-Comic Sans, the lower is that text rendered in the same face, and the
-test asks the two lines to agree in size, baseline and advance. We
-are off by exactly 1,354 and 1,357 because the lower line comes out in
-a host face - and the one thing tying those `<text>` elements to the
-font is an `@font-face` block that css.d still throws away as noise.
-In 07-b the embedded `<font id="InternalFont">` has no name at all -
-its `<font-face>` carries no `font-family` - and the rule
-`font-family: TestComic; src: url("#InternalFont")` is what names it
-for `#foo {font-family: TestComic}`; 04-b's font sits in an external
-file that only `src: url("../images/ext-TestComic.svg#Font")` points
-at. The machinery exists: step 7's `collectFonts` reads every `<font>`
-in the document and loads external font documents through
-`font-face-uri` - which is why `fonts-elem-02-t` sits at 41 - and only
-the road from the sheet into that store is missing.
+Step 65 is CSS's `@font-face`, the one at-rule that is not a rule.
+`fonts-elem-07-b` (1,354) and `fonts-elem-04-b` (1,357) each draw the
+same five-character string twice: the upper line is hand-placed
+`<path>` glyphs of an SVG-font Comic Sans, the lower is that text
+rendered in the same face, and the test asks the two lines to agree
+in size, baseline and advance. We were off by exactly 1,354 and
+1,357 because the lower line came out in a host face - and the one
+thing tying those `<text>` elements to the font is an `@font-face`
+block that css.d used to throw away as noise. A block is a
+descriptor table, so parseSheet keeps one as a `FontFace` - raw
+`font-family`/`src`/`font-weight`/`font-style` strings - on a side
+sink that threads `@import` and `@media` like a rule order does, and
+`sheetFaces` hands back, for every document, exactly the sheets
+collectStyles reads: the prolog PI's sheet and the media-matching
+`<style>` elements. The block does not join the cascade; it belongs
+to the font store, and fonts.d is what walks it. A `src` URI with a
+`#` fragment names a `<font>` here - in 07-b the block is the only
+name the embedded `#InternalFont` has, its `<font-face>` carries no
+`font-family` - or names one in a file, and the same loader
+`font-face-uri` rides reaches it, so 04-b's
+`../images/ext-TestComic.svg#Font` comes along for free. The
+registration lands in the store step 7 built, under the block's
+family and weight and style, where the `svgFace` lookup already
+looks; a face named only by a sheet now answers `font-family`.
+
+Three scope lines stay on the ledger: `local()` sources name host
+fonts this engine has no access to, `format()` hints are believed
+only when the file parses as SVG (a binary font throws, and the
+face is skipped), and `unicode-range` is not consulted.
+
+The first version of the block crashed, and the crash is worth
+recording: it tested `if (auto h = find(href, '#'))`, and a slice's
+truth in D is non-null, not non-empty - `find`'s miss is an empty
+slice, so the test is always true, and `h[1 .. $]` then draws
+outside the array. `text-text-05-t`'s fragment-less `src` walked
+straight into it. The same idiom sat in four older places - the
+`font-face-uri` walk, `resolveHref`'s fragment strip, and the
+fragment parsers of `<use>` and `tref` - where a `h.length < 2`
+guard had made the body accidentally right and one `else` branch
+had never once run. All five now test the range itself; the two
+that changed nothing could have hidden a real bug tomorrow.
+
+Three unittests pin it: the descriptor table picks `url()` over
+`local()`, drops a face written for print and keeps the screen one
+through `@media`, rides the face along the `@import` path, and
+contributes nothing from a `media="print"` `<style>`; the end-to-end
+one registers an anonymous `<font id="IF">` under
+`'Test Comic'`/bold and finds its glyphs by `matchFace(700, bold)`
+and nothing else. In the gate, 07-b falls 1,354 to 264 and 04-b
+1,357 to 267 - the residue is the test-frame band that sibling 03-b
+also sits at, 267 - and no other row moves: 2,635,431 to 2,633,251
+over 526 rows, no verdict changed.
+
+Up next - step 66: `fonts-elem-05-t` (1,462), the only file in the
+suite that sets a glyph origin: two `<font>` elements carry
+`horiz-origin-x` 500 and 1000, and the two rows of box-glyphs they
+drive hold some 1.5 K of the row. The engine maps an outline point
+by `(coord - origin)`, aligning the origin to the pen; the archived
+reference displaces the same boxes by `+origin` instead, and every
+other fonts row leaves the two readings indistinguishable because
+their origin is the default 0. The sign is the step.
 
 ## Deferred / accepted ceilings (do not chase)
 

@@ -169,10 +169,10 @@ fonts-desc-05-t.svg OK 5001
 fonts-elem-01-t.svg OK 290
 fonts-elem-02-t.svg OK 41
 fonts-elem-03-b.svg OK 267
-fonts-elem-04-b.svg OK 1357
+fonts-elem-04-b.svg OK 267
 fonts-elem-05-t.svg OK 1462
 fonts-elem-06-t.svg OK 84
-fonts-elem-07-b.svg OK 1354
+fonts-elem-07-b.svg OK 264
 fonts-glyph-02-t.svg OK 2010
 fonts-glyph-03-t.svg OK 5852
 fonts-glyph-04-t.svg OK 92
