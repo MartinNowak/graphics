@@ -247,7 +247,7 @@ painting-fill-03-t.svg OK 43
 painting-fill-04-t.svg OK 0
 painting-fill-05-b.svg OK 45
 painting-marker-01-f.svg OK 11
-painting-marker-02-f.svg OK 848
+painting-marker-02-f.svg OK 171
 painting-marker-03-f.svg OK 1429
 painting-marker-04-f.svg OK 1408
 painting-marker-05-f.svg OK 232

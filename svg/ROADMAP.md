@@ -287,6 +287,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | seeds marker content from the ancestors it     |            |
 |                       | hangs under, never the referrer - 02-f         |            |
 |                       | 1,079 -> 848, total -231                       |            |
+| step 77               | clip-path anchors at the referencing site:     | 2.62 M     |
+|                       | §14.3.2 puts userSpaceOnUse clips in the       |            |
+|                       | group's space, not the descendant's - 02-f     |            |
+|                       | 848 -> 171, total -677                         |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2984,16 +2988,48 @@ beating the inherited blue, and a translate(60,60) on the
 defining group moving nothing. Full gate: 526 rows, no ERROR,
 total 2,624,587 -> 2,624,356.
 
-Up next - step 77: the other half of `painting-marker-02-f`
-(848) and the last thing its 2011 forensics located. Its
-hand-expanded "equivalent SVG" columns reference the 2x2 and
-4x4 `clipPathUnits="userSpaceOnUse"` clips from inside
-`scale(8)` / `scale(4)` groups: §11.1.3 reads userSpaceOnUse
-as the user space of the element referencing the clipPath,
-the group's own transform included, so the captures clip to
-16 device px there while we clip to 2 and 4 - the clip is not
-riding the transform at the referencing site. The masking
-rows have to be watched while it moves.
+Step 77 anchored the clip at the referencing site. §14.3.2
+reads a `clipPathUnits="userSpaceOnUse"` clipPath's children
+as living in the user space of the element referencing the
+clipPath - group transform included, since pushStyle applies
+a `transform` last. The engine carried clip-path down the
+Style to the leaves and rasterised the clipPath children at
+each leaf's paint CTM, so 02-f's 2x2 and 4x4 clips became
+2 px dots inside the `scale(8)` / `scale(4)` groups instead
+of the 16 device px the captures clip with. pushStyle now
+pairs every clip-path id with the matrix the cascade left
+on the canvas - Style.clipCtm, parallel to clipUrls - and
+clipMultiply takes that as the anchor for userSpaceOnUse
+children; the objectBoundingBox halves of both stay on
+geom * bbox, the painted geometry's fraction, so the blast
+radius is exactly where the bug was. A direct reference
+site's anchor is its paint CTM anyway, so only references
+written above the element change behaviour - and exactly
+one gate row moves: 02-f 848 -> 171, total 2,623,679, the
+masking rows untouched. 171 is 05-f's family: the expanded
+columns' histograms now match the captures (243 green =
+243, 417 blue vs 405, black bands within a pixel) and the
+rest is a 0.5-coverage hairline stroke there and not here,
+1-LSB diagonal AA, marker4's blue-ring raster phase -
+02-f joins 05-f in the residue-only band. A unittest pins
+the rule: a 2x2 clip under scale(4) with content scaled
+back by 0.25 fills the 8 px device box x10..17 and nothing
+beyond it.
+
+Up next - step 78: the mask side of the same rule. §14.4
+repeats §14.3.2 near-verbatim: the mask region under
+maskUnits="userSpaceOnUse" and the userSpaceOnUse mask
+content live in the user space of the element referencing
+the mask, and maskMultiply rasterises both at each leaf's
+paint CTM exactly as clipMultiply was. maskUrls gets a
+maskCtm anchor the same way clipUrls got one, the region
+membership test inverts that matrix instead of the paint's,
+and no gate row moves - every mask= site in the suite is a
+direct paint or a translate-only group where the two
+matrices coincide - so step 78 is step 6's shape:
+spec-completeness pinned by a unittest. The step was picked
+by triage: its mid-band candidates are all ceilings, and
+they are catalogued under Deferred.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -3207,6 +3243,28 @@ rows have to be watched while it moves.
   `scale(1.8)`, where a 5-unit dash is 9 device pixels wide and a
   2-unit one 3.6 - which is where all of it sits, y=99..117 (the
   `5,2,5,5,2,5` pair) and y=153..171 (`2` with `stroke-dashoffset="2"`).
+  Step 78's pixel triage read the same boundaries against the spec:
+  ours land at the geometric coverage - the pixel at x=88 takes 0.2
+  of dash under the 88.2 gap start and reads 204 - while the
+  capture's ends sit 0.5-0.8 px off every cycle, Batik's own dash
+  rounding rather than our phase.
+- Step 78's mid-band triage closed five more rows as settled
+  classes: `shapes-rect-03-t` (758) is the split-frame family's
+  mirror - the captures snap the 1-px black `use`-outlines of the
+  reference rects to full-coverage device lines (solid black at
+  x=250 and x=270) where our 50/50 AA split of an integer-centred
+  hairline is the geometrically correct rendering, so chasing the
+  snap would break the rows the step-56 note above settles;
+  `masking-path-09-b` (984) and `types-dom-svgfittoviewbox-01-f`
+  (1,404) are struct-dom's scripting end-states - 09-b's clipped
+  pair is green in the capture because its script checks
+  `getBBox().width == 100` and only then sets `fill="green"`, and
+  the fitToViewBox test is status="created" with five script
+  blocks; `styling-css-05-b` (1,052) is host-glyph text debt, its
+  blue and green runs agreeing in colour and nearly in count
+  (723 against 667); and `paths-data-02-t` (1,079) is
+  diagonal-hairline raster phase repeated across every cell of
+  its grid.
 - The split-frame captures: in `painting-stroke-05-t` (1,855),
   `text-fonts-202-t` (5,360) and `filters-light-02-f` (134,982) the
   1-px `test-frame` is two half-covered pixels, the corner-sampled
@@ -3378,8 +3436,9 @@ rows have to be watched while it moves.
 - The rest is verified content at the stroker's edge:
   `painting-marker-02-f`'s first row places every marker pixel-exact
   under crops, squares and `refX` centring identical - step 76 settled
-  its inheritance half and closed the marker columns; the 848 that is
-  left rides the clipPath feature in Up next;
+  its inheritance half and step 77 closed the expanded columns' clip
+  dots (848 -> 171); what is left is the 0.5-hairline and AA-phase
+  family 05-f carries above;
   `render-elems-07-t` (802) and `-08-t` (746), static-render tests with
   no timeline excuse, diff to the whole spiral outline doubled at a
   pixel;

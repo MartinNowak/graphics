@@ -1057,6 +1057,15 @@ private struct Renderer
         // exact.
         string[] clipUrls;
 
+        // Anchor CTM parallel to clipUrls (§14.3.2): the user space of the
+        // element that wrote each clip-path reference, captured when the
+        // reference joins the chain. userSpaceOnUse clipPath geometry is
+        // rasterised in that space, so a clip-path on a group clips the
+        // whole subtree at the group's CTM even where a descendant adds
+        // its own transforms; for a direct referencer the anchor is its
+        // paint CTM, exactly what clipMultiply used before.
+        Matrix[] clipCtm;
+
         // mask="url(#id)" (§14.4): same accumulation chain as clipUrls -
         // mask values are per-pixel scalars on premultiplied pixels, so
         // stacking them multiplies exactly and order never matters. A
@@ -1831,6 +1840,13 @@ private struct Renderer
             if (d.k != "transform" || i == lastTr)
                 apply(d.k, d.v, d.css);
 
+        // Any clip-path this element wrote joined style.clipUrls during
+        // the cascade; pair each new id with this element's CTM - the
+        // matrix the cascade just left on the canvas, transform included
+        // (the loop applies transforms last). See Style.clipCtm.
+        while (style.clipCtm.length < style.clipUrls.length)
+            style.clipCtm ~= canvas.matrix;
+
         // §10.9.2 chains: dominant-baseline re-establishes the table for
         // self and descendants; alignment-baseline picks this element's
         // own alignment baseline only. Both land that baseline on the
@@ -2163,8 +2179,9 @@ private struct Renderer
         // nothing: an empty clipPath or mask, all children display:none,
         // objectBoundingBox units against a degenerate bbox, or a zero-size
         // mask region.
-        foreach (clipId; s.clipUrls)
-            clipMultiply(clipId, scratch, bbox, geom);
+        foreach (i, clipId; s.clipUrls)
+            clipMultiply(clipId, scratch, bbox, geom,
+                i < s.clipCtm.length ? s.clipCtm[i] : geom);
         foreach (maskId; s.maskUrls)
             maskMultiply(maskId, scratch, bbox, geom);
 
@@ -2263,14 +2280,18 @@ private struct Renderer
         return PMColor(res);
     }
 
-    // Rasterise the clipPath `id` as a mask (same user-space CTM as the
-    // paint) and multiply its coverage into `scratch`. A reference that
-    // does not resolve (unknown id, wrong target kind, cycle) leaves
+    // Rasterise the clipPath `id` as a mask and multiply its coverage
+    // into `scratch`. userSpaceOnUse children live in `anchor` - the CTM
+    // of the element that wrote the reference (see Style.clipCtm: for a
+    // direct referencer that is `geom` as before, for a reference written
+    // on a group it is the group's space) - while objectBoundingBox
+    // children keep their fractions of the painted geometry. A reference
+    // that does not resolve (unknown id, wrong target kind, cycle) leaves
     // `scratch` alone: §14.3.5 drops the declaration, so the paint carries
     // on unclipped. A clipPath that resolves and covers nothing is the
     // opposite - it zeroes `scratch`, and the element shows nothing.
     void clipMultiply(string id, ref Bitmap scratch, in FRect bbox,
-        in Matrix geom)
+        in Matrix geom, in Matrix anchor)
     {
         auto scoped = enterScope(id);
         scope (exit) if (scoped) leaveScope();
@@ -2306,7 +2327,7 @@ private struct Renderer
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
         m.openDocs = openDocs; // so do the reference loop guards
-        m.canvas.matrix = geom;
+        m.canvas.matrix = anchor; // §14.3.2: the referencing site's space
         if (auto u = strAttr(chain, "clipPathUnits"))
             if (toLower(u) == "objectboundingbox")
             {
@@ -2324,6 +2345,9 @@ private struct Renderer
                 bb[1][1] = bbox.height;
                 bb[0][2] = bbox.left;
                 bb[1][2] = bbox.top;
+                // Fractions ride the *painted* geometry, so this one
+                // stays on the paint's CTM and bbox even when the
+                // reference was written higher up.
                 m.canvas.matrix = geom * bb;
             }
 
@@ -9405,6 +9429,33 @@ unittest
         "the rect's own black stroke overrides the inherited blue");
     assert(bmp.getLine!PMColor(20)[20].g == 128,
         "the defining group's transform never rides into the marker");
+}
+
+unittest
+{
+    // §14.3.2 (painting-marker-02-f's expanded columns): a clip-path
+    // written on a group is userSpaceOnUse in the group's user space,
+    // not in each descendant's. 02-f references its 2x2 and 4x4 clips
+    // from inside scale(8) and scale(4) wrappers and the captures clip
+    // to 16 device px there. Here a 2x2 clip sits under scale(4): an
+    // 8x8 device box at x10..17, y10..17, while the content's own
+    // scale(0.25) grows its 40x40 rect to 40 px, so the clip is what
+    // bounds the green block - and under the old leaf-anchored reading
+    // it would have been a 2 px dot.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <clipPath id="c"><rect width="2" height="2"/></clipPath>
+        <g transform="translate(10,10) scale(4)">
+            <g clip-path="url(#c)">
+                <g transform="scale(0.25)">
+                    <rect width="40" height="40" fill="green"/></g>
+            </g>
+        </g>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[10].g == 128, "the clip rides the group's scale");
+    assert(bmp.getLine!PMColor(17)[17].g == 128, "and spans the full 8 px of it");
+    assert(bmp.getLine!PMColor(12)[12].g == 128, "the interior is paint");
+    assert(bmp.getLine!PMColor(18)[12].a == 0 && bmp.getLine!PMColor(12)[18].a == 0,
+        "the 40-px content stops at the clip's edge, not at its own");
 }
 
 unittest
