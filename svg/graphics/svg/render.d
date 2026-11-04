@@ -2660,8 +2660,8 @@ private struct Renderer
     // unless markerUnits="userSpaceOnUse", map through viewBox, then
     // position so that (refX, refY) - in viewBox space when there is a
     // viewBox, marker space otherwise - lands on the vertex. Inheritance
-    // follows the clipPath/mask subtree rule (masking-path-12-f): the
-    // chain's own attributes, nothing from the referrer's ancestors.
+    // comes from the marker's ancestors at the defining site (§11.6.2),
+    // and from the referrer nowhere at all.
     void renderMarker(string url, in FPoint at, in FPoint dir,
         bool isStart, in Style s, Canvas target, Bitmap dev)
     {
@@ -2811,6 +2811,31 @@ private struct Renderer
         mm = mm * vf;
         m.canvas.matrix = target.matrix * mm; // content space
 
+        // §11.6.2: the contents inherit from the marker's ancestors at
+        // the defining site, not from the referrer - 02-f's marker3 and
+        // marker4 hang inside a `<g fill="green" stroke="blue"
+        // stroke-width="8">`, and their rects paint with that green and
+        // blue and that 8-wide stroke (the captures: 810 pure-blue
+        // stroke px and 486 green fill px) while the referrer's orange
+        // fill and purple 4-wide stroke stay out and the rects' own
+        // stroke="black"/fill="black" override the inherited paint. The
+        // ancestry map is keyed by arena index, so it knows the
+        // marker's document parents wherever the marker was referenced;
+        // the walk stops at the pseudo-root, whose attrs are null. Only
+        // properties ride in, never defining-site transforms: pushStyle
+        // moves the canvas as it cascades a `transform`, so the matrix
+        // built for the vertex is taken back once the ancestors are on
+        // the stack - the marker's CTM stays its own.
+        int[] up;
+        for (int p = cssParent[idx]; p >= 0; )
+        {
+            up ~= p;
+            p = cssParent[p];
+        }
+        immutable Matrix atVertex = m.canvas.matrix;
+        foreach_reverse (p; up)
+            m.pushStyle(doc.nodes[p].attrs);
+        m.canvas.matrix = atVertex;
         foreach_reverse (ref e; chain)
             m.pushStyle(e.attrs);
         foreach (ref e; chain)
@@ -9336,6 +9361,50 @@ unittest
         </svg>`);
     assert(bmp.getLine!PMColor(17)[34].a == 0, "the element's clip covers its markers too");
     assert(bmp.getLine!PMColor(20)[24].a == 255, "the stroke paints inside the clip");
+}
+
+unittest
+{
+    // §11.6.2 (painting-marker-02-f): a marker's contents inherit from the
+    // marker's ancestors at the defining site. Nothing leaks in from the
+    // referrer or its ancestors, and defining-site transforms do not ride
+    // in. viewBox="0 0 20 20", 4x4 markerUnits=strokeWidth, refX/refY
+    // (10,10): with the referrer's stroke-width 2 that is an 8x8 device
+    // box spanning x16..23 centred on the vertex, and the inherited
+    // stroke-width 8 scales by 0.4 into a 3.2-px ring: solid blue at
+    // columns 16 and 23, green in the interior.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <g fill="green" stroke="blue" stroke-width="8">
+            <marker id="mk" viewBox="0 0 20 20" markerWidth="4" markerHeight="4" refX="10" refY="10">
+                <rect width="20" height="20"/></marker>
+        </g>
+        <g fill="orange"><path d="M 6 20 L 20 20 L 34 20" fill="none"
+            stroke="purple" stroke-width="2" marker-mid="url(#mk)"/></g>
+        </svg>`);
+    immutable ring = bmp.getLine!PMColor(18)[16];
+    assert(ring.b == 255 && ring.g == 0, "the defining site's stroke paints the ring");
+    immutable core = bmp.getLine!PMColor(20)[20];
+    assert(core.g == 128 && core.r == 0, "the defining site's fill paints, not the referrer's orange");
+    assert(bmp.getLine!PMColor(18)[23].b == 255, "the inherited 8-wide stroke reaches the far edge");
+    assert(bmp.getLine!PMColor(19)[19].g == 128, "the green covers the referrer's purple stroke");
+
+    // The contents' own properties beat the inherited ones, and a
+    // transform on the defining group moves nothing: the ring and the
+    // green interior sit exactly where the untransformed geometry puts
+    // them.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <g fill="green" stroke="blue" stroke-width="8" transform="translate(60,60)">
+            <marker id="mk" viewBox="0 0 20 20" markerWidth="4" markerHeight="4" refX="10" refY="10">
+                <rect width="20" height="20" stroke="black"/></marker>
+        </g>
+        <path d="M 6 20 L 20 20 L 34 20" fill="none"
+            stroke="purple" stroke-width="2" marker-mid="url(#mk)"/>
+        </svg>`);
+    immutable over = bmp.getLine!PMColor(18)[16];
+    assert(over.r == 0 && over.g == 0 && over.b == 0 && over.a == 255,
+        "the rect's own black stroke overrides the inherited blue");
+    assert(bmp.getLine!PMColor(20)[20].g == 128,
+        "the defining group's transform never rides into the marker");
 }
 
 unittest

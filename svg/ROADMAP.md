@@ -283,6 +283,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the keywords step the inherited number by      |            |
 |                       | 200, SVG faces match exact weights - 203-t     |            |
 |                       | 1,891 -> 45, total -1,846                      |            |
+| step 76               | marker defining-site inheritance: §11.6.2      | 2.62 M     |
+|                       | seeds marker content from the ancestors it     |            |
+|                       | hangs under, never the referrer - 02-f         |            |
+|                       | 1,079 -> 848, total -231                       |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2945,16 +2949,51 @@ chained bolder off the calculated number, and both fallback
 walks. Full gate: 526 rows, no ERROR, total 2,626,433 ->
 2,624,587.
 
-Up next - step 76: back to `painting-marker-02-f` (1,079)
-and the backlog pair it carries - §11.6.2 defining-site
-inheritance into marker content, whose capture paints 810
-blue and 486 green pixels we do not, and the clipPath under
-`scale(8)` disagreement whose capture answer is 16 device px
-against our 2. The backlog asks for forensics before either
-fix; the inheritance half threads the cssParent chain through
-a detached subtree, and the expansion half first has to
-decide whether we or Batik reads clipPath-under-transform
-right.
+Step 76 - markers: inheritance from the defining site. The
+backlog pair split: this step takes §11.6.2; the expansion
+column's clip goes to the next one. Per-region colour counts
+settled the rule: the capture's marker3 columns paint 243
+green fill px each and its marker4 columns 405 blue stroke px
+each - exactly the `fill="green" stroke="blue"
+stroke-width="8"` of the g the two markers hang under, with
+the rects' own `stroke="black"` / `fill="black"` overriding
+on top, while the referrer's orange fill and purple 4-wide
+stroke stay out of those columns entirely. Marker contents
+compute from the marker's own document ancestors - the other
+rule from the clipPath/mask subtrees, whose chain-only
+seeding (masking-path-12-f) stays.
+
+`renderMarker` walks the cssParent ancestry map from the
+marker element up to the pseudo-root and pushes each
+ancestor's attrs onto the detached renderer before the href
+chain; the map is keyed by arena index, so it knows the
+marker's parents wherever the marker was referenced. Only
+properties ride in: pushStyle cascades a `transform` onto the
+canvas as it goes, so the matrix built for the vertex is put
+back once the walk is done, and a defining-site transform
+moves nothing. Defining-site `display="none"` is harmless the
+same way - display never enters the Style, the element walk
+drops subtrees, and the marker walk starts at the marker's
+children (07-f unchanged at 0). The gate agreed with the
+split: 02-f 1,079 -> 848, and the whole residue is the
+expanded columns' clip dots. A unittest pins the rule:
+defining-site green fill and blue ring (8-wide scaled by
+0.4 through the marker viewBox), the referrer's orange and
+purple nowhere inside the box, the rect's own black stroke
+beating the inherited blue, and a translate(60,60) on the
+defining group moving nothing. Full gate: 526 rows, no ERROR,
+total 2,624,587 -> 2,624,356.
+
+Up next - step 77: the other half of `painting-marker-02-f`
+(848) and the last thing its 2011 forensics located. Its
+hand-expanded "equivalent SVG" columns reference the 2x2 and
+4x4 `clipPathUnits="userSpaceOnUse"` clips from inside
+`scale(8)` / `scale(4)` groups: §11.1.3 reads userSpaceOnUse
+as the user space of the element referencing the clipPath,
+the group's own transform included, so the captures clip to
+16 device px there while we clip to 2 and 4 - the clip is not
+riding the transform at the referencing site. The masking
+rows have to be watched while it moves.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -3302,6 +3341,26 @@ right.
   (1,383) join the host-glyph floor with their anchors and
   conditional branches landed right: doubled letter shapes at
   matching extents.
+- `text-align-08-b` (10,407) is that floor one level deeper - the
+  fixture is status="issue" and its capture is not reproducible from
+  the resources it ships. The test pins §10.9.2's script baselines,
+  and our render is spec-exact against the suite's own `Tribase.svg`:
+  rect 60x84 px at font-size 120, advance 60, all glyphs on the
+  alphabetic line. The capture shows the *baselines* right - rect
+  bottom on the alphabetic guide, the CJK ideograph's base on the
+  fuchsia ideographic line, the Devanagari hanging from the green
+  guide - but reads Tribase through Batik/AWT's SVG-Tiny font path
+  and draws the same three shapes at unreproducible metrics: rect
+  77x104 px, triangles 69 wide x 126 tall, per-glyph advances 73-78
+  px instead of 60. No single scale fits those shapes to Tribase's
+  outlines (the capture's own 120/75/30 size groups are mutually
+  inconsistent too), and the advance drift leaves every glyph 18-45
+  px off horizontally, so implementing the script baselines on
+  Tribase's real numbers would still miss the capture - only
+  emulating the Batik reader's quirks would land it. Its per-region
+  split is catalogued: the DRAFT band is ~8.5 K (this capture has
+  *no* band at all, so that half is the negative-reference class),
+  the revision label 833, and the glyph block 4,984.
 - `styling-pres-02-f` (703) is step 67's script kind: its
   fourteen indicator rects sit black in the markup - "black if
   the sub-test did not run" - and green in the capture, and
@@ -3318,8 +3377,9 @@ right.
   viewport, mask and clipPath clip in the engine.
 - The rest is verified content at the stroker's edge:
   `painting-marker-02-f`'s first row places every marker pixel-exact
-  under crops, squares and `refX` centring identical - though step 74's
-  histograms reopened the row proper, see the backlog;
+  under crops, squares and `refX` centring identical - step 76 settled
+  its inheritance half and closed the marker columns; the 848 that is
+  left rides the clipPath feature in Up next;
   `render-elems-07-t` (802) and `-08-t` (746), static-render tests with
   no timeline excuse, diff to the whole spiral outline doubled at a
   pixel;
@@ -3341,20 +3401,6 @@ right.
   script running turns.
 
 ## Backlog (small, opportunistic)
-
-- `painting-marker-02-f` (1,079) is two real features after step 74's
-  histograms, not a ceiling. Its marker3/marker4 contents hang inside a
-  `<g fill="green" stroke="blue" stroke-width="8">` and the captures
-  inherit the defining site's ancestors into marker content - 810
-  pure-blue stroke pixels and 486 green fills against our 84 and zero -
-  while `renderMarker` pushes only the href chain, the clipPath/mask
-  subtree rule copied from masking-path-12-f; §11.6.2's marker rule is
-  the other one. And the fixture's hand-expanded "equivalent SVG"
-  columns expose a clip bug: a 2x2 `clipPathUnits="userSpaceOnUse"`
-  rect under a `scale(8)` clips to 16 device px in the captures and to
-  2 in ours, so the clip rect is not riding the transform at the
-  referencing site - worth checking against the masking-path rows
-  before it moves.
 
 - Not the filters' colour space, their arithmetic: `filter.d` keeps the §15.2
   linearRGB working space already - `rasterFrom` decodes, `bitmapFrom` encodes,
