@@ -275,6 +275,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | runs: upright glyphs ride one-em boxes with    |            |
 |                       | ink centred on the baseline - 05-b 1,196 ->    |            |
 |                       | 207, 06-b 2,533 -> 2,319, total -1,203         |            |
+| step 74               | marker viewport overflow: §7.8 hands `auto`    | 2.63 M     |
+|                       | to the user agent, and the capture and 05-f's  |            |
+|                       | own pass criteria both put that column beside  |            |
+|                       | visible - 05-f 731 -> 232, total -499          |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2693,7 +2697,8 @@ over 526 rows, no ERROR, no verdict changed.
 The sweep itself closed the 300-1,500 band: sixteen rows triaged
 by render and diff, fifteen measured at ceiling and recorded
 below with their content verified - the marker squares of
-`painting-marker-02-f` pixel-exact under crops, all three
+`painting-marker-02-f` pixel-exact under crops (row one only -
+step 74 reopened the row proper), all three
 `color-interpolation` bars of `painting-render-01-b` inside one
 LSB (the engine already interpolates in linearRGB), the spirals
 of `render-elems-07-t` and `-08-t` outline-doubled edge to edge,
@@ -2844,7 +2849,47 @@ CJK host-font ceiling entire; the earlier lead's content
 budget was a guess at a rendering this suite never draws. 526
 rows, 2,626,932 AE, two rows moved: -989 and -214.
 
-Up next - step 74: §16.3's `font-variant`, small-caps.
+Step 74 is marker viewport overflow, and it was chosen by
+histogram rather than hunch. Per-colour pixel counts split the
+four remaining painting-marker rows into three different animals.
+-03-f and -04-f turned out byte-identical in their marker
+content: royalblue 832 = 832 in 03-f, 416 = 416 in 04-f, red 0 =
+0 in both - the capture never painted the `marker` shorthand's
+squares either, so implementing the shorthand would buy nothing.
+Their diffs are one-pixel AA fringes where the reference's two
+coincident quadratic-curve strokes rasterise as hairline pairs
+we merge into one band, plus the two rev-skewed revision labels:
+host raster phase, ceiling. -05-f's per-column counts showed
+exactly one misaligned column - `overflow="auto"`, unclipped at
+819 blue and 800 purple in the capture against our clipped 110
+and 324 - and the fixture's own pass criteria pin that column:
+"the columns labeled 'visible' and 'auto' show markers without
+clipping them". §7.8 hands 'auto' to the user agent; Batik's
+answer is visible, and a marker viewport grows no scrollbars in
+any engine. The marker clip now skips for visible and auto and
+clips for hidden, scroll and no attribute at all (a marker
+viewport's UA default is hidden), with a unit test pinning the
+five-value matrix. 05-f went 731 -> 232; the residue is the
+clipped columns' viewport standing one device pixel short - a
+9.6-px viewport maps through canvas `clipRect`'s `.round()` to
+nine - and any change to that rounding moves every viewport,
+mask and clipPath clip in the suite at once, so it waits.
+
+-02-f, by contrast, got reopened. Step 67 recorded its marker
+squares as "pixel-exact under crops", which is true of the first
+row and no longer of the rest: the capture paints 810 pure-blue
+and 486 green pixels that we do not, because its marker3 and
+marker4 contents hang inside a `<g fill="green" stroke="blue"
+stroke-width="8">` and §11.6.2 inherits the defining site's
+ancestors into marker content while `renderMarker` pushes only
+the href chain. And the fixture's hand-expanded "equivalent SVG"
+columns disagree with their own marker columns in the capture:
+under `scale(8)` with a 2x2 userSpaceOnUse clipPath the capture
+draws 16-px squares where we draw 2-px dots. Both halves want
+forensics of their own before either wants a fix. Total
+2,626,932 -> 2,626,433 over 526 rows, no ERROR, one row moved.
+
+Up next - step 75: §16.3's `font-variant`, small-caps.
 text-fonts-203-t (1,891) sets the presentation attribute,
 204-t (4,640) sets it in CSS, and styling-pres-02-f (703)
 at least asks that the attribute on an ellipse parse without
@@ -2852,7 +2897,10 @@ consequence; render.d does not parse the property at all. The
 first forensic question is what the captures drew - a face's
 real small-caps glyphs or Batik synthesising capitals of the
 lowercase letters at a reduced size - and if synthetic, at
-what ratio.
+what ratio. 02-f's two gaps are alternate candidates, but the
+inheritance one threads the cssParent chain through a detached
+subtree and the expansion one first has to decide whether we
+or Batik has clipPath-under-transform right.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -3204,12 +3252,23 @@ what ratio.
   fourteen indicator rects sit black in the markup - "black if
   the sub-test did not run" - and green in the capture, and
   every text label matches.
+- `painting-marker-03-f` (1,429) and `-04-f` (1,408) closed at step 74
+  as raster-phase twins: their marker content matches the captures to
+  the pixel (royalblue 832 = 832, 416 = 416, red 0 = 0 - neither engine
+  paints the `marker` shorthand), and what diffs is hairline pairs
+  along coincident quadratic-curve stroke edges where the capture
+  doubles its own strokes, plus the rev-skewed label rows.
+  `painting-marker-05-f` (232) is residue only: its clipped columns'
+  marker viewports stand one device pixel short, 9.6 rounding to 9
+  through canvas `clipRect`, and that rounding is shared by every
+  viewport, mask and clipPath clip in the engine.
 - The rest is verified content at the stroker's edge:
-  `painting-marker-02-f` (1,079) places every marker pixel-exact
-  under crops, squares and `refX` centring identical, only the
-  closing diagonals' 1-px decision doubled; `render-elems-07-t`
-  (802) and `-08-t` (746), static-render tests with no timeline
-  excuse, diff to the whole spiral outline doubled at a pixel;
+  `painting-marker-02-f`'s first row places every marker pixel-exact
+  under crops, squares and `refX` centring identical - though step 74's
+  histograms reopened the row proper, see the backlog;
+  `render-elems-07-t` (802) and `-08-t` (746), static-render tests with
+  no timeline excuse, diff to the whole spiral outline doubled at a
+  pixel;
   `linking-a-05-t` (572) is 04-t's family - arrow outlines plus
   revision glyph; and `struct-image-19-f` (682) and
   `conform-viewers-01-t` (670) are DRAFT bands over doubled
@@ -3228,6 +3287,20 @@ what ratio.
   script running turns.
 
 ## Backlog (small, opportunistic)
+
+- `painting-marker-02-f` (1,079) is two real features after step 74's
+  histograms, not a ceiling. Its marker3/marker4 contents hang inside a
+  `<g fill="green" stroke="blue" stroke-width="8">` and the captures
+  inherit the defining site's ancestors into marker content - 810
+  pure-blue stroke pixels and 486 green fills against our 84 and zero -
+  while `renderMarker` pushes only the href chain, the clipPath/mask
+  subtree rule copied from masking-path-12-f; §11.6.2's marker rule is
+  the other one. And the fixture's hand-expanded "equivalent SVG"
+  columns expose a clip bug: a 2x2 `clipPathUnits="userSpaceOnUse"`
+  rect under a `scale(8)` clips to 16 device px in the captures and to
+  2 in ours, so the clip rect is not riding the transform at the
+  referencing site - worth checking against the masking-path rows
+  before it moves.
 
 - Not the filters' colour space, their arithmetic: `filter.d` keeps the §15.2
   linearRGB working space already - `rasterFrom` decodes, `bitmapFrom` encodes,

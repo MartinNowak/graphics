@@ -250,7 +250,7 @@ painting-marker-01-f.svg OK 11
 painting-marker-02-f.svg OK 1079
 painting-marker-03-f.svg OK 1429
 painting-marker-04-f.svg OK 1408
-painting-marker-05-f.svg OK 731
+painting-marker-05-f.svg OK 232
 painting-marker-06-f.svg OK 11
 painting-marker-07-f.svg OK 0
 painting-marker-properties-01-f.svg OK 37

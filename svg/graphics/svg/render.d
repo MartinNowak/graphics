@@ -2769,8 +2769,15 @@ private struct Renderer
         // viewports (07-f's oversized triangle), a bounding box for
         // rotated ones - and a no-op for content that fits its
         // viewport, which is all of the suite's rotated markers.
-        // overflow="visible" skips the clip.
-        if (!equalCase(strAttr(chain, "overflow"), "visible"))
+        // overflow="visible" skips the clip, and so does "auto": §7.8
+        // makes auto's behaviour the user agent's, and a viewport that
+        // can grow is exactly what Batik ships for a marker - 05-f's
+        // pass criteria pin it there ("the columns labeled 'visible'
+        // and 'auto' show markers without clipping them"). Only
+        // explicit hidden/scroll clip; a bad value drops the
+        // declaration and the UA default (hidden) clips.
+        immutable ov = strAttr(chain, "overflow");
+        if (ov.length == 0 || (!equalCase(ov, "visible") && !equalCase(ov, "auto")))
             m.canvas.clipRect(IRect(0, 0, to!int(min(mw, 1_000_000.0f)),
                 to!int(min(mh, 1_000_000.0f))));
 
@@ -9125,6 +9132,28 @@ unittest
     assert(bare.a == 255 && bare.r == 0 && bare.b == 0, "the stroke itself paints on");
     assert(bmp.getLine!PMColor(19)[12].a == 127, "its band edges half a pixel out (step 59)");
     assert(bmp.getLine!PMColor(22)[12].a == 0, "and no further than that");
+
+    // Marker viewport overflow (painting-marker-05-f's matrix): the UA
+    // default, hidden and scroll clip content to the marker viewport;
+    // visible does not, and neither does auto - §7.8 hands auto to the
+    // user agent, and the fixture's own pass criteria pin that column
+    // to "markers without clipping them". The viewport here is 2x2 in
+    // strokeWidth units (stroke 2, so 4x4 device px) and the 4x4
+    // content rect is twice that.
+    foreach (ov; ["default", "hidden", "scroll", "visible", "auto"])
+    {
+        immutable attr = ov == "default" ? "" : ` overflow="` ~ ov ~ `"`;
+        bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20">
+            <marker id="over" markerWidth="2" markerHeight="2"` ~ attr ~ `>
+                <rect width="4" height="4" fill="red"/></marker>
+            <path d="M 10 10 L 30 10" stroke="black" stroke-width="2"
+                marker-start="url(#over)"/>
+            </svg>`);
+        assert(bmp.getLine!PMColor(12)[13].r == 255, "viewport content paints for every overflow");
+        immutable lit = bmp.getLine!PMColor(12)[15]; // past the viewport: red only unclipped
+        assert((ov == "visible" || ov == "auto") ? lit.r == 255 : lit.r == 0,
+            "overflow " ~ ov ~ " does not match the clipping matrix");
+    }
 
     // No stroke and no fill: no markers.
     bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
