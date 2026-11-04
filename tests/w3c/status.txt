@@ -471,7 +471,7 @@ text-fonts-03-t.svg OK 163
 text-fonts-04-t.svg OK 498
 text-fonts-05-f.svg OK 724
 text-fonts-202-t.svg OK 5360
-text-fonts-203-t.svg OK 1891
+text-fonts-203-t.svg OK 45
 text-fonts-204-t.svg OK 4640
 text-intro-01-t.svg OK 1875
 text-intro-02-b.svg OK 2022

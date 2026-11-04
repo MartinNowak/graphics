@@ -279,6 +279,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | to the user agent, and the capture and 05-f's  |            |
 |                       | own pass criteria both put that column beside  |            |
 |                       | visible - 05-f 731 -> 232, total -499          |            |
+| step 75               | font-weight: bolder/lighter + raw numerics;    | 2.62 M     |
+|                       | the keywords step the inherited number by      |            |
+|                       | 200, SVG faces match exact weights - 203-t     |            |
+|                       | 1,891 -> 45, total -1,846                      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -2889,18 +2893,68 @@ draws 16-px squares where we draw 2-px dots. Both halves want
 forensics of their own before either wants a fix. Total
 2,626,932 -> 2,626,433 over 526 rows, no ERROR, one row moved.
 
-Up next - step 75: §16.3's `font-variant`, small-caps.
-text-fonts-203-t (1,891) sets the presentation attribute,
-204-t (4,640) sets it in CSS, and styling-pres-02-f (703)
-at least asks that the attribute on an ellipse parse without
-consequence; render.d does not parse the property at all. The
-first forensic question is what the captures drew - a face's
-real small-caps glyphs or Batik synthesising capitals of the
-lowercase letters at a reduced size - and if synthetic, at
-what ratio. 02-f's two gaps are alternate candidates, but the
-inheritance one threads the cssParent chain through a detached
-subtree and the expansion one first has to decide whether we
-or Batik has clipPath-under-transform right.
+Step 75 - font-weight: the relative keywords and the raw
+numeric scale. The lead said §16.3's `font-variant`; the
+forensics rerouted it. Nothing about font-variant is missing:
+CSS2 §15.2 step 2 lets a family's small-caps-only face answer
+a normal-face request, so 203-t's five
+`font-variant="small-caps"` ZC faces match as plain faces and
+the attribute carries no consequence the suite can observe.
+What the capture actually drew, measured stem by stem, was
+the two relative rows disagreeing with us: "Blue is bolder"
+under a parent normal paints the family's semibold ZCSB
+(weight 600) and "Blue is lighter" under a parent bold paints
+the regular ZCR (400). Neither row rendered right because
+render.d never parsed the keywords at all - `bolder` and
+`lighter` fell through to `to!int`, threw, and the inherited
+weight stood. The weight-digits column, pixel-exact once the
+fix landed, exposed the second bug: numeric weights collapsed
+into the engine's five enum buckets before SVG face matching,
+and the bucket re-expanded Bold back to 700 - a family with
+faces at 300/400/600/700/800 answered a 600 request with its
+700 face.
+
+The fix carries the raw number down the cascade in a new
+`Style.rawWeight`, re-derives the five buckets from it so the
+host TrueType path cannot shift, and hands the number to
+`matchFace` directly; its existing CSS walk prefers an exact
+weight, lighter ones below 400, and 400-first in the middle.
+The keywords step the inherited number by 200 - bolder +200
+capped at 900, lighter -200 floored at 100 - and children
+inherit the calculated weight, not the keyword, exactly as
+CSS2 §15.6 words it. That ladder plus the face walk (a
+calculated 500 prefers the 400 face) is the only rule that
+fits both captured cells: CSS2 (1998) §15.6's table paints
+700 for bolder-at-400, a face the digit column gives 4-5 px
+stems against the capture's 3-4, and CSS2.1 paints 600 for
+lighter-at-700 where the capture's 2 px is the regular face.
+
+The gate proved the rule: bolder-at-400 onto the 600 face
+took the bolder row pixel-exact, lighter-at-700 through 500
+took the lighter row pixel-exact, and raw numeric matching
+put the whole digits column exact - 203-t 1,891 -> 45, the
+residue its rev-skewed label and hairline AA. A full-suite
+run moved exactly that one row. The same rows in 02-t, 202-t
+and 204-t stayed pixel-identical: those families resolve to
+host fallback faces that answer both weight buckets with the
+same outlines, so the fix is invisible there; host-font debt
+already catalogued. A unittest builds 203-t's five-face
+family and pins the cells - exact 600, bolder-at-400 on the
+600 face, lighter-at-700 through 500 onto the 400 face,
+chained bolder off the calculated number, and both fallback
+walks. Full gate: 526 rows, no ERROR, total 2,626,433 ->
+2,624,587.
+
+Up next - step 76: back to `painting-marker-02-f` (1,079)
+and the backlog pair it carries - §11.6.2 defining-site
+inheritance into marker content, whose capture paints 810
+blue and 486 green pixels we do not, and the clipPath under
+`scale(8)` disagreement whose capture answer is 16 device px
+against our 2. The backlog asks for forensics before either
+fix; the inheritance half threads the cssParent chain through
+a detached subtree, and the expansion half first has to
+decide whether we or Batik reads clipPath-under-transform
+right.
 
 ## Deferred / accepted ceilings (do not chase)
 

@@ -1089,6 +1089,13 @@ private struct Renderer
         string family;
         float fontSize=16f;
         TypeFace.Weight weight=TypeFace.Weight.Normal;
+        // font-weight's numeric scale rides the inheritance chain next
+        // to the five enum buckets: the buckets steer the host TrueType
+        // lookup, but SVG faces match against the raw value - a family
+        // with faces at 300..800 must answer a 600 request with its 600
+        // face - and bolder/lighter compose against it, since children
+        // inherit the calculated weight, not the keyword (CSS2 §15.6).
+        int rawWeight=400;
         TypeFace.Slant slant=TypeFace.Slant.Roman;
         TextPaint.TextAlign anchor=TextPaint.TextAlign.Left;
 
@@ -1659,10 +1666,29 @@ private struct Renderer
 
             case "font-weight":
             {
+                // The raw number rides Style next to the enum buckets
+                // (see the struct comment): face matching wants it, and
+                // the relative keywords compose against the inherited
+                // raw value.
+                immutable up = style.rawWeight;
                 if (v == "bold")
-                    style.weight = TypeFace.Weight.Bold;
+                    style.rawWeight = 700;
                 else if (v == "normal" || v == "regular")
-                    style.weight = TypeFace.Weight.Normal;
+                    style.rawWeight = 400;
+                else if (v == "bolder")
+                    // The captures' relative-weight rule, pinned by the
+                    // ZC fixture's two relative rows: bolder at 400
+                    // paints the family's 600 face and lighter at 700
+                    // its 400 face. No standard table fits both cells -
+                    // CSS2 (1998) §15.6 puts 700 on bolder-at-400 and
+                    // CSS2.1 puts 600 on lighter-at-700 - but a 200-unit
+                    // step on the raw scale, followed by the CSS face
+                    // walk already run in matchFace (a calculated 500
+                    // prefers the 400 face), reproduces every weight the
+                    // suite can observe.
+                    style.rawWeight = min(up + 200, 900);
+                else if (v == "lighter")
+                    style.rawWeight = max(up - 200, 100);
                 else
                 {
                     // numeric 100..900
@@ -1671,13 +1697,14 @@ private struct Renderer
                         w = to!int(strip(v));
                     catch (Exception)
                         break; // not a weight and will not parse: keep it
-                    style.weight =
-                        w <= 200 ? TypeFace.Weight.Thin :
-                        w <= 300 ? TypeFace.Weight.Light :
-                        w <= 500 ? TypeFace.Weight.Normal :
-                        w <= 700 ? TypeFace.Weight.Bold :
-                                   TypeFace.Weight.Heavy;
+                    style.rawWeight = w;
                 }
+                style.weight =
+                    style.rawWeight <= 200 ? TypeFace.Weight.Thin :
+                    style.rawWeight <= 300 ? TypeFace.Weight.Light :
+                    style.rawWeight <= 500 ? TypeFace.Weight.Normal :
+                    style.rawWeight <= 700 ? TypeFace.Weight.Bold :
+                                             TypeFace.Weight.Heavy;
                 break;
             }
 
@@ -3387,26 +3414,16 @@ private struct Renderer
 
     // The run's SVG face when its family names one (§20.8.5). Style.family
     // already holds just the first name of the list, stripped of quotes.
+    // Face matching takes the raw numeric weight: matchFace walks the
+    // CSS2.1 §15.5 preference order over the real face weights, and the
+    // five enum buckets would collapse a 600 request onto a 700 face.
     SvgFont* svgFace(ref const Style s)
     {
         if (!s.family.length)
             return null;
         auto p = toLower(s.family) in svgFonts;
-        return p ? matchFace(*p, faceWeight(s.weight), faceStyle(s.slant))
+        return p ? matchFace(*p, s.rawWeight, faceStyle(s.slant))
                  : null;
-    }
-
-    // The engine's five named weights stand in for the numeric CSS scale.
-    static int faceWeight(TypeFace.Weight w)
-    {
-        switch (w)
-        {
-        case TypeFace.Weight.Thin:  return 100;
-        case TypeFace.Weight.Light: return 300;
-        case TypeFace.Weight.Bold:  return 700;
-        case TypeFace.Weight.Heavy: return 900;
-        default:                    return 400;
-        }
     }
 
     static int faceStyle(TypeFace.Slant sl)
@@ -10613,6 +10630,62 @@ unittest
     immutable box = inkBox(plain);
     assert(box[0] == 30 && box[2] == 34 && box[1] == 55 && box[3] == 59,
         to!string(box));
+}
+
+unittest
+{
+    // font-weight against an SVG family of five faces at real weights
+    // 300/400/600/700/800 (text-fonts-203-t's shape). Each face draws
+    // its 40x10 bar at a different height g above the baseline, so at
+    // font size 10 with the baseline on row 60 the ink row (59 - g/10)
+    // names the face that answered: 51=800, 53=700, 55=600, 57=400,
+    // 59=300.
+    string wt(string gattrs)
+    {
+        string face(string id, int w, int g)
+        {
+            return `<font id="` ~ id ~ `" horiz-adv-x="100">
+                <font-face font-family="Wt" font-weight="` ~ to!string(w) ~
+                `" units-per-em="100" ascent="100" descent="0"
+                    alphabetic="0"/>
+                <glyph unicode="a" glyph-name="b` ~ id ~
+                `" d="M0 ` ~ to!string(g) ~ `h40v10h-40z"/>
+            </font>`;
+        }
+        // One </g> for every <g> the attribute string opened.
+        string closes;
+        for (size_t i; (i = gattrs.indexOf("<g", i)) != size_t.max; i += 2)
+            closes ~= "</g>";
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs>` ~ face("w3", 300, 0) ~ face("w4", 400, 20) ~
+            face("w6", 600, 40) ~ face("w7", 700, 60) ~
+            face("w8", 800, 80) ~ `</defs>
+            <g` ~ gattrs ~ `><text x="30" y="60" font-family="Wt"
+                font-size="10">a</text></g>` ~ closes ~ `</svg>`;
+    }
+    int inkRow(string gattrs)
+    {
+        immutable box = inkBox(renderSVG(wt(gattrs)));
+        assert(box[1] == box[3], "one bar, one row: " ~ to!string(box));
+        return box[1];
+    }
+    assert(inkRow("") == 57, "the default paints the normal face");
+    assert(inkRow(` font-weight="600"`) == 55,
+        "600 takes the family's 600 face, not the bucket's 700 stand-in");
+    assert(inkRow(` font-weight="normal"><g font-weight="bolder"`) == 55,
+        "bolder at 400 calculates 600, one of the cells the captures pin");
+    assert(inkRow(` font-weight="bold"><g font-weight="lighter"`) == 57,
+        "lighter at 700 calculates 500, and the face walk prefers the"
+        ~ " 400 face - the other cell the captures pin");
+    assert(inkRow(` font-weight="normal"><g font-weight="bolder"`
+        ~ `><g font-weight="bolder"`) == 51,
+        "bolder chains off the calculated weight: 400 to 600 to 800,"
+        ~ " exact faces all the way");
+    assert(inkRow(` font-weight="normal"><g font-weight="lighter"`) == 59,
+        "lighter at 400 calculates 200 and falls back onto the 300 face");
+    assert(inkRow(` font-weight="600"><g font-weight="bolder"`) == 51,
+        "bolder at 600 calculates 800 and finds its exact face");
 }
 
 unittest
