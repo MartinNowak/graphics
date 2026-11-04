@@ -291,6 +291,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | §14.3.2 puts userSpaceOnUse clips in the       |            |
 |                       | group's space, not the descendant's - 02-f     |            |
 |                       | 848 -> 171, total -677                         |            |
+| step 78               | mask region and userSpaceOnUse mask content    | 2.62 M*    |
+|                       | anchor at the referencing site too: §14.4      |            |
+|                       | repeats the rule - no gate row moves, the     |            |
+|                       | step is pinned by a unittest                   |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -335,6 +339,12 @@ row's whole diff budget is 299 pixels, no lost or misplaced element can
 hide a 10x30 swatch from that, and none carries one. The lone flag,
 `animate-script-elem-01-b`, is another black-to-green script indicator
 square, recorded with the band. 526 rows byte-identical a sixth time.
+
+\* step 78 is spec-completeness like step 6: every `mask=` site in the
+suite is a direct paint element or a translate-only group, where the
+referencing site's CTM and the paint CTM coincide, so the new anchor
+cannot move a row - the gate ran flat, and the unittest is what pins
+the rule.
 
 ## Next steps
 
@@ -3016,20 +3026,47 @@ the rule: a 2x2 clip under scale(4) with content scaled
 back by 0.25 fills the 8 px device box x10..17 and nothing
 beyond it.
 
-Up next - step 78: the mask side of the same rule. §14.4
-repeats §14.3.2 near-verbatim: the mask region under
-maskUnits="userSpaceOnUse" and the userSpaceOnUse mask
-content live in the user space of the element referencing
-the mask, and maskMultiply rasterises both at each leaf's
-paint CTM exactly as clipMultiply was. maskUrls gets a
-maskCtm anchor the same way clipUrls got one, the region
-membership test inverts that matrix instead of the paint's,
-and no gate row moves - every mask= site in the suite is a
-direct paint or a translate-only group where the two
-matrices coincide - so step 78 is step 6's shape:
-spec-completeness pinned by a unittest. The step was picked
-by triage: its mid-band candidates are all ceilings, and
-they are catalogued under Deferred.
+Step 78 gave masks the same anchor. §14.4 spells §14.3.2's
+sentence again: the mask region under
+maskUnits="userSpaceOnUse" and the userSpaceOnUse content
+it bounds are written in the user space of the element
+that references the mask, and maskMultiply rasterised
+both at each leaf's paint CTM exactly as clipMultiply had.
+Style grows a maskCtm array parallel to maskUrls, pushed
+in the same breath by pushStyle, and maskMultiply takes it
+as the anchor for both halves: the content canvas starts
+at the anchor, and the region's membership test inverts
+the anchor - while objectBoundingBox regions keep inverting
+the paint's matrix and maskContentUnits="objectBoundingBox"
+keeps geom * bb, exactly as clipMultiply scopes them. No
+gate row moves and the 526 came back byte-identical a
+seventh time: every mask= site in the suite is a direct
+paint element or a translate-only group where anchor and
+paint CTM coincide, so this is step 6's shape -
+spec-completeness pinned by a unittest, a 1x40 white bar
+in a userSpaceOnUse region under scale(4) landing as a
+4 device px band at x10..13 while the paint's own
+scale(0.25) runs its 40 px well past the bar's edge.
+
+Up next - step 79: §15.8 background-image processing -
+the last open mid-band row, filters-background-01-f
+(1,365). Its four panels run ShiftBGAndBlur, a chain of
+feOffset(in="BackgroundImage") into feGaussianBlur that
+never reads SourceGraphic, over enable-background pages
+of fuchsia rect, half-opacity circle and triangle. Pixel
+crops put the engine wrong two ways: a BackgroundImage
+read inside a group-opacity layer snapshots only the
+layer's scratch, so the page beneath - the fuchsia rect
+the test description counts into the background - never
+reaches the chain (cells 3 and 4: ours leaves the pure
+page fuchsia where the capture has blurred page content
+riding on top), and an `opacity` written on the filtered
+element itself rides only its SourceGraphic, so a chain
+built from the page composites at full alpha while the
+capture dims the whole result (cell 2). The fixes pair:
+opacityWalk names the page beneath for the snapshot, and
+the page read takes the filtered element's own opacity -
+the layer's alpha already waits at the group blend.
 
 ## Deferred / accepted ceilings (do not chase)
 

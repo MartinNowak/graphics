@@ -1073,6 +1073,17 @@ private struct Renderer
         // describes for clip-path, so the element paints unmasked.
         string[] maskUrls;
 
+        // Anchor CTM parallel to maskUrls (§14.4), the same rule as
+        // clipCtm: §14.4 spells §14.3.2's sentence again - the mask
+        // region under maskUnits="userSpaceOnUse" and the
+        // maskContentUnits="userSpaceOnUse" content it rasterises are
+        // written in the user space of the element that wrote the
+        // reference, so both rasterise in that space. An
+        // objectBoundingBox region keeps its bbox-relative placement in
+        // the paint's own space and oBB content its geom * bbox, exactly
+        // as clipMultiply scopes them.
+        Matrix[] maskCtm;
+
         // marker-start/mid/end (§11.6.3). Unlike clip/mask these are
         // ordinary inherited properties: a value replaces (not chains)
         // the inherited one and "none" cancels it. Empty = no marker.
@@ -1840,12 +1851,15 @@ private struct Renderer
             if (d.k != "transform" || i == lastTr)
                 apply(d.k, d.v, d.css);
 
-        // Any clip-path this element wrote joined style.clipUrls during
-        // the cascade; pair each new id with this element's CTM - the
-        // matrix the cascade just left on the canvas, transform included
-        // (the loop applies transforms last). See Style.clipCtm.
+        // Any clip-path and mask this element wrote joined style.clipUrls
+        // and style.maskUrls during the cascade; pair each new id with
+        // this element's CTM - the matrix the cascade just left on the
+        // canvas, transform included (the loop applies transforms last).
+        // See Style.clipCtm and Style.maskCtm.
         while (style.clipCtm.length < style.clipUrls.length)
             style.clipCtm ~= canvas.matrix;
+        while (style.maskCtm.length < style.maskUrls.length)
+            style.maskCtm ~= canvas.matrix;
 
         // §10.9.2 chains: dominant-baseline re-establishes the table for
         // self and descendants; alignment-baseline picks this element's
@@ -2182,8 +2196,9 @@ private struct Renderer
         foreach (i, clipId; s.clipUrls)
             clipMultiply(clipId, scratch, bbox, geom,
                 i < s.clipCtm.length ? s.clipCtm[i] : geom);
-        foreach (maskId; s.maskUrls)
-            maskMultiply(maskId, scratch, bbox, geom);
+        foreach (i, maskId; s.maskUrls)
+            maskMultiply(maskId, scratch, bbox, geom,
+                i < s.maskCtm.length ? s.maskCtm[i] : geom);
 
         bool any;
         foreach (y; 0 .. bmp.height)
@@ -2391,11 +2406,15 @@ private struct Renderer
     // sum already equals luminance x alpha. The mask region (maskUnits
     // frame, defaults -10%,-10%,120%,120%) bounds where anything can show:
     // referrer pixels whose user-space centres fall outside it multiply
-    // by zero. As with a clipPath, a reference that does not resolve leaves
+    // by zero - under maskUnits="userSpaceOnUse" that user space is the
+    // anchor's (see Style.maskCtm, and clipMultiply's anchor for the
+    // identical clip rule), while objectBoundingBox fractions keep
+    // resolving against the paint bbox in the paint's own space. As with
+    // a clipPath, a reference that does not resolve leaves
     // `scratch` alone - the declaration is dropped and the element paints
     // unmasked - while a mask that resolves over an empty region zeroes it.
     void maskMultiply(string id, ref Bitmap scratch, in FRect bbox,
-        in Matrix geom)
+        in Matrix geom, in Matrix anchor)
     {
         auto scoped = enterScope(id);
         scope (exit) if (scoped) leaveScope();
@@ -2479,7 +2498,10 @@ private struct Renderer
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
         m.openDocs = openDocs; // so do the reference loop guards
-        m.canvas.matrix = geom;
+        m.canvas.matrix = anchor; // §14.4: userSpaceOnUse mask content is
+        // written in the space of the element that referenced the mask,
+        // the same anchor clipMultiply rasterises userSpaceOnUse clip
+        // children in
 
         // maskContentUnits="objectBoundingBox": children live in
         // fractions of the paint bbox - the same supplemental matrix
@@ -2529,7 +2551,7 @@ private struct Renderer
         float[256] lut;
         if (lumLinear)
             lut = srgbDecodeLUT();
-        immutable inv = geom.inverted;
+        immutable inv = (bboxUnits ? geom : anchor).inverted;
         foreach (y; 0 .. bmp.height)
         {
             auto r = scratch.getLine!PMColor(y);
@@ -9456,6 +9478,32 @@ unittest
     assert(bmp.getLine!PMColor(12)[12].g == 128, "the interior is paint");
     assert(bmp.getLine!PMColor(18)[12].a == 0 && bmp.getLine!PMColor(12)[18].a == 0,
         "the 40-px content stops at the clip's edge, not at its own");
+}
+
+unittest
+{
+    // §14.4, the mask twin of the rule above: both the mask region under
+    // maskUnits="userSpaceOnUse" and maskContentUnits="userSpaceOnUse"
+    // content are written in the space of the element that referenced
+    // the mask. A 1x40 white bar in a userSpaceOnUse region sits under
+    // scale(4) - a 4 px device band at x10..13 - while the paint's own
+    // scale(0.25) spreads its 40x40 rect over 40 px from (10,10), so
+    // the anchored mask is what bounds the green block; under the old
+    // leaf-anchored reading the white bar was a 1 px column too.
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+        <mask id="m" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse"
+            x="0" y="0" width="40" height="40"><rect width="1" height="40" fill="white"/></mask>
+        <g transform="translate(10,10) scale(4)">
+            <g mask="url(#m)">
+                <g transform="scale(0.25)">
+                    <rect width="40" height="40" fill="green"/></g>
+            </g>
+        </g>
+        </svg>`);
+    assert(bmp.getLine!PMColor(10)[10].g == 128, "the mask rides the group's scale");
+    assert(bmp.getLine!PMColor(13)[13].g == 128, "region and bar both reach 4 px down");
+    assert(bmp.getLine!PMColor(39)[13].g == 128, "the band runs the anchored 40 units to the edge");
+    assert(bmp.getLine!PMColor(10)[14].a == 0, "paint inside the region but off the white bar clears");
 }
 
 unittest
