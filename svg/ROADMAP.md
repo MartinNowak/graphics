@@ -299,6 +299,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | opacity layer and the page read takes the      |            |
 |                       | filtered element's own opacity - 01-f falls    |            |
 |                       | 1,365 -> 37, total -1,328                      |            |
+| step 80               | animate-elem stragglers all triage closed:     | 2.62 M*    |
+|                       | four captures sit on other fixtures' own       |            |
+|                       | revisions; 83-t closes on the AA-phase         |            |
+|                       | family, gray fills exact - no row moves        |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -349,6 +353,11 @@ suite is a direct paint element or a translate-only group, where the
 referencing site's CTM and the paint CTM coincide, so the new anchor
 cannot move a row - the gate ran flat, and the unittest is what pins
 the rule.
+
+\* step 80 is measurement like step 67: five animate rows rendered and
+clustered - four captures shot from other revisions than their fixtures'
+own markup, the fifth probed to the settled marker-outline AA-phase
+family - so the 526 rows came back byte-identical an eighth time.
 
 ## Next steps
 
@@ -3074,18 +3083,39 @@ its own 0.5. background-01-f fell 1,365 -> 37, only
 blur-tail fuzz at the panel edges, and no other filters
 row moved.
 
-Up next - step 80: the animate-elem stragglers, the
-last rows above 300 with no verdict recorded: 07-t
-(1,381), 39-t (1,010), 83-t (934), 33-t (931) and 31-t
-(893). All five are SMIL timing tests rendering under
-the t=+infinity model since step 10, so the first move
-is the step-69 one: render, cluster the diffs, read the
-clusters. A cluster that is whole caption or script-
-indicator bands closes as recorded debt; one that sits
-on an animation result probes the model itself - repeat
-counts, syncbase lists, keyTimes - and the fixture's
-$Revision against the capture's before any investment,
-since this family already carries stale captures.
+Step 80 closed all five animate-elem stragglers without
+a code change, on the protocol's own terms. Four carry
+captures shot from other revisions of their fixtures:
+the caption line prints 1.2, 1.6 and 1.5 under 07-t,
+31-t and 39-t, whose files say 1.7 - and 33-t skews the
+other way, a 1.8 capture over a 1.6 file. The tell is
+the same 16x24 cluster at x193..209, y317..341 in all
+five diffs: the caption's revision digits, one glyph
+wide. Only 83-t matches, at 1.7/1.7, and it probed to
+the end: the six cells' gray morph end-states land
+pixel-exact - fills, geometry, positions, E6E6E6 to the
+byte - and the whole 934 rides the width-1 orange
+marker outlines. Row scans call that coverage phase,
+not shape: the capture concentrates each outline's
+coverage in full-alpha cores with tight ramps; ours
+spreads the same area - cores topping out near a=230,
+faint tails a px further out, lighter orange at the
+petal mitre points. That is the diagonal-hairline
+raster-phase family of steps 56, 59 and 69 again, and
+no single phase serves both conventions here either.
+The 300-1,500 band now carries a verdict on every row.
+
+Up next - step 81: filters-conv-03-f (4,644), the last
+row with named-unexamined content above the content
+floor. Two of its panels are recorded script end-states
+- the step-35 note books 4,516 of the row there - but
+the Backlog still keeps the other half, "sharpening the
+bird itself... 334 of it, unexamined": a
+feConvolveMatrix sharpen over a photo. Render, crop the
+convolved bird against the capture, and see whether a
+kernel-edge or bias detail lives there; if the crop
+lands on raster phase again, record that and every row
+above the floor stands adjudicated.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -3332,6 +3362,32 @@ since this family already carries stale captures.
   drift only; and `text-align-01-b` (841) rechecked to
   what step 69 wrote - a single text-line band of
   host-glyph drift.
+- The step-80 animate sweep closes four rows on capture
+  evidence alone, stale-capture relatives of step 67's
+  script-specify pair: `animate-elem-07-t` (1,381)
+  captions revision 1.2 where its file says 1.7, `-31-t`
+  (893) 1.6 and `-39-t` (1,010) 1.5, and `-33-t` (931)
+  carries the skew reversed - a 1.8 capture over a 1.6
+  file. The tell is the same 16x24 cluster at
+  x193..209, y317..341 in all five diffs: the caption
+  line's revision digits, one glyph wide. A capture of
+  another revision of a test scores against a different
+  test.
+- `animate-elem-83-t` (934) is revision-matched at 1.7
+  both sides and still a ceiling: the six cells' gray
+  morph end-states land pixel-exact under 3x crops -
+  fills, geometry, positions - and the whole diff rides
+  the width-1 orange marker outlines at the morph
+  endpoints. Row scans call it coverage phase, not
+  shape: the capture concentrates each outline stroke's
+  coverage in full-alpha cores with 3-4 px ramps, ours
+  spreads the same area - cores near a=230, faint tails
+  a px further out, lighter orange at the petal mitre
+  points. That is the diagonal-hairline raster-phase
+  family of steps 56, 59 and 69 - paths-data-02-t,
+  render-elems-07-t/-08-t, painting-stroke-05-t - and
+  no single raster phase serves both conventions here
+  either.
 - The split-frame captures: in `painting-stroke-05-t` (1,855),
   `text-fonts-202-t` (5,360) and `filters-light-02-f` (134,982) the
   1-px `test-frame` is two half-covered pixels, the corner-sampled
