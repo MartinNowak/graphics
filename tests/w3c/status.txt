@@ -118,7 +118,7 @@ coords-viewattr-02-b.svg OK 113
 coords-viewattr-03-b.svg OK 1102
 coords-viewattr-04-f.svg OK 1056
 extend-namespace-01-f.svg OK 23162
-filters-background-01-f.svg OK 1365
+filters-background-01-f.svg OK 37
 filters-blend-01-b.svg OK 7428
 filters-color-01-b.svg OK 2057
 filters-color-02-b.svg OK 329

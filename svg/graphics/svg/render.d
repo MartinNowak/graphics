@@ -943,6 +943,13 @@ private struct Renderer
     // stop at the cap and paint unfiltered.
     int filterDepth;
 
+    // The page beneath the current scratch layer. opacityWalk swaps `bmp`
+    // for the layer's scratch, but a filter inside the layer that reads
+    // BackgroundImage/BackgroundAlpha (§15.6) sees the document beneath
+    // the group too, not just the layer's own siblings - the stack names
+    // every enclosing layer's backdrop, outermost first.
+    Bitmap[] pageStack;
+
     // During a filtered subtree's paint this tracks the union of all
     // painted geometry bboxes (user space) - the objectBoundingBox
     // basis for filter regions and primitive subregions, which the
@@ -1968,6 +1975,25 @@ private struct Renderer
                 vCss = d.css;
             }
         return vCss ? equalCase(strip(v), "none") : v == "none";
+    }
+
+    // The element's own cascaded `opacity` through the same scan
+    // displayNone makes (not inherited: only this element's
+    // declarations count, last wins, and a number that fails to parse
+    // keeps the prior answer exactly as apply's catches do). The
+    // filtered path needs the value at the primitive - §15.9.2 scales
+    // the element's whole result, and the page read is where a chain
+    // that ignores SourceGraphic feels it - but the style slot is
+    // closed by then: leaf paint handlers push and pop inside element().
+    float ownOpacity(size_t ch)
+    {
+        float v = 1.0f;
+        foreach (ref d; cascadeDecls(ch, doc.nodes[ch].attrs))
+            if (d.k == "opacity")
+                try
+                    v = to!float(d.v);
+                catch (Exception) {}
+        return clamp(v, 0.0f, 1.0f);
     }
 
     void popStyle()
@@ -5793,12 +5819,15 @@ private struct Renderer
 
         auto oldCanvas = canvas;
         auto oldBmp = bmp;
+        pageStack ~= bmp; // a BackgroundImage read inside this layer still
+        // sees the page under it (filters-background-01-f's inner cells)
         canvas = oc;
         bmp = scratch;
         scope (exit)
         {
             canvas = oldCanvas;
             bmp = oldBmp;
+            pageStack.length -= 1;
         }
         walk(ch);
         bmp = oldBmp; // as in filteredElement: the blend back is the
@@ -5837,6 +5866,35 @@ private struct Renderer
                     d[x]._color = src + alphaMul(d[x], invAlphaScale(src.a));
             }
         }
+    }
+
+    // Composite the backdrop chain - the outermost page up through the
+    // current layer - into one page-sized bitmap, src-over, so initBg has a
+    // single snapshot to read. Premultiplied lines, so each layer lands with
+    // the standard blendPM arithmetic.
+    Bitmap pageUnder(in Bitmap top)
+    {
+        auto bd = Bitmap(Bitmap.Config.ARGB_8888, top.width, top.height);
+        bd.eraseColor(Color(0));
+        void pour(in Bitmap src)
+        {
+            foreach (y; 0 .. bd.height)
+            {
+                auto dr = bd.getLine!PMColor(y);
+                auto sr = src.getLine!PMColor(y);
+                foreach (x, ref px; dr)
+                {
+                    auto s = sr[x]._color;
+                    if (!s.a)
+                        continue;
+                    px._color = s + alphaMul(px._color, invAlphaScale(s.a));
+                }
+            }
+        }
+        foreach (layer; pageStack)
+            pour(layer);
+        pour(top);
+        return bd;
     }
 
     // Filtered paint (§15.1): render the element's subtree into an
@@ -5897,7 +5955,21 @@ private struct Renderer
         // subtree: asking for the backdrop afterwards feeds the filter its
         // own source. filters-overview-01/02/03-b, filters-blend-01-b and
         // filters-background-01-f are the suite's tests of the difference.
+        // Inside a group-opacity layer the answer is that layer's scratch
+        // *over* the page beneath it, which is where the sibling shapes the
+        // test description counts into the background come from.
         auto backdrop = bmp;
+        if (pageStack.length)
+            backdrop = pageUnder(backdrop);
+
+        // The filtered element's own `opacity` (the cascade scan finds
+        // it even at top level, where no style slot is open): §15.9.2
+        // says it scales the element's whole result, and only the page
+        // reads need the explicit factor - source-derived rasters
+        // already carry it from painting. A layer alpha from an
+        // enclosing opacityWalk is deliberately not here: that one
+        // waits at the group blend.
+        immutable float bgAlpha = ownOpacity(ch);
 
         auto oldCanvas = canvas;
         auto oldBmp = bmp;
@@ -5986,8 +6058,8 @@ private struct Renderer
         // primitives that spread (blur) see transparent black beyond it.
         src.clipTo(region);
 
-        auto res = runChain(f, src, backdrop, region, basis, ctm, doc.nodes[ch].attrs,
-                            local);
+        auto res = runChain(f, src, backdrop, bgAlpha, region, basis, ctm,
+                            doc.nodes[ch].attrs, local);
         res.clipTo(region);
         // Blend back into the real destination: `bmp` still names the
         // scratch here, so point it at the pre-offscreen bitmap first
@@ -6040,8 +6112,9 @@ private struct Renderer
     // BackgroundAlpha read (§15.4/§15.6). Unrecognised primitives are
     // ignored (§15.1); a chain that ends up executing nothing yields
     // transparent black.
-    Raster runChain(in FilterSpec f, Raster src, in Bitmap backdrop, in IBox4 region,
-                    in IBox4 basis, in Matrix ctm, in string[string] a, in FRect basisUser)
+    Raster runChain(in FilterSpec f, Raster src, in Bitmap backdrop, immutable float bgAlpha,
+                    in IBox4 region, in IBox4 basis, in Matrix ctm, in string[string] a,
+                    in FRect basisUser)
     {
         immutable clut = srgbDecodeLUT(); // flood colors join the working space
 
@@ -6072,6 +6145,15 @@ private struct Renderer
             fitTo(bg, src.ox, src.oy, src.w, src.h); // indexed like the chain,
             bg.clipTo(region); // BackgroundImage is "under the filter
             haveBg = true;    // region" (§15.6)
+            // §15.9.2: the filtered element's own `opacity` scales its
+            // whole result, and a chain that reads the page rather than
+            // its (already-scaled) source only gets that scale through
+            // the page read - filters-background-01-f's second cell is
+            // the suite's probe of exactly this. The raster is premul
+            // float, so scaling every channel is the group-opacity op.
+            if (bgAlpha < 1.0f)
+                foreach (ref p; bg.px)
+                    p *= bgAlpha;
         }
 
         Raster input(in string[string] at, string key)
@@ -9877,6 +9959,50 @@ unittest
         .getLine!PMColor(20)[10];
     assert(pi.a > 240 && pi.g > 240 && pi.r < 8 && pi.b < 8,
         `the backdrop keeps its lime paint: ${to!string(pi)}`);
+}
+
+unittest
+{
+    // §15.8/§15.9.2, the two ways filters-background-01-f's panels
+    // catch a page read going wrong. A chain wired only to
+    // BackgroundImage must see the page *beneath* an enclosing
+    // opacity layer - the layer's own scratch is empty at the
+    // snapshot - and the filtered element's own `opacity` must scale
+    // the page read, the only carrier for it when the chain ignores
+    // SourceGraphic. feOffset dx=10 lands the lime bar's page copy on
+    // x10..19 y10..19, so (15, 15) is the probe; (25, 15) shows the
+    // filtered element's own paint never reaches the output.
+    immutable shift = `<filter id="shift" filterUnits="userSpaceOnUse"
+                x="0" y="0" width="40" height="40">
+                <feOffset in="BackgroundImage" dx="10"/>
+            </filter>`;
+    immutable page = `<rect x="0" y="10" width="10" height="10" fill="lime"/>`;
+
+    auto layer = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        ` ~ shift ~ `
+        ` ~ page ~ `
+        <g opacity="0.5"><g filter="url(#shift)">
+            <rect x="20" y="10" width="10" height="10" fill="black"/>
+        </g></g>
+        </svg>`);
+    // (renderSVG un-premultiplies on the way out, like the PNG writer,
+    // so the bytes read here are straight-alpha: full green at half alpha.)
+    immutable moved = layer.getLine!PMColor(15)[15];
+    assert(moved.a > 118 && moved.a < 138 && moved.g > 250
+        && moved.r < 8 && moved.b < 8,
+        "the page rode through the layer, dimmed by its 0.5: " ~ to!string(moved));
+    assert(layer.getLine!PMColor(15)[25].a == 0, "SourceGraphic stayed out of the chain");
+
+    auto dimmed = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        ` ~ shift ~ `
+        ` ~ page ~ `
+        <rect x="20" y="10" width="10" height="10" fill="black" opacity="0.5"
+            filter="url(#shift)"/>
+        </svg>`);
+    immutable own = dimmed.getLine!PMColor(15)[15];
+    assert(own.a > 118 && own.a < 138 && own.g > 250
+        && own.r < 8 && own.b < 8,
+        "the page read carries the element's own 0.5: " ~ to!string(own));
 }
 
 unittest

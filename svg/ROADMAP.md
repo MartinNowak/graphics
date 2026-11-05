@@ -295,6 +295,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | anchor at the referencing site too: §14.4      |            |
 |                       | repeats the rule - no gate row moves, the     |            |
 |                       | step is pinned by a unittest                   |            |
+| step 79               | BackgroundImage names the page beneath a group | 2.62 M     |
+|                       | opacity layer and the page read takes the      |            |
+|                       | filtered element's own opacity - 01-f falls    |            |
+|                       | 1,365 -> 37, total -1,328                      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3048,25 +3052,40 @@ in a userSpaceOnUse region under scale(4) landing as a
 4 device px band at x10..13 while the paint's own
 scale(0.25) runs its 40 px well past the bar's edge.
 
-Up next - step 79: §15.8 background-image processing -
-the last open mid-band row, filters-background-01-f
-(1,365). Its four panels run ShiftBGAndBlur, a chain of
-feOffset(in="BackgroundImage") into feGaussianBlur that
-never reads SourceGraphic, over enable-background pages
-of fuchsia rect, half-opacity circle and triangle. Pixel
-crops put the engine wrong two ways: a BackgroundImage
-read inside a group-opacity layer snapshots only the
-layer's scratch, so the page beneath - the fuchsia rect
-the test description counts into the background - never
-reaches the chain (cells 3 and 4: ours leaves the pure
-page fuchsia where the capture has blurred page content
-riding on top), and an `opacity` written on the filtered
-element itself rides only its SourceGraphic, so a chain
-built from the page composites at full alpha while the
-capture dims the whole result (cell 2). The fixes pair:
-opacityWalk names the page beneath for the snapshot, and
-the page read takes the filtered element's own opacity -
-the layer's alpha already waits at the group blend.
+Step 79 fixed both halves. opacityWalk pushes the canvas
+it covers onto a pageStack, and filteredElement's backdrop
+comes from pageUnder - the stacked layers and the current
+scratch composited in order - so a BackgroundImage read
+inside a group-opacity layer names the document beneath:
+the cells' fuchsia page reaches the chain. The other half
+travels as bgAlpha: ownOpacity runs displayNone's cascade
+scan over the filtered element's own declarations - the
+style slot is closed by chain time, because leaf paint
+handlers push and pop inside element() - and initBg
+scales the page raster by it in filter.d's premul float
+space, every channel, which is what dimming a premul
+raster means. Source-fed rasters already carry their
+opacity from painting, and an enclosing layer's alpha
+still waits at the group blend, as §15.9.2 and the group
+model want it. Two unittests pin the pair: a lime bar's
+page copy crossing an opacity group lands full green at
+half alpha, and a bare filtered rect's page copy carries
+its own 0.5. background-01-f fell 1,365 -> 37, only
+blur-tail fuzz at the panel edges, and no other filters
+row moved.
+
+Up next - step 80: the animate-elem stragglers, the
+last rows above 300 with no verdict recorded: 07-t
+(1,381), 39-t (1,010), 83-t (934), 33-t (931) and 31-t
+(893). All five are SMIL timing tests rendering under
+the t=+infinity model since step 10, so the first move
+is the step-69 one: render, cluster the diffs, read the
+clusters. A cluster that is whole caption or script-
+indicator bands closes as recorded debt; one that sits
+on an animation result probes the model itself - repeat
+counts, syncbase lists, keyTimes - and the fixture's
+$Revision against the capture's before any investment,
+since this family already carries stale captures.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -3302,6 +3321,17 @@ the layer's alpha already waits at the group blend.
   (723 against 667); and `paths-data-02-t` (1,079) is
   diagonal-hairline raster phase repeated across every cell of
   its grid.
+- The step-79 band scan closed three more 800-1,000 rows
+  as ceilings: `masking-path-12-f` (984) is masking-path-
+  09-b's kind one file over - its script asks
+  getComputedStyle for the clipped pair's fill and paints
+  `#fail` green only from the answer, a scripting
+  end-state, over the masking chapter's DRAFT watermark;
+  `fonts-desc-02-t` (971) is one text band at y308..343 -
+  descender glyphs against the capture's host freeSans,
+  drift only; and `text-align-01-b` (841) rechecked to
+  what step 69 wrote - a single text-line band of
+  host-glyph drift.
 - The split-frame captures: in `painting-stroke-05-t` (1,855),
   `text-fonts-202-t` (5,360) and `filters-light-02-f` (134,982) the
   1-px `test-frame` is two half-covered pixels, the corner-sampled
