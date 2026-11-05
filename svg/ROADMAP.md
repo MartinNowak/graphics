@@ -303,6 +303,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | four captures sit on other fixtures' own       |            |
 |                       | revisions; 83-t closes on the AA-phase         |            |
 |                       | family, gray fills exact - no row moves        |            |
+| step 81               | Backlog's last unexamined row closes on        | 2.62 M*    |
+|                       | measurement: the convolved animated bird       |            |
+|                       | lands at 8 AE - the row is now the two         |            |
+|                       | scripted panels and caption drift              |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -358,6 +362,10 @@ the rule.
 clustered - four captures shot from other revisions than their fixtures'
 own markup, the fifth probed to the settled marker-outline AA-phase
 family - so the 526 rows came back byte-identical an eighth time.
+
+\* step 81 changed no code either: the row was closed by crop-level
+measurement against the current renders, so the eighth run still
+stands as its gate.
 
 ## Next steps
 
@@ -3105,17 +3113,31 @@ raster-phase family of steps 56, 59 and 69 again, and
 no single phase serves both conventions here either.
 The 300-1,500 band now carries a verdict on every row.
 
-Up next - step 81: filters-conv-03-f (4,644), the last
-row with named-unexamined content above the content
-floor. Two of its panels are recorded script end-states
-- the step-35 note books 4,516 of the row there - but
-the Backlog still keeps the other half, "sharpening the
-bird itself... 334 of it, unexamined": a
-feConvolveMatrix sharpen over a photo. Render, crop the
-convolved bird against the capture, and see whether a
-kernel-edge or bias detail lives there; if the crop
-lands on raster phase again, record that and every row
-above the floor stands adjudicated.
+Step 81 closed the Backlog's last entry without a code
+change either. Cropping filters-conv-03-f band by band
+attributes all 4,644: the two FAIL-banner panels carry
+3,658 - the capture is the post-script state, the bird
+the onload verification paints where the static file
+shows its banner - 128 sits in the title glyphs, and
+the caption revision line prints 1.1 where the fixture
+says 1.8, another stale-capture skew, for 104 more.
+The feConvolveMatrix work itself, measured where the
+Backlog marked it unexamined, is exact: the
+SMIL-animated middle panel - the only convolve the
+scripts leave a static render to reach - measures 8 AE
+on its 100x75 crop, kernel, edge mode and bias landing
+pixel for pixel. Script and caption debt, nothing
+else; that empties the Backlog.
+
+Up next - step 82: rescan, not fix. The step-70 solid-
+content scan of the 100-300 band predates the engine
+fixes of steps 71 through 80, and step 69's 300-1,500
+sweep predates four of them - a band's verdict is a
+snapshot of the engine that took it, and bands move
+when the engine does. Re-run the dilating scan over
+both bands against current renders: flag any row whose
+diff now carries solid content, then close the audit
+with the bands re-certified or the flags triaged.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -3388,6 +3410,16 @@ above the floor stands adjudicated.
   render-elems-07-t/-08-t, painting-stroke-05-t - and
   no single raster phase serves both conventions here
   either.
+- `filters-conv-03-f` (4,644) joins those ceilings at
+  step 81: the capture prints caption revision 1.1,
+  five revisions under the fixture's 1.8, and both
+  scored panels are `onload` end-states - the static
+  file's FAIL banners stay up, the capture shows the
+  sharpened birds the verification paints over them.
+  The feConvolveMatrix work itself is beyond reproach:
+  the SMIL-animated middle panel, the one panel the
+  scripts leave a static render to reach, measures 8 AE
+  on its 100x75 crop.
 - The split-frame captures: in `painting-stroke-05-t` (1,855),
   `text-fonts-202-t` (5,360) and `filters-light-02-f` (134,982) the
   1-px `test-frame` is two half-covered pixels, the corner-sampled
@@ -3590,4 +3622,8 @@ above the floor stands adjudicated.
   what looked like arithmetic in `filters-conv-03-f`'s 308x77 band was a parse
   failure, which step 35 closed. What is left of that row is two script panels
   (4,516 of it) plus 334 of sharpening the bird itself, unexamined - step 36
-  moved the convolve's edge box and that 334 did not blink.
+  moved the convolve's edge box and that 334 did not blink. Step 81 closed the
+  unexamined half: measured against current renders, the convolved animated
+  panel sits at 8 AE, and the row joined the Deferred ceilings as script
+  panels, caption glyphs and a 1.1-vs-1.8 revision skew. The Backlog is
+  empty.
