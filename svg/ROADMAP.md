@@ -326,6 +326,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | trio lands on font and glyph, vkern joins the  |            |
 |                       | pair tables read by orientation, and the slot  |            |
 |                       | loop and the length walk y - no row moves      |            |
+| step 87               | font-variant joins face matching: slots split  | 2.62 M     |
+|                       | on the axis, a family lacking the request      |            |
+|                       | declines the whole family - 02-t 971 -> 747,   |            |
+|                       | 05-t 5001 -> 4,749                             |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3345,22 +3349,94 @@ textLength into a vertical run, so the gate could not
 move and did not: 526 rows byte-identical a twelfth
 time, 2.62 M.
 
-Up next - step 87, the last writing-mode gap the
-step-73 record kept open. rl-tb stays a recorded bidi
-ceiling - text-intro-10-f's inline reversal belongs
-with the shaping the renderer does not run - and
-text-intro-03-b a host-font one. Decorations are what
-is left: they are still gated off above wmode 2,
-because SE rules underline, overline and line-through
-along the horizontal baseline, defines no vertical
-equivalent, and no fixture decorates a tb run. Step 87
-can rule the vertical counterpart the way the writing
-modes rule everything else - the same axis swap that
-moved the baseline into the column: lines riding the
-baseline column at the same em fractions, their extent
-followed by the slot walk, the specifying element's
-style painting - and the unittests pin what no
-reference draws.
+Step 87 landed font-variant as the third face-matching
+axis - it was parsed nowhere before. The §16.2 font-face
+attribute, whose grammar is a comma list naming either
+or both spellings, bit-packs onto the face: normal is
+bit 0, small-caps bit 1, absent is normal. The §16.4
+property - propidx says inherited, normal |
+small-caps | inherit, and the inherit is taken by the
+chain every property case rides - lands on Style beside
+weight and slant. The axis filters rather than ranks: a
+face answers only requests its own list names, so a
+normal request never borrows the family's small-caps
+face however it would score on style and weight, and a
+family whose registered faces none names the requested
+variant declines the whole family. That fall-away
+needed the list itself to reach matching: Style now
+keeps the whole stripped font-family list, not just the
+first name, and the lookup tries the names in order as
+CSS2 §15.5.1 says - a declined family hands the run to
+the next name, and only a run no name claims takes the
+host fallback. The registration slot identity joins the
+axis too: SVGFont1's normal and small-caps faces, both
+at (400, roman), hold separate slots where the second
+used to replace the first outright. All three
+registration paths carry it - a <font>'s own font-face,
+a standalone font-face whose font-face-uri pulls an
+external font (the referencing face's own variant names
+the slot, which is what keeps the external ZC faces
+answering 203-t's small-caps runs), and the @font-face
+descriptor, kept on the sheet's face record beside
+weight and style. The engine selects variant faces; it
+never synthesizes small capitals: 02-t's own note makes
+synthesis the UA's option ("if synethesis is
+supported", misspelling theirs), and the fallback rows
+are the capture's answer - a small-caps run over a
+family that has none takes the next name's glyph, then
+the host's.
+
+Two unittests pin the axis. The store's: one family's
+normal and small-caps faces hold two slots, each
+request is answered only by a face naming its variant,
+a comma-list face answers either request, and a variant
+the axis cannot name takes nothing. The render one
+lands four ink boxes over three faces: the plain
+request takes the family's standing bar, not the
+hanging small-caps one, the small-caps request takes
+the reverse, a plain request steps over a
+small-caps-only first family to the list's second name,
+and a small-caps request is answered by that same first
+family at full em height.
+
+The gate moved, for the first time since step 79, and
+moved exactly onto the two tables the axis is for: 02-t
+971 -> 747 and 05-t 5001 -> 4,749, hand-verified
+against the fixture tables row by row before the code
+was written. Every other row held: the twelve-gate
+byte-identical streak step 86 logged ends on the rows
+it was meant to end on, 526 rows back at 0 ERROR,
+2,621,875 AE total. 203-t holds at 45 with its
+external small-caps faces still answering, and 204-t
+sits unmoved at its recorded 4,640 WOFF ceiling.
+
+The Up-next note's decoration half closes as
+spec-silent, not implemented. SE rules underline,
+overline and line-through along the horizontal
+baseline and defines no vertical equivalent, and the
+vertical machinery keeps no single column a decoration
+could ride at §15.5's em fractions: a host-face slot
+is ink-centred on the declared x, a turned face's
+baseline sits a vert-origin-y off that column, and an
+upright slot keeps per-slot horizontal baselines of
+its own. With no baseline there is no offset to
+measure - the letter stands as drawn, nothing painted
+above wmode 2 - and the gap joins the recorded
+glyphRef and font-stretch closes.
+
+Up next - step 88, the rendering hints: SE §7.5's
+shape-rendering (auto | optimizeSpeed | crispEdges |
+geometricPrecision) and color-rendering, §12.6's
+text-rendering and §7.5's image-rendering parse
+nowhere in the engine today, and the suite sets them -
+shape-rendering="crispEdges" in filters-conv-01-f,
+geometricPrecision across several filters rows, and
+five interact rows carry text-rendering though that
+family is a recorded ceiling of another kind. crispEdges
+is the rule with teeth: the element's edges lose their
+antialiasing. direction and unicode-bidi stay with the
+recorded bidi ceiling, and paint-order and
+vector-effect are SVG 2 - out of SE's scope, as always.
 
 ## Deferred / accepted ceilings (do not chase)
 

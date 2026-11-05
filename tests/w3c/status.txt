@@ -162,10 +162,10 @@ filters-tile-01-b.svg OK 122
 filters-turb-01-f.svg OK 896
 filters-turb-02-f.svg OK 161581
 fonts-desc-01-t.svg OK 309
-fonts-desc-02-t.svg OK 971
+fonts-desc-02-t.svg OK 747
 fonts-desc-03-t.svg OK 17
 fonts-desc-04-t.svg OK 4966
-fonts-desc-05-t.svg OK 5001
+fonts-desc-05-t.svg OK 4749
 fonts-elem-01-t.svg OK 290
 fonts-elem-02-t.svg OK 41
 fonts-elem-03-b.svg OK 267

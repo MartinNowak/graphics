@@ -1115,6 +1115,10 @@ private struct Renderer
 
         // Text attributes, inherited like the paint attributes.
         string family;
+        // The whole comma list beside the first name: CSS2 §15.5.1
+        // tries the families in order, and §16.2's variant axis can
+        // empty one family's candidates so the next name answers.
+        string[] families;
         float fontSize=16f;
         TypeFace.Weight weight=TypeFace.Weight.Normal;
         // font-weight's numeric scale rides the inheritance chain next
@@ -1125,6 +1129,13 @@ private struct Renderer
         // inherit the calculated weight, not the keyword (CSS2 §15.6).
         int rawWeight=400;
         TypeFace.Slant slant=TypeFace.Slant.Roman;
+        // font-variant (§16.4, inherited per propidx): bit 1 requests
+        // the small-caps face of a family, bit 0 the normal one. The
+        // engine selects the variant face a family declares and never
+        // synthesizes small capitals - fonts-desc-02-t's own note
+        // makes synthesis the UA's option ("if synethesis is
+        // supported") and its fallback rows the answer.
+        int variant = 1;
         TextPaint.TextAlign anchor=TextPaint.TextAlign.Left;
 
         // Baseline alignment (§10.9.2). Neither property inherits in the
@@ -1677,12 +1688,24 @@ private struct Renderer
 
             case "font-family":
             {
-                // First of the comma-separated list; surrounding
-                // whitespace and quotes stripped.
-                auto fam = strip(splitter(v, ',').front);
-                fam = strip(fam, "\"'");
-                if (fam.length)
-                    style.family = fam;
+                // The whole comma-separated list, each name stripped of
+                // surrounding whitespace and quotes; the first name
+                // rides on as before (the host lookup takes it), the
+                // list feeds §15.5.1's ordered try below.
+                string[] fams;
+                foreach (t; splitter(v, ','))
+                {
+                    auto fam = strip(t);
+                    fam = strip(fam, "\"'");
+                    fam = strip(fam);
+                    if (fam.length)
+                        fams ~= fam;
+                }
+                if (fams.length)
+                {
+                    style.family = fams[0];
+                    style.families = fams;
+                }
                 break;
             }
 
@@ -1752,6 +1775,14 @@ private struct Renderer
                     style.slant = TypeFace.Slant.Roman;
                     break;
                 }
+                break;
+
+            case "font-variant":
+                // §16.4: normal | small-caps (propidx adds inherit,
+                // taken by the chain above every case). The axis names
+                // which face of a family the lookup takes; the render
+                // choice it carries is documented at Style.variant.
+                style.variant = v == "small-caps" ? 2 : 1;
                 break;
 
             case "text-anchor":
@@ -3574,8 +3605,10 @@ private struct Renderer
         }
     }
 
-    // The run's SVG face when its family names one (§20.8.5). Style.family
-    // already holds just the first name of the list, stripped of quotes.
+    // The run's SVG face when its family list names one (§20.8.5).
+    // CSS2 §15.5.1 tries the stripped names in order - a family whose
+    // registered faces none names the requested variant (§16.2)
+    // declines the whole family, and the next name takes the run.
     // Face matching takes the raw numeric weight: matchFace walks the
     // CSS2.1 §15.5 preference order over the real face weights, and the
     // five enum buckets would collapse a 600 request onto a 700 face.
@@ -3583,9 +3616,12 @@ private struct Renderer
     {
         if (!s.family.length)
             return null;
-        auto p = toLower(s.family) in svgFonts;
-        return p ? matchFace(*p, s.rawWeight, faceStyle(s.slant))
-                 : null;
+        foreach (ref fam; s.families.length ? s.families : [s.family])
+            if (auto p = toLower(fam) in svgFonts)
+                if (auto f = matchFace(*p, s.rawWeight,
+                                       faceStyle(s.slant), s.variant))
+                    return f;
+        return null;
     }
 
     static int faceStyle(TypeFace.Slant sl)
@@ -11787,6 +11823,51 @@ unittest
         <defs>` ~ vfonts ~ `</defs>
         <text x="20" y="60" font-family="Khv" font-size="10">aa</text>
     </svg>`)) == [16, 56, 23, 59], "hkern answers the horizontal read");
+}
+
+unittest
+{
+    // §16.2/§16.4's variant axis end to end: normal and small-caps
+    // faces of one family hold separate slots and the request takes
+    // only a face whose list names its variant, and §15.5.1's
+    // ordered family try lets a family without that variant step
+    // aside for the list's next name. One 1000-unit em at font size
+    // 10: the normal bar stands 4 pixels on the baseline, the
+    // small-caps bar of the same family hangs from the em top 6
+    // tall, and the sc-only family's bar fills the whole 10-em
+    // height. Every edge lands on a pixel, so the boxes pin exact.
+    const string vfaces = `<font id="vn" horiz-adv-x="500">
+            <font-face font-family="Var" units-per-em="1000"
+                ascent="800" descent="-200"/>
+            <glyph unicode="a" glyph-name="lo" d="M0 0h400v400h-400z"/>
+        </font>
+        <font id="vs" horiz-adv-x="500">
+            <font-face font-family="Var" font-variant="small-caps"
+                units-per-em="1000" ascent="800" descent="-200"/>
+            <glyph unicode="a" glyph-name="hi" d="M0 400h400v600h-400z"/>
+        </font>
+        <font id="vo" horiz-adv-x="500">
+            <font-face font-family="VarSC" font-variant="small-caps"
+                units-per-em="1000" ascent="800" descent="-200"/>
+            <glyph unicode="a" glyph-name="full" d="M0 0h400v1000h-400z"/>
+        </font>`;
+    auto pick(string fam, string variant)
+    {
+        return inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+            width="60" height="60" viewBox="0 0 60 60">
+            <defs>` ~ vfaces ~ `</defs>
+            <text x="10" y="30" font-size="10" font-family="` ~ fam ~ `"`
+            ~ variant ~ `>a</text>
+        </svg>`));
+    }
+    assert(pick("Var", "") == [10, 26, 13, 29],
+        "a plain request takes the family's normal face, not its sc");
+    assert(pick("Var", ` font-variant="small-caps"`) == [10, 20, 13, 25],
+        "a small-caps request takes the family's sc face");
+    assert(pick("VarSC, Var", "") == [10, 26, 13, 29],
+        "a plain request steps over the sc-only family");
+    assert(pick("VarSC, Var", ` font-variant="small-caps"`)
+        == [10, 20, 13, 29], "the sc-only family answers the sc try");
 }
 
 unittest

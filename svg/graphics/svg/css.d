@@ -255,15 +255,16 @@ Rule[] collectStyles(in Document doc, string baseDir = "")
 /// lives, so it goes to the font store, not the cascade. Only the
 /// descriptors this engine reads are kept: the family name, the first
 /// url() of src (the `#fragment` included, for the same reason
-/// §20.8.5's font-face-uri keeps one), and the weight/style descriptor
-/// strings, left as written for the store's own matching. A block with
-/// no family or no url is not a face at all.
+/// §20.8.5's font-face-uri keeps one), and the weight/style/variant
+/// descriptor strings, left as written for the store's own matching.
+/// A block with no family or no url is not a face at all.
 struct FontFace
 {
     string family;
     string url;
     string weight;
     string style;
+    string variant;
 }
 
 /// The @font-face rules of every sheet this document loads: the PI's
@@ -1150,6 +1151,7 @@ private bool parseFontFace(string block, out FontFace f)
         case "src":         f.url    = firstUrl(val); break;
         case "font-weight": f.weight = val; break;
         case "font-style":  f.style  = val; break;
+        case "font-variant": f.variant = val; break;
         default: break;
         }
     }

@@ -73,6 +73,11 @@ struct SvgFont
     // 2 oblique.
     int weight = 400;
     int faceStyle;
+    // §16.2's variant axis: bit 0 normal, bit 1 small-caps. The
+    // font-face attribute (and the @font-face descriptor) permits a
+    // comma list naming both spellings, and a face answers a request
+    // only when its list names that variant; absent, normal.
+    int faceVariant = 1;
     // font-face metrics (§20.4), font units. ascent/descent anchor the
     // derived baseline rows; the four alignment attributes override them.
     float upem = 1000;
@@ -174,8 +179,8 @@ struct SvgFont
 /// Every <font> element and every standalone <font-face> reference in the
 /// document, in document order, grouped by the lower-cased family name:
 /// a family holds its faces (normal/bold/italic) in declaration order,
-/// and a later declaration of the same (weight, style) slot replaces the
-/// earlier one. External font files follow the <image>/@import rules:
+/// and a later declaration of the same (weight, style, variant) slot
+/// replaces the earlier one. External font files follow the <image>/@import rules:
 /// plain paths resolved against `baseDir` (css.resolveHref), each file
 /// parsed at most once. CSS @font-face rules ride the same road: their
 /// descriptor names the family, and their src URI picks the <font>.
@@ -192,7 +197,8 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
             f.ranges = parseRanges(range);
             ref faces = reg.require(key, null); // construct-if-absent
             foreach (i, o; faces)
-                if (o.weight == f.weight && o.faceStyle == f.faceStyle)
+                if (o.weight == f.weight && o.faceStyle == f.faceStyle
+                    && o.faceVariant == f.faceVariant)
                 {
                     faces[i] = f; // same face slot: last declaration wins
                     return;
@@ -302,10 +308,11 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
             }
             if (found !is null)
             {
-                // the referencing face's own weight/style name the slot
-                // the referenced font registers into.
+                // the referencing face's own weight/style/variant name
+                // the slot the referenced font registers into.
                 found.weight = cssWeight(getAttr(e, "font-weight"));
                 found.faceStyle = cssStyle(getAttr(e, "font-style"));
+                found.faceVariant = cssVariant(getAttr(e, "font-variant"));
                 put(fam, range, found);
             }
             return;
@@ -325,9 +332,10 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
     // picks the <font> exactly the way a font-face-uri does - bare
     // fragment names this document's, a path loads a file - sharing
     // the loaded-file cache; a src that names no readable SVG font
-    // (local(), a .ttf) contributes nothing. The descriptor's weight
-    // and style name the slot, and a face registered later replaces
-    // an element's face of the same slot, last declaration winning.
+    // (local(), a .ttf) contributes nothing. The descriptor's weight,
+    // style and variant name the slot, and a face registered later
+    // replaces an element's face of the same slot, last declaration
+    // winning.
     foreach (fc; sheetFaces(doc, baseDir))
     {
         // A slice's truth is non-null, not non-empty, and `find` miss
@@ -367,6 +375,7 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
             continue;
         found.weight = cssWeight(fc.weight);
         found.faceStyle = cssStyle(fc.style);
+        found.faceVariant = cssVariant(fc.variant);
         put(fc.family, "", found);
     }
 
@@ -377,13 +386,20 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
 /// slots SVG 1.1 faces can occupy: exact (weight, style) wins; weights
 /// then search downward (<400 wants lighter first), upward (>500 wants
 /// heavier first) or 400-first (middle); a roman request never borrows
-/// a slanted face, and italic/oblique satisfy each other.
-SvgFont* matchFace(SvgFont*[] faces, int weight, int style)
+/// a slanted face, and italic/oblique satisfy each other. The variant
+/// axis (§16.2) filters rather than ranks: a face answers only a
+/// request its own list names, so a family holding only the other
+/// variant declines the whole family - on it fonts-desc-02-t's list
+/// rows fall to the next name, and with no next name, to the fallback.
+SvgFont* matchFace(SvgFont*[] faces, int weight, int style,
+                   int variant = 1)
 {
     SvgFont* best;
     int bestScore = int.max;
     foreach (f; faces)
     {
+        if (!(f.faceVariant & variant))
+            continue; // the axis is a filter, not a preference
         immutable s = styleRank(style, f.faceStyle) * 4096
                     + weightRank(weight, f.weight);
         if (s < bestScore) // ties: document order wins
@@ -434,6 +450,24 @@ private int cssStyle(string v)
     return v == "italic" ? 1 : v == "oblique" ? 2 : 0;
 }
 
+/// The font-face `font-variant` attribute and the @font-face descriptor
+/// of the same name (§16.2's list syntax): normal is bit 0, small-caps
+/// bit 1, and a comma list naming both lets one face answer either
+/// request. Absent, or nothing the grammar allows, is normal.
+private int cssVariant(string v)
+{
+    int m;
+    foreach (t; splitter(v, ','))
+    {
+        immutable head = strip(t);
+        if (head == "small-caps")
+            m |= 2;
+        else if (head == "normal")
+            m |= 1;
+    }
+    return m ? m : 1;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Read one <font> subtree: face metrics, pre-parsed glyph outlines,
@@ -468,6 +502,7 @@ private SvgFont* parseFont(ref immutable(Element)[] nodes, size_t idx)
                 f.upem = 1000;
             f.ascent = num(c, "ascent");
             f.descent = num(c, "descent");
+            f.faceVariant = cssVariant(getAttr(c, "font-variant"));
             f.alphabetic = num(c, "alphabetic");
             f.weight = cssWeight(getAttr(c, "font-weight"));
             f.faceStyle = cssStyle(getAttr(c, "font-style"));
@@ -713,6 +748,36 @@ unittest
     f = matchFace(fonts["pair"], 700, 0);
     assert(f.weight == 400 && f.faceStyle == 0,
         "roman never borrows the slanted face even wanting bold");
+}
+
+unittest
+{
+    // §16.2's variant axis: normal and small-caps faces of one family
+    // hold separate slots, a request takes only a face whose list
+    // names that variant, and a comma-list face answers either way.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <font id="N"><font-face font-family="Var"/>
+            <glyph glyph-name="lo" unicode="A" d="M0 0L10 0Z"/></font>
+          <font id="S"><font-face font-family="Var"
+                                  font-variant="small-caps"/>
+            <glyph glyph-name="hi" unicode="A" d="M0 0L20 0Z"/></font>
+          <font id="B"><font-face font-family="Both"
+                                  font-variant="normal, small-caps"/>
+            <glyph glyph-name="bi" unicode="A" d="M0 0L30 0Z"/></font>
+        </defs></svg>`);
+    auto fonts = collectFonts(doc, "");
+    assert(fonts["var"].length == 2, "the variant axis splits the slot");
+
+    assert(matchFace(fonts["var"], 400, 0).glyphs[0].name == "lo",
+        "a plain request takes the normal face");
+    assert(matchFace(fonts["var"], 400, 0, 2).glyphs[0].name == "hi",
+        "a small-caps request takes the small-caps face");
+    assert(matchFace(fonts["both"], 400, 0).glyphs[0].name == "bi"
+        && matchFace(fonts["both"], 400, 0, 2).glyphs[0].name == "bi",
+        "a comma-list face answers either request");
+    assert(matchFace(fonts["var"], 400, 0, 4) is null,
+        "a variant the axis cannot name takes nothing");
 }
 
 unittest
