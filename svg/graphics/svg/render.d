@@ -1178,6 +1178,13 @@ private struct Renderer
         // is one the upright table keeps square; 0 keeps every glyph
         // upright, and any other angle turns every glyph by it.
         float glyphOrientV=float.nan;
+        // glyph-orientation-horizontal (§10.9.7): 0deg to start, and
+        // the setter folds any angle to the closest of the four the
+        // spec permits. Only horizontal writing modes read it: 180
+        // turns every glyph round with the run still advancing by the
+        // horizontal metrics, 90 and 270 turn the glyphs out of the
+        // line and advance by the face's vertical extent instead.
+        float glyphOrientH=0.0f;
     }
 
     LengthCtx lengthCtx()
@@ -1540,36 +1547,27 @@ private struct Renderer
                     style.glyphOrientV = float.nan;
                 else
                 {
-                    float ang = float.nan; // gdc leaves bare floats as garbage
-                    foreach (u; ["grad", "turn", "deg", "rad"]) // longest suffix first
-                    {
-                        if (!isNaN(ang) || v.length <= u.length
-                            || v[$ - u.length .. $] != u)
-                            continue;
-                        try
-                            ang = to!float(v[0 .. $ - u.length]);
-                        catch (ConvException)
-                            ang = float.nan;
-                        if (!isNaN(ang))
-                        {
-                            if (u == "grad")
-                                ang *= 360.0f / 400.0f;
-                            else if (u == "rad")
-                                ang *= 180.0f / 3.1415926535897932f;
-                            else if (u == "turn")
-                                ang *= 360.0f;
-                        }
-                    }
-                    if (isNaN(ang))
-                    {
-                        try
-                            ang = to!float(v);
-                        catch (ConvException)
-                        {
-                        }
-                    }
+                    float ang = angleVal(v);
                     if (!isNaN(ang))
                         style.glyphOrientV = ang;
+                }
+                break;
+
+            case "glyph-orientation-horizontal":
+                // §10.9.7: an angle, which the UA must round to the
+                // closest of 0, 90, 180 and 270 degrees; the grad/turn/
+                // rad forms fold to degrees first, so 100grad lands on
+                // 90 with the rest. Malformed values keep the inherited
+                // orientation, as everywhere here.
+                float ang = angleVal(v);
+                if (!isNaN(ang))
+                {
+                    ang %= 360.0f;
+                    if (ang < 0.0f)
+                        ang += 360.0f;
+                    // "Closest of the permitted values" is the closest
+                    // multiple of 90, and 360 wraps back onto 0.
+                    style.glyphOrientH = (round(ang / 90.0f) % 4.0f) * 90.0f;
                 }
                 break;
 
@@ -3414,6 +3412,43 @@ private struct Renderer
             || (cp >= 0x20000 && cp <= 0x2FA1F);
     }
 
+    // §10.9.7's <angle> on both glyph-orientation properties: degrees
+    // unless a unit suffix says otherwise (grad, turn and rad are
+    // tried longest-first so a `grad` never reads as its own `rad`),
+    // and a bare number is degrees too. Garbage is NaN.
+    static float angleVal(in string v)
+    {
+        float ang = float.nan; // gdc leaves bare floats as garbage
+        foreach (u; ["grad", "turn", "deg", "rad"]) // longest suffix first
+        {
+            if (!isNaN(ang) || v.length <= u.length
+                || v[$ - u.length .. $] != u)
+                continue;
+            try
+                ang = to!float(v[0 .. $ - u.length]);
+            catch (ConvException)
+                ang = float.nan;
+            if (!isNaN(ang))
+            {
+                if (u == "grad")
+                    ang *= 360.0f / 400.0f;
+                else if (u == "rad")
+                    ang *= 180.0f / 3.1415926535897932f;
+                else if (u == "turn")
+                    ang *= 360.0f;
+            }
+        }
+        if (isNaN(ang))
+        {
+            try
+                ang = to!float(v);
+            catch (ConvException)
+            {
+            }
+        }
+        return ang;
+    }
+
     // The same question for a run's full orientation setting: an
     // explicit glyph-orientation-vertical of 0 stands every glyph up
     // (even Latin), any other angle turns every glyph, and `auto`
@@ -4093,6 +4128,15 @@ private struct Renderer
                         foreach (gl; cache.glyphStream(
                                 run.text[sl.lo .. sl.hi], Glyph.LoadFlag.Metrics))
                             adv = gl.advance.x;
+                    // §10.9.7: the turned-slot swap mirrors the host
+                    // path below - the SVG face's own ascent-descent
+                    // through the slot's scale, the host face's for a
+                    // fallback slot.
+                    if (run.style.wmode < 2
+                        && run.style.glyphOrientH % 180.0f != 0.0f)
+                        adv = sl.sf ? (sl.sf.ascent - sl.sf.descent) * fs
+                            : cache.fontMetrics().ascent
+                            - cache.fontMetrics().descent;
                     va ~= adv + run.style.letterSpacing
                         + (sl.lead == ' ' ? run.style.wordSpacing : 0.0f);
                     if (sl.sf && i && slots[i - 1].sf is sl.sf)
@@ -4103,6 +4147,7 @@ private struct Renderer
             {
                 foreach (gl; cache.glyphStream(run.text, Glyph.LoadFlag.Metrics))
                     va ~= gl.advance.x;
+                immutable fmHost = cache.fontMetrics();
                 size_t ti;
                 foreach (ref v; va)
                 {
@@ -4117,6 +4162,15 @@ private struct Renderer
                     // width - it already lies along the line.
                     if (run.style.wmode >= 2 && tbUpright(run.style, cp))
                         v = run.style.fontSize;
+                    // §10.9.7: glyph-orientation-horizontal is the same
+                    // swap seen from the other side: an angle that is
+                    // not a multiple of 180 turns the glyph out of the
+                    // line, and the current text position then advances
+                    // by the glyph's vertical metrics - as in a tb run,
+                    // the face's own ascent-descent extent.
+                    else if (run.style.wmode < 2
+                        && run.style.glyphOrientH % 180.0f != 0.0f)
+                        v = fmHost.ascent - fmHost.descent;
                     v += run.style.letterSpacing;
                     if (cp == ' ')
                         v += run.style.wordSpacing;
@@ -4339,10 +4393,20 @@ private struct Renderer
         // of that character data are passed over (§10.14.1).
         float rotAt(size_t gi)
         {
-            if (run.rots.empty)
-                return 0.0f;
-            immutable i = run.alts.length ? 0 : min(gi, run.rots.length - 1);
-            return run.rots[i];
+            float r = 0.0f; // gdc leaves bare floats as garbage
+            if (!run.rots.empty)
+            {
+                immutable i = run.alts.length ? 0 : min(gi, run.rots.length - 1);
+                r = run.rots[i];
+            }
+            // §10.9.7: in a horizontal run glyph-orientation-horizontal
+            // turns every glyph in the same frame as the rotate list:
+            // the angle rides the outline, and the layout pass has
+            // already given the advances the rule asks for. A vertical
+            // run answers to glyph-orientation-vertical instead.
+            if (run.style.wmode < 2)
+                r += run.style.glyphOrientH;
+            return r;
         }
 
         bool pathMatrix(size_t gi, out Matrix m)
@@ -11089,4 +11153,96 @@ unittest
     circle.addOval(FRect(1, 1, 9, 9));
     assert(points(Renderer.snapStrokeBand(circle, Matrix())).length < 4,
         "curves are not axis-aligned geometry");
+}
+
+unittest
+{
+    // §10.9.7 glyph-orientation-horizontal. An SVG font pins every
+    // number to the font's own: a 40x10-unit bar above the baseline in
+    // a 100-upem face at font size 10 paints a 4x1 device bar; the
+    // 30-unit default advance walks 3 user units, and the face's
+    // ascent-minus-descent extent of 150 walks 15 once a glyph is
+    // turned out of the line. Every bar edge and every angle here is
+    // a multiple of the pixel and a right turn, so the boxes are exact.
+    const string font = `<font id="o" horiz-adv-x="30">
+            <font-face font-family="Oh" units-per-em="100"
+                ascent="100" descent="-50" alphabetic="0"/>
+            <glyph unicode="a" glyph-name="bar" d="M0 0h40v10h-40z"/>
+        </font>`;
+    string doc(string attrs)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs>` ~ font ~ `</defs>
+            <text x="20" y="60" font-family="Oh" font-size="10"`
+            ~ attrs ~ `>aa</text>
+        </svg>`;
+    }
+    int[4] box(string attrs)
+    {
+        return inkBox(renderSVG(doc(attrs)));
+    }
+
+    // The plain run first: two bars side by side three units apart,
+    // riding the row above the baseline.
+    assert(box("") == [20, 59, 26, 59]);
+
+    // 180 turns the bars round but keeps the horizontal advances: the
+    // ink lands left of each origin and below the baseline.
+    assert(box(` glyph-orientation-horizontal="180"`) == [16, 60, 22, 60],
+        "a multiple of 180 advances by the horizontal metrics");
+
+    // 90 turns the bars out of the line, and each origin moves on by
+    // the vertical extent, 15 units, not the 3-unit horizontal advance.
+    assert(box(` glyph-orientation-horizontal="90"`) == [20, 60, 35, 63],
+        "a non-multiple of 180 advances by the vertical metrics");
+
+    // 270 (arrived at as -90) turns the other way: ink left and above.
+    assert(box(` glyph-orientation-horizontal="-90"`) == [19, 56, 34, 59],
+        "the angle normalises before the round");
+
+    // The spec's rounding to the closest of the four: 100 reads as 90,
+    // 350 as 0, and the grad/turn forms fold to degrees first.
+    assert(box(` glyph-orientation-horizontal="350"`) == [20, 59, 26, 59],
+        "350 rounds to 0");
+    assert(box(` glyph-orientation-horizontal="100"`)
+        == [20, 60, 35, 63], "100 degrees rounds to 90");
+    assert(box(` glyph-orientation-horizontal="200grad"`)
+        == [16, 60, 22, 60], "200grad is 180 once the unit folds");
+    assert(box(` glyph-orientation-horizontal="0.25turn"`)
+        == [20, 60, 35, 63], "a quarter turn is 90");
+
+    // Garbage keeps the inherited (initial) orientation.
+    assert(box(` glyph-orientation-horizontal="sideways"`)
+        == [20, 59, 26, 59], "malformed keeps the inherited angle");
+
+    // The swapped advance rides the anchoring too: a middle-anchored
+    // 90deg run centres on its 30-unit turned width, not its 6-unit
+    // flat one.
+    assert(box(` glyph-orientation-horizontal="90" text-anchor="middle"`)
+        == [5, 60, 20, 63], "the turned width anchors the chunk");
+
+    // Inherited: a group carries the angle down to the run.
+    assert(inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        width="120" height="120" viewBox="0 0 120 120">
+        <defs>` ~ font ~ `</defs>
+        <g glyph-orientation-horizontal="200grad" font-family="Oh"
+            font-size="10"><text x="20" y="60">aa</text></g>
+    </svg>`)) == [16, 60, 22, 60], "the angle inherits");
+
+    // Applied only in horizontal writing modes: a tb run's orientation
+    // answers to glyph-orientation-vertical, so the property changes
+    // nothing. Host face here, so compare two renderings of the same
+    // text rather than quote host-dependent pixels.
+    string tb(string attrs)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="120"
+            height="120" viewBox="0 0 120 120">
+            <text x="20" y="20" font-size="20" writing-mode="tb-rl"`
+            ~ attrs ~ `>Ab</text>
+        </svg>`;
+    }
+    assert(inkBox(renderSVG(tb("")))
+        == inkBox(renderSVG(tb(` glyph-orientation-horizontal="90"`))),
+        "glyph-orientation-horizontal does not touch a vertical run");
 }

@@ -311,6 +311,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | flags all land in recorded families: script    |            |
 |                       | squares, the 33-t skew cells, the ramp         |            |
 |                       | ceiling - no row moves                         |            |
+| step 83               | glyph-orientation-horizontal lands to the      | 2.62 M*    |
+|                       | letter: angles round to the closest of the     |            |
+|                       | four; turned runs advance by vertical metrics  |            |
+|                       | - the suite never sets it, unittests pin it    |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -374,6 +378,12 @@ stands as its gate.
 \* step 82 changed no code either: it rescanned both mid-bands with
 the step-70 recipe against the renders the eighth run left in
 `out/`, and every flag it raised closed into a recorded family.
+
+\* step 83 changed code but the suite never sets the property: the
+text fixtures touch `glyph-orientation-vertical` only, never the
+horizontal one, so no row can move - 526 rows came back
+byte-identical a ninth time, and the unittests are what pin the
+rule here, as at steps 6 and 78.
 
 ## Next steps
 
@@ -3175,14 +3185,43 @@ caption even carries the family's usual companion - the
 capture prints revision 1.8 under the fixture's 1.9.
 Both bands re-certified, and the audit's queue is empty.
 
-Up next - step 83: with every band carrying a verdict,
-the mass left on the gate is recorded ceilings and the
-hairline content floor, so the productive lane is the
-completeness one the roadmap took at steps 6, 37, 39,
-40, 64 and 78: a spec corner the sources cite but the
-suite never exercises - implement to the letter, pin it
-with unittests, and expect the gate back byte-identical
-again.
+Step 83 took that lane: `glyph-orientation-horizontal`
+(§10.9.7) parsed nowhere in the engine, cited by the spec
+and untouched by the suite. The setter now shares one
+`angleVal` helper with glyph-orientation-vertical - the
+old inline parse lifted verbatim - and then folds the
+angle to the closest of 0, 90, 180 and 270 once grad,
+turn and rad have folded to degrees, the spec's rounding
+rule. A horizontal run reads the value twice, as the CTP
+rule asks. The layout pass swaps the advance: a multiple
+of 180 keeps the horizontal metrics, 90 and 270 advance
+by the face's vertical extent - ascent-minus-descent, the
+SVG face's own through the slot scale on SVG-font slots -
+and rotAt folds the angle into the rotation the outline
+rides, so paint, the §10.7.1 alternate frame and the
+textPath tangent all turn together, while the tb branch,
+guarded by the writing mode, keeps answering to the
+vertical property alone. One unittest pins the rule on an
+SVG font whose numbers are exact: a 4x1 bar per glyph at
+font size 10, flat runs 3 units apart and turned runs 15,
+ink in the right quadrant per angle, 100deg reading as
+90 and 350 as 0, the grad and turn forms folding first,
+garbage keeping the inherited angle, middle anchoring
+centring the turned width, inheritance through a group,
+and a tb run's box unchanged by the property at all. The
+gate came back byte-identical a ninth time, exactly as
+the lane plans.
+
+Up next - step 84: `kerning` (§10.7) is the text
+chapter's last corner that parses nowhere - hkern
+elements reach kerning today (fonts-kern-01-t sits at
+184), the property itself nowhere. `auto` is already a
+legal reading: the spec hands auto's amount to the UA,
+and this engine's answer is the font's own tables and
+nothing else. But `0` - kerning off, even against those
+tables - and a <length>, that distance added between
+adjacent glyphs, go unread, and no fixture sets the
+property at all: same lane, same flat-gate plan.
 
 ## Deferred / accepted ceilings (do not chase)
 
