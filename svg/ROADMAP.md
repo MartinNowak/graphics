@@ -315,6 +315,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | letter: angles round to the closest of the     |            |
 |                       | four; turned runs advance by vertical metrics  |            |
 |                       | - the suite never sets it, unittests pin it    |            |
+| step 84               | kerning lands: auto rides the font's own       | 2.62 M*    |
+|                       | pairs, a length turns auto-kerning off and     |            |
+|                       | spaces adjacent glyphs - no row moves          |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -384,6 +387,12 @@ text fixtures touch `glyph-orientation-vertical` only, never the
 horizontal one, so no row can move - 526 rows came back
 byte-identical a ninth time, and the unittests are what pin the
 rule here, as at steps 6 and 78.
+
+\* step 84 is completeness the same way: not one fixture sets the
+`kerning` *property* - fonts-kern-01-t exercises the hkern
+*element* mechanism the engine already honors - so the fold cannot
+move a row. 526 rows came back byte-identical a tenth time, and
+the unittests pin the rule.
 
 ## Next steps
 
@@ -3212,16 +3221,49 @@ and a tb run's box unchanged by the property at all. The
 gate came back byte-identical a ninth time, exactly as
 the lane plans.
 
-Up next - step 84: `kerning` (§10.7) is the text
-chapter's last corner that parses nowhere - hkern
-elements reach kerning today (fonts-kern-01-t sits at
-184), the property itself nowhere. `auto` is already a
-legal reading: the spec hands auto's amount to the UA,
-and this engine's answer is the font's own tables and
-nothing else. But `0` - kerning off, even against those
-tables - and a <length>, that distance added between
-adjacent glyphs, go unread, and no fixture sets the
-property at all: same lane, same flat-gate plan.
+Step 84 stayed in the lane and landed `kerning` (§10.7),
+the spacing property that parsed nowhere while only the
+hkern element reached any kerning at all. The setter
+stores `auto` as NaN and anything else as a parseLength
+fold - the same parent-context units letter-spacing's
+take, so em rides the inherited size exactly as its
+supplemented sibling's do. Style's NaN gates the font's
+own pair tables: SVG-font hkern rides only under auto,
+and a length turns the tables off - the spec's own
+sentence is that a provided length disables auto-kerning
+and sets the adjacent-glyph distance instead. That
+distance folds into `va` in front of the textLength
+adjust, paired only: every advance but the last carries
+it, since the distance speaks between adjacent glyphs
+and no gap trails the run.
+
+One unittest pins the rule on a font that carries its
+own hkern pair, 2 units at the test's font size: auto
+and the initial agree on the tightened box, a length of
+0 opens the pair back to the plain advance, -1 and 4
+move it past, px and em (on a group, so the parent
+context carries the size) fold the same length, three
+bars take exactly two gaps, an end anchor centres on the
+ungapped tail, letter-spacing stacks on top as §10.7
+says, garbage keeps the inherited value, a group carries
+the length down, and a host face walks its second glyph
+out by exactly the length - the pin there is the
+difference between two renders, host pixels being what
+they are. The gate could not move and did not: 526 rows
+byte-identical a tenth time, 2.62 M.
+
+Up next - step 85: textPath's own attribute table is the
+text chapter's last unclaimed corner. `method` and
+`spacing` parse nowhere, and the fixtures never set
+them - every path-text row runs on the defaults, so the
+gate again cannot move. `align` and `exact` already
+describe the engine's rigid ride along the path, and
+`auto`'s "visually appealing" latitude is the UA's own
+answer, but `stretch` is real geometry the spec spells
+out: the glyph outlines convert to paths and their end
+points and control points ride the perpendicular vectors
+from the path, warping connected glyphs to keep their
+connections.
 
 ## Deferred / accepted ceilings (do not chase)
 

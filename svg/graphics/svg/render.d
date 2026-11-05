@@ -1146,6 +1146,11 @@ private struct Renderer
         // emit a field-wise default ctor, which would leave bare fields
         // as garbage.
         float letterSpacing=0, wordSpacing=0, baselineShift=0;
+        // kerning (§10.7): NaN carries `auto`, the font's own
+        // adjustment - here an SVG font's kern pairs, since no host
+        // table is ever read. Anything else is the length that
+        // disables auto-kerning and spaces adjacent glyphs instead.
+        float kerning=float.nan;
         bool preserveWS=false;
 
         // Text decoration (§10.12). The property table says it does not
@@ -1762,6 +1767,30 @@ private struct Renderer
                     break;
                 }
                 break;
+
+            case "kerning":
+            {
+                // §10.7: `auto` asks the font's own tables (stored as
+                // NaN); a length disables that auto-kerning and sets
+                // the adjacent-glyph distance instead, with `res`
+                // carrying the units fold - bare numbers ride the
+                // current user space, em and percent the font size,
+                // all parseLength's (§6.5). Malformed values keep the
+                // inherited kerning, as everywhere here.
+                if (v == "auto")
+                    style.kerning = float.nan;
+                else
+                {
+                    float res = float.nan; // gdc leaves bare floats as garbage
+                    lc.pctRef = style.fontSize;
+                    try
+                        res = parseLength(v, lc);
+                    catch (Exception)
+                        break; // not a length: keep the inherited kerning
+                    style.kerning = res;
+                }
+                break;
+            }
 
             case "letter-spacing":
             case "word-spacing":
@@ -4139,7 +4168,12 @@ private struct Renderer
                             - cache.fontMetrics().descent;
                     va ~= adv + run.style.letterSpacing
                         + (sl.lead == ' ' ? run.style.wordSpacing : 0.0f);
-                    if (sl.sf && i && slots[i - 1].sf is sl.sf)
+                    // §10.7: the pairs ride only under `auto` - an
+                    // explicit kerning length disables auto-kerning,
+                    // the font's own tables included; the fold over
+                    // `va` below is what the length branch becomes.
+                    if (isNaN(run.style.kerning) && sl.sf && i
+                        && slots[i - 1].sf is sl.sf)
                         va[i - 1] -= sl.sf.kernK(slots[i - 1].gs, sl.gs) * fs;
                 }
             }
@@ -4176,6 +4210,17 @@ private struct Renderer
                         v += run.style.wordSpacing;
                 }
             }
+            // §10.7: with a length provided, inter-character spacing
+            // is that distance - set to it, not adjusted by it - and
+            // it rides in va exactly like hkern's tightening above, so
+            // paint, anchoring and textLength all stay consistent with
+            // the letter-spacing it supplements (that one is already
+            // folded into every advance, trailing included; kerning
+            // speaks only between adjacent glyphs, so the last advance
+            // carries no gap after it).
+            if (!isNaN(run.style.kerning) && va.length > 1)
+                foreach (ref v; va[0 .. $ - 1])
+                    v += run.style.kerning;
             if (run.textLength > 0 && run.xs.empty && va.length)
             {
                 float natural = 0; // gdc leaves bare float locals as garbage
@@ -11245,4 +11290,102 @@ unittest
     assert(inkBox(renderSVG(tb("")))
         == inkBox(renderSVG(tb(` glyph-orientation-horizontal="90"`))),
         "glyph-orientation-horizontal does not touch a vertical run");
+}
+
+unittest
+{
+    // §10.7 kerning. The font supplies its own pair - hkern k=20,
+    // worth 2 user units at font size 10 on this 100-upem face - and
+    // the same bar as the orientation test: 4x1 devices, 10-unit
+    // default advances, so every gap below reads straight off the
+    // ink box.
+    const string kfont = `<font id="k" horiz-adv-x="100">
+            <font-face font-family="Kh" units-per-em="100"
+                ascent="100" descent="0" alphabetic="0"/>
+            <glyph unicode="a" glyph-name="bar" d="M0 0h40v10h-40z"/>
+            <hkern u1="a" u2="a" k="20"/>
+        </font>`;
+    string kdoc(string attrs, string body = `aa`)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs>` ~ kfont ~ `</defs>
+            <text x="20" y="60" font-family="Kh" font-size="10"`
+            ~ attrs ~ `>` ~ body ~ `</text>
+        </svg>`;
+    }
+    int[4] kbox(string attrs, string body = `aa`)
+    {
+        return inkBox(renderSVG(kdoc(attrs, body)));
+    }
+
+    // auto (the initial, spelled out or not) is the font's own
+    // adjustment: the pair tightens by 2.
+    assert(kbox("") == [20, 59, 31, 59], "auto rides the kern pair");
+    assert(kbox(` kerning="auto"`) == [20, 59, 31, 59]);
+
+    // A length disables auto-kerning - the pair included - and
+    // spaces the glyphs by the length instead: 0 opens the pair back
+    // to the plain 10-unit advance, -1 tightens past it, 4 opens.
+    assert(kbox(` kerning="0"`) == [20, 59, 33, 59],
+        "a length turns the font's own kerning off");
+    assert(kbox(` kerning="-1"`) == [20, 59, 32, 59]);
+    assert(kbox(` kerning="4"`) == [20, 59, 37, 59]);
+    assert(kbox(` kerning="4px"`) == [20, 59, 37, 59],
+        "the unit form is the same user-unit length here");
+    // em rides the font size in force where the length appears, the
+    // same parent-context rule letter-spacing's units take (see the
+    // font-size case): with the size on the group, the em is on 10.
+    assert(inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        width="120" height="120" viewBox="0 0 120 120">
+        <defs>` ~ kfont ~ `</defs>
+        <g font-family="Kh" font-size="10"
+            ><text x="20" y="60" kerning=".5em">aa</text></g>
+    </svg>`)) == [20, 59, 38, 59], "em rides the font size, 5 at 10");
+
+    // The distance speaks only between adjacent glyphs: the last
+    // advance carries no trailing gap. Three bars take two gaps; an
+    // end anchor centres on the 14 + 10 chain of an anchored pair,
+    // not on a gap-augmented three.
+    assert(kbox(` kerning="2"`, `aaa`) == [20, 59, 47, 59]);
+    string edoc(string attrs)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs>` ~ kfont ~ `</defs>
+            <text x="50" y="60" font-family="Kh" font-size="10"
+                text-anchor="end"` ~ attrs ~ `>aa</text>
+        </svg>`;
+    }
+    assert(inkBox(renderSVG(edoc(` kerning="4"`))) == [26, 59, 43, 59],
+        "no gap trails the last glyph of an anchored chunk");
+
+    // The length supplements letter-spacing rather than replacing it.
+    assert(kbox(` kerning="4" letter-spacing="1"`) == [20, 59, 38, 59],
+        "kerning adds to letter-spacing, as §10.7 says");
+
+    // Garbage keeps the inherited (initial) auto; a group carries a
+    // length down to the run.
+    assert(kbox(` kerning="sideways"`) == [20, 59, 31, 59],
+        "malformed keeps the inherited kerning");
+    assert(inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        width="120" height="120" viewBox="0 0 120 120">
+        <defs>` ~ kfont ~ `</defs>
+        <g kerning="0" font-family="Kh" font-size="10"
+            ><text x="20" y="60">aa</text></g>
+    </svg>`)) == [20, 59, 33, 59], "the length inherits");
+
+    // And it reaches host faces too, where auto has nothing to read:
+    // a 5-unit length walks the second glyph out by exactly 5. Host
+    // pixels vary, so the pin is the difference between two renders.
+    string host(string attrs)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="120"
+            height="120" viewBox="0 0 120 120">
+            <text x="20" y="60" font-size="20"` ~ attrs ~ `>ii</text>
+        </svg>`;
+    }
+    assert(inkBox(renderSVG(host(` kerning="5"`))) [2]
+        == inkBox(renderSVG(host(""))) [2] + 5,
+        "the length spaces host glyphs as much as SVG-face ones");
 }
