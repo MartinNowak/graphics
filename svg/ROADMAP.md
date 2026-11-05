@@ -322,6 +322,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | outlines about a corner, points riding the     |            |
 |                       | path's normals; auto answers with exact -      |            |
 |                       | no row moves                                   |            |
+| step 86               | SVG fonts take the vertical modes: the vert-*  | 2.62 M*    |
+|                       | trio lands on font and glyph, vkern joins the  |            |
+|                       | pair tables read by orientation, and the slot  |            |
+|                       | loop and the length walk y - no row moves      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -403,6 +407,13 @@ sets `method=` or `spacing=` on a <textPath>, so every path-text
 row rides the defaults and the gate cannot move. 526 rows came
 back byte-identical an eleventh time, and the unittests pin both
 the straight ride and the bent one.
+
+\* step 86 is completeness once more: no fixture sets a vert-*
+metric, an altGlyph substitution or a textLength on a vertical
+SVG-font run, so the vertical branch cannot move a row. 526
+rows came back byte-identical a twelfth time, and the
+unittests pin the stood and turned placements, the vkern split
+and the length walk.
 
 ## Next steps
 
@@ -3300,30 +3311,56 @@ either end draws nothing under stretch as under align.
 The gate could not move and did not: 526 rows
 byte-identical an eleventh time, 2.62 M.
 
-Up next - step 86, and two corners that scoped closed
-on the way. In SVG 1.1 a <glyphRef> lives only inside
-<altGlyphDef>: the content models of the text content
-elements name altGlyph, textPath, tref, tspan and a, no
-glyphRef among them, and the engine already resolves
-glyphRefs in both the bare-def and the altGlyphItem
-spellings. And `font-stretch` defers its normative
-definition to CSS2, where it selects nothing a renderer
-draws - ignoring it is the SVG 1.1 letter, and the
-engine already does. What stays open is the clause the
-writing-mode records left standing: SVG font runs,
-altGlyph runs and textLength never take the vertical
-branch. vert-adv-x/vert-adv-y/vert-origin-x/
-vert-origin-y parse nowhere, vkern is not even parsed,
-and the slot loop only ever walks the page's x. Step 86
-is SVG fonts in the vertical modes: the four vert-*
-attributes land on font and glyph, a tb run's advances
-come from vert-adv-y with the defaults the writing-mode
-rules ask for, and the slot loop takes the vertical
-placement the host loop already knows. No fixture lays
-an SVG font vertically, so the gate again cannot move;
-the unittests pin it. vkern then rides next: the kerning
-property already gates hkern, and a vertical SVG font
-run is where its pair table finally has a run to answer.
+Step 86 put SVG fonts in the vertical writing modes,
+closing the clause the writing-mode records left
+standing: SVG font runs, altGlyph runs and textLength
+now take the vertical branch. The vert-* trio - three
+attributes, not the four the Up-next note spelled,
+since no edition names a vert-adv-x - parses on <font>,
+<glyph> and <missing-glyph>, and the §20.3/§20.4
+defaults settle at parse time: vert-adv-y one em,
+vert-origin-x half the font's own horiz-adv-x,
+vert-origin-y the face's ascent, glyph and
+missing-glyph inheriting the font's settled numbers.
+vkern joins the pair tables and the lookup answers by
+orientation: vkern for a vertical run, hkern for a
+horizontal one, kerning=0 silencing either. The layout
+pass takes vertical advances - vert-adv-y through the
+face's scale, a one-em pitch for upright host-face
+slots - and the slot loop walks y: an upright slot
+lands its declared origin on the text position, a
+turned one rotates about that origin, and the baseline-
+shift, the rotate list and altGlyph substitution -
+carrying its own face's numbers - ride along. The
+length walk joins too: textLength spaces vertical slots
+through va, and its pin gate reads the along-axis list,
+y in the vertical modes and x in the horizontal ones,
+because that is the list whose pins the length stands
+down for. A parse unittest pins the settled trio and
+the vkern read; a render unittest pins stood and turned
+placements on four faces, the pair tables split by
+orientation, the shift, the length and the substitute.
+No fixture lays an SVG font, an altGlyph or a
+textLength into a vertical run, so the gate could not
+move and did not: 526 rows byte-identical a twelfth
+time, 2.62 M.
+
+Up next - step 87, the last writing-mode gap the
+step-73 record kept open. rl-tb stays a recorded bidi
+ceiling - text-intro-10-f's inline reversal belongs
+with the shaping the renderer does not run - and
+text-intro-03-b a host-font one. Decorations are what
+is left: they are still gated off above wmode 2,
+because SE rules underline, overline and line-through
+along the horizontal baseline, defines no vertical
+equivalent, and no fixture decorates a tb run. Step 87
+can rule the vertical counterpart the way the writing
+modes rule everything else - the same axis swap that
+moved the baseline into the column: lines riding the
+baseline column at the same em fractions, their extent
+followed by the slot walk, the specifying element's
+style painting - and the unittests pin what no
+reference draws.
 
 ## Deferred / accepted ceilings (do not chase)
 

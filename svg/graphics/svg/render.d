@@ -4226,14 +4226,15 @@ private struct Renderer
                 // SVG font run (§20.5-20.7): per-glyph slots, out-of-range
                 // characters falling back to the host face one code point
                 // at a time. letter/word-spacing rides per slot (a ligature
-                // slot counts once), and hkern tightens the PRECEDING
-                // glyph's advance - the spec models kerning as exactly that
-                // reduction, so folding it into va keeps paint, anchoring
-                // and textLength all consistent. A substitute slot carries
-                // its own font, whose units-per-em and default advance go
-                // with the outline (§10.14.1). Vertical writing modes do
-                // not reach this branch: no vertical sample uses an SVG
-                // font or an altGlyph, so slots keep horizontal advances.
+                // slot counts once), and the font's pair tables tighten the
+                // PRECEDING glyph's advance - hkern in the horizontal modes,
+                // vkern in the vertical ones - because the spec models
+                // kerning as exactly that reduction, so folding it into va
+                // keeps paint, anchoring and textLength all consistent. A
+                // substitute slot carries its own font, whose units-per-em
+                // and default advance go with the outline (§10.14.1); in a
+                // vertical run the advance is that font's vert-adv-y, the
+                // §20.3/§20.4 default chain settled at parse time.
                 auto slots = glyphSlots(run, sf);
                 foreach (i, ref sl; slots)
                 {
@@ -4242,7 +4243,14 @@ private struct Renderer
                         fs = run.style.fontSize / sl.sf.upem;
                     float adv = 0; // gdc leaves bare float locals as garbage
                     if (sl.sf)
-                        adv = (sl.gs ? sl.gs.advX : sl.sf.defaultAdv) * fs;
+                        adv = (run.style.wmode >= 2
+                            ? (sl.gs ? sl.gs.vertAdvY : sl.sf.vertAdvY)
+                            : (sl.gs ? sl.gs.advX : sl.sf.defaultAdv)) * fs;
+                    else if (run.style.wmode >= 2 && tbUpright(run.style, sl.lead))
+                        // §10.7.1: the fallback island of a vertical run
+                        // takes the host rule waiting below - an upright
+                        // glyph presents a square box and advances one em.
+                        adv = run.style.fontSize;
                     else
                         foreach (gl; cache.glyphStream(
                                 run.text[sl.lo .. sl.hi], Glyph.LoadFlag.Metrics))
@@ -4262,9 +4270,13 @@ private struct Renderer
                     // explicit kerning length disables auto-kerning,
                     // the font's own tables included; the fold over
                     // `va` below is what the length branch becomes.
+                    // The vertical modes read vkern, the horizontal
+                    // ones hkern; the pair speaks along the inline
+                    // axis either way.
                     if (isNaN(run.style.kerning) && sl.sf && i
                         && slots[i - 1].sf is sl.sf)
-                        va[i - 1] -= sl.sf.kernK(slots[i - 1].gs, sl.gs) * fs;
+                        va[i - 1] -= sl.sf.kernK(slots[i - 1].gs, sl.gs,
+                            run.style.wmode >= 2) * fs;
                 }
             }
             else
@@ -4311,7 +4323,15 @@ private struct Renderer
             if (!isNaN(run.style.kerning) && va.length > 1)
                 foreach (ref v; va[0 .. $ - 1])
                     v += run.style.kerning;
-            if (run.textLength > 0 && run.xs.empty && va.length)
+            // §10.4/§10.8: an absolute-positioning list pins glyphs by
+            // fiat and the length stands down for the pin. The list
+            // that pins lies along the axis the length walks: the x
+            // list in the horizontal modes, the y list in the vertical
+            // ones - a cross-axis list pins the other coordinate only
+            // and leaves the walking alone.
+            if (run.textLength > 0
+                && (run.style.wmode >= 2 ? run.ys.empty : run.xs.empty)
+                && va.length)
             {
                 float natural = 0; // gdc leaves bare float locals as garbage
                 foreach (v; va)
@@ -4610,10 +4630,11 @@ private struct Renderer
         float gacc;   // alternate glyphs: the advances it has used already
         if (sf || run.alts.length)
         {
-            // SVG font run: same placement rules as the host path below,
-            // but glyph outlines come from the font (converted from font
-            // units in appendGlyph) and the pen always advances by the
-            // measured `va` (advances + spacing + hkern).
+            // SVG font run: the same placement rules as the host path
+            // below, horizontal and vertical walks alike, but glyph
+            // outlines come from the font (converted from font units in
+            // appendGlyph) and the pen always advances by the measured
+            // `va` (advances + spacing + the pair tables' fold).
             foreach (ref sl; glyphSlots(run, sf))
             {
                 Matrix m;
@@ -4625,6 +4646,143 @@ private struct Renderer
                         ++gi;
                         continue; // midpoint off the path: not rendered
                     }
+                }
+                else if (s.wmode >= 2)
+                {
+                    // §10.2/§10.7.1/§10.9.7 + §20.3/§20.4: the vertical
+                    // walk of a slot run. The positioning lists swap
+                    // roles as in the host loop below - x (and dx) pin
+                    // the vertical baseline, y (and dy) the top edge of
+                    // the box the layout pass gave the slot - and no
+                    // dominant-baseline rise applies in the vertical
+                    // modes. An SVG-font slot stands or turns on its
+                    // declared vertical origin: the point
+                    // (vert-origin-x, vert-origin-y) - the font's own
+                    // default, settled at parse time when the glyph
+                    // declares none - is the point the text position
+                    // meets, so an undeclared upright glyph hangs from
+                    // the box's top edge at the face's ascent, and a
+                    // turned one turns about that same point by the
+                    // glyph-orientation-vertical angle (90 when auto),
+                    // the §10.5 rotate adding to it as everywhere.
+                    // baseline-shift goes to the block-start side - +x,
+                    // local -y inside the turn frame - mirroring the
+                    // host walk; a fallback host slot declares no
+                    // origin, so it keeps the host walk's reference-
+                    // fitted placement, ink box centred on the baseline.
+                    float bx = (gi < run.xs.length ? run.xs[gi] : pen.x)
+                             + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
+                    float ty = pen.y;
+                    if (gi < run.ys.length)
+                        ty = pen.y = run.ys[gi];
+                    ty += (gi < run.dys.length ? run.dys[gi] : 0.0f);
+
+                    immutable float adv = gi < va.length ? va[gi] : 0.0f;
+                    immutable float rot = rotAt(gi);
+                    immutable bool upright = tbUpright(s, sl.lead);
+                    // The angle the slot and its group's temporary frame
+                    // turn at: upright is page-down plus the rotate
+                    // list; turned is glyph-orientation-vertical's angle
+                    // (90 when auto) plus it. §10.7.1: a character drawn
+                    // as several glyphs lives in that frame, the
+                    // advances between those glyphs included - the same
+                    // xs/ys guard as the horizontal walk above.
+                    immutable float phi = (upright ? 90.0f
+                        : isNaN(s.glyphOrientV) ? 90.0f : s.glyphOrientV) + rot;
+                    float sx = bx, sy = ty;
+                    if (run.alts.length && gi && gi >= run.xs.length
+                        && gi >= run.ys.length)
+                    {
+                        immutable rad = phi * PI / 180.0f;
+                        sx = gbase.x + cos(rad) * gacc;
+                        sy = gbase.y + sin(rad) * gacc;
+                    }
+                    else
+                    {
+                        gbase = FPoint(bx, ty);
+                        gacc = 0.0f;
+                    }
+                    if (sl.sf)
+                    {
+                        immutable float us = s.fontSize / sl.sf.upem;
+                        immutable float vOx = (sl.gs ? sl.gs.vertOriginX
+                            : sl.sf.vertOriginX) * us;
+                        immutable float vOy = (sl.gs ? sl.gs.vertOriginY
+                            : sl.sf.vertOriginY) * us;
+                        if (upright)
+                        {
+                            m.setTranslate(sx - vOx + s.baselineShift,
+                                           sy + vOy);
+                            if (rot != 0.0f)
+                            {
+                                Matrix r;
+                                r.setRotate(rot);
+                                m = m * r;
+                            }
+                        }
+                        else
+                        {
+                            m.setTranslate(sx, sy);
+                            Matrix r;
+                            r.setRotate(phi); // degrees, clockwise (y down)
+                            m = m * r;
+                            Matrix q;
+                            q.setTranslate(-vOx, vOy); // the declared origin
+                            m = m * q;                  // onto the frame's pivot
+                            if (s.baselineShift != 0.0f)
+                            {
+                                Matrix b;
+                                b.setTranslate(0.0f, -s.baselineShift);
+                                m = m * b;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // The fallback island's outline bounds feed the
+                        // host walk's centring; the stream is read here
+                        // and again in the draw below (the cache answers
+                        // the second time).
+                        const(Glyph)[] gls;
+                        foreach (gl; cache.glyphStream(run.text[sl.lo .. sl.hi],
+                                Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+                            gls ~= gl;
+                        FRect ink;
+                        if (gls.length)
+                            ink = gls[0].path.bounds;
+                        if (upright)
+                        {
+                            immutable float cx = ink.width > 0.0f
+                                ? 0.5f * (ink.left + ink.right) : 0.5f * adv;
+                            m.setTranslate(sx - cx + s.baselineShift,
+                                           sy + s.fontSize);
+                            if (rot != 0.0f)
+                            {
+                                Matrix r;
+                                r.setRotate(rot);
+                                m = m * r;
+                            }
+                        }
+                        else
+                        {
+                            immutable float oy = ink.height > 0.0f
+                                ? sx + 0.5f * (ink.top + ink.bottom)
+                                : sx - (fm.ascent + fm.descent) * 0.5f;
+                            m.setTranslate(oy, sy);
+                            Matrix r;
+                            r.setRotate(phi);
+                            m = m * r;
+                            if (s.baselineShift != 0.0f)
+                            {
+                                Matrix q;
+                                q.setTranslate(0.0f, -s.baselineShift);
+                                m = m * q;
+                            }
+                        }
+                    }
+                    pen.x = bx;
+                    pen.y = ty + adv;
+                    gacc += adv;
                 }
                 else
                 {
@@ -11499,6 +11657,136 @@ unittest
     assert(inkBox(renderSVG(host(` kerning="5"`))) [2]
         == inkBox(renderSVG(host(""))) [2] + 5,
         "the length spaces host glyphs as much as SVG-face ones");
+}
+
+unittest
+{
+    // §20.3/§20.4's vertical trio and §20.7's vkern, read at last by
+    // the vertical writing modes (§10.9.7), altGlyph substitution
+    // (§10.14.1) included. Vh spells nothing vertical: at font size
+    // 10 in its 100-unit em the bar - a 40x40-unit box standing on
+    // the baseline, 4x4 device pixels - advances a whole em
+    // (vert-adv-y), centres half its 20-unit advance off the
+    // baseline (vert-origin-x) and hangs from the box top at the
+    // ascent (vert-origin-y). Eh spells the trio at the font level
+    // and vert-adv-y again at the glyph: ink 3 pixels left of x,
+    // standing 12 below the box top, slots 8 apart. Khv carries one
+    // vkern pair and one hkern pair: the vertical run reads the
+    // first, a horizontal run the second. Wh rides an altGlyph
+    // substitution, its 200-unit em, font-level vert-origin-x 0 and
+    // glyph-level vert-origin-y 100 going with the outline. Every
+    // edge lands on a pixel and every angle is a right turn, so the
+    // boxes pin exactly.
+    const string vfonts = `<font id="v" horiz-adv-x="20">
+            <font-face font-family="Vh" units-per-em="100"
+                ascent="100" descent="-20" alphabetic="0"/>
+            <glyph unicode="a" glyph-name="bar" d="M0 0h40v40h-40z"/>
+            <glyph unicode="文" glyph-name="cjk" d="M0 0h40v40h-40z"/>
+        </font>
+        <font id="e" horiz-adv-x="20" vert-adv-y="120"
+            vert-origin-x="30" vert-origin-y="120">
+            <font-face font-family="Eh" units-per-em="100"
+                ascent="100" descent="-20" alphabetic="0"/>
+            <glyph unicode="a" glyph-name="bar" vert-adv-y="80"
+                d="M0 0h40v40h-40z"/>
+        </font>
+        <font id="kv" horiz-adv-x="20">
+            <font-face font-family="Khv" units-per-em="100"
+                ascent="100" descent="-20" alphabetic="0"/>
+            <glyph unicode="a" glyph-name="bar" d="M0 0h40v40h-40z"/>
+            <vkern u1="a" u2="a" k="20"/>
+            <hkern u1="a" u2="a" k="60"/>
+        </font>
+        <font id="w" horiz-adv-x="20" vert-origin-x="0">
+            <font-face font-family="Wh" units-per-em="200"
+                ascent="200" descent="-40" alphabetic="0"/>
+            <glyph id="g1" glyph-name="wbar" vert-origin-y="100"
+                d="M0 0h40v40h-40z"/>
+        </font>`;
+    string docV(string attrs, string body, string family = "Vh")
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs>` ~ vfonts ~ `</defs>
+            <text x="20" y="20" font-size="10" writing-mode="tb-rl"`
+            ~ (family.length ? ` font-family="` ~ family ~ `"` : "")
+            ~ attrs ~ `>` ~ body ~ `</text>
+        </svg>`;
+    }
+    int[4] box(string attrs, string body, string family = "Vh")
+    {
+        return inkBox(renderSVG(docV(attrs, body, family)));
+    }
+    // The length case rides a group transform for its chunk position:
+    // §10.4's list pins stand for the axis they walk, and a spelled
+    // x or y - the run's own first value included - is exactly such a
+    // pin on the axis a vertical length walks.
+    int[4] tlBox(string attrs, string body, string family = "Vh")
+    {
+        return inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs>` ~ vfonts ~ `</defs>
+            <g transform="translate(20 20)"><text font-size="10"`
+            ~ (family.length ? ` font-family="` ~ family ~ `"` : "")
+            ~ ` writing-mode="tb-rl"` ~ attrs ~ `>` ~ body ~ `</text></g>
+        </svg>`));
+    }
+
+    // The settled defaults, stood and turned. glyph-orientation-
+    // vertical "0" stands any script; auto stands CJK and turns
+    // Latin by 90 about the declared origin. One em between slot
+    // tops is vert-adv-y's own default showing through.
+    assert(box(` glyph-orientation-vertical="0"`, "a") == [19, 26, 22, 29],
+        "a pixel off the baseline, hanging from the top at the ascent");
+    assert(box("", "\u6587") == [19, 26, 22, 29],
+        "auto stands a CJK code point exactly as spell-zero does");
+    assert(box("", "a") == [10, 19, 13, 22],
+        "auto turns Latin: the origin pixel holds, the bar lies left");
+    assert(box(` glyph-orientation-vertical="90"`, "a") == [10, 19, 13, 22],
+        "the spelled right angle matches auto");
+    assert(box("", "aa") == [10, 19, 13, 32],
+        "the em walks the second slot straight down");
+
+    // The explicit trio: font-level numbers with the glyph's own
+    // vert-adv-y replacing one of them.
+    assert(box(` glyph-orientation-vertical="0"`, "aa", "Eh")
+        == [17, 28, 20, 39], "3 left, 12 down, 8-pixel slots");
+
+    // The pair tables split by orientation, and kerning=0 still
+    // means no auto kerning - the vertical table included.
+    assert(box(` glyph-orientation-vertical="0"`, "aa", "Khv")
+        == [19, 26, 22, 37], "vkern tightens the vertical slot by 2");
+    assert(box(` glyph-orientation-vertical="0" kerning="0"`, "aa", "Khv")
+        == [19, 26, 22, 39], "an explicit zero silences vkern too");
+    assert(box(` glyph-orientation-vertical="0" kerning="4"`, "aa", "Khv")
+        == [19, 26, 22, 43], "a spelled gap rides instead of the pair");
+
+    // baseline-shift steps the upright slot to the block-start side
+    // (+x), and a textLength spaces vertical slots through va the
+    // way it spaces horizontal ones.
+    assert(box(` glyph-orientation-vertical="0" baseline-shift="2"`, "a")
+        == [21, 26, 24, 29], "the slot steps 2 right, the ink with it");
+    assert(tlBox(` glyph-orientation-vertical="0" textLength="24"`
+        ~ ` lengthAdjust="spacing"`, "aa") == [19, 26, 22, 43],
+        "the length walks the second slot out to 43");
+
+    // A substitute run takes the vertical walk carrying its own
+    // face: Wh's em scale, the font's vert-origin-x and the glyph's
+    // vert-origin-y all travel with the outline (§10.14.1).
+    assert(box(` glyph-orientation-vertical="0"`,
+        `<altGlyph xlink:href="#g1">ab</altGlyph>`, "") == [20, 23, 21, 24],
+        "the substitute stands 5 down on its own face's metrics");
+
+    // And the same face read horizontally answers from hkern, the
+    // vkern entry silent there: advance 2, the pair's k=60 adding 6
+    // so the second bar starts left of the first.
+    assert(inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        width="120" height="120" viewBox="0 0 120 120">
+        <defs>` ~ vfonts ~ `</defs>
+        <text x="20" y="60" font-family="Khv" font-size="10">aa</text>
+    </svg>`)) == [16, 56, 23, 59], "hkern answers the horizontal read");
 }
 
 unittest

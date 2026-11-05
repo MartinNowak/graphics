@@ -1,6 +1,6 @@
 module graphics.svg.fonts;
 
-import std.algorithm, std.ascii, std.conv, std.file, std.range, std.string, std.utf;
+import std.algorithm, std.ascii, std.conv, std.file, std.math, std.range, std.string, std.utf;
 import graphics.core.path;
 import graphics.svg.core : addSVGPath;
 import graphics.svg.css : resolveHref, sheetFaces;
@@ -44,6 +44,12 @@ struct SvgGlyph
     Path d;       // font units, y up (empty when `d` is absent)
     bool hasD;
     float advX;
+    // Vertical metrics (§20.4). Parsed with NaN standing for absent and
+    // replaced by the parent font's settled defaults at the end of
+    // parseFont, so callers see a settled value either way.
+    float vertAdvY = float.nan;
+    float vertOriginX = float.nan;
+    float vertOriginY = float.nan;
     string id;    // id: what an altGlyph href names (§10.14.1)
     string name;  // glyph-name
     dchar[] uni;  // decoded `unicode` sequence; empty -> name-only glyph
@@ -55,6 +61,12 @@ struct SvgFont
     float defaultAdv;      // horiz-adv-x: the glyph advance default
     float originX, originY; // horiz-origin-x/y: recorded, never a
                             // placement offset (see parseFont)
+    // Vertical defaults (§20.3), settled by parseFont from their
+    // absent spellings: vert-adv-y defaults to one em, vert-origin-x
+    // to half the effective horiz-adv-x, vert-origin-y to the ascent.
+    float vertAdvY = float.nan;
+    float vertOriginX = float.nan;
+    float vertOriginY = float.nan;
 
     // the face slot this font registers into (CSS font matching):
     // numeric CSS weight (400 normal, 700 bold) and 0 roman, 1 italic,
@@ -74,7 +86,8 @@ struct SvgFont
     SvgGlyph[] glyphs;  // document order (§20.6: first match wins)
     SvgGlyph missing;   // missing-glyph (§20.5)
     bool hasMissing;
-    SvgKern[] kerns;
+    SvgKern[] kerns;    // hkern: pairs for the horizontal modes
+    SvgKern[] vkerns;   // vkern: pairs for the vertical modes
 
     bool covers(dchar ch) const
     {
@@ -118,12 +131,15 @@ struct SvgFont
     }
 
     /// §20.7: the k value of the first pair entry whose (first, second)
-    /// sets contain the two glyphs, or 0.
-    float kernK(const(SvgGlyph)* a, const(SvgGlyph)* b) const
+    /// sets contain the two glyphs, or 0. hkern answers the pair in the
+    /// horizontal modes and vkern in the vertical ones; which table the
+    /// caller reads is all `vertical` selects.
+    float kernK(const(SvgGlyph)* a, const(SvgGlyph)* b, bool vertical) const
     {
         if (a is null || b is null)
             return 0;
-        foreach (ref kc; kerns)
+        const(SvgKern)[] tab = vertical ? vkerns : kerns;
+        foreach (ref kc; tab)
             if (inSet(kc.first, a) && inSet(kc.second, b))
                 return kc.k;
         return 0;
@@ -420,9 +436,10 @@ private int cssStyle(string v)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Read one <font> subtree: face metrics, pre-parsed glyph outlines and
-/// kern pairs. Outlines stay in font units (y up); §20.5 gives
-/// missing-glyph the same attribute meanings as a glyph.
+/// Read one <font> subtree: face metrics, pre-parsed glyph outlines,
+/// kern pairs and settled vertical metrics. Outlines stay in font
+/// units (y up); §20.5 gives missing-glyph the same attribute meanings
+/// as a glyph.
 private SvgFont* parseFont(ref immutable(Element)[] nodes, size_t idx)
 {
     auto f = new SvgFont;
@@ -434,6 +451,11 @@ private SvgFont* parseFont(ref immutable(Element)[] nodes, size_t idx)
     // a declaration the engine records but never displaces outlines by.
     f.originX = num(fe, "horiz-origin-x");
     f.originY = num(fe, "horiz-origin-y");
+    // §20.3: an absent vertical spelling stays absent until the face's
+    // own metrics are in, and settles to the spec's fallback at the end.
+    f.vertAdvY = num(fe, "vert-adv-y", float.nan);
+    f.vertOriginX = num(fe, "vert-origin-x", float.nan);
+    f.vertOriginY = num(fe, "vert-origin-y", float.nan);
 
     foreach (ch; fe.children)
     {
@@ -471,6 +493,13 @@ private SvgFont* parseFont(ref immutable(Element)[] nodes, size_t idx)
             }
             // §20.4: a glyph's default advance is the font's.
             g.advX = num(c, "horiz-adv-x", f.defaultAdv);
+            // §20.4 vertical: absent means the font's own value, which
+            // by now (font-face parsed first, font attrs before the loop)
+            // is itself either declared or still NaN for the end-of-parse
+            // settle to fill.
+            g.vertAdvY = num(c, "vert-adv-y", f.vertAdvY);
+            g.vertOriginX = num(c, "vert-origin-x", f.vertOriginX);
+            g.vertOriginY = num(c, "vert-origin-y", f.vertOriginY);
             if (c.name == "missing-glyph")
             {
                 f.missing = g;
@@ -489,12 +518,44 @@ private SvgFont* parseFont(ref immutable(Element)[] nodes, size_t idx)
             break;
 
         case "vkern":
-            break; // vertical pairs are moot without vertical text
+            // §20.7: same pair spelling as hkern, read only by the
+            // vertical writing modes.
+            SvgKern kv;
+            kv.first = parseSet(getAttr(c, "u1"), getAttr(c, "g1"));
+            kv.second = parseSet(getAttr(c, "u2"), getAttr(c, "g2"));
+            kv.k = num(c, "k");
+            f.vkerns ~= kv;
+            break;
 
         default:
             break;
         }
     }
+
+    // §20.3/§20.4: settle the absent chain. The font's own defaults
+    // are one em for vert-adv-y, half the declared horiz-adv-x for
+    // vert-origin-x and the face's ascent for vert-origin-y - font
+    // units like everything else in the store; a glyph (or the
+    // missing-glyph) that took the NaN forward falls to these.
+    if (isNaN(f.vertAdvY))
+        f.vertAdvY = f.upem;
+    if (isNaN(f.vertOriginX))
+        f.vertOriginX = 0.5f * f.defaultAdv;
+    if (isNaN(f.vertOriginY))
+        f.vertOriginY = f.ascent;
+    void settle(ref SvgGlyph g)
+    {
+        if (isNaN(g.vertAdvY))
+            g.vertAdvY = f.vertAdvY;
+        if (isNaN(g.vertOriginX))
+            g.vertOriginX = f.vertOriginX;
+        if (isNaN(g.vertOriginY))
+            g.vertOriginY = f.vertOriginY;
+    }
+    foreach (ref g; f.glyphs)
+        settle(g);
+    if (f.hasMissing)
+        settle(f.missing);
     return f;
 }
 
@@ -684,8 +745,58 @@ unittest
         ~ " font has no missing-glyph: nothing to draw, still one char consumed");
     g = f.select("&", 0, used);
     assert(g.name == "amp", "entity-named glyph selects by its decoded char");
-    assert(f.kernK(f.select("AA", 0, used), f.select("AA", 1, used)) == -100,
+    assert(f.kernK(f.select("AA", 0, used), f.select("AA", 1, used), false) == -100,
         "u1 char x g2 glyph-name pair");
+}
+
+unittest
+{
+    // §20.3/§20.4's vertical defaults and §20.7's vkern table. The
+    // first font spells nothing vertical: vert-adv-y settles to one
+    // em, vert-origin-x to half the font's own horiz-adv-x (not the
+    // glyph's), vert-origin-y to the face's ascent, and a glyph - or
+    // the missing-glyph - with no vertical attributes inherits
+    // exactly those numbers. The second font declares the trio at
+    // the font level and two of the three at the glyph level: the
+    // glyph keeps the font's vert-origin-x and replaces the rest.
+    // Its vkern answers only the vertical read of the pair table.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg">
+        <defs><font id="A" horiz-adv-x="500">
+          <font-face font-family="Vda" units-per-em="1000"
+                     ascent="800" descent="-200"/>
+          <glyph unicode="a" glyph-name="a1" horiz-adv-x="600"
+                 d="M0 0L100 0L100 100L0 100Z"/>
+          <missing-glyph d="M0 0Z"/>
+        </font>
+        <font id="B" horiz-adv-x="500" vert-adv-y="1200"
+              vert-origin-x="100" vert-origin-y="900">
+          <font-face font-family="Vdb" units-per-em="1000"
+                     ascent="800" descent="-200"/>
+          <glyph unicode="b" glyph-name="b1" vert-adv-y="300"
+                 vert-origin-y="100" d="M0 0L100 0Z"/>
+          <vkern u1="b" u2="b" k="7"/>
+        </font></defs></svg>`);
+    auto fonts = collectFonts(doc, "");
+    size_t used;
+
+    auto a = fonts["vda"][0];
+    assert(a.vertAdvY == 1000 && a.vertOriginX == 250 && a.vertOriginY == 800,
+        "one em, half the font's horiz-adv-x and the ascent stand in");
+    auto ga = a.select("a", 0, used);
+    assert(ga.vertAdvY == 1000 && ga.vertOriginX == 250 && ga.vertOriginY == 800,
+        "the glyph inherits the settled chain, its own horiz-adv-x"
+        ~ " notwithstanding");
+    assert(a.missing.vertAdvY == 1000 && a.missing.vertOriginX == 250
+        && a.missing.vertOriginY == 800, "missing-glyph rides the same chain");
+
+    auto b = fonts["vdb"][0];
+    assert(b.vertAdvY == 1200 && b.vertOriginX == 100 && b.vertOriginY == 900,
+        "the font's declared trio stands as spelled");
+    auto gb = b.select("b", 0, used);
+    assert(gb.vertAdvY == 300 && gb.vertOriginY == 100 && gb.vertOriginX == 100,
+        "the glyph's own pair wins, vert-origin-x falls to the font's");
+    assert(b.kernK(gb, gb, true) == 7, "vkern answers the vertical read");
+    assert(b.kernK(gb, gb, false) == 0, "hkern holds nothing for this pair");
 }
 
 unittest
@@ -706,17 +817,17 @@ unittest
     auto f = fonts["kerny"][0];
     size_t used;
     auto g1 = f.select("12", 0, used), g2 = f.select("12", 1, used);
-    assert(f.kernK(g1, g2) == 123, "char range + char range pair");
+    assert(f.kernK(g1, g2, false) == 123, "char range + char range pair");
     g1 = f.select("34", 0, used); g2 = f.select("34", 1, used);
-    assert(f.kernK(g1, g2) == 123, "same entry matches the glyph-name pair");
+    assert(f.kernK(g1, g2, false) == 123, "same entry matches the glyph-name pair");
     g1 = f.select("13", 0, used); g2 = f.select("13", 1, used);
-    assert(f.kernK(g1, g2) == 123, "'13' also matches both side sets");
+    assert(f.kernK(g1, g2, false) == 123, "'13' also matches both side sets");
     g1 = f.select("14", 0, used); g2 = f.select("14", 1, used);
-    assert(f.kernK(g1, g2) == 123);
+    assert(f.kernK(g1, g2, false) == 123);
     g1 = f.select("41", 0, used); g2 = f.select("41", 1, used);
-    assert(f.kernK(g1, g2) == 123, "u1 is the digit wildcard: '4' fits it too");
+    assert(f.kernK(g1, g2, false) == 123, "u1 is the digit wildcard: '4' fits it too");
     g1 = f.select("45", 0, used); g2 = f.select("45", 1, used);
-    assert(f.kernK(g1, g2) == 0, "'5' misses u2's 31-34 range: the pair is"
+    assert(f.kernK(g1, g2, false) == 0, "'5' misses u2's 31-34 range: the pair is"
         ~ " asymmetric, and first/second never swap");
 }
 
