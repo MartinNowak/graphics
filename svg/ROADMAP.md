@@ -318,6 +318,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 84               | kerning lands: auto rides the font's own       | 2.62 M*    |
 |                       | pairs, a length turns auto-kerning off and     |            |
 |                       | spaces adjacent glyphs - no row moves          |            |
+| step 85               | textPath method/spacing land: stretch bends    | 2.62 M*    |
+|                       | outlines about a corner, points riding the     |            |
+|                       | path's normals; auto answers with exact -      |            |
+|                       | no row moves                                   |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -393,6 +397,12 @@ rule here, as at steps 6 and 78.
 *element* mechanism the engine already honors - so the fold cannot
 move a row. 526 rows came back byte-identical a tenth time, and
 the unittests pin the rule.
+
+\* step 85 is completeness the same way again: not one fixture
+sets `method=` or `spacing=` on a <textPath>, so every path-text
+row rides the defaults and the gate cannot move. 526 rows came
+back byte-identical an eleventh time, and the unittests pin both
+the straight ride and the bent one.
 
 ## Next steps
 
@@ -3252,18 +3262,68 @@ difference between two renders, host pixels being what
 they are. The gate could not move and did not: 526 rows
 byte-identical a tenth time, 2.62 M.
 
-Up next - step 85: textPath's own attribute table is the
-text chapter's last unclaimed corner. `method` and
-`spacing` parse nowhere, and the fixtures never set
-them - every path-text row runs on the defaults, so the
-gate again cannot move. `align` and `exact` already
-describe the engine's rigid ride along the path, and
-`auto`'s "visually appealing" latitude is the UA's own
-answer, but `stretch` is real geometry the spec spells
-out: the glyph outlines convert to paths and their end
-points and control points ride the perpendicular vectors
-from the path, warping connected glyphs to keep their
-connections.
+Step 85 is textPath's own attribute table, the text
+chapter's last unclaimed corner. `method` and `spacing`
+parsed nowhere, and the fixtures never set them - every
+path-text row rides the defaults, so the gate again
+cannot move. `align` and `exact` already described the
+engine's rigid ride along the path, and `auto`'s
+"visually appealing" latitude is by definition the UA's
+own answer: here the UA answers with the exact rule.
+`stretch` is the real geometry the spec spells out: the
+glyph outline converts to a path and its endpoints and
+control points ride the perpendiculars from the path -
+a point's x keeps its meaning as a distance along the
+path, measured from the glyph's startpoint-on-the-path,
+and its y as a distance across the baseline, so outlines
+that were connected stay connected as they warp. The
+perpendicular is read the way pathMatrix already reads a
+tangent with no chord: a short step off the point's foot
+either side. A stretch run has no rigid frame to fold
+§10.5's supplemental turn into, so the rotation is taken
+in the glyph's own frame before the ride; the
+midpoint-off-either-end skip rule is untouched, and an
+unknown method keeps the align default.
+
+Two unittests pin the rule on a face whose bar is
+exactly advance long. On a straight path every spelling
+of both attributes lands the same two bars - stretch's
+point-ride degenerates to the rigid placement there,
+which is the degeneracy to pin, not an accident. On a
+right-angle corner the bar, started five units before
+the corner, bends about it: endpoints A(75,40) B(80,65)
+C(90,65) D(75,30), the outline's two horizontals riding
+the horizontal leg and its verticals standing left of
+the vertical one; align sets the same bar rigidly on the
+chord across, a different box, and a startOffset past
+either end draws nothing under stretch as under align.
+The gate could not move and did not: 526 rows
+byte-identical an eleventh time, 2.62 M.
+
+Up next - step 86, and two corners that scoped closed
+on the way. In SVG 1.1 a <glyphRef> lives only inside
+<altGlyphDef>: the content models of the text content
+elements name altGlyph, textPath, tref, tspan and a, no
+glyphRef among them, and the engine already resolves
+glyphRefs in both the bare-def and the altGlyphItem
+spellings. And `font-stretch` defers its normative
+definition to CSS2, where it selects nothing a renderer
+draws - ignoring it is the SVG 1.1 letter, and the
+engine already does. What stays open is the clause the
+writing-mode records left standing: SVG font runs,
+altGlyph runs and textLength never take the vertical
+branch. vert-adv-x/vert-adv-y/vert-origin-x/
+vert-origin-y parse nowhere, vkern is not even parsed,
+and the slot loop only ever walks the page's x. Step 86
+is SVG fonts in the vertical modes: the four vert-*
+attributes land on font and glyph, a tb run's advances
+come from vert-adv-y with the defaults the writing-mode
+rules ask for, and the slot loop takes the vertical
+placement the host loop already knows. No fixture lays
+an SVG font vertically, so the gate again cannot move;
+the unittests pin it. vkern then rides next: the kerning
+property already gates hkern, and a vertical SVG font
+run is where its pair table finally has a run to answer.
 
 ## Deferred / accepted ceilings (do not chase)
 

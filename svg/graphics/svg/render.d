@@ -906,6 +906,7 @@ private struct Renderer
         PathMeasure meas;
         float total = 0; // .init of a float is NaN, so these are spelled out
         float start = 0; // ditto: an absent startOffset means 0, not NaN
+        bool stretch; // §10.13.2 method: false is align, the default
         bool bad; // broken reference: §10.13.2 drops the whole subtree
     }
     PathOnPath[] textPaths;
@@ -3769,24 +3770,100 @@ private struct Renderer
                 foreach (ref p; pts)
                     p.x *= gScale;
             m.mapPoints(pts);
-            final switch (v)
+            commitGlyphVerb(v, pts);
+            return 0;
+        });
+    }
+
+    // One glyph verb lands on the accumulating outline: the verbs are
+    // the same whether the outline arrives rigid or stretched.
+    private void commitGlyphVerb(Path.Verb v, ref FPoint[] pts)
+    {
+        final switch (v)
+        {
+        case Path.Verb.Move:
+            path.moveTo(pts[0]);
+            break;
+        case Path.Verb.Line:
+            path.lineTo(pts[1]);
+            break;
+        case Path.Verb.Quad:
+            path.quadTo(pts[1], pts[2]);
+            break;
+        case Path.Verb.Cubic:
+            path.cubicTo(pts[1], pts[2], pts[3]);
+            break;
+        case Path.Verb.Close:
+            path.close();
+            break;
+        }
+    }
+
+    // §10.13.2 method="stretch": the glyph outline is converted to a
+    // path and its endpoints and control points are adjusted to lie on
+    // the perpendiculars from the path - a point's x keeps its meaning
+    // as a distance along the path, measured from s0, the glyph's
+    // startpoint-on-the-path (the d0 the rigid placement walks back
+    // from the midpoint to), and its y keeps its meaning as a distance
+    // from the baseline, measured along the perpendicular, so glyphs
+    // that were connected stay connected as they warp. The
+    // perpendicular is read the way pathMatrix reads a tangent when
+    // there is no chord: a step off the point's foot on either side.
+    // rot is §10.5/§10.9.7's supplemental turn, taken in the glyph's
+    // own frame before the ride - a stretch run has no rigid frame to
+    // fold it into.
+    void appendGlyphStretched(ref const Path g, const(PathOnPath)* pp,
+        float gScale, bool fontUnits, float fs, float s0, float rise,
+        float rot)
+    {
+        immutable float e = min(1.0f, (*pp).total * 0.01f);
+        g.apply((ref Path.Verb v, ref FPoint[] pts)
+        {
+            if (fontUnits)
+                foreach (ref p; pts)
+                {
+                    p.x *= fs;
+                    p.y = -p.y * fs;
+                }
+            if (gScale != 1.0f)
+                foreach (ref p; pts)
+                    p.x *= gScale;
+            if (rot != 0.0f)
             {
-            case Path.Verb.Move:
-                path.moveTo(pts[0]);
-                break;
-            case Path.Verb.Line:
-                path.lineTo(pts[1]);
-                break;
-            case Path.Verb.Quad:
-                path.quadTo(pts[1], pts[2]);
-                break;
-            case Path.Verb.Cubic:
-                path.cubicTo(pts[1], pts[2], pts[3]);
-                break;
-            case Path.Verb.Close:
-                path.close();
-                break;
+                immutable float c = cos(rot * PI / 180.0f),
+                              sn = sin(rot * PI / 180.0f);
+                foreach (ref p; pts)
+                {
+                    immutable float x = p.x * c - p.y * sn,
+                                  y = p.x * sn + p.y * c;
+                    p.x = x;
+                    p.y = y;
+                }
             }
+            foreach (ref p; pts)
+            {
+                immutable float d = s0 + p.x;
+                immutable FPoint at = pp.meas.getPosAtDistance(d);
+                immutable FPoint ta = pp.meas.getPosAtDistance(
+                                   max(0.0f, d - e));
+                immutable FPoint tb = pp.meas.getPosAtDistance(
+                                   min((*pp).total, d + e));
+                float nx = 0.0f, ny = 1.0f; // a flat run's own y frame
+                if (ta != tb)
+                {
+                    immutable float dx = tb.x - ta.x,
+                                  dy = tb.y - ta.y;
+                    immutable float len = sqrt(dx * dx + dy * dy);
+                    if (len > 0.0f)
+                    {
+                        nx = -dy / len;
+                        ny = dx / len;
+                    }
+                }
+                p = FPoint(at.x + nx * (p.y + rise),
+                           at.y + ny * (p.y + rise));
+            }
+            commitGlyphVerb(v, pts);
             return 0;
         });
     }
@@ -3911,6 +3988,19 @@ private struct Renderer
                 v = 0.0f; // invalid value: the effect is as if 0
             pp.start = pct || author <= 0 ? v : v * (pp.total / author);
         }
+
+        // §10.13.2 method: `align` - the absent default - sets each
+        // glyph rigidly on the path with a 2x3 transform; `stretch`
+        // converts the outline to a path and rides its points along
+        // the perpendiculars. Any other spelling keeps the default,
+        // as malformed values do everywhere here.
+        pp.stretch = a.get("method", "") == "stretch";
+
+        // §10.13.2 spacing: `exact` - also the default - lays the
+        // glyphs out by the §10.13.3 rules the engine follows, and
+        // `auto` asks only for spacing that is "visually appealing",
+        // which is by definition the UA's own answer; here the UA
+        // answers with the exact rule, so nothing more is stored.
 
         pp.meas = meas;
         pp.bad = false;
@@ -4454,13 +4544,15 @@ private struct Renderer
             return r;
         }
 
-        bool pathMatrix(size_t gi, out Matrix m)
+        bool pathMatrix(size_t gi, out Matrix m, out float s0,
+            out float riseOff)
         {
             float d0 = pen.x + (gi < run.dxs.length ? run.dxs[gi] : 0.0f);
             if (gi < run.xs.length)
                 d0 = run.xs[gi];
             immutable d1 = d0 + (gi < va.length ? va[gi] : 0.0f);
             pen.x = d1; // the next glyph's startpoint-on-the-path
+            s0 = d0; // method=stretch rides its points from here
 
             immutable mid = (d0 + d1) * 0.5f;
             if (mid < 0 || mid > pp.total)
@@ -4502,6 +4594,7 @@ private struct Renderer
             immutable float half = (d1 - d0) * 0.5f; // the glyph-midline offset
             immutable float rise = (gi < run.dys.length ? run.dys[gi] : 0.0f)
                                  + bShift - s.baselineShift;
+            riseOff = rise; // the same cross-path offset stretch uses
             if (half != 0.0f || rise != 0.0f)
             {
                 Matrix q;
@@ -4524,9 +4617,10 @@ private struct Renderer
             foreach (ref sl; glyphSlots(run, sf))
             {
                 Matrix m;
+                float s0 = 0, riseOff = 0; // stretch placement reads these
                 if (pp !is null)
                 {
-                    if (!pathMatrix(gi, m))
+                    if (!pathMatrix(gi, m, s0, riseOff))
                     {
                         ++gi;
                         continue; // midpoint off the path: not rendered
@@ -4590,13 +4684,25 @@ private struct Renderer
                     // substitute's font travels with it: its units-per-em
                     // is that font's, not the run's (§10.14.1).
                     if (sl.gs !is null && sl.gs.hasD)
-                        appendGlyph(sl.gs.d, m, scale, true,
-                            s.fontSize / sl.sf.upem);
+                    {
+                        if (pp !is null && pp.stretch)
+                            appendGlyphStretched(sl.gs.d, pp, scale, true,
+                                s.fontSize / sl.sf.upem, s0, riseOff,
+                                rotAt(gi));
+                        else
+                            appendGlyph(sl.gs.d, m, scale, true,
+                                s.fontSize / sl.sf.upem);
+                    }
                 }
-                else
-                    foreach (gl; cache.glyphStream(run.text[sl.lo .. sl.hi],
-                            Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+                else foreach (gl; cache.glyphStream(run.text[sl.lo .. sl.hi],
+                        Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
+                {
+                    if (pp !is null && pp.stretch)
+                        appendGlyphStretched(gl.path, pp, scale, false,
+                            0.0f, s0, riseOff, rotAt(gi));
+                    else
                         appendGlyph(gl.path, m, scale, false, 0.0f);
+                }
 
                 ++gi;
             }
@@ -4608,9 +4714,10 @@ private struct Renderer
                     Glyph.LoadFlag.Metrics | Glyph.LoadFlag.Path))
             {
                 Matrix m;
+                float s0 = 0, riseOff = 0; // stretch placement reads these
                 if (pp !is null)
                 {
-                    if (!pathMatrix(gi, m))
+                    if (!pathMatrix(gi, m, s0, riseOff))
                     {
                         ++gi;
                         continue;
@@ -4720,7 +4827,11 @@ private struct Renderer
                     pen.x = gx + (gi < va.length ? va[gi] : gl.advance.x);
                 }
 
-                appendGlyph(gl.path, m, scale, false, 0.0f);
+                if (pp !is null && pp.stretch)
+                    appendGlyphStretched(gl.path, pp, scale, false, 0.0f,
+                        s0, riseOff, rotAt(gi));
+                else
+                    appendGlyph(gl.path, m, scale, false, 0.0f);
                 ++gi;
             }
         }
@@ -11388,4 +11499,81 @@ unittest
     assert(inkBox(renderSVG(host(` kerning="5"`))) [2]
         == inkBox(renderSVG(host(""))) [2] + 5,
         "the length spaces host glyphs as much as SVG-face ones");
+}
+
+unittest
+{
+    // §10.13.2 textPath method/spacing. The Ph face keeps every
+    // number exact: 30-unit advances and a 30x10-unit bar above the
+    // baseline, so at font size 10 the bar is a 3x1 line of pixels -
+    // advance long - and at 100 it is 30x10, one bar per advance.
+    const string pfont = `<font id="f" horiz-adv-x="30">
+            <font-face font-family="Ph" units-per-em="100"
+                ascent="100" descent="0" alphabetic="0"/>
+            <glyph unicode="a" glyph-name="bar" d="M0 0h30v10h-30z"/>
+        </font>`;
+    string flat(string attrs, string body = `aa`)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs>` ~ pfont ~ `</defs>
+            <path id="pt" d="M 20 60 H 100" fill="none"/>
+            <text font-family="Ph" font-size="10"><textPath`
+            ~ ` xlink:href="#pt"` ~ attrs ~ `>` ~ body
+            ~ `</textPath></text>
+        </svg>`;
+    }
+    int[4] fbox(string attrs, string body = `aa`)
+    {
+        return inkBox(renderSVG(flat(attrs, body)));
+    }
+
+    // The default is align, and on a straight path every spelling of
+    // the two attributes lands on the same two bars: stretch's point
+    // ride degenerates to the rigid placement, and spacing's auto -
+    // the UA's "visually appealing" latitude - answers with the
+    // exact rule the engine already follows.
+    assert(fbox("") == [20, 59, 25, 59]);
+    assert(fbox(` method="align"`) == [20, 59, 25, 59]);
+    assert(fbox(` method="stretch"`) == [20, 59, 25, 59],
+        "a straight path leaves stretch and align identical");
+    assert(fbox(` method="warp"`) == [20, 59, 25, 59],
+        "an unknown method keeps the align default");
+    assert(fbox(` spacing="exact"`) == [20, 59, 25, 59]);
+    assert(fbox(` spacing="auto"`) == [20, 59, 25, 59],
+        "auto takes the exact rule here");
+
+    // Stretch's signature: on a right-angle corner, align sets the
+    // glyph rigid on the chord across the stretch, while stretch
+    // rides the bar's points along the perpendiculars - the outline
+    // bends about the corner. At font size 100 the bar starts 5
+    // units before the corner (startOffset 55, advance 30, corner
+    // at 60) and ends 25 past it: A(75,40) B(80,65) C(90,65)
+    // D(75,30), the two verticals riding the vertical leg and
+    // standing left of it, the horizontals riding the horizontal.
+    string corner(string so, string meth)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs>` ~ pfont ~ `</defs>
+            <path id="pt" d="M 20 40 H 80 V 100" fill="none"/>
+            <text font-family="Ph" font-size="100"><textPath`
+            ~ ` xlink:href="#pt" startOffset="` ~ so ~ `"` ~ meth
+            ~ `>a</textPath></text>
+        </svg>`;
+    }
+    immutable bent = inkBox(renderSVG(corner("55", ` method="stretch"`)));
+    assert(bent == [75, 30, 89, 64],
+        "the bar bends about the corner, endpoints on the perpendiculars");
+
+    // Align with the same placement turns the bar rigidly by the
+    // chord - a different box, feet and all - and the §10.13.3 rule
+    // that a glyph whose midpoint on the path lies off either end is
+    // not rendered holds under stretch too.
+    immutable rigid = inkBox(renderSVG(corner("55", ` method="align"`)));
+    assert(rigid != bent, "align sets the bar rigidly on the chord");
+    immutable off = inkBox(renderSVG(corner("300", ` method="stretch"`)));
+    assert(off[0] > off[2], "the midpoint rule survives stretch");
 }
