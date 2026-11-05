@@ -307,6 +307,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | measurement: the convolved animated bird       |            |
 |                       | lands at 8 AE - the row is now the two         |            |
 |                       | scripted panels and caption drift              |            |
+| step 82               | both mid-bands re-certified by rescan -        | 2.62 M*    |
+|                       | flags all land in recorded families: script    |            |
+|                       | squares, the 33-t skew cells, the ramp         |            |
+|                       | ceiling - no row moves                         |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -366,6 +370,10 @@ family - so the 526 rows came back byte-identical an eighth time.
 \* step 81 changed no code either: the row was closed by crop-level
 measurement against the current renders, so the eighth run still
 stands as its gate.
+
+\* step 82 changed no code either: it rescanned both mid-bands with
+the step-70 recipe against the renders the eighth run left in
+`out/`, and every flag it raised closed into a recorded family.
 
 ## Next steps
 
@@ -3129,15 +3137,52 @@ on its 100x75 crop, kernel, edge mode and bias landing
 pixel for pixel. Script and caption debt, nothing
 else; that empties the Backlog.
 
-Up next - step 82: rescan, not fix. The step-70 solid-
-content scan of the 100-300 band predates the engine
-fixes of steps 71 through 80, and step 69's 300-1,500
-sweep predates four of them - a band's verdict is a
-snapshot of the engine that took it, and bands move
-when the engine does. Re-run the dilating scan over
-both bands against current renders: flag any row whose
-diff now carries solid content, then close the audit
-with the bands re-certified or the flags triaged.
+Step 82 re-ran the step-70 solid-content recipe over both
+mid-bands - 93 rows in 100-300, 35 rows in 300-1,500 -
+against the renders the step-80 gate left in `out/`, with
+one correction to the scan itself: `compare`'s white/black
+highlight form marks strict mismatches, not fuzz-10 ones,
+so blob areas over-count - grad-05-b's mask showed some
+7 K white pixels where the row's AE is 600 - and only
+blobs that survive erosion, confirmed by region AE and
+pixel rows, are evidence. The 100-300 band came back as
+step 70 left it: one flag, animate-script-elem-01-b's
+18x18 script indicator square, recorded with the band.
+The 300-1,500 band flagged 14 rows and every one lands
+on a recorded family: the 38x38 and 18x18 script
+PASS/FAIL indicator squares of masking-path-09-b/-12-f,
+interact-pointer-01/02/03-t/-04-f, text-dom-02-f/-03-f,
+types-dom-03-b/-05-b, struct-dom-08-f and
+animate-dom-02-f; animate-elem-33-t's three 14-18 px
+cells at y153..168, the newer capture's content cells in
+the revision skew step 80 closed; and pservers-grad-05-b
+(600).
+
+grad-05-b was the rescan's one flag not family-obvious,
+and it probed out old: the blobs sit on Grad2's
+black-to-transparent hotspot and Grad1's
+violet-to-transparent corner, and the pixel rows show
+the two conventions cleanly - the capture fades black
+toward yellow with `stop-color` and `stop-opacity`
+interpolated separately (96,96,0 at alpha 158 mid-ramp),
+ours premultiplies and fades toward transparent black
+(0,0,0 at alpha 168). That is the weighting the step-22
+note settled for the whole `stop-opacity` family: the
+2009 capture lerps straight, SVG 2 / CSS Images 4 §4.6
+ask premultiplied, and ours stays; 05-b's 600 is that
+family floor, recorded there under its shorthand. The
+caption even carries the family's usual companion - the
+capture prints revision 1.8 under the fixture's 1.9.
+Both bands re-certified, and the audit's queue is empty.
+
+Up next - step 83: with every band carrying a verdict,
+the mass left on the gate is recorded ceilings and the
+hairline content floor, so the productive lane is the
+completeness one the roadmap took at steps 6, 37, 39,
+40, 64 and 78: a spec corner the sources cite but the
+suite never exercises - implement to the letter, pin it
+with unittests, and expect the gate back byte-identical
+again.
 
 ## Deferred / accepted ceilings (do not chase)
 
@@ -3325,7 +3370,12 @@ with the bands re-certified or the flags triaged.
   pinpoints composited blue as `139*w^2` there against our `139*w`, whole
   columns to a mean of 1.3 levels - while we interpolate premultiplied, as
   SVG 2 and CSS Images 4 §4.6 require. Ring geometry matches exactly;
-  only the weighting is the reference's.
+  only the weighting is the reference's. Step 82's band rescan turned
+  `-05-b` up again and closed it on this bullet: its blobs sit on the
+  black-to-transparent hotspot and the violet corner, whose mid-ramp
+  capture pixel rows run `96,96,0` at alpha 158 against our premultiplied
+  `0,0,0` at alpha 168, and the caption adds the usual revision skew -
+  1.8 printed under the fixture's 1.9.
 - Host-font debt (SVGFreeSans/Impact) in `masking-path-03-b/04-b/10-b` and
   the remaining `text-*`/`fonts-*` floors: step 7 took the fonts in; what is
   left is raster drift between our AA and the harness's own SVG-font
