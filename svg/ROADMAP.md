@@ -352,6 +352,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 94               | textLength lands: a lone x was read as         | 2.60 M     |
 |                       | a pin and the length stood down; the           |            |
 |                       | default was glyphs, not spacing                |            |
+| step 95               | tselect-03-f: the capture's green              | 2.60 M     |
+|                       | bands are a load-script selection              |            |
+|                       | end-state; no static state has them            |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3877,6 +3880,66 @@ way step 7 ingests any href'd SVG font - same class
 of question text-text-01-b just answered, and where
 step 95 starts.
 
+Step 95 followed that pointer and found no lever.
+text-tselect-03-f is a selection test:
+onload="doSelection(0,0)" runs selectSubString
+over the first 9 logical chars of its bidi row,
+and the pass criteria spell the resulting
+discontiguous highlight in visual order - "abc",
+the space after the c, the Hebrew run. The row's
+diff shows that state as three blocks: 93x70 at
+x=278, 89x70 at x=10, 27x70 at x=198 - and the
+diff mask tints them green, the capture's own
+srgba(0,128,0,0.5) selection green, sampled at
+(50,170), (60,175) and (320,170), where our
+canvas is transparent. Outside the bands the row
+is caption glyphs and per-glyph edge drift: the
+bidi run itself sits where the capture puts it.
+So -03-f is the onload sibling of the onclick
+selection class the operator-activation bullet
+already named on -02-f (4,249), and it folds
+there; -01-b (67) is the third, operator-driven
+- the run test asks the checker to make the
+selection by hand, and the pass criteria pass a
+basic viewer with no selection mechanism at all -
+and folds into the interact bullet. The category
+closes: 7,814 AE, none of it code.
+
+No engine change went in, so the whole gate re-ran
+as a precaution: 526 rows, 0 ERROR, 2,598,346 AE -
+status.txt came back byte-identical.
+
+Up next - step 96: the sweep is out of code
+levers. What is left un-triaged are members of
+three settled classes, needing verification and
+folds rather than fixes. Script end-states:
+coords-dom-03-f (2.0 K), animate-struct-dom-01-b
+(2.0 K), script-handle-01-b (1.1 K) with -03-b
+and -04-b (594 each) and text-dom-03-f (667) -
+each carries a <script>. The animate tail:
+-27-t (490), -28-t (606), -60-t (611), -62-t
+(553), -70-t (540), -78-t (1.9 K), -81-t (628),
+4.9 K to read against step 80's caption tell and
+the freeze-state family, plus animate-interact-
+pevents-01-t (1.6 K) for the interact bullet's
+event-driven animations. And the host-face
+environment: text-fonts-01-t (2.8 K) asking
+Georgia/Arial/monospace stacks that fc-match
+answers with stand-ins, joining its -02-t (3.9 K)
+and -204-t (4.6 K); text-intro-01-t (1.9 K),
+-02-b (2.0 K), -09-b (1.9 K); text-align-02-b
+(2.1 K); fonts-glyph-02-t (2.0 K); text-fonts-
+04-t (498) and -05-f (724); text-text-04-t (462);
+text-text-11-t (3.9 K) and text-align-06-b
+(2.3 K) already named as host faces. The sub-750
+quartet paths-data-10-t (699),
+shapes-polygon-01-t (675), shapes-ellipse-01-t
+(565), styling-css-04-f (559) shows whole-region
+blocks under the fuzz - the raster-phase family
+of steps 56 and 78 - and filters-light-04-f
+(464) joins the lighting ceilings. Step 96
+verifies each class whole and folds it.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -3910,6 +3973,10 @@ step 95 starts.
   animation in it begins or ends on `mouseover` / `mousedown` events,
   so its capture answers to pointer state a static render cannot
   reach.
+  `text-tselect-01-b` (67) belongs here too, closed at step 95: its
+  selection is the operator's - "make a text selection" - and its
+  pass criteria pass a basic viewer that implements no text
+  selection at all.
 - `animate-elem-53-t` (2.1 K) / `animate-elem-63-t` (1.0 K): the only two
   animate tests whose references cannot be reached from any static
   end-state frame. 53-t's reference shows the RR square *before* its scale
@@ -3933,6 +4000,13 @@ step 95 starts.
   blocks are the `startIndex`/`numChars` selection its `onclick` handlers
   drive through `selectSubString`, over a run of Hebrew letters under a host
   font, and no static state of the file shows it.
+  Its load-time sibling, `text-tselect-03-f` (3.5 K), drives the same
+  `selectSubString` state through `onload="doSelection(0,0)"`: the
+  capture paints that selection as three discontiguous
+  `srgba(0,128,0,0.5)` green bands - 93x70 at x=278, 89x70 at x=10,
+  27x70 at x=198 - exactly the substrings its pass criteria list in
+  visual order, over a bidi run our static render places correctly
+  without the highlight. Closed at step 95.
 - `animate-elem-85-t` (22.3 K): the reference contradicts the file it is
   scored against. The source documents the freeze state (at t = 10 s both
   `color` and `fill` are `#00ffff`) and we paint exactly that — cyan rects,
