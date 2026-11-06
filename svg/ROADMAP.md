@@ -360,6 +360,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | floor, host faces, one bidi capture            |            |
 | step 97               | the 100-600 AE tail scans whole:               | 2.60 M     |
 |                       | sixty-one rows, no levers, folded              |            |
+| step 98               | bookkeeping audit: the walk closes             | 2.60 M     |
+|                       | 371 rows at 100+ AE all accounted              |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4060,6 +4062,47 @@ masking-path-04-b's 15,095, text-spacing-01-b's
 way step 92's Verdana took 14,889 from ten
 rows. That install is the user's to make; the
 engine has no more code levers in this suite.
+
+Step 98 ran the audit and the ledger cleared.
+Every status.txt stem was re-grepped against
+this document: of the 371 rows at 100 AE and
+above, 259 carry a full-stem mention and 112
+carry family-abbreviated wording, and each of
+the 112 resolves to a sweep bullet or an
+umbrella - the struct-dom (228 K) / types-dom
+(39 K) scripting umbrellas, the interact-*
+wildcard, the conform-viewers bullet,
+struct-use-07-b inside the external-reference
+bullet, styling-pres-05-f inside the
+broken-references bullet (its stem splits
+across a line wrap, which is why a naive grep
+calls that one a miss) and animate-elem-21-t
+inside the operator pair. The other 155 rows
+sit under 100 AE, the noise floor the harness
+has always accepted - below it a re-grep
+would chase the fuzz margin itself. The step
+table up top is itself the chapter ledger;
+there is no per-chapter tally to refresh, and
+the Backlog section stays empty. The harness
+walk is complete: the engine holds no code
+lever this gate can still pay.
+
+Up next - step 99: the §10.14.2 gap the code
+comment admits. The `glyphname=`/`format=`
+spelling of glyphRef names a glyph inside a
+CSS2 fontinfo or ICS font, and this engine
+loads neither format, so today only a
+`xlink:href` fragment landing on a <glyph>
+node ever matches. The harness can never pay
+for the rest: no fixture spells `glyphname=`
+at all, the three altGlyph fixtures bind
+every glyphRef to a fragment, and the lone
+`glyphRef='blah'` in styling-pres-02-f is a
+cascade placeholder, not a ref. The step
+lands as completeness, in the shape of steps
+85 and 86: implement the §10.14.2 grammar,
+pin it with unittests, expect the 526 rows
+back byte-identical at 2,598,346 AE.
 
 ## Deferred / accepted ceilings (do not chase)
 
