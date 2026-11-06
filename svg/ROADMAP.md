@@ -330,6 +330,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | on the axis, a family lacking the request      |            |
 |                       | declines the whole family - 02-t 971 -> 747,   |            |
 |                       | 05-t 5001 -> 4,749                             |            |
+| step 88               | rendering hints land: crispEdges puts stroke   | 2.62 M     |
+|                       | bands on the device pixel grid, hairlines      |            |
+|                       | whole - comp 02-b 1,757 -> 1,319               |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3424,19 +3427,99 @@ measure - the letter stands as drawn, nothing painted
 above wmode 2 - and the gap joins the recorded
 glyphRef and font-stretch closes.
 
-Up next - step 88, the rendering hints: SE §7.5's
-shape-rendering (auto | optimizeSpeed | crispEdges |
-geometricPrecision) and color-rendering, §12.6's
-text-rendering and §7.5's image-rendering parse
-nowhere in the engine today, and the suite sets them -
-shape-rendering="crispEdges" in filters-conv-01-f,
-geometricPrecision across several filters rows, and
-five interact rows carry text-rendering though that
-family is a recorded ceiling of another kind. crispEdges
-is the rule with teeth: the element's edges lose their
-antialiasing. direction and unicode-bidi stay with the
-recorded bidi ceiling, and paint-order and
-vector-effect are SVG 2 - out of SE's scope, as always.
+Step 88 lands the four rendering hints, and the note's
+section numbers were the First Edition's: the Second
+Edition gathers all four into the painting chapter -
+color-rendering §11.7.2, shape-rendering §11.7.3,
+text-rendering §11.7.4, image-rendering §11.7.5 -
+each initial auto, each inherited, and none of the
+four parsed anywhere in the engine. The note's fixture
+list needs the same correction: crispEdges sits in
+exactly one scored row, filters-composite-02-b (its
+-01-f sibling is unscored); the filters-conv-01-f and
+masking/painting rows it remembered carry
+geometricPrecision, and the five interact rows'
+text-rendering likewise - all of them byte-identical
+through this gate.
+
+The section licenses no particular raster - "the user
+agent ... might turn off anti-aliasing ... might
+adjust line positions and line widths to align edges
+with device pixels" - and the engine takes the
+alignment half, the wavelet blitter having no
+antialiasing switch to turn off. Under a plain
+scale-and-translate CTM, when every contour segment
+runs along an axis, each stroke band's cross-axis
+centre moves so its two coverage edges land on pixel
+boundaries and its device width becomes a whole pixel
+count, never below one: the fixture's 1-wide frame
+stroke under 0.4 scale is a 0.4-pixel band the
+reference resolves to one solid column, and after the
+snap ours lights that same column wholly - the
+hairline's 102-alpha smears become 255 solids.
+Along-axis vertices round to the grid too, so dash
+breaks and open ends sit on pixel boundaries. A
+diagonal or a real curve refuses the whole contour,
+and so do rotations, skews and per-axis scales - SE's
+"possibly just" latitude, and half-snapping a bent
+join would tear it open. Fills are untouched: the
+branch aligns band edges, and a moved fill edge moves
+area. The nudge composes after step 59's half-pixel
+band calibration, and is a no-op on a band that one
+has already centred at k + 0.5 at whole-pixel width.
+Glyph outlines and text-decoration bands skip the
+pass - shape-rendering applies to shapes, and the
+fixture's own caption glyphs are antialiased in the
+reference.
+
+color-rendering, text-rendering and image-rendering
+parse, ride the inheritance chain, and change nothing:
+optimizeQuality, optimizeLegibility and
+geometricPrecision describe work a quality-first
+engine already does, colour compositing rides
+color-interpolation, image resampling rides the
+blitter's filter, and optimizeSpeed has no faster path
+to take; an invalid token keeps the parent's answer,
+the fill-rule precedent. SE carries no render element
+- its element index names none and the painting
+chapter gives only the four properties - so the
+presentation form is all there is to honour.
+
+The gate moved exactly onto the row the hint governs:
+filters-composite-02-b 1,757 -> 1,319. The frame's
+columns now light whole, as in the reference; the
+rest of the row's AE is the Verdana caption floor it
+has always carried, and the fuzz-tolerant compare had
+already forgiven everything but those hairline
+columns. 526 rows, 0 ERROR, 2,621,437 AE total.
+
+Up next - step 89, the SVG font face's leftover
+metrics. A sweep of SE's attribute index finds the
+presentation surface otherwise closed: the hints were
+the last unparsed property family. What ch. 20 still
+withholds is the face metric attributes no fixture
+reads - underline-position/thickness,
+overline-position/thickness and
+strikethrough-position/thickness, which drive the
+decoration bands the engine places at em fractions
+today, and the vertical baseline quartet v-alphabetic,
+v-hanging, v-ideographic, v-mathematical, the table
+the step-6 note deferred when it said use-script's
+script tables need SVG font baseline attributes
+(ch. 20), which this engine does not read yet.
+Neither family appears in a single suite file, so the
+step would land spec-complete with AE flat by
+construction, step 6 and 37's pattern. Around it the
+sweep closes the rest: filterRes is a no-op SE itself
+deprecates, the event handlers and target, name and
+the XLink decorations ride the recorded DOM ceiling,
+keySplines and restart cannot move an animation's end
+state, keyPoints and mpath sit with the recorded
+motion ceiling, arabic-form with the shaping ceiling,
+rendering-intent and the color-profile element with
+the recorded ICC ceiling, and direction,
+unicode-bidi, paint-order and vector-effect stay
+where the old note left them.
 
 ## Deferred / accepted ceilings (do not chase)
 

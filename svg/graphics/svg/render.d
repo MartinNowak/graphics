@@ -1013,6 +1013,29 @@ private struct Renderer
         beforeEdge, afterEdge,
     }
 
+    // The value sets of the four rendering hints (§11.7.2-11.7.5) are
+    // almost the same list, so one enum carries all four properties; a
+    // spelling a property does not allow is simply a token its case
+    // below does not name. All four are inherited and all four start
+    // at auto. The engine is quality-first throughout, so
+    // optimizeQuality, optimizeLegibility and geometricPrecision
+    // describe work already being done - gradients interpolate at full
+    // precision, text rides full hinting - and only shape-rendering's
+    // crispEdges asks for something the rasteriser does not already
+    // do; see crispAlign. color-rendering follows color-interpolation
+    // (the linearRGB offscreen) and image resampling follows the
+    // blitter's filter, so those two properties ride the chain and
+    // the record, and optimizeSpeed has no faster path to take.
+    enum Hint
+    {
+        Auto,
+        OptimizeSpeed,
+        OptimizeQuality, // colour-rendering, image-rendering
+        OptimizeLegibility, // text-rendering
+        CrispEdges, // shape-rendering
+        GeometricPrecision, // shape-rendering, text-rendering
+    }
+
     static struct Style
     {
         bool transform;
@@ -1051,6 +1074,16 @@ private struct Renderer
         // referenced <clipPath>'s children fill under.
         Path.FillRule fillRule = Path.FillRule.NonZero;
         Path.FillRule clipRule = Path.FillRule.NonZero;
+
+        // The rendering hints (§11.7.2-11.7.5): four inherited properties,
+        // all with initial value auto, all riding the struct-copy
+        // inheritance for free. Only shapeHint has teeth, at the shape
+        // stroke site below; see the Hint enum for why the rest are
+        // carried rather than acted on.
+        Hint shapeHint = Hint.Auto;
+        Hint textHint = Hint.Auto;
+        Hint colorHint = Hint.Auto;
+        Hint imageHint = Hint.Auto;
 
         // clip-path="url(#id)" (§14.3). A broken reference - unknown id,
         // non-clipPath target, cycle - is dropped from the chain and the
@@ -1404,6 +1437,99 @@ private struct Renderer
                 case "srgb":
                 case "auto":
                     style.linInterp = false;
+                    break;
+                default: // a token the grammar does not allow: keep the parent's
+                    break;
+                }
+                break;
+
+            case "shape-rendering":
+                // §11.7.3. CrispEdges is the one with teeth - crispAlign
+                // below - and geometricPrecision merely confirms the
+                // precision-first raster this engine already runs;
+                // optimizeSpeed has no faster path to take.
+                switch (toLower(v))
+                {
+                case "optimizespeed":
+                    style.shapeHint = Hint.OptimizeSpeed;
+                    break;
+                case "crispedges":
+                    style.shapeHint = Hint.CrispEdges;
+                    break;
+                case "geometricprecision":
+                    style.shapeHint = Hint.GeometricPrecision;
+                    break;
+                case "auto":
+                    style.shapeHint = Hint.Auto;
+                    break;
+                default: // a token the grammar does not allow: keep the parent's
+                    break;
+                }
+                break;
+
+            case "text-rendering":
+                // §11.7.4. optimizeLegibility is legibility work the
+                // shaper already does (full kerning and positioning),
+                // geometricPrecision the precision the rasteriser
+                // already keeps, and the glyph outlines are antialiased
+                // whatever the hint says - the reference raster's own
+                // text is antialiased under geometricPrecision.
+                switch (toLower(v))
+                {
+                case "optimizespeed":
+                    style.textHint = Hint.OptimizeSpeed;
+                    break;
+                case "optimizelegibility":
+                    style.textHint = Hint.OptimizeLegibility;
+                    break;
+                case "geometricprecision":
+                    style.textHint = Hint.GeometricPrecision;
+                    break;
+                case "auto":
+                    style.textHint = Hint.Auto;
+                    break;
+                default: // a token the grammar does not allow: keep the parent's
+                    break;
+                }
+                break;
+
+            case "color-rendering":
+                // §11.7.2. Colour interpolation is color-interpolation's
+                // job (§11.3, right above); this property only says how
+                // much accuracy to spend getting there, and the answer
+                // here is always the full one.
+                switch (toLower(v))
+                {
+                case "optimizespeed":
+                    style.colorHint = Hint.OptimizeSpeed;
+                    break;
+                case "optimizequality":
+                    style.colorHint = Hint.OptimizeQuality;
+                    break;
+                case "auto":
+                    style.colorHint = Hint.Auto;
+                    break;
+                default: // a token the grammar does not allow: keep the parent's
+                    break;
+                }
+                break;
+
+            case "image-rendering":
+                // §11.7.5. Resampling lives with the blitter and the
+                // ImageShader, which scale images with their filter; the
+                // nearest-neighbour and smoothed variants of the hint
+                // would pick a cheaper or costlier filter, and this
+                // engine runs the quality branch either way.
+                switch (toLower(v))
+                {
+                case "optimizespeed":
+                    style.imageHint = Hint.OptimizeSpeed;
+                    break;
+                case "optimizequality":
+                    style.imageHint = Hint.OptimizeQuality;
+                    break;
+                case "auto":
+                    style.imageHint = Hint.Auto;
                     break;
                 default: // a token the grammar does not allow: keep the parent's
                     break;
@@ -3156,6 +3282,189 @@ private struct Renderer
         return res;
     }
 
+    // shape-rendering="crispEdges" (§11.7.3) takes the alignment half of
+    // the latitude the section hands out - "the user agent ... might
+    // adjust line positions and line widths to align edges with device
+    // pixels" - because the wavelet blitter has no antialiasing to turn
+    // off. When the device transform is plain scale-and-translate and
+    // every segment of the contour runs along an axis, each band's
+    // cross-axis centre moves so its two coverage edges land on pixel
+    // boundaries and its device width becomes a whole number of pixels -
+    // at least one, which is the hairline reading: filters-composite-02-b
+    // frames its capture with stroke-width 1 under a 0.4 scale, a
+    // 0.4-pixel band the reference rasteriser resolves to one solid
+    // column and the plain antialiaser smears to 40% of one. Vertices
+    // no incident band centres on - dash breaks, the along-run ends of
+    // the same contour - round to the grid, so caps and gaps end on
+    // pixel boundaries too. One diagonal or real curve refuses the
+    // whole contour: the section lets crispEdges apply "possibly just"
+    // to the axis-aligned lines, and snapping only those would tear the
+    // joins open. Fills are left alone - the hint aligns *edges* of
+    // bands, and moving a fill edge moves area, not edges. The width
+    // travels with the geometry: in goes the user-space stroke width,
+    // out comes the one whose device coverage is whole pixels. The
+    // nudge composes after snapStrokeBand's half-pixel calibration, and
+    // a band that one already centred between pixels (x + 0.5 at width
+    // 1, the suite's usual frame) is left exactly where it is.
+    static Path crispAlign(Path p, in Matrix m, ref float width)
+    {
+        enum eps = 0.001f;
+
+        immutable a = m[0][0], tx = m[0][2];
+        immutable d = m[1][1], ty = m[1][2];
+        if (m[0][1] || m[1][0] || a == 0 || a != d)
+            return p; // scale and translate only: a rotation, a flip that
+                      // flips one axis only, or a per-axis scale cannot put
+                      // one user-space width on whole pixels along both
+        immutable sc = a < 0 ? -a : a;
+
+        immutable ws = width * sc; // the band's width in device pixels
+        if (ws <= 0 || !isFinite(ws))
+            return p;
+        immutable wd = ws < 1 ? 1f : round(ws); // whole pixels, at least one
+
+        FPoint toDevice(FPoint q)
+        {
+            return FPoint(a * q.x + tx, d * q.y + ty);
+        }
+
+        // Contours in both spaces, laid out exactly as snapStrokeBand
+        // above reads them: a plain <rect> rides four degenerate cubics,
+        // so curve verbs are fine while their points stay on one axis,
+        // and a real arc fails that test.
+        struct Contour
+        {
+            Path.Verb[] verbs;
+            FPoint[] dev, user;
+            bool closed;
+        }
+        Contour[] subs;
+        foreach (verb, pts; p)
+            switch (verb)
+            {
+            case Path.Verb.Move:
+                subs ~= Contour([verb]);
+                subs[$ - 1].user ~= pts[0];
+                subs[$ - 1].dev ~= toDevice(pts[0]);
+                break;
+            case Path.Verb.Line:
+            case Path.Verb.Quad:
+            case Path.Verb.Cubic:
+                if (subs.empty)
+                    return p;
+                subs[$ - 1].verbs ~= verb;
+                // The iterator starts each segment at its previous point.
+                foreach (q; pts[1 .. $])
+                {
+                    subs[$ - 1].user ~= q;
+                    subs[$ - 1].dev ~= toDevice(q);
+                }
+                break;
+            case Path.Verb.Close:
+                if (subs.empty)
+                    return p;
+                subs[$ - 1].closed = true;
+                break;
+            default:
+                break;
+            }
+
+        bool aligned(FPoint x, FPoint y)
+        {
+            return abs(x.x - y.x) < eps || abs(x.y - y.y) < eps;
+        }
+        foreach (ref sub; subs)
+        {
+            if (sub.dev.length < 2)
+                continue;
+            foreach (j; 0 .. sub.dev.length - 1)
+                if (!aligned(sub.dev[j], sub.dev[j + 1]))
+                    return p; // one tilted edge would tear the stroke open
+            if (sub.closed && !aligned(sub.dev[$ - 1], sub.dev[0]))
+                return p;
+        }
+
+        Path res;
+        foreach (ref sub; subs)
+        {
+            immutable last = sub.dev.length - 1;
+            bool moves;
+            foreach (j; 0 .. last)
+                if (sub.dev[j] != sub.dev[j + 1])
+                    moves = true;
+            FPoint[] moved;
+            if (!moves)
+                moved = sub.user; // a dot has no band: its cap comes from
+                                  // addZeroLengthCaps off this same path
+            else foreach (j, pt; sub.dev)
+            {
+                // An incident vertical band centres on this vertex's x and
+                // an incident horizontal one on its y: those coordinates
+                // get the edge alignment. A coordinate the incident bands
+                // only run along rounds to the grid instead.
+                bool crossX, crossY;
+                void consider(ref FPoint o)
+                {
+                    // Independent tests: a doubled closing point (an
+                    // explicit Line back to the start, which the iterator
+                    // reports) is equal on both and counts as a corner.
+                    if (abs(o.x - pt.x) < eps)
+                        crossX = true;
+                    if (abs(o.y - pt.y) < eps)
+                        crossY = true;
+                }
+                if (j)
+                    consider(sub.dev[j - 1]);
+                else if (sub.closed && last)
+                    consider(sub.dev[last]);
+                if (j < last)
+                    consider(sub.dev[j + 1]);
+                else if (sub.closed)
+                    consider(sub.dev[0]);
+
+                auto q = sub.user[j];
+                if (crossX || crossY)
+                {
+                    // Round the band's smaller edge to the grid, rebuild
+                    // the centre from the whole-pixel width: the edges end
+                    // up round(c - ws/2) and that plus wd apart.
+                    immutable fx = crossX ? round(pt.x - ws / 2) + wd / 2 :
+                        round(pt.x);
+                    immutable fy = crossY ? round(pt.y - ws / 2) + wd / 2 :
+                        round(pt.y);
+                    q = FPoint((fx - tx) / a, (fy - ty) / d);
+                }
+                moved ~= q;
+            }
+
+            size_t at;
+            foreach (verb; sub.verbs)
+                switch (verb)
+                {
+                case Path.Verb.Move:
+                    res.moveTo(moved[at++]);
+                    break;
+                case Path.Verb.Line:
+                    res.lineTo(moved[at++]);
+                    break;
+                case Path.Verb.Quad:
+                    res.quadTo(moved[at++], moved[at++]);
+                    break;
+                case Path.Verb.Cubic:
+                    res.cubicTo(moved[at++], moved[at++], moved[at++]);
+                    break;
+                case Path.Verb.Close:
+                    break; // emitted below, once per contour
+                default:
+                    break;
+                }
+            if (sub.closed)
+                res.close();
+        }
+        width = wd / sc;
+        return res;
+    }
+
     // SVG 11.2: a subpath of zero length takes a cap all the same - butt
     // paints nothing, round a circle of diameter stroke-width, square a
     // square of the same side, and a *closed* zero-length subpath is not
@@ -3256,17 +3565,27 @@ private struct Renderer
         if (doStroke)
         {
             auto geo = snapStrokeBand(path, canvas.matrix);
+            float wdt = s.strokeWidth;
+            immutable crisp = s.shapeHint == Hint.CrispEdges;
             if (s.dash.length)
             {
+                // Dashes are measured on the calibrated geometry, then the
+                // crisp pass puts their broken ends on the grid.
                 auto dashed = svgDash(geo, s.dash, s.dashOffset);
-                stroked = strokePath(dashed, s.strokeWidth, s.caps, s.joins, s.miterLimit);
+                if (crisp)
+                    dashed = crispAlign(dashed, canvas.matrix, wdt);
+                stroked = strokePath(dashed, wdt, s.caps, s.joins, s.miterLimit);
             }
             else
-                stroked = strokePath(geo, s.strokeWidth, s.caps, s.joins, s.miterLimit);
+            {
+                if (crisp)
+                    geo = crispAlign(geo, canvas.matrix, wdt);
+                stroked = strokePath(geo, wdt, s.caps, s.joins, s.miterLimit);
+            }
             // §11.2's zero-length subpaths, which the stroker drops: their
             // caps come from the element's own geometry (the dash pass above
             // has already left them out of the geometry it strokes).
-            addZeroLengthCaps(stroked, geo, s.strokeWidth, s.caps);
+            addZeroLengthCaps(stroked, geo, wdt, s.caps);
         }
 
         if (doFill || doStroke)
@@ -11503,6 +11822,184 @@ unittest
     circle.addOval(FRect(1, 1, 9, 9));
     assert(points(Renderer.snapStrokeBand(circle, Matrix())).length < 4,
         "curves are not axis-aligned geometry");
+}
+
+unittest
+{
+    // crispEdges (§11.7.3): under a plain scale the band centres move to
+    // put their edges on the device grid, and the width follows them.
+    // The composite fixture's frame is a 1-wide stroke under 0.4: the
+    // 0.4-pixel band becomes one whole pixel, centred in the pixel the
+    // un-snapped centre sits in (device x 20 stays in column 20).
+    FPoint[] points(in Path p)
+    {
+        FPoint[] res;
+        foreach (verb, pts; p)
+        {
+            if (verb == Path.Verb.Move)
+                res ~= pts[0];
+            else if (verb == Path.Verb.Line)
+                res ~= pts[$ - 1];
+        }
+        return res;
+    }
+    bool same(FPoint[] got, FPoint[] want)
+    {
+        if (got.length != want.length)
+            return false;
+        foreach (i, q; want)
+            if (abs(got[i].x - q.x) > 0.01f || abs(got[i].y - q.y) > 0.01f)
+                return false;
+        return true;
+    }
+
+    float w = 1;
+    Matrix four;
+    four.setScale(0.4f, 0.4f);
+    Path frame;
+    frame.addRect(FRect(50, 50, 350, 250));
+    auto snapped = points(Renderer.crispAlign(frame, four, w));
+    assert(same(snapped, [FPoint(51.25f, 51.25f), FPoint(351.25f, 51.25f),
+        FPoint(351.25f, 251.25f), FPoint(51.25f, 251.25f),
+        FPoint(51.25f, 51.25f)]), to!string(snapped));
+    assert(w > 2.49f && w < 2.51f, to!string(w)); // one device pixel at 0.4
+
+    // Identity scale, the sub-pixel hairline of the render test below:
+    // every cross coordinate lands between pixels, and the width grows
+    // to one user pixel.
+    w = 0.4f;
+    Path hair;
+    hair.addRect(FRect(10.2f, 5.2f, 30.2f, 35.2f));
+    snapped = points(Renderer.crispAlign(hair, Matrix(), w));
+    assert(same(snapped, [FPoint(10.5f, 5.5f), FPoint(30.5f, 5.5f),
+        FPoint(30.5f, 35.5f), FPoint(10.5f, 35.5f), FPoint(10.5f, 5.5f)]),
+        to!string(snapped));
+    assert(w == 1f);
+
+    // Already whole and already between pixels: the nudge is a no-op, so
+    // it composes after snapStrokeBand without undoing it (the band ends
+    // up at x + 0.5 at width 1 either way round).
+    w = 1;
+    Path band;
+    band.addRect(FRect(1, 1, 7, 7));
+    assert(same(points(Renderer.crispAlign(
+        Renderer.snapStrokeBand(band, Matrix()), Matrix(), w)),
+        [FPoint(1.5f, 1.5f), FPoint(7.5f, 1.5f), FPoint(7.5f, 7.5f),
+            FPoint(1.5f, 7.5f), FPoint(1.5f, 1.5f)]), "no double shift");
+    assert(w == 1f);
+
+    // The along-axis rule: a dash break or open end rounds to the grid,
+    // so caps sit on pixel boundaries; the centred coordinate aligns.
+    w = 1;
+    Path open;
+    open.moveTo(FPoint(10.3f, 20.5f));
+    open.lineTo(FPoint(30.4f, 20.5f));
+    snapped = points(Renderer.crispAlign(open, Matrix(), w));
+    assert(same(snapped, [FPoint(10, 20.5f), FPoint(30, 20.5f)]),
+        to!string(snapped));
+
+    // Refusals leave both the geometry and the width alone: one diagonal
+    // edge would tear the joins open, and a matrix that is not a plain
+    // uniform scale cannot put one width on whole pixels on both axes.
+    w = 0.4f;
+    Path tilt;
+    tilt.moveTo(FPoint(1, 1));
+    tilt.lineTo(FPoint(40, 20));
+    assert(points(Renderer.crispAlign(tilt, Matrix(), w))
+        == points(tilt) && w == 0.4f);
+    Matrix off;
+    off.setScale(0.4f, 0.5f);
+    Path rect;
+    rect.addRect(FRect(10.2f, 5.2f, 30.2f, 35.2f));
+    assert(points(Renderer.crispAlign(rect, off, w))
+        == points(rect) && w == 0.4f, "a per-axis scale is refused");
+
+    // A dot carries no band: its cap comes from the geometry untouched,
+    // exactly as snapStrokeBand leaves it.
+    w = 0.4f;
+    Path dot;
+    dot.moveTo(FPoint(10.2f, 10.2f));
+    assert(points(Renderer.crispAlign(dot, Matrix(), w)) == points(dot));
+}
+
+unittest
+{
+    // The hairline reading of the hint, end to end: a 0.4-wide stroke is
+    // 40% of one column unhinted and one whole lit column - and only
+    // that - under shape-rendering="crispEdges".
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="80"
+        height="45">
+        <rect x="10.2" y="5.2" width="20" height="30" fill="none"
+            stroke="#000" stroke-width="0.4"/>
+        <g shape-rendering="crispEdges">
+            <rect x="40.2" y="5.2" width="20" height="30" fill="none"
+                stroke="#000" stroke-width="0.4"/>
+        </g>
+        </svg>`);
+    auto top = bmp.getLine!PMColor(6);
+    assert(top[10].a > 60 && top[10].a < 140 && top[11].a == 0,
+        to!string([top[10].a, top[11].a])); // smeared, 40% of a column
+    assert(top[40].a == 255 && top[60].a == 255,
+        to!string([top[40].a, top[60].a])); // whole columns
+
+    size_t solid, lit;
+    foreach (y; 0 .. int(bmp.height))
+        foreach (p; bmp.getLine!PMColor(y))
+        {
+            if (p.a >= 250)
+                ++solid;
+            if (p.a)
+                ++lit;
+        }
+    // The ring is 21 px by 31 px: its whole perimeter lit, and the
+    // unhinted hairline contributes nothing solid at all.
+    assert(solid == 100, to!string(solid));
+    assert(lit == 2 * 100, to!string(lit));
+}
+
+unittest
+{
+    // An invalid hint token keeps the parent's answer, the fill-rule
+    // precedent: bogus over the initial auto stays auto, and bogus
+    // under an ancestor's crispEdges stays crisp. The three properties
+    // the quality-first engine does not act on ride through without
+    // touching pixels.
+    auto unhinted = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="80"
+        height="45">
+        <g color-rendering="optimizeQuality" image-rendering="optimizeSpeed"
+            text-rendering="optimizeLegibility">
+            <g shape-rendering="bogus">
+                <rect x="10.2" y="5.2" width="20" height="30" fill="none"
+                    stroke="#000" stroke-width="0.4"/>
+            </g>
+        </g>
+        <g shape-rendering="crispEdges">
+            <rect x="40.2" y="5.2" width="20" height="30" fill="none"
+                shape-rendering="bogus" stroke="#000" stroke-width="0.4"/>
+        </g>
+        </svg>`);
+    auto hinted = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="80"
+        height="45">
+        <rect x="10.2" y="5.2" width="20" height="30" fill="none"
+            stroke="#000" stroke-width="0.4"/>
+        <rect x="40.2" y="5.2" width="20" height="30" fill="none"
+            shape-rendering="crispEdges" stroke="#000" stroke-width="0.4"/>
+        </svg>`);
+    // Same picture: left rect smeared, right rect a solid ring, both
+    // 100 solid cells - the bogus child inherited the crispEdges.
+    size_t solidL, solidR;
+    foreach (y; 0 .. int(unhinted.height))
+    {
+        auto a = unhinted.getLine!PMColor(y), b = hinted.getLine!PMColor(y);
+        foreach (x, p; a)
+        {
+            assert(p.a == b[x].a,
+                to!string([x, y, p.a, b[x].a])); // inert + inherited
+            if (p.a >= 250)
+                x < 35 ? ++solidL : ++solidR;
+        }
+    }
+    assert(solidL == 0 && solidR == 100, to!string([solidL, solidR]));
 }
 
 unittest
