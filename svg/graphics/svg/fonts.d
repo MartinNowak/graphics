@@ -519,6 +519,12 @@ private SvgFont* parseFont(ref immutable(Element)[] nodes, size_t idx)
             f.alphabetic = num(c, "alphabetic");
             f.weight = cssWeight(getAttr(c, "font-weight"));
             f.faceStyle = cssStyle(getAttr(c, "font-style"));
+            // The fourth CSS2 registration descriptor, font-stretch,
+            // stays unread: every spelling in the suite reads
+            // font-stretch="normal", so a matching axis over faces
+            // that all say the same thing selects nothing - recorded
+            // as the ceiling, and the property side is parsed and
+            // carried (Style.stretch).
             f.hasIdeographic = optNum(c, "ideographic", f.ideographic);
             f.hasHanging = optNum(c, "hanging", f.hanging);
             f.hasMathematical = optNum(c, "mathematical", f.mathematical);

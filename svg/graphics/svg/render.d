@@ -1038,6 +1038,16 @@ private struct Renderer
         GeometricPrecision, // shape-rendering, text-rendering
     }
 
+    // font-stretch's value set (§16.4, CSS2 §15.5.1): the named width-
+    // axis buckets plus the relative wider/narrower. Carried, not acted
+    // on - see Style.stretch.
+    enum Stretch
+    {
+        Normal, Wider, Narrower,
+        UltraCondensed, ExtraCondensed, Condensed, SemiCondensed,
+        SemiExpanded, ExtraExpanded, UltraExpanded,
+    }
+
     static struct Style
     {
         bool transform;
@@ -1171,6 +1181,17 @@ private struct Renderer
         // makes synthesis the UA's option ("if synethesis is
         // supported") and its fallback rows the answer.
         int variant = 1;
+        // font-stretch (the width axis) and font-size-adjust, the two
+        // remaining CSS2 font properties from the propidx. Neither is
+        // acted on: 10.4's face-matching walks the width axis, but every
+        // embedded face in the suite spells font-stretch="normal" and no
+        // fixture requests a width, so the axis has nothing to select -
+        // the gap is the recorded ceiling, not a missing parse. Both
+        // ride the struct-copy inheritance like the hints, so a token
+        // reaches descendants; an unknown token keeps the parent's, the
+        // fill-rule precedent. sizeAdjust NaN is `none`.
+        Stretch stretch=Stretch.Normal;
+        float sizeAdjust=float.nan;
         TextPaint.TextAlign anchor=TextPaint.TextAlign.Left;
 
         // Baseline alignment (§10.9.2). Neither property inherits in the
@@ -1911,6 +1932,49 @@ private struct Renderer
                 // which face of a family the lookup takes; the render
                 // choice it carries is documented at Style.variant.
                 style.variant = v == "small-caps" ? 2 : 1;
+                break;
+
+            case "font-stretch":
+                // propidx: normal | wider | narrower | ultra-condensed |
+                // extra-condensed | condensed | semi-condensed |
+                // semi-expanded | extra-expanded | ultra-expanded,
+                // initial normal. Carried for the day the matching axis
+                // has spread to select over; see Style.stretch.
+                switch (toLower(strip(v)))
+                {
+                case "wider": style.stretch = Stretch.Wider; break;
+                case "narrower": style.stretch = Stretch.Narrower; break;
+                case "ultracondensed": style.stretch = Stretch.UltraCondensed; break;
+                case "extracondensed": style.stretch = Stretch.ExtraCondensed; break;
+                case "condensed": style.stretch = Stretch.Condensed; break;
+                case "semicondensed": style.stretch = Stretch.SemiCondensed; break;
+                case "semiexpanded": style.stretch = Stretch.SemiExpanded; break;
+                case "extraexpanded": style.stretch = Stretch.ExtraExpanded; break;
+                case "ultraexpanded": style.stretch = Stretch.UltraExpanded; break;
+                case "normal": style.stretch = Stretch.Normal; break;
+                default: // a token the grammar does not allow: keep the parent's
+                    break;
+                }
+                break;
+
+            case "font-size-adjust":
+                // propidx: <number> | none, initial none. CSS2 §14.4.8
+                // recalibrates the used font size so the lowercase
+                // x-height measures adjust * font-size; no fixture or
+                // registration spells it, and the rescale would be a
+                // guess at a metric no scored row asks for. The number
+                // rides the chain inert; see Style.sizeAdjust.
+                if (equalCase(strip(v), "none"))
+                    style.sizeAdjust = float.nan;
+                else
+                {
+                    float adj;
+                    try
+                        adj = to!float(strip(v));
+                    catch (Exception)
+                        break; // not a number: keep the parent's
+                    style.sizeAdjust = adj;
+                }
                 break;
 
             case "text-anchor":
@@ -5638,6 +5702,44 @@ private struct Renderer
         return t.bmp;
     }
 
+    // Parse a 'clip' property value into four edge insets: CSS2's
+    // rect(top, right, bottom, left), each number an inset measured
+    // from the edge its position names. Commas or plain whitespace
+    // separate the four (CSS2 requires the commas; the fixture spells
+    // them); an optional px suffix is the user unit here. Anything the
+    // grammar refuses - `auto`, `inherit` alone, a percentage or em,
+    // too few or too many numbers - is no rectangle to act on, which
+    // is the property's initial auto answer as well.
+    static bool clipInsets(string v, out float top, out float right,
+        out float bottom, out float left)
+    {
+        auto s = strip(v);
+        if (!s.startsWith("rect(") || !s.endsWith(")"))
+            return false;
+        float[4] n;
+        size_t seen;
+        foreach (tok; split(replace(s[5 .. $ - 1], ",", " ")))
+        {
+            if (seen == 4)
+                return false; // more numbers than the grammar has
+            auto t = tok;
+            if (t.endsWith("px"))
+                t = t[0 .. $ - 2];
+            try
+                n[seen] = to!float(t);
+            catch (Exception)
+                return false;
+            ++seen;
+        }
+        if (seen != 4)
+            return false;
+        top = n[0];
+        right = n[1];
+        bottom = n[2];
+        left = n[3];
+        return true;
+    }
+
     void imageElement(in string[string] a, size_t idx = Document.unknown)
     {
         const s = pushStyle(a, idx);
@@ -5715,6 +5817,23 @@ private struct Renderer
             (w - fit[0][2]) / sx, (h - fit[1][2]) / sy);
         if (!vis.intersect(FRect(0, 0, nw, nh)))
             return;
+
+        // The deprecated-but-scored 'clip' property (masking-path-06-b
+        // is its one scored user): rect()'s four insets narrow the
+        // viewport clip - the reference shows the image only inside
+        // the red rect, 10 user units in from each edge. The inset box
+        // rides the same intersect: mapped back through the fit it
+        // becomes a natural-pixel rectangle, and two axis-aligned
+        // intersections compose in either order.
+        float ct, cr, cb, cl;
+        auto cp = "clip" in a;
+        if (cp !is null && clipInsets(*cp, ct, cr, cb, cl))
+        {
+            if (!vis.intersect(FRect((cl - fit[0][2]) / sx,
+                (ct - fit[1][2]) / sy,
+                (w - cr - fit[0][2]) / sx, (h - cb - fit[1][2]) / sy)))
+                return; // the inset misses the fitted image entirely
+        }
 
         // The filter region basis is the element's geometry bbox in user
         // space: for <image> that is the viewport rect (§7.8), not the
@@ -10534,6 +10653,56 @@ unittest
     assert(bmp.getLine!PMColor(50)[5].r == 255, "broken clip reference: image paints");
     assert(bmp.getLine!PMColor(70)[5].r == 255, "mask: white mask geometry passes the image");
     assert(bmp.getLine!PMColor(70)[15].a == 0, "mask: nothing outside it");
+}
+
+unittest
+{
+    // The deprecated 'clip' property on <image> (masking-path-06-b is
+    // its one scored spelling, and its reference is the authority on
+    // what the four rect() numbers mean): each value insets the edge
+    // it names, in user units, composing with the viewport clip. Edges
+    // are landed on device-pixel boundaries so the pins are whole
+    // pixels; the sub-<svg> reference rasterises at viewport
+    // resolution, one pixel per user unit, like the fixture's second
+    // image.
+    import std.file : mkdir, remove, rmdir, tempDir, write;
+    import std.path : buildPath;
+    import std.process : thisProcessID;
+
+    immutable dir = buildPath(tempDir, "gsvg-clip-" ~ to!string(thisProcessID));
+    mkdir(dir);
+    immutable sub = buildPath(dir, "tile40.svg");
+    scope (exit) { remove(sub); rmdir(dir); }
+    write(sub, `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20">`
+        ~ `<rect width="40" height="20" fill="#00ff00"/></svg>`);
+
+    auto bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="30">
+        <image href="tile40.svg" x="10" y="5" width="40" height="20" clip="rect(5,10,6,3)"/>
+        </svg>`, 1, dir ~ "/");
+    assert(bmp.getLine!PMColor(15)[13].g == 255 && bmp.getLine!PMColor(15)[39].g == 255,
+        "left and right keep their insets");
+    assert(bmp.getLine!PMColor(15)[12].a == 0 && bmp.getLine!PMColor(15)[40].a == 0,
+        "outside the inset paints nothing");
+    assert(bmp.getLine!PMColor(10)[30].g == 255 && bmp.getLine!PMColor(18)[30].g == 255,
+        "top and bottom keep their insets");
+    assert(bmp.getLine!PMColor(9)[30].a == 0 && bmp.getLine!PMColor(19)[30].a == 0,
+        "the same, vertically");
+
+    // An empty inset box paints nothing at all.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="30">
+        <image href="tile40.svg" x="10" y="5" width="40" height="20" clip="rect(30,30,30,30)"/>
+        </svg>`, 1, dir ~ "/");
+    assert(bmp.getLine!PMColor(15)[25].a == 0, "an empty inset box paints nothing");
+
+    // 'auto' and garbage spellings are the initial answer: no clip.
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="30">
+        <image href="tile40.svg" x="10" y="5" width="40" height="20" clip="auto"/>
+        </svg>`, 1, dir ~ "/");
+    assert(bmp.getLine!PMColor(15)[11].g == 255, "auto clips nothing");
+    bmp = renderSVG(`<svg xmlns="http://www.w3.org/2000/svg" width="60" height="30">
+        <image href="tile40.svg" x="10" y="5" width="40" height="20" clip="rect(1,2,3)"/>
+        </svg>`, 1, dir ~ "/");
+    assert(bmp.getLine!PMColor(15)[11].g == 255, "three numbers are no rectangle");
 }
 
 unittest

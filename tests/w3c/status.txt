@@ -225,7 +225,7 @@ masking-path-02-b.svg OK 229
 masking-path-03-b.svg OK 260
 masking-path-04-b.svg OK 15095
 masking-path-05-f.svg OK 0
-masking-path-06-b.svg OK 6344
+masking-path-06-b.svg OK 161
 masking-path-07-b.svg OK 1038
 masking-path-08-b.svg OK 234
 masking-path-09-b.svg OK 984

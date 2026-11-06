@@ -337,6 +337,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | band pairs rule the decoration bars, and       |            |
 |                       | the v-* quartet aligns tb slots - 03-b         |            |
 |                       | 1,203 -> 1,164                                 |            |
+| step 90               | the SE index audit closes the walk:            | 2.62 M     |
+|                       | the deprecated clip rect lands on image        |            |
+|                       | - masking-path-06-b 6,344 -> 161               |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3572,6 +3575,77 @@ anything unaccounted for becomes a later step's material.
 Worth probing alongside: 03-b's remaining 1,164 - whether the
 band move left a band-shaped cluster or only the italic and
 caption floor the row has always carried.
+
+The audit ran as planned. eltindex, attindex and propidx supply
+80 elements, 266 attributes and 61 properties, and diffing them
+against the parsers' colon-aware string literals leaves a miss
+list that empties on inspection into two piles. One pile is
+consumed elsewhere: feMerge takes any non-text child, so
+feMergeNode never needs a case of its own; xml:space answers at
+parse time through Style's preserveWS; unicode-range is read in
+fonts.d, where the animate-elem fixtures' font declarations
+spell it; font-face-src's walk takes only font-face-uri
+children, so font-face-name - the CSS2 system-font reference -
+is never resolved; and desc and metadata never paint because
+the paint walk's default branch never descends into them. The
+other pile is the ceilings the old notes already named: the
+on* handlers, filterRes and externalResourcesRequired stay
+with the DOM ceiling; attributeType, keyPoints, keySplines,
+restart, deprecated origin and mpath with the animation and
+motion ceilings; arabic-form with shaping; direction and
+unicode-bidi with the bidi ceiling; pointer-events with
+interactivity; enable-background with the backdrop the filter
+fixtures' BackgroundImage inputs already supply; rendering-
+intent, local and color-profile's name with the ICC ceiling;
+accent-height, bbox, cap-height, panose-1, stemh and stemv are
+font-face descriptives 10.4's matching never consults; string,
+widths and format are the CSS2 font-embedding trio; glyph's
+orientation is deprecated; version, baseProfile,
+contentScriptType and contentStyleType are document metadata.
+
+One entry turned out to be a real gap, and it is the step's
+move: masking-path-06-b is the suite's only spelling of clip=,
+the deprecated clip property, on two <image>s - rect(10,10,10,10)
+over a 200x120 viewport. Pixel probes of the reference pinned
+what the four numbers mean: each insets the edge it names, in
+user units - the plant is green at global (130,100) and the 10
+pixel band at (40,100) paints nothing - so the property composes
+a second intersection onto the viewport clip imageElement
+already computes, mapped back through the fit like every other
+visibility rect. The row drops 6,344 -> 161, and it is the only
+row the gate found moved.
+
+font-stretch and font-size-adjust close on the parse side. All
+17 spellings of font-stretch in the suite read normal, inside
+the resource fonts' own font-face descriptors, and no fixture
+requests a width, so 10.4's width axis is recorded as the
+ceiling over an axis with no spread; both properties now parse
+and ride the struct-copy chain like the hints, acted on by
+nothing, and the font-face descriptor stays unread with a
+comment where its three siblings are read in fonts.d. The
+unittests pin the clip outright - insets against a sub-<svg>
+tile rastered at viewport resolution, an empty box painting
+nothing, auto and a three-number rect clipping nothing. The
+first cut of those pins stumbled on a letterbox, not an
+engine quirk: a tile spelled without preserveAspectRatio
+takes the default xMidYMid meet scale, and a 1x1 source
+meet-scaled into a 40x20 viewport covers a centred 20x20
+square, not the full field - the columns its pins probed
+were simply outside that square. The fit-mapped intersect
+composes an inset clip with the letterbox exactly as the
+geometry asks, and the rewritten pins ride the tile whose
+raster already matches the viewport.
+
+526 rows, 0 ERROR, 2,615,215 AE - the baseline moves by 06-b
+alone.
+
+Up next - step 91: 03-b's remaining 1,164 - whether the band
+move left a band-shaped cluster or only the italic and
+caption floor the row has always carried. With the index
+audit shut, the next moves come from pixel forensics on the
+residual rows rather than from unread attributes, and the
+freshest row is this one; behind it in the text category
+stand the three text-ws rows at 4,555, 5,619 and 4,721.
 
 ## Deferred / accepted ceilings (do not chase)
 
