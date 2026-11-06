@@ -4103,20 +4103,79 @@ private struct Renderer
         return AltGlyph.init;
     }
 
-    // One <glyphRef> (§10.14.2). The href is the whole story here: the
-    // glyphname/format spelling names a glyph in one of the CSS2 font
-    // formats, none of which load in this engine, so such a ref never
-    // matches. A fragment that dangles, names something that is not a
-    // <glyph>, or names a glyph no registered font holds is a failed ref.
-    private AltGlyph glyphRefOf(immutable(Element) e)
+    // One <glyphRef> (§10.14.2). A spelled href takes precedence and the
+    // other identification attributes are ignored: it is the whole story,
+    // and a fragment that dangles, names something that is not a <glyph>,
+    // or names a glyph no registered font holds is a failed ref. Without
+    // the href the identifier spelling speaks: `glyphRef=` names the glyph,
+    // `format=` names the font's format, and the font selection properties
+    // choose the face. The CSS2 formats (truedoc-pfr, embedded-opentype)
+    // name font resources this engine never loads, so such a ref matches
+    // nothing; the SVG bridge strings do name faces in the store - the
+    // fontinfo spelling gives the glyph's glyph-name, the ICS spelling its
+    // character, written as the character itself or a decimal/hex code
+    // point. Too little spelled, no face the family list registers, or no
+    // glyph the face carries: all one answer, the "glyph not available"
+    // the spec routes back to the character data. The properties are the
+    // substitution site's own: the cascade computes a style only for what
+    // it renders, and a glyphRef inside a <defs> tree is never rendered.
+    private AltGlyph glyphRefOf(immutable(Element) e, ref const Style s)
     {
         immutable href = strip(e.attrs.get("href", e.attrs.get("xlink:href", "")));
-        if (href.empty || href[0] != '#') // an external glyph file: no store
+        if (!href.empty)
+        {
+            if (href[0] != '#') // an external glyph file: no store
+                return AltGlyph.init;
+            immutable size_t t = doc.byId(href[1 .. $]);
+            if (t == Document.unknown || doc.nodes[t].name != "glyph")
+                return AltGlyph.init;
+            return glyphById(href[1 .. $]);
+        }
+        immutable ident = strip(e.attrs.get("glyphRef", ""));
+        immutable fmt = toLower(strip(e.attrs.get("format", "")));
+        if (ident.empty || fmt.empty) // too little to identify a glyph
             return AltGlyph.init;
-        immutable size_t t = doc.byId(href[1 .. $]);
-        if (t == Document.unknown || doc.nodes[t].name != "glyph")
+        if (fmt != "svg/css-2-fontinfo" && fmt != "svg/css-2-ics"
+            && fmt != "application/svg+xml")
+            return AltGlyph.init; // that font format never loads in this engine
+        SvgFont* f = svgFace(s);
+        if (f is null)
+            return AltGlyph.init; // the family list registers no face to search
+        if (fmt == "svg/css-2-ics")
+        {
+            long cp;
+            int radix = 10, at = 0;
+            if (ident.length > 2 && (ident[0 .. 2] == "0x" || ident[0 .. 2] == "0X"))
+                radix = 16, at = 2;
+            bool numeric = ident.length > at;
+            foreach (ch; ident[at .. $])
+            {
+                if (!(radix == 16 ? isHexDigit(ch) : isDigit(ch)))
+                {
+                    numeric = false;
+                    break;
+                }
+                cp = radix * cp + (ch <= '9' ? ch - '0' : (ch | 0x20) - 'a' + 10);
+            }
+            if (!numeric)
+            {
+                size_t j = 0;
+                cp = decode(ident, j); // the identifier spells the character
+            }
+            if (cp > 0x10_FFFF) // no such code point: no glyph can answer
+                return AltGlyph.init;
+            foreach (ref g; f.glyphs)
+                if (g.uni.length == 1 && g.uni[0] == cast(dchar) cp)
+                    return AltGlyph(f, &g);
             return AltGlyph.init;
-        return glyphById(href[1 .. $]);
+        }
+        // fontinfo and the SVG MIME spelling: the glyph-name list names
+        // the glyph, document order, first match wins - §20.6's rule again.
+        foreach (ref g; f.glyphs)
+            foreach (n; g.name.split(','))
+                if (strip(n) == ident)
+                    return AltGlyph(f, &g);
+        return AltGlyph.init;
     }
 
     // What an altGlyph href resolves to (§10.14.1/§10.14.2). A <glyph> is
@@ -4125,8 +4184,9 @@ private struct Renderer
     // altGlyphItem candidate sets, of which the first item whose refs all
     // match wins. An empty result is the no-match case, and an empty `alts`
     // run renders exactly what the spec asks of it: the character data, as
-    // if there were no altGlyph element around it.
-    private AltGlyph[] altSubs(in string[string] a)
+    // if there were no altGlyph element around it. The run's own style is
+    // what the identifier spelling of a glyphRef selects its face against.
+    private AltGlyph[] altSubs(in string[string] a, ref const Style s)
     {
         immutable href = strip(a.get("href", a.get("xlink:href", "")));
         if (href.empty || href[0] != '#') // only a fragment addresses a glyph
@@ -4157,7 +4217,7 @@ private struct Renderer
                         ref immutable(Element) r = doc.nodes[gc];
                         if (r.name != "glyphRef")
                             continue; // other markup in the item is moot
-                        AltGlyph g = glyphRefOf(r);
+                        AltGlyph g = glyphRefOf(r, s);
                         if (g.glyph is null)
                         {
                             complete = false;
@@ -4170,7 +4230,7 @@ private struct Renderer
                 }
                 else if (c.name == "glyphRef" && !hasItem)
                 {
-                    AltGlyph g = glyphRefOf(c);
+                    AltGlyph g = glyphRefOf(c, s);
                     if (g.glyph is null)
                         return null; // a bare def needs every one of its refs
                     bare ~= g;
@@ -6234,7 +6294,7 @@ private struct Renderer
             {
                 newRun(a, xs, ys, dxs, dys, openPath);
                 runOpen = true;
-                textRuns[$ - 1].alts = altSubs(a);
+                textRuns[$ - 1].alts = altSubs(a, textRuns[$ - 1].style);
             }
             return true;
         }
@@ -11668,7 +11728,10 @@ unittest
     // leaves the run ordinary, which is what the spec asks of it: the
     // character data paints as if there were not an altGlyph element. Glyphs
     // are found by element id in any registered font, and that font's units
-    // travel with the outline.
+    // travel with the outline. With no href spelled, a glyphRef instead
+    // identifies its glyph by name or character - §10.14.2's identifier
+    // spelling - inside the face the substitution site's own font
+    // properties select.
     string svg(string body)
     {
         return `<svg xmlns="http://www.w3.org/2000/svg"
@@ -11682,11 +11745,14 @@ unittest
                         d="M0 0h80v80h-80z"/>
                     <glyph id="bar" glyph-name="bar" d="M0 0h20v100h-20z"/>
                     <glyph id="dot" glyph-name="dot" d="M0 0h40v40h-40z"/>
+                    <glyph id="bee" unicode="b" glyph-name="bee"
+                        d="M0 0h60v60h-60z"/>
                 </font>
                 <font horiz-adv-x="100">
                     <font-face font-family="AltOther" units-per-em="100"
                         ascent="80" descent="-20" alphabetic="0"/>
                     <glyph unicode="a" glyph-name="sq2" d="M0 80h80v-80h-80z"/>
+                    <glyph glyph-name="cross" d="M0 0h100v20h-100z"/>
                 </font>
                 <altGlyphDef id="two"><glyphRef xlink:href="#bar"/>
                     <glyphRef xlink:href="#dot"/></altGlyphDef>
@@ -11698,6 +11764,27 @@ unittest
                     <glyphRef xlink:href="#gone"/></altGlyphItem>
                     <altGlyphItem><glyphRef xlink:href="#dot"/></altGlyphItem>
                 </altGlyphDef>
+                <altGlyphDef id="idtwo"><glyphRef glyphRef="bar"
+                    format="SVG/CSS-2-fontinfo"/><glyphRef glyphRef="dot"
+                    format="svg/css-2-fontinfo"/></altGlyphDef>
+                <altGlyphDef id="idics"><glyphRef glyphRef="b"
+                    format="SVG/CSS-2-ICS"/></altGlyphDef>
+                <altGlyphDef id="idnum"><glyphRef glyphRef="98"
+                    format="svg/css-2-ics"/></altGlyphDef>
+                <altGlyphDef id="idhex"><glyphRef glyphRef="0x62"
+                    format="SVG/CSS-2-ics"/></altGlyphDef>
+                <altGlyphDef id="idpfr"><glyphRef glyphRef="bar"
+                    format="truedoc-pfr"/></altGlyphDef>
+                <altGlyphDef id="idno"><glyphRef glyphRef="gone"
+                    format="SVG/CSS-2-fontinfo"/></altGlyphDef>
+                <altGlyphDef id="idbare"><glyphRef
+                    glyphRef="bar"/></altGlyphDef>
+                <altGlyphDef id="idfmt"><glyphRef
+                    format="SVG/CSS-2-fontinfo"/></altGlyphDef>
+                <altGlyphDef id="idprio"><glyphRef xlink:href="#dot"
+                    glyphRef="bar" format="SVG/CSS-2-fontinfo"/></altGlyphDef>
+                <altGlyphDef id="idcross"><glyphRef glyphRef="cross"
+                    format="application/svg+xml"/></altGlyphDef>
             </defs>
             <g font-size="10" fill="#008000">` ~ body ~ `</g></svg>`;
     }
@@ -11741,6 +11828,42 @@ unittest
         "a dangling href leaves the character data alone");
     assert(samePixels(face(`<altGlyph>a</altGlyph>`), plain),
         "an href-less altGlyph is passed over");
+    // §10.14.2's identifier spelling, for the glyphRef that spells no
+    // href: the glyphRef names the glyph, the format names the font's
+    // format, and the site's font properties select the face to look in.
+    immutable idtwo = `<altGlyph xlink:href="#idtwo">a</altGlyph>`;
+    assert(samePixels(face(idtwo), face(`<altGlyph xlink:href="#bar">a</altGlyph>`
+           ~ `<altGlyph xlink:href="#dot">a</altGlyph>`)),
+        "fontinfo glyphRefs pick their glyphs by glyph-name, in any case");
+    // b's glyph answers only an identifier: no run here spells a b.
+    immutable bee = `<altGlyph xlink:href="#bee">a</altGlyph>`;
+    assert(!samePixels(face(bee), plain),
+        "bee's outline differs from the a the face picks by itself");
+    assert(samePixels(face(`<altGlyph xlink:href="#idics">a</altGlyph>`), face(bee)),
+        "an ICS glyphRef names the character itself");
+    assert(samePixels(face(`<altGlyph xlink:href="#idnum">a</altGlyph>`), face(bee)),
+        "the ICS spelling may give the decimal code point");
+    assert(samePixels(face(`<altGlyph xlink:href="#idhex">a</altGlyph>`), face(bee)),
+        "or the hex one");
+    // Insufficient spelling or an unreachable format: the "glyph not
+    // available" route, which leaves the character data alone.
+    assert(samePixels(face(`<altGlyph xlink:href="#idpfr">a</altGlyph>`), plain),
+        "a CSS2 font format names a resource this engine never loads");
+    assert(samePixels(face(`<altGlyph xlink:href="#idno">a</altGlyph>`), plain),
+        "an identifier the selected face carries no glyph for is a failed ref");
+    assert(samePixels(face(`<altGlyph xlink:href="#idbare">a</altGlyph>`), plain),
+        "a glyphRef spelling no format identifies nothing");
+    assert(samePixels(face(`<altGlyph xlink:href="#idfmt">a</altGlyph>`), plain),
+        "a glyphRef spelling no identifier identifies nothing");
+    assert(samePixels(face(`<altGlyph xlink:href="#idprio">a</altGlyph>`),
+        face(`<altGlyph xlink:href="#dot">a</altGlyph>`)),
+        "a spelled href takes precedence and the identifier is ignored");
+    // The face the identifier searches is the one the site's family names.
+    immutable idcross = `<altGlyph xlink:href="#idcross">a</altGlyph>`;
+    assert(samePixels(face(idcross), plain),
+        "the identifier looks only in the face the run's family selects");
+    assert(!samePixels(line("AltOther", idcross), line("AltOther", "a")),
+        "the same identifier under the other family finds its glyph there");
     // What is replaced is character data, so an element with none inside
     // replaces nothing - and paints nothing, as text-altglyph-03-b shows.
     assert(samePixels(face(`x<altGlyph xlink:href="#bar"/>`), face("x")),

@@ -362,6 +362,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | sixty-one rows, no levers, folded              |            |
 | step 98               | bookkeeping audit: the walk closes             | 2.60 M     |
 |                       | 371 rows at 100+ AE all accounted              |            |
+| step 99               | the §10.14.2 identifier spelling of            | 2.60 M     |
+|                       | glyphRef lands; unittests pin it               |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4103,6 +4105,66 @@ lands as completeness, in the shape of steps
 85 and 86: implement the §10.14.2 grammar,
 pin it with unittests, expect the 526 rows
 back byte-identical at 2,598,346 AE.
+
+Step 99 landed that grammar, precedence kept
+literal: a spelled href leaves only the
+fragment path able to match, the identifier
+attributes ignored. With no href the
+identifier spelling speaks instead:
+`glyphRef=` gives the glyph's name against
+the face's glyph-name lists, document order
+and first match winning - or, under the ICS
+spelling, its character: the character
+itself, or a decimal or 0x-hex code point.
+`format=` says which spelling, matched
+case-folded; the SVG bridge strings name
+faces this engine's store holds, while
+CSS2's tokens - truedoc-pfr,
+embedded-opentype and the rest - name font
+resources this engine never loads, and such
+a ref fails as unavailable, as spec'd. The
+face searched is the substitution site's
+own: the run's font-family list picks the
+registered SVG face through the same §20.8.5
+selection that draws text, which makes the
+name search family-aware in a way
+glyphById's registry scan never was. The
+comments record one simplification: the
+cascade computes a style only for what it
+renders, and a glyphRef sits in defs, so the
+site's style carries the selection
+properties. The harness paid nothing, as the
+pointer predicted: every fixture glyphRef
+binds a fragment, and the lone
+`glyphRef='blah'` sits on an href-less
+altGlyph that altSubs passes over before
+identifier code is ever consulted. The gate
+came back byte-identical: 526 rows, 0 ERROR,
+2,598,346 AE. The unittests carry the
+pinning - twelve new assertions over new
+fixtures (a b-character glyph, a name-only
+cross glyph, defs spelling identifiers in
+mixed case, one ICS character three ways, a
+truedoc-pfr ref, each half of the spelling
+missing, an href racing an identifier, the
+cross seen from both families) - proving the
+identifier path family-scoped,
+precedence-bound and format-gated.
+
+Up next - step 100: the family's last gap,
+§20.8.5's `font-face-format`. Its string
+"hints" at the formats the font referenced
+by the parent `font-face-uri` supports, and
+CSS2 §15.3.5 skips sources whose formats a
+UA cannot load; this engine resolves every
+font-face-uri whatever its children spell.
+The suite spells the element in no fixture
+the gate reads - it lives only in the shared
+DTD's declarations, and the lone
+`font-face-name` sits in an images/ file
+the harness never opens - so the step lands
+unittest-pinned and byte-identical, in step
+99's shape.
 
 ## Deferred / accepted ceilings (do not chase)
 
