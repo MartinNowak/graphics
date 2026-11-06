@@ -349,6 +349,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 93               | forensics close text-spacing-01-b: every       | 2.60 M     |
 |                       | 33 px divergence was a crop artifact - the     |            |
 |                       | row is host face drift; the Arabic pair joins  |            |
+| step 94               | textLength lands: a lone x was read as         | 2.60 M     |
+|                       | a pin and the length stood down; the           |            |
+|                       | default was glyphs, not spacing                |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3812,6 +3815,68 @@ held since step 7 - our raster against a known shape, not
 a host's - and text-tselect-03-f (3,498) adds an embedded
 SVGHebrew. 01-b first.
 
+Step 94 picks up that pointer and the lever was real.
+No row in the suite honoured textLength at all: the
+probe rows draw natural width under every leg - the
+65-unit stretch measures the same 152 device px as the
+natural line, and the 45-unit squeeze draws it too.
+Two readings of §10.4 caused it. The stretch block
+stood down for an absolute-positioning list, but
+lenList hands back a one-element list for even a lone
+x="3" - a value naming the chunk's start, not a list
+pinning each glyph in turn - so the guard was false
+for every text the suite spells. And the lengthAdjust
+read compared the value against "spacing", leaving an
+absent attribute - whose spec default IS spacing - in
+the glyph-scaling branch. The length now stands down
+only for lists of two or more along the walked axis,
+and only a spelled spacingAndGlyphs scales glyphs; a
+malformed value means absent, absent means the default.
+
+The fixture's constrained rows land on their fuchsia
+ticks: pairs 2-4 stretch to the x2=69 tick and squeeze
+to x2=141, ink spans 193/193/191/194 device px against
+the captures' 194/194/193/195 - one or two pixels
+inside at 3x. The row falls 3,821 -> 2,010, and what
+§10.4 leaves unspecified is what remains: the capture
+host's distribution inside the constrained rows (the
+totals agree, per-glyph edges drift in 40-80 px
+fragments along them), the outline-scaling shape
+drift of pair 4 (82/65 over its scaling tail), and
+the fs6 caption edges (80/72/50/43). And the row is
+the suite's only textLength fixture: the two other
+files spelling the word name the DOM property inside
+scripts this renderer never runs.
+
+Six new unittests pin the feature at font-unit
+exactness on the Kh bar: a lone x with textLength=40
+opens the one gap to 30 with the bars standing 4 wide,
+absent lengthAdjust agrees with spacing,
+spacingAndGlyphs scales advances and outlines as one
+(8-wide bars at 20 and 40), the squeeze falls the gap
+to 2, and a two-value x list still outranks the length
+- the flowing third bar rides the undoubled advance.
+The vertical textLength test rides a group transform
+for its chunk start, unchanged; its helper's comment
+claimed the old reading and now says otherwise.
+
+526 rows, 0 ERROR, 2,598,346 AE - one row moved, 1,811
+off the baseline.
+
+Up next - step 95: the sweep's remaining un-triaged
+text rows are host faces, and the environment owns
+them: text-fonts-204-t (4,640) asks undefined ZC and
+falls to serif, answered Noto Serif; text-fonts-02-t
+(3,907) asks Georgia and Times New Roman, answered
+Noto Serif and Liberation Serif; text-text-11-t
+(3,861) rides sans-serif, text-align-06-b (2,319)
+Arial. None is a code lever. The last face with an
+un-triaged row is the engine's own: text-tselect-03-f
+(3,498) draws on an embedded SVGHebrew, ingested the
+way step 7 ingests any href'd SVG font - same class
+of question text-text-01-b just answered, and where
+step 95 starts.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -3890,6 +3955,14 @@ SVGHebrew. 01-b first.
   57, are that band alone: 9,063 diff pixels of their 9,063 and 9,108, all of
   it x=2..478 y=2..20, so the `<font>` boxes, their `missing-glyph` outlines
   and the `units-per-em` scaling they test are already exact.
+- `text-text-01-b` (2,010 since step 94): the engine meets every
+  textLength constraint the fixture spells - all four constrained
+  rows reach their fuchsia ticks within 1-2 device px - and the
+  residual is §10.4's unspecified distribution: the capture host's
+  per-glyph placement inside the stretched rows (edge fragments of
+  40-80 px along totals that agree), pair 4's spacingAndGlyphs
+  outline shape, and the fs6 caption edges. Different viewers may
+  satisfy these "by different means" - the pass criteria say so.
 - `text-text-03-b` (995 since step 91): its two fs32 underlined
   runs still carry ~404 AE of band, and no reading of the face's
   spelled -100/50 over a 1000 upem reaches their captures: those

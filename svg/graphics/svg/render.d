@@ -868,7 +868,7 @@ private struct Renderer
         string text;
         float[] xs, ys, dxs, dys; // §10.4 positioning lists
         float textLength; // 0: unset
-        bool adjSpacing;  // lengthAdjust="spacing" (else scale glyphs)
+        bool adjSpacing;  // §10.4 lengthAdjust: spacing is the default
         float gScale = 1; // spacingAndGlyphs outline scale (layout pass)
         size_t onPath = size_t.max; // index into textPaths: a <textPath>
                                     // run rides that path instead of the pen
@@ -4385,7 +4385,11 @@ private struct Renderer
         auto lc = lengthCtx();
         textRuns ~= TextRun(styles.data.back, "", xs, ys, dxs, dys,
             a.convLen("textLength", 0.0f, lc, RefAxis.width),
-            a.get("lengthAdjust", "") == "spacing", 1, onPath, null,
+            // §10.4 lengthAdjust: absent means the spec default,
+            // spacing; only a spelled spacingAndGlyphs scales, and
+            // a malformed value means absent too.
+            a.get("lengthAdjust", "") != "spacingAndGlyphs",
+            1, onPath, null,
             rotStack.length ? rotStack[$-1] : size_t.max);
     }
 
@@ -4821,10 +4825,13 @@ private struct Renderer
             // that pins lies along the axis the length walks: the x
             // list in the horizontal modes, the y list in the vertical
             // ones - a cross-axis list pins the other coordinate only
-            // and leaves the walking alone.
-            if (run.textLength > 0
-                && (run.style.wmode >= 2 ? run.ys.empty : run.xs.empty)
-                && va.length)
+            // and leaves the walking alone. A list that holds a single
+            // number is not that list: it names where the chunk starts
+            // and lets every later glyph walk on the advances the
+            // length owns, which is how a fixture's x="3" row stretches
+            // its textLength clean to the tick it paints.
+            auto walked = run.style.wmode >= 2 ? run.ys : run.xs;
+            if (run.textLength > 0 && walked.length < 2 && va.length)
             {
                 float natural = 0; // gdc leaves bare float locals as garbage
                 foreach (v; va)
@@ -12447,6 +12454,55 @@ unittest
 
 unittest
 {
+    // §10.4 textLength on a row whose x is spelled once: a list of
+    // one names the chunk's start, not a per-glyph pin, so the length
+    // owns the walk and the row reaches its full 40. Kh's 100-unit
+    // bar on a 100-upem face advances 10 at size 10, so the pair is
+    // 20 natural with kerning off, and the two adjustments part
+    // company there: spacing opens the one gap by 20 and leaves both
+    // bars 4 wide, spacingAndGlyphs doubles advances AND bars. And
+    // absent lengthAdjust is the spec default, spacing.
+    const string lfont = `<font id="k" horiz-adv-x="100">
+            <font-face font-family="Kh" units-per-em="100"
+                ascent="100" descent="0" alphabetic="0"/>
+            <glyph unicode="a" glyph-name="bar" d="M0 0h40v10h-40z"/>
+            <hkern u1="a" u2="a" k="20"/>
+        </font>`;
+    int[4] lbox(string attrs, string body = `aa`)
+    {
+        return inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+            width="120" height="120" viewBox="0 0 120 120">
+            <defs>` ~ lfont ~ `</defs>
+            <text x="20" y="60" font-family="Kh" font-size="10"`
+            ~ attrs ~ `>` ~ body ~ `</text>
+        </svg>`));
+    }
+    assert(lbox(` kerning="0"`) == [20, 59, 33, 59],
+        "natural: bars whole at 20 and 30, two 10-unit advances");
+    assert(lbox(` kerning="0" textLength="40"`) == [20, 59, 53, 59],
+        "the absent lengthAdjust is spacing: 20 of gap, bars 4 wide");
+    assert(lbox(` kerning="0" textLength="40"`
+        ~ ` lengthAdjust="spacing"`) == [20, 59, 53, 59],
+        "the spelled default agrees");
+    assert(lbox(` kerning="0" textLength="40"`
+        ~ ` lengthAdjust="spacingAndGlyphs"`) == [20, 59, 47, 59],
+        "advances and outlines scale as one: 8-wide bars at 20 and 40");
+    assert(lbox(` kerning="0" textLength="12"`) == [20, 59, 25, 59],
+        "and the length squeezes: the gap falls to 2, the bars stand");
+    // A list of two still pins and the length still stands down:
+    // with two pins and a bar flowing, the flowing bar rides the
+    // undoubled advance (40..43), not the stretched one (45..48).
+    assert(inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        width="120" height="120" viewBox="0 0 120 120">
+        <defs>` ~ lfont ~ `</defs>
+        <text x="20 30" y="60" font-family="Kh" font-size="10"
+            kerning="0" textLength="40">aaa</text>
+    </svg>`)) == [20, 59, 43, 59],
+        "a pinning list outranks the length, a lone x never was one");
+}
+
+unittest
+{
     // §20.3/§20.4's vertical trio and §20.7's vkern, read at last by
     // the vertical writing modes (§10.9.7), altGlyph substitution
     // (§10.14.1) included. Vh spells nothing vertical: at font size
@@ -12505,9 +12561,10 @@ unittest
         return inkBox(renderSVG(docV(attrs, body, family)));
     }
     // The length case rides a group transform for its chunk position:
-    // §10.4's list pins stand for the axis they walk, and a spelled
-    // x or y - the run's own first value included - is exactly such a
-    // pin on the axis a vertical length walks.
+    // a multi-value y list pins the vertical slots and the length
+    // stands down for it, so the markup keeps that axis list-free -
+    // while a lone spelled x only names a chunk's start and was never
+    // such a pin.
     int[4] tlBox(string attrs, string body, string family = "Vh")
     {
         return inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
