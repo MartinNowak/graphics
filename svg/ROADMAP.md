@@ -355,6 +355,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 95               | tselect-03-f: the capture's green              | 2.60 M     |
 |                       | bands are a load-script selection              |            |
 |                       | end-state; no static state has them            |            |
+| step 96               | the sweep's tail classes verify                | 2.60 M     |
+|                       | and fold: script verdicts, animate             |            |
+|                       | floor, host faces, one bidi capture            |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3940,6 +3943,79 @@ of steps 56 and 78 - and filters-light-04-f
 (464) joins the lighting ceilings. Step 96
 verifies each class whole and folds it.
 
+Step 96 swept the tail as promised and folded
+every class. The script tail - coords-dom-03-f
+(1,965), animate-struct-dom-01-b (1,975),
+script-handle-01-b (1.1 K) with -03-b and -04-b
+(594 each), text-dom-03-f (667) - every row
+carrying a <script>, every residue a verdict
+marker, a faint 59x60 twin block or a caption
+glyph; folded with the script family. The animate
+tail - -26-t (2.4 K), -27-t (490), -28-t (606),
+-60-t (611), -62-t (553), -70-t (540), -78-t
+(1.9 K), -81-t (628) - showed none of step 80's
+caption tell: five rows hold no 60 px cluster
+anywhere, the rest AA rings around frozen
+end-states and one invisible 199x200 drift;
+animate-interact-pevents-01-t (1.6 K) and
+animate-elem-52-t (4.6 K) are event-driven and
+joined the interact bullet. The host-face tail -
+text-fonts-01-t (2.8 K), -02-t (3.9 K), -204-t
+(4.6 K), -04-t (498), text-intro-01-t (1.9 K),
+-02-b (2.0 K), -09-b (1.9 K) - all fc-match
+stand-in answers, none keeping a 100 px cluster.
+The floor scan measured the rest: paths-data-10-t
+(699), shapes-polygon-01-t (675),
+shapes-ellipse-01-t (565), filters-light-05-f
+(2.2 K), coords-viewattr-03-b (1.1 K),
+styling-css-04-f (559), text-align-02-b (2.1 K),
+text-text-04-t (462), text-fonts-05-f (724),
+filters-light-04-f (464) - whole regions under
+the fuzz.
+
+One row was mis-classed in the pointer:
+fonts-glyph-02-t (2.0 K) is no host face and no
+script residue - it is the suite's only capture
+painted by a bidi-aware host. Its arabic-form
+rows render four positional shapes and RTL order
+there: a down-triangle, a square, a diamond and
+an up-triangle across line 1, the joined trio at
+the left; on this side §20.6's first match paints
+the isolated form four times and rtl rides the
+deferred bidi machinery. There is no lever to
+pull: reversing rtl would break the six other
+fixtures whose direction=rtl captures hold the
+logical order at the floor. It joins the ceilings
+as a new bullet.
+
+The gate re-ran whole, no engine change: 526 rows,
+0 ERROR, 2,598,346 AE, status.txt byte-identical.
+
+Up next - step 97: the tail-band scan, the
+suite's last un-triaged ground. Roughly fifty
+rows sit between 220 and 600 AE and another
+fifty between 100 and 220: the animate
+chapter's floors (-02/04/05/06/08/09/10/11/12/
+25/38/46/61/65/66/67/68/69/92-t, 230-450 each),
+shapes-line-01-t (429), shapes-grammar-01-f
+(386), shapes-circle-01-t (336) and
+shapes-ellipse-03-f (235), paths-data-16/17/20
+(249-373), struct-use-03/08-b (300-364),
+pservers-grad-06-b (348), filters-specular-01-f
+(344), render-elems-02-t (323), painting-stroke-
+03/04-t (289-321), masking-path-11-b (317),
+linking-uri-01/02-b and linking-a-09-b
+(284-308), fonts-desc-01-t (309), fonts-elem-
+01-t/-03-b (267-290), text-text-06-t (279),
+text-bidi-01-t (248), filters-light-01-f (279),
+filters-image-05-f (248), struct-image-07-t
+(240), painting-fill-02-t (237), coords-trans-
+13-f (220). Step 97 scans that band whole,
+family caveats first - several of these stems
+predate step 70's band scan and step 69's sweep
+and some are already covered by their abbreviated
+wording - naming or folding each row measured.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -3977,6 +4053,12 @@ verifies each class whole and folds it.
   selection is the operator's - "make a text selection" - and its
   pass criteria pass a basic viewer that implements no text
   selection at all.
+  `animate-interact-pevents-01-t` (1.6 K) joins the event-driven pair
+  at step 96: sixty of its animation `begin=` attributes name mouse
+  and click events, so its capture answers to pointer state. So does
+  `animate-elem-52-t` (4.6 K), the eventbase-target test: its three
+  animations hang off click events, and the capture's changed cells
+  are event state.
 - `animate-elem-53-t` (2.1 K) / `animate-elem-63-t` (1.0 K): the only two
   animate tests whose references cannot be reached from any static
   end-state frame. 53-t's reference shows the RR square *before* its scale
@@ -4029,6 +4111,23 @@ verifies each class whole and folds it.
   57, are that band alone: 9,063 diff pixels of their 9,063 and 9,108, all of
   it x=2..478 y=2..20, so the `<font>` boxes, their `missing-glyph` outlines
   and the `units-per-em` scaling they test are already exact.
+- `fonts-glyph-02-t` (2.0 K) belongs to none of step 96's classes:
+  it is the suite's only bidi-aware capture. Its `arabic-form`
+  (§20.2.1) rows draw U+069A and the khah letter in
+  isolated/initial/medial/terminal shapes under `direction="rtl"`,
+  and the reference proves both halves were rendered: line 1's ink
+  is a down-triangle, a square, a diamond and an up-triangle at
+  four different advances, with the joined trio at the line's left
+  end - RTL order - and line 2's three joined khah forms fuse into
+  one 140x20 ink bar the same way. Neither half exists here: §20.6's
+  first-match rule paints the isolated glyph four times, and the
+  renderer defers rtl with the bidi machinery, laying the run out
+  logical-first. And reversal cannot be bought at this gate: six
+  other fixtures set `direction=rtl` and their captures hold the
+  logical order - intro-02-b's bidi-override sentences and -09-b's
+  Hebrew row sit at the floor LTR - so reversing would trade six
+  matched rows for one. Closed at step 96; the `arabic-form` lookup
+  itself stays unimplemented for the same reason it would never pay.
 - `text-text-01-b` (2,010 since step 94): the engine meets every
   textLength constraint the fixture spells - all four constrained
   rows reach their fuchsia ticks within 1-2 device px - and the
@@ -4105,6 +4204,15 @@ verifies each class whole and folds it.
   `text-dom-05-f` (5.4 K), `script-handle-02-b` (5.3 K) and
   `svgdom-over-01-f` (2.6 K) all carry a `<script>`, and their
   verdicts are DOM end-states a CLI renderer has no surface to reach.
+  Step 96's tail closed the family's last members: `coords-dom-03-f`
+  (2.0 K), `animate-struct-dom-01-b` (2.0 K), `script-handle-01-b`
+  (1.1 K) with `-03-b` / `-04-b` (594 each) and `text-dom-03-f` (667),
+  every one carrying a `<script>`. 01-b's diff is its verdict - one
+  25x20 blue and four green 13-15 px clusters where the script plants
+  its PASS word - while -03-b and -04-b, twin files, show the same
+  faint 59x60 block no static frame reaches; coords-dom-03-f and
+  animate-struct-dom-01-b leave only specks, and text-dom-03-f's one
+  9x13 cluster is a caption glyph.
 - styling-css-09-f (18.9 K) / styling-css-10-f (9.8 K) / styling-pres-
   05-f (14.3 K): step 12 triage proved the external-sheet machinery
   works end to end (`@import` fetch, unquoted `[id=...]` selectors,
@@ -4175,6 +4283,14 @@ verifies each class whole and folds it.
   rasterizer. Step 13's residual 15.5 K on 04-b is that floor alone - the
   clip now cuts the image by the right *shapes*, only the Impact letterforms
   are missing (`fc-match Impact` answers Noto Sans here).
+  Step 96 walked the text chapter's rest onto this floor:
+  `text-fonts-01-t` (2.8 K, Georgia/Arial/monospace stacks), its
+  `-02-t` (3.9 K) and `-204-t` (4.6 K), `-04-t` (498, Charlesworth,
+  Haettenschweiler, `InvalidFontFamily`), `text-intro-01-t` (1.9 K,
+  MissingInAction and MS Gothic), `-02-b` (2.0 K, Arial Unicode MS)
+  and `-09-b` (1.9 K, Ezra SIL). None keeps a 100 px cluster: 204-t's
+  three caption specks and 02-b's single 9x19 are the largest, and
+  what scores is fc-match's answer, not the engine's.
   `text-intro-03-b/-06-t/-07-t` (480 K) are a different lever:
   Arabic shaping with host Noto against Kayrawan/Scheherezade references.
   Step 93 put the chapter's four remaining intro rows on that floor:
@@ -4258,6 +4374,32 @@ verifies each class whole and folds it.
   line's revision digits, one glyph wide. A capture of
   another revision of a test scores against a different
   test.
+- The step-96 animate tail closed the band's other eight rows -
+  `-26-t` (2.4 K), `-27-t` (490), `-28-t` (606), `-60-t` (611),
+  `-62-t` (553), `-70-t` (540), `-78-t` (1.9 K), `-81-t` (628). None shows step
+  80's caption tell: five carry no diff cluster 60 px or larger
+  anywhere, -78-t's 1.9 K riding a field of sub-60 specks, while
+  -27-t's twin 104x41 cells and -81-t's four 68x68 cells land at
+  134-143 raw each - under 4 % of their area, the AA ring around
+  frozen end-states whose fills and positions match. -26-t is the
+  same end-state story one size up: its two 199x200 target blocks
+  drift under 3 % per channel at 2.7/255 alpha - invisible whole
+  regions - and the scored remainder rides their edges. Verified
+  content at the raster phase, not stale captures.
+- Step 96's floor scan closed the last un-triaged rows above the
+  600 AE tail. `paths-data-10-t` (699), `shapes-polygon-01-t` (675)
+  and `shapes-ellipse-01-t` (565) show 110-160 px blocks averaging
+  1-5 % per channel - whole regions under the fuzz, the raster-phase
+  family of steps 56 and 78, not a path-data or arc miss. The same
+  whole-region reading covers `filters-light-05-f` (2.2 K): its
+  36x37 lit spheres differ by a uniform 49-50-level phase across
+  the row, joining the `filters-light-02-f` / `-04-f` lighting
+  ceilings; and `coords-viewattr-03-b` (1.1 K): its 80x80 marker
+  viewports sit at 6 % alpha under fuzz, with the rest of the
+  `coords-viewattr` marker rows. The remainder leaves nothing at
+  100 px anywhere: `styling-css-04-f` (559), `text-align-02-b`
+  (2.1 K), `text-text-04-t` (462), `text-fonts-05-f` (724), and
+  `filters-light-04-f` (464).
 - `animate-elem-83-t` (934) is revision-matched at 1.7
   both sides and still a ceiling: the six cells' gray
   morph end-states land pixel-exact under 3x crops -
