@@ -4107,16 +4107,16 @@ private struct Renderer
     // other identification attributes are ignored: it is the whole story,
     // and a fragment that dangles, names something that is not a <glyph>,
     // or names a glyph no registered font holds is a failed ref. Without
-    // the href the identifier spelling speaks: `glyphRef=` names the glyph,
-    // `format=` names the font's format, and the font selection properties
-    // choose the face. The CSS2 formats (truedoc-pfr, embedded-opentype)
-    // name font resources this engine never loads, so such a ref matches
-    // nothing; the SVG bridge strings do name faces in the store - the
-    // fontinfo spelling gives the glyph's glyph-name, the ICS spelling its
-    // character, written as the character itself or a decimal/hex code
-    // point. Too little spelled, no face the family list registers, or no
-    // glyph the face carries: all one answer, the "glyph not available"
-    // the spec routes back to the character data. The properties are the
+    // the href the identifier spelling speaks: `glyphRef=` names the glyph
+    // and `format=` the font's format; the font selection properties
+    // choose the face. A format CSS2 §15.3.5 registered - truedoc-pfr,
+    // embedded-opentype and the rest - names a resource this engine never
+    // loads, so such a ref matches nothing; the strings naming SVG fonts
+    // (fonts.svgFormat) search the selected face for the identifier, as
+    // §20.6's glyph-name or as the character the glyph stands for. Too
+    // little spelled, no face the family list registers, or no glyph the
+    // face carries: all one answer, the "glyph not available" the spec
+    // routes back to the character data. The properties are the
     // substitution site's own: the cascade computes a style only for what
     // it renders, and a glyphRef inside a <defs> tree is never rendered.
     private AltGlyph glyphRefOf(immutable(Element) e, ref const Style s)
@@ -4132,18 +4132,22 @@ private struct Renderer
             return glyphById(href[1 .. $]);
         }
         immutable ident = strip(e.attrs.get("glyphRef", ""));
-        immutable fmt = toLower(strip(e.attrs.get("format", "")));
+        immutable fmt = strip(e.attrs.get("format", ""));
         if (ident.empty || fmt.empty) // too little to identify a glyph
             return AltGlyph.init;
-        if (fmt != "svg/css-2-fontinfo" && fmt != "svg/css-2-ics"
-            && fmt != "application/svg+xml")
+        if (!svgFormat(fmt))
             return AltGlyph.init; // that font format never loads in this engine
         SvgFont* f = svgFace(s);
         if (f is null)
             return AltGlyph.init; // the family list registers no face to search
-        if (fmt == "svg/css-2-ics")
+        // The identifier names the glyph either as §20.6's glyph-name or as
+        // the one character it stands for - the character itself, or a
+        // decimal or 0x-hex code point, §20.4's ways of writing one. The
+        // face's document order decides which answers first.
+        dchar cp;
+        bool isChar;
         {
-            long cp;
+            long v;
             int radix = 10, at = 0;
             if (ident.length > 2 && (ident[0 .. 2] == "0x" || ident[0 .. 2] == "0X"))
                 radix = 16, at = 2;
@@ -4155,26 +4159,26 @@ private struct Renderer
                     numeric = false;
                     break;
                 }
-                cp = radix * cp + (ch <= '9' ? ch - '0' : (ch | 0x20) - 'a' + 10);
+                v = radix * v + (ch <= '9' ? ch - '0' : (ch | 0x20) - 'a' + 10);
             }
-            if (!numeric)
+            if (numeric && v <= 0x10_FFFF)
+                cp = cast(dchar) v, isChar = true;
+            else
             {
                 size_t j = 0;
-                cp = decode(ident, j); // the identifier spells the character
+                immutable first = decode(ident, j); // the identifier may
+                if (j == ident.length) // itself be the character
+                    cp = first, isChar = true;
             }
-            if (cp > 0x10_FFFF) // no such code point: no glyph can answer
-                return AltGlyph.init;
-            foreach (ref g; f.glyphs)
-                if (g.uni.length == 1 && g.uni[0] == cast(dchar) cp)
-                    return AltGlyph(f, &g);
-            return AltGlyph.init;
         }
-        // fontinfo and the SVG MIME spelling: the glyph-name list names
-        // the glyph, document order, first match wins - §20.6's rule again.
         foreach (ref g; f.glyphs)
+        {
             foreach (n; g.name.split(','))
                 if (strip(n) == ident)
                     return AltGlyph(f, &g);
+            if (isChar && g.uni.length == 1 && g.uni[0] == cp)
+                return AltGlyph(f, &g);
+        }
         return AltGlyph.init;
     }
 
@@ -11765,24 +11769,24 @@ unittest
                     <altGlyphItem><glyphRef xlink:href="#dot"/></altGlyphItem>
                 </altGlyphDef>
                 <altGlyphDef id="idtwo"><glyphRef glyphRef="bar"
-                    format="SVG/CSS-2-fontinfo"/><glyphRef glyphRef="dot"
-                    format="svg/css-2-fontinfo"/></altGlyphDef>
+                    format="SVG"/><glyphRef glyphRef="dot"
+                    format="svg"/></altGlyphDef>
                 <altGlyphDef id="idics"><glyphRef glyphRef="b"
-                    format="SVG/CSS-2-ICS"/></altGlyphDef>
+                    format="svg"/></altGlyphDef>
                 <altGlyphDef id="idnum"><glyphRef glyphRef="98"
-                    format="svg/css-2-ics"/></altGlyphDef>
+                    format="SVG"/></altGlyphDef>
                 <altGlyphDef id="idhex"><glyphRef glyphRef="0x62"
-                    format="SVG/CSS-2-ics"/></altGlyphDef>
+                    format="svg"/></altGlyphDef>
                 <altGlyphDef id="idpfr"><glyphRef glyphRef="bar"
                     format="truedoc-pfr"/></altGlyphDef>
                 <altGlyphDef id="idno"><glyphRef glyphRef="gone"
-                    format="SVG/CSS-2-fontinfo"/></altGlyphDef>
+                    format="svg"/></altGlyphDef>
                 <altGlyphDef id="idbare"><glyphRef
                     glyphRef="bar"/></altGlyphDef>
                 <altGlyphDef id="idfmt"><glyphRef
-                    format="SVG/CSS-2-fontinfo"/></altGlyphDef>
+                    format="svg"/></altGlyphDef>
                 <altGlyphDef id="idprio"><glyphRef xlink:href="#dot"
-                    glyphRef="bar" format="SVG/CSS-2-fontinfo"/></altGlyphDef>
+                    glyphRef="bar" format="svg"/></altGlyphDef>
                 <altGlyphDef id="idcross"><glyphRef glyphRef="cross"
                     format="application/svg+xml"/></altGlyphDef>
             </defs>
@@ -11834,15 +11838,15 @@ unittest
     immutable idtwo = `<altGlyph xlink:href="#idtwo">a</altGlyph>`;
     assert(samePixels(face(idtwo), face(`<altGlyph xlink:href="#bar">a</altGlyph>`
            ~ `<altGlyph xlink:href="#dot">a</altGlyph>`)),
-        "fontinfo glyphRefs pick their glyphs by glyph-name, in any case");
+        "glyphRefs pick their glyphs by glyph-name; the format string folds case");
     // b's glyph answers only an identifier: no run here spells a b.
     immutable bee = `<altGlyph xlink:href="#bee">a</altGlyph>`;
     assert(!samePixels(face(bee), plain),
         "bee's outline differs from the a the face picks by itself");
     assert(samePixels(face(`<altGlyph xlink:href="#idics">a</altGlyph>`), face(bee)),
-        "an ICS glyphRef names the character itself");
+        "a glyphRef may name the character itself");
     assert(samePixels(face(`<altGlyph xlink:href="#idnum">a</altGlyph>`), face(bee)),
-        "the ICS spelling may give the decimal code point");
+        "or the decimal code point");
     assert(samePixels(face(`<altGlyph xlink:href="#idhex">a</altGlyph>`), face(bee)),
         "or the hex one");
     // Insufficient spelling or an unreachable format: the "glyph not

@@ -1128,7 +1128,10 @@ private bool parseImport(string s, out string url, out string media)
 // unicode-range above all - pass unremarked. A block is a face only if
 // it names a family and has a url() to fetch: local() names a
 // system-installed face, which the host font matcher already answers to
-// by family name without a road in.
+// by family name without a road in. A url()'s format() hint - CSS2
+// §15.3.5's, the sibling of §20.8.5's font-face-format children, whose
+// skip rule the element road does apply - is not read here: the first
+// url() takes its turn whatever it names, an SVG font or nothing.
 private bool parseFontFace(string block, out FontFace f)
 {
     while (!block.empty)

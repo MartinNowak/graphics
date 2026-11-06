@@ -189,6 +189,49 @@ struct SvgFont
     }
 }
 
+/// Does this <font-face-uri> still name a font this engine can load, once
+/// its <font-face-format> children are read? Those children are exactly
+/// the format(...) clause of CSS2 §15.3.5, and CSS2 puts the rule plainly:
+/// the hint "should be used by clients to avoid following links to fonts
+/// in formats they are unable to use... the user agent will recognize the
+/// name of font formats that it supports, and will avoid downloading fonts
+/// in formats that it does not recognize". A uri spelling no hint takes
+/// its turn as always; one spelling hints is followed only when a hint
+/// names this engine's one loadable format, SVG fonts. What strings name
+/// that: CSS2 registered a name for every format of its day - truedoc-pfr,
+/// embedded-opentype, type-1, truetype, opentype, truetype-gx, speedo,
+/// intellifont - and none is an SVG font; SVG 1.1 registers its own string
+/// in its Fonts chapter's own example, format("svg"), and the appendix
+/// registering the media types labels such documents application/svg+xml.
+/// The string attribute is a comma-separated list. A hint spelling no name
+/// at all recognizes nothing, and a font-face-name child - a locally
+/// installed face - is no store source either: only SVG fonts live here.
+bool uriFormatsLoadable(immutable(Element)[] nodes, size_t uri)
+{
+    bool spelled;
+    foreach (ch; nodes[uri].children)
+    {
+        ref immutable(Element) f = nodes[ch];
+        if (f.name != "font-face-format")
+            continue;
+        spelled = true;
+        foreach (t; f.attrs.get("string", "").split(','))
+            if (svgFormat(t))
+                return true; // one recognized name is enough
+    }
+    return !spelled; // no hint at all: try the uri as written
+}
+
+/// True when a font-format string (any case, spaces trimmed) names an SVG
+/// font, the only format this engine loads. "svg" is the string SVG 1.1's
+/// own @font-face example spells; application/svg+xml is the document
+/// label the media type appendix carries.
+bool svgFormat(string s)
+{
+    immutable t = toLower(strip(s));
+    return t == "svg" || t == "application/svg+xml";
+}
+
 /// Every <font> element and every standalone <font-face> reference in the
 /// document, in document order, grouped by the lower-cased family name:
 /// a family holds its faces (normal/bold/italic) in declaration order,
@@ -282,6 +325,8 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
                 ref immutable(Element) u = doc.nodes[uc];
                 if (u.name != "font-face-uri")
                     continue;
+                if (!uriFormatsLoadable(doc.nodes, uc))
+                    continue; // every hint names a format that never loads
                 auto hp = "xlink:href" in u.attrs;
                 if (hp is null)
                     hp = "href" in u.attrs;
@@ -964,4 +1009,61 @@ unittest
     auto g = f.select("A", 0, used);
     assert(g !is null && g.name == "A",
         "the descriptor's family is the road to the glyphs");
+}
+
+unittest
+{
+    // §20.8.5's font-face-format children are the format(...) hint of
+    // CSS2 §15.3.5, and CSS2 has clients "avoid following links to
+    // fonts in formats they are unable to use". A uri whose hints all
+    // name formats that never load here is passed over, and with no
+    // other source the face registers nothing. One recognized hint
+    // rescues the uri - as its own child, inside a child's
+    // comma-list, in either case, and in either of the two spellings
+    // that name an SVG font. A uri spelling no hint at all takes its
+    // turn as ever; one whose only hint spells no name fails like the
+    // unrecognized ones. A font-face-name source answers nothing on
+    // its own - the store holds only SVG fonts - but stands no bar in
+    // front of the uri behind it.
+    auto doc = parseSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+        xmlns:xlink="http://www.w3.org/1999/xlink"><defs>
+      <font id="GF" horiz-adv-x="500"><font-face units-per-em="1000"
+             ascent="800" descent="-200"/>
+        <glyph unicode="A" glyph-name="gg" d="M0 0L10 0Z"/></font>
+      <font-face font-family="Hinted"><font-face-src>
+        <font-face-uri xlink:href="#GF">
+          <font-face-format string="truedoc-pfr"/>
+          <font-face-format string="embedded-opentype, type-1"/>
+        </font-face-uri></font-face-src></font-face>
+      <font-face font-family="HalfHinted"><font-face-src>
+        <font-face-uri xlink:href="#GF">
+          <font-face-format string="truetype"/>
+          <font-face-format string="svg"/>
+        </font-face-uri></font-face-src></font-face>
+      <font-face font-family="ListHinted"><font-face-src>
+        <font-face-uri xlink:href="#GF">
+          <font-face-format string="opentype, Application/SVG+XML"/>
+        </font-face-uri></font-face-src></font-face>
+      <font-face font-family="BareHinted"><font-face-src>
+        <font-face-uri xlink:href="#GF">
+          <font-face-format/>
+        </font-face-uri></font-face-src></font-face>
+      <font-face font-family="NoHint"><font-face-src>
+        <font-face-uri xlink:href="#GF"/></font-face-src></font-face>
+      <font-face font-family="NameFirst"><font-face-src>
+        <font-face-name name="Some Local Font"/>
+        <font-face-uri xlink:href="#GF"/></font-face-src></font-face>
+    </defs></svg>`);
+    auto fonts = collectFonts(doc, "");
+    assert("hinted" !in fonts, "hints naming only unloadable formats pass the uri over");
+    assert("halfhinted" in fonts, "one recognized hint rescues the uri");
+    assert("listhinted" in fonts,
+        "a recognized name answers from inside a comma-list, case folded");
+    assert("barehinted" !in fonts, "a hint spelling no name recognizes nothing");
+    assert("nohint" in fonts, "no hint at all: the uri takes its turn as ever");
+    assert("namefirst" in fonts,
+        "font-face-name answers nothing itself but clears the way for the uri");
+    size_t used;
+    auto f = matchFace(fonts["halfhinted"], 400, 0);
+    assert(f.select("A", 0, used).name == "gg", "the rescued uri reaches the glyphs");
 }

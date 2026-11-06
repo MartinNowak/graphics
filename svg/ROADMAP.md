@@ -364,6 +364,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | 371 rows at 100+ AE all accounted              |            |
 | step 99               | the §10.14.2 identifier spelling of            | 2.60 M     |
 |                       | glyphRef lands; unittests pin it               |            |
+| step 100              | the §20.8.5 font-face-format                   | 2.60 M     |
+|                       | gate lands; step 99's strings re-grounded      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4165,6 +4167,77 @@ DTD's declarations, and the lone
 the harness never opens - so the step lands
 unittest-pinned and byte-identical, in step
 99's shape.
+
+Step 100 gated the uri sources. Its
+font-face-format children are CSS2 §15.3.5's
+format(...) clause in element clothing, and
+CSS2 states the rule outright: clients
+"should use this information to avoid
+following links to fonts in formats they
+are unable to use". A uri spelling no hint
+takes its turn as always; one spelling hints
+is followed only when a hint names this
+engine's one loadable format. A hint
+spelling no name recognizes nothing; a
+comma-list folds case and every token gets
+its turn. A font-face-name source still
+answers nothing - a locally installed face,
+and the store holds only SVG fonts - but
+stands no bar in front of the uri behind
+it.
+
+The step also corrected step 99's position.
+The strings it accepted as SVG-bridge
+spellings - SVG/CSS-2-fontinfo and
+SVG/CSS-2-ICS - appear in no spec text: not
+in this SE, not in CSS2 §15.3.5's registry
+(truedoc-pfr, embedded-opentype, type-1,
+truetype, opentype, truetype-gx, speedo,
+intellifont), nowhere findable on the web.
+The grounded spellings are the spec's own:
+SE's Fonts-chapter example writes
+format("svg"), and its media appendix
+labels such documents application/svg+xml.
+glyphRefOf now takes exactly those through
+one shared fonts.d predicate, and its one
+identifier then searches glyph-name or
+single character - the character itself, or
+a decimal or 0x-hex code point - against the
+selected face, document order deciding
+which answers first. The house's own CSS
+unittest had already been writing
+url("#IF") format("svg"), so svgFormat
+agrees with house practice as well.
+
+The gate stayed byte-identical, as the
+pointer promised: no fixture the harness
+opens spells font-face-format, so every
+exercised uri - the animate-* fixtures'
+SVGFreeSans reference among them - is
+hint-less and resolved as ever. 526 rows,
+0 ERROR, 2,598,346 AE. The pinning is all
+unittests: fonts.d got its first standalone
+font-face-src fixture - all-hints skip, one
+hint rescues, the comma-list answers
+case-folded, a nameless hint fails, no hint
+tries, name-first clears the way, and the
+rescued uri reaches its font's glyphs - and
+render.d's identifier fixtures were
+retargeted to the grounded spellings with
+all twelve assertions intact.
+
+Up next - step 101: the CSS-side sibling of
+this gate. parseFontFace reads src's first
+url() whatever its format() hint spells.
+The suite spells the hint repeatedly: three
+fonts fixtures write format("svg") -
+recognized, so a gated read picks the same
+url - and the masking, pservers and render
+fixtures write format("woff") for
+woffs/*.woff sources this engine could
+never load as an SVG font either way. One
+predicate, shared with the element road,
+unittest-pinned, byte-identical expected.
 
 ## Deferred / accepted ceilings (do not chase)
 
