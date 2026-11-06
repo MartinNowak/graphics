@@ -18,7 +18,7 @@ animate-elem-17-t.svg OK 4
 animate-elem-19-t.svg OK 4
 animate-elem-20-t.svg OK 20016
 animate-elem-21-t.svg OK 20739
-animate-elem-22-b.svg OK 159
+animate-elem-22-b.svg OK 169
 animate-elem-23-t.svg OK 0
 animate-elem-24-t.svg OK 42
 animate-elem-25-t.svg OK 449
@@ -65,7 +65,7 @@ animate-elem-86-t.svg OK 142
 animate-elem-87-t.svg OK 82
 animate-elem-88-t.svg OK 102
 animate-elem-89-t.svg OK 57
-animate-elem-90-b.svg OK 121
+animate-elem-90-b.svg OK 140
 animate-elem-91-t.svg OK 122
 animate-elem-92-t.svg OK 309
 animate-interact-events-01-t.svg OK 5098
@@ -120,13 +120,13 @@ coords-viewattr-04-f.svg OK 1056
 extend-namespace-01-f.svg OK 23162
 filters-background-01-f.svg OK 37
 filters-blend-01-b.svg OK 7428
-filters-color-01-b.svg OK 2057
-filters-color-02-b.svg OK 329
-filters-composite-02-b.svg OK 1319
+filters-color-01-b.svg OK 623
+filters-color-02-b.svg OK 126
+filters-composite-02-b.svg OK 582
 filters-composite-03-f.svg OK 8731
 filters-composite-04-f.svg OK 38
 filters-composite-05-f.svg OK 38
-filters-comptran-01-b.svg OK 1413
+filters-comptran-01-b.svg OK 1130
 filters-conv-01-f.svg OK 777
 filters-conv-02-f.svg OK 232
 filters-conv-03-f.svg OK 4644
@@ -135,7 +135,7 @@ filters-conv-05-f.svg OK 153642
 filters-diffuse-01-f.svg OK 180
 filters-displace-01-f.svg OK 1970
 filters-displace-02-f.svg OK 26
-filters-example-01-b.svg OK 1872
+filters-example-01-b.svg OK 742
 filters-felem-01-b.svg OK 62
 filters-felem-02-f.svg OK 440
 filters-gauss-01-b.svg OK 50
@@ -159,7 +159,7 @@ filters-overview-02-b.svg OK 5040
 filters-overview-03-b.svg OK 5138
 filters-specular-01-f.svg OK 344
 filters-tile-01-b.svg OK 122
-filters-turb-01-f.svg OK 896
+filters-turb-01-f.svg OK 529
 filters-turb-02-f.svg OK 161581
 fonts-desc-01-t.svg OK 309
 fonts-desc-02-t.svg OK 747
@@ -369,7 +369,7 @@ struct-dom-02-b.svg OK 1211
 struct-dom-03-b.svg OK 1734
 struct-dom-04-b.svg OK 2272
 struct-dom-05-b.svg OK 2771
-struct-dom-06-b.svg OK 78844
+struct-dom-06-b.svg OK 78795
 struct-dom-07-f.svg OK 7547
 struct-dom-08-f.svg OK 417
 struct-dom-11-f.svg OK 1284
@@ -493,7 +493,7 @@ text-text-04-t.svg OK 462
 text-text-05-t.svg OK 14
 text-text-06-t.svg OK 279
 text-text-07-t.svg OK 44
-text-text-08-b.svg OK 14658
+text-text-08-b.svg OK 3943
 text-text-09-t.svg OK 37
 text-text-10-t.svg OK 172
 text-text-11-t.svg OK 3861

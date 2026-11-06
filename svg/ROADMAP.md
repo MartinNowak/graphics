@@ -343,6 +343,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 91               | forensics on 03-b: a spelled band rules        | 2.62 M     |
 |                       | from its top edge, not around its middle -     |            |
 |                       | text-text-03-b 1,164 -> 995, no row moves      |            |
+| step 92               | the host Verdana lands: ten Verdana rows fall  | 2.60 M     |
+|                       | to per-glyph drift - 08-b 14,658 -> 3,943 and  |            |
+|                       | nine more - net 14,889 off the baseline        |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3697,6 +3700,53 @@ it, text-intro-11-t and -12-t (9,018 / 12,601) sit
 un-triaged too; their older siblings are host-script floors,
 but nothing has proven these two are.
 
+Step 92 opens in the environment, not in code. The host had
+never had Verdana installed, so every Verdana family query
+answered by fontconfig came back a stand-in - that is why
+text-text-08-b's four text bands were recorded as a
+substitution ceiling - and the user installed the real faces:
+Regular, Italic, Bold and Bold Italic. The engine's host
+layer (graphics.core.fonthost) asks fontconfig at render
+time and caches only per pattern, so nothing in the code had
+to change; a re-render alone let the lookups find the true
+face.
+
+Ten gate rows request Verdana, and ten moved: 08-b 14,658 ->
+3,943, filters-color-01-b 2,057 -> 623 and -02-b 329 -> 126,
+filters-composite-02-b 1,319 -> 582, filters-comptran-01-b
+1,413 -> 1,130, filters-example-01-b 1,872 -> 742,
+filters-turb-01-f 896 -> 529, struct-dom-06-b 78,844 ->
+78,795 - with two small regressions, animate-elem-22-b 159
+-> 169 and -90-b 121 -> 140, each sitting on edge pixels of
+those rows' single Verdana labels. Net: 14,889 off.
+
+The step-42 triage of 08-b needed a correction of
+attribution along the way: the 2,002 AE it recorded at
+y=0..20 for the frame-ring stroker convention was mostly
+Verdana glyph tops - that band sits at 160 now - and the
+row's 298 AE y>=340 tail went too. filters-color-01-b's
+"~540 in the frame ring" was Verdana ink as well: the ring
+is at AE 0. What these rows carry now is the per-glyph
+raster drift the SVGFreeSans rows have always carried:
+600-920 px edge fragments, one per letterform, spread along
+the text rows, no band left in any of them.
+
+526 rows, 0 ERROR, 2,600,157 AE - the baseline moves by the
+Verdana rows alone.
+
+Up next - step 93: the pointer step 92 inherited still
+stands, and its forensics are half-written. text-spacing-
+01-b (5,108) asks a font family the file never defines, so
+both the captures and the engine draw those six body rows
+on host faces; its word-spacing -3 and 3 legs already land
+- 3 separators x 3 units x 6 px is the 54 px the captures
+measure - but its letter-spacing legs do not: the captures
+sit just past 1 user unit per gap at -1 and 0.3 at .3,
+where the engine answers under 3.5 px and under 2 px per
+gap. That is the next real lever the measurements point at.
+Behind it, text-intro-11-t and -12-t (9,018 / 12,601) remain
+un-triaged.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -3906,15 +3956,20 @@ but nothing has proven these two are.
   are missing (`fc-match Impact` answers Noto Sans here).
   `text-intro-03-b/-06-t/-07-t` (480 K) are a different lever:
   Arabic shaping with host Noto against Kayrawan/Scheherezade references.
-  `text-text-08-b` (15.1 K), triaged at step 42, is the substitution half of
-  that floor: 13.7 K of it lies in its four Verdana text bands, 2,002 in the
-  y=0..20 band where its 1-unit `test-frame` ring is the half-pixel stroker
-  convention recorded under step 27, and 298 at y>=340. Its blue there
+  `text-text-08-b` (3,943 since step 92) was that substitution's half: the
+  host never had Verdana, and every family query came back a fontconfig
+  stand-in. Once the host installed the real faces the row fell 14,658 ->
+  3,943 on a re-render alone - the host layer asks fontconfig at render
+  time, so no code moved. What step 42 read as frame-ring stroker
+  convention (2,002 at y=0..20) was mostly Verdana glyph tops: that band
+  sits at 160 now, and the y>=340 tail is gone. What is left of 08-b is
+  per-glyph edge drift on the four rows, 600-920 px fragments one per
+  letterform. Its blue still
   reads `#0000FE80` against the reference's `#0000FF80`, inside the
   compare's fuzz, so the opacity halves themselves cost no AE.
-  `filters-color-01-b`'s 2,480, all that is left of it once step 43 put
-  its five panels at AE 0, is that same floor: ~1.9 K across its five
-  Verdana labels, and ~540 in the frame ring.
+  `filters-color-01-b`'s 623, all that is left of it once step 43 put
+  its five panels at AE 0, is that same drift across its five Verdana
+  labels; the frame ring is at AE 0.
 - `painting-stroke-06-t` (869) is what steps 47 and 59 left of it, and the
   rest is not a feature - step 59 carries its dash boundaries along with
   the band, 1,208 -> 869. Cropped to its two dash rows, ours and the
@@ -4108,7 +4163,8 @@ but nothing has proven these two are.
   the same question the step-56 lead takes up.
 
 - Step 69's 300-1,500 sweep measured its twelve ceiling rows, and
-  the captions own most of them: `filters-comptran-01-b` (1,413),
+  the captions own most of them: `filters-comptran-01-b` (1,130 since
+  step 92's Verdana install),
   `coords-units-01-b` (785) and `painting-render-01-b` (371) put
   the entire diff in text rows - the filter outputs, the unit
   squares and all three `color-interpolation` bars match, the
