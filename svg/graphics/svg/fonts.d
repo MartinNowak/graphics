@@ -85,6 +85,19 @@ struct SvgFont
     float alphabetic;
     float ideographic, hanging, mathematical, xHeight;
     bool hasIdeographic, hasHanging, hasMathematical, hasXHeight;
+    // §20.8.3's leftover face metrics: the three decoration band pairs
+    // (the band's ideal position and thickness in font units, y up)
+    // and the vertical baseline quartet - offsets relative to the
+    // glyph's vert-origin-x, the line the vertical walk hangs the
+    // slot on. The grammar is a bare <number> with no initial value,
+    // so every row rides its has* flag: a band pair governs only
+    // when both halves are spelled, and a vertical mode with no rows
+    // keeps today's no-rise placement (§10.9.2's heuristics latitude).
+    float underPos, underThk, overPos, overThk, strikePos, strikeThk;
+    bool hasUnderPos, hasUnderThk, hasOverPos, hasOverThk,
+         hasStrikePos, hasStrikeThk;
+    float vAlphabetic, vHanging, vIdeographic, vMathematical;
+    bool hasVAlphabetic, hasVHanging, hasVIdeographic, hasVMathematical;
 
     CharRange[] ranges; // registration range; empty = everything
 
@@ -510,6 +523,24 @@ private SvgFont* parseFont(ref immutable(Element)[] nodes, size_t idx)
             f.hasHanging = optNum(c, "hanging", f.hanging);
             f.hasMathematical = optNum(c, "mathematical", f.mathematical);
             f.hasXHeight = optNum(c, "x-height", f.xHeight);
+            // §20.8.3: the band pairs and the v-* quartet. Numbers are
+            // taken verbatim into the store; the consumption sites
+            // (paintDecoLine, svgVerticalBaselineHeight) decide what an
+            // absent or half-spelled row falls back to.
+            f.hasUnderPos = optNum(c, "underline-position", f.underPos);
+            f.hasUnderThk = optNum(c, "underline-thickness", f.underThk);
+            f.hasOverPos = optNum(c, "overline-position", f.overPos);
+            f.hasOverThk = optNum(c, "overline-thickness", f.overThk);
+            f.hasStrikePos = optNum(c, "strikethrough-position",
+                                    f.strikePos);
+            f.hasStrikeThk = optNum(c, "strikethrough-thickness",
+                                    f.strikeThk);
+            f.hasVAlphabetic = optNum(c, "v-alphabetic", f.vAlphabetic);
+            f.hasVHanging = optNum(c, "v-hanging", f.vHanging);
+            f.hasVIdeographic = optNum(c, "v-ideographic",
+                                       f.vIdeographic);
+            f.hasVMathematical = optNum(c, "v-mathematical",
+                                        f.vMathematical);
             break;
 
         case "glyph", "missing-glyph":

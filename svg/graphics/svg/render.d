@@ -1001,9 +1001,11 @@ private struct Renderer
     // Named baselines a text run's table can align on (SVG 1.1 §10.9.2).
     // `parent` doubles as both properties' non-shifting spellings: auto,
     // use-script, no-change, reset-size (dominant) and auto, baseline
-    // (alignment) all leave the parent's baseline table in effect - the
-    // script-specific tables behind use-script need SVG font baseline
-    // attributes (ch. 20), which this engine does not read yet.
+    // (alignment) all leave the parent's baseline table in effect. The
+    // ch. 20 face attributes those tables are built from are read now
+    // (svgBaselineHeight and its vertical twin); what stays with the
+    // recorded shaping ceiling is use-script's other half - naming the
+    // predominant script of the character data to pick the table.
     enum BaseKind
     {
         parent,
@@ -3668,10 +3670,15 @@ private struct Renderer
     // The line-through bar sits 0.33em to 0.27em above the baseline
     // (fits both captures' bars within a row), and the overline - no
     // gate test draws one, so nothing to fit - just above the cap
-    // line. The rectangle's own bounds feed objectBoundingBox paint
-    // servers; a gradient on a decoration line is outside anything SE
-    // tests.
-    void paintDecoLine(in Style d, float x0, float x1, float y, ubyte kind)
+    // line. An SVG face spelling both the position and the thickness
+    // of a band (§20.8.3) overrules the fit for that band: the pair
+    // are font-unit coordinates around the face's own alphabetic row,
+    // y up, and the line is ruled there instead. A half-spelled pair
+    // keeps the fit. The rectangle's own bounds feed objectBoundingBox
+    // paint servers; a gradient on a decoration line is outside
+    // anything SE tests.
+    void paintDecoLine(in Style d, float x0, float x1, float y, ubyte kind,
+                       SvgFont* f = null)
     {
         float t0, t1; // bar edges against the baseline, in em
         if (kind == decoUnder)
@@ -3688,6 +3695,26 @@ private struct Renderer
         {
             t0 = -0.820f;
             t1 = -0.755f;
+        }
+        if (f !is null)
+        {
+            immutable bool hasPos = kind == decoUnder ? f.hasUnderPos
+                : kind == decoStrike ? f.hasStrikePos : f.hasOverPos;
+            immutable bool hasThk = kind == decoUnder ? f.hasUnderThk
+                : kind == decoStrike ? f.hasStrikeThk : f.hasOverThk;
+            if (hasPos && hasThk)
+            {
+                immutable float pos = kind == decoUnder ? f.underPos
+                    : kind == decoStrike ? f.strikePos : f.overPos;
+                immutable float thk = kind == decoUnder ? f.underThk
+                    : kind == decoStrike ? f.strikeThk : f.overThk;
+                // Font units, y up, around the alphabetic row the
+                // outlines ride; device y runs the other way, so the
+                // band's upper edge is the position plus half the
+                // thickness.
+                t0 = (f.alphabetic - (pos + thk * 0.5f)) / f.upem;
+                t1 = (f.alphabetic - (pos - thk * 0.5f)) / f.upem;
+            }
         }
         immutable fs = d.fontSize;
         path.reset();
@@ -3920,6 +3947,46 @@ private struct Renderer
         case BaseKind.afterEdge:
             return desc;
         default: // alphabetic, and the parent table's own dominant line
+            return 0.0f;
+        }
+    }
+
+    // The vertical twin of that table, built from the font-face v-*
+    // quartet (§20.8.3): each value is "an offset in the font
+    // coordinate system relative to the glyph-specific 'vert-origin-
+    // x'", and the vertical slot walk already hangs its slot on that
+    // origin - so a row's value is exactly how far its baseline sits
+    // across the block axis from where the glyph stands today, and
+    // the named dominant baseline takes the text position (§10.9.2's
+    // rule that x pins the vertical baseline). An unspelled table
+    // keeps the parent's dominant line, and this engine's default
+    // dominant is alphabetic in every writing mode (step 6's
+    // collapse) - so a spelled face aligns its v-alphabetic row on
+    // the text position even under auto; §10.9.2's vertical auto to
+    // 'central' rides central itself, which takes the midpoint of a
+    // spelled ideographic and alphabetic pair. Middle rides the same
+    // midpoint, the x-height that lifts horizontal middle above
+    // central having no vertical twin. Rows the face omits leave no
+    // rise at all - the placement these modes have always had, and
+    // the heuristics §10.9.2 allows an incomplete table.
+    static float svgVerticalBaselineHeight(BaseKind k, SvgFont* f, float us)
+    {
+        immutable float vCentral = f.hasVIdeographic && f.hasVAlphabetic
+            ? (f.vIdeographic + f.vAlphabetic) * 0.5f : float.nan;
+        switch (k)
+        {
+        case BaseKind.central:
+        case BaseKind.middle:
+            return isNaN(vCentral) ? 0.0f : vCentral * us;
+        case BaseKind.alphabetic:
+            return f.hasVAlphabetic ? f.vAlphabetic * us : 0.0f;
+        case BaseKind.mathematical:
+            return f.hasVMathematical ? f.vMathematical * us : 0.0f;
+        case BaseKind.hanging:
+            return f.hasVHanging ? f.vHanging * us : 0.0f;
+        case BaseKind.ideographic:
+            return f.hasVIdeographic ? f.vIdeographic * us : 0.0f;
+        default: // parent, and the em-box edges: the anchor holds
             return 0.0f;
         }
     }
@@ -4881,9 +4948,9 @@ private struct Renderer
         // line-through lands on top of it: the second edition's rule
         // for the drawing order of decorations.
         if (decoBits & decoUnder)
-            paintDecoLine(ds, dx0, dx1, dyBase, decoUnder);
+            paintDecoLine(ds, dx0, dx1, dyBase, decoUnder, sf);
         if (decoBits & decoOver)
-            paintDecoLine(ds, dx0, dx1, dyBase, decoOver);
+            paintDecoLine(ds, dx0, dx1, dyBase, decoOver, sf);
 
         // §10.13.3, the layout rules for text on a path: the glyph's advance
         // (its charwidth) is a distance along the path, its
@@ -5008,9 +5075,8 @@ private struct Renderer
                     // walk of a slot run. The positioning lists swap
                     // roles as in the host loop below - x (and dx) pin
                     // the vertical baseline, y (and dy) the top edge of
-                    // the box the layout pass gave the slot - and no
-                    // dominant-baseline rise applies in the vertical
-                    // modes. An SVG-font slot stands or turns on its
+                    // the box the layout pass gave the slot. An SVG-font
+                    // slot stands or turns on its
                     // declared vertical origin: the point
                     // (vert-origin-x, vert-origin-y) - the font's own
                     // default, settled at parse time when the glyph
@@ -5020,6 +5086,10 @@ private struct Renderer
                     // turned one turns about that same point by the
                     // glyph-orientation-vertical angle (90 when auto),
                     // the §10.5 rotate adding to it as everywhere.
+                    // A face spelling the v-* quartet aligns its named
+                    // dominant baseline on the text position instead
+                    // (svgVerticalBaselineHeight); one that spells
+                    // none keeps this placement.
                     // baseline-shift goes to the block-start side - +x,
                     // local -y inside the turn frame - mirroring the
                     // host walk; a fallback host slot declares no
@@ -5064,9 +5134,15 @@ private struct Renderer
                             : sl.sf.vertOriginX) * us;
                         immutable float vOy = (sl.gs ? sl.gs.vertOriginY
                             : sl.sf.vertOriginY) * us;
+                        // The row of the face's vertical table named by
+                        // the run's dominant baseline, measured from
+                        // that origin; 0 when the face spells no table.
+                        immutable float vRise =
+                            svgVerticalBaselineHeight(bKind, sl.sf, us);
                         if (upright)
                         {
-                            m.setTranslate(sx - vOx + s.baselineShift,
+                            m.setTranslate(sx - vOx + s.baselineShift
+                                               - vRise,
                                            sy + vOy);
                             if (rot != 0.0f)
                             {
@@ -5084,10 +5160,11 @@ private struct Renderer
                             Matrix q;
                             q.setTranslate(-vOx, vOy); // the declared origin
                             m = m * q;                  // onto the frame's pivot
-                            if (s.baselineShift != 0.0f)
+                            if (vRise != 0.0f || s.baselineShift != 0.0f)
                             {
                                 Matrix b;
-                                b.setTranslate(0.0f, -s.baselineShift);
+                                b.setTranslate(0.0f,
+                                    vRise - s.baselineShift);
                                 m = m * b;
                             }
                         }
@@ -5417,7 +5494,7 @@ private struct Renderer
         // glyphs. It overwrites the glyph outlines still in `path`, but
         // those are painted, and the reset below clears the geometry.
         if (decoBits & decoStrike)
-            paintDecoLine(ds, dx0, dx1, dyBase, decoStrike);
+            paintDecoLine(ds, dx0, dx1, dyBase, decoStrike, sf);
         path.reset();
     }
 
@@ -12320,6 +12397,106 @@ unittest
         <defs>` ~ vfonts ~ `</defs>
         <text x="20" y="60" font-family="Khv" font-size="10">aa</text>
     </svg>`)) == [16, 56, 23, 59], "hkern answers the horizontal read");
+}
+
+unittest
+{
+    // §20.8.3's decoration pairs, the face metrics no fixture spells:
+    // a font naming both the position and the thickness of a band
+    // rules that band in font units around its own alphabetic row
+    // instead of the fitted em fractions. Dec's outline box stands
+    // 500..800 units up (device rows 40..54 at size 50 on a baseline
+    // at y=80), and the spelled rows sit clear of it: overline at
+    // 1000..1100 above (rows 25..29), strikethrough at 300..400
+    // (rows 60..64), underline 200..300 below (rows 90..94). A half-
+    // spelled pair is no pair: the fit rules that band alone.
+    string docBand(string faceAttrs)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs><font id="band" horiz-adv-x="600">
+                <font-face font-family="Band" units-per-em="1000"
+                    ascent="800" descent="-200" alphabetic="0"
+                ` ~ faceAttrs ~ `/>
+                <glyph unicode="x" d="M0 500h600v300h-600z"/>
+            </font></defs>
+            <text x="40" y="80" font-family="Band" font-size="50"
+                text-decoration="underline overline line-through"
+            >x</text>
+        </svg>`;
+    }
+    const spelled = `underline-position="-250" underline-thickness="100"
+                overline-position="1050" overline-thickness="100"
+                strikethrough-position="350" strikethrough-thickness="100"`;
+    assert(inkBox(renderSVG(docBand(spelled))) == [40, 25, 69, 94],
+        "the three declared bands rule exactly the spelled rows");
+    assert(inkBox(renderSVG(docBand(""))) == [40, 39, 69, 82],
+        "spelled nowhere, the fitted em bars rule as before");
+    assert(inkBox(renderSVG(docBand(`underline-position="-250"`)))
+        == [40, 39, 69, 82], "a lone position half keeps the fit");
+    assert(inkBox(renderSVG(docBand(`underline-thickness="100"`)))
+        == [40, 39, 69, 82], "a lone thickness half keeps the fit");
+}
+
+unittest
+{
+    // §20.8.3's vertical quartet, the table the step-6 note deferred:
+    // each row is an offset from the glyph's vert-origin-x, and in a
+    // tb walk that origin is the point the text position meets - so
+    // the row named by dominant-baseline steps the slot across the
+    // block axis and takes the position itself. Vt spells v-
+    // alphabetic 30, v-hanging -20, v-ideographic 10 and v-
+    // mathematical 15; V0 spells none. The bar is 60x30 units, the
+    // em 100, the size 10: 6x3 device pixels at x=60, y=100, hanging
+    // 8 units of ascent under the box top - the untabled standing
+    // slot at columns 57..62, rows 100..102, and turned (auto on
+    // Latin) at 57..59, 97..102.
+    const string vtab = `<font id="vt" horiz-adv-x="60">
+            <font-face font-family="Vt" units-per-em="100"
+                ascent="80" descent="-20" alphabetic="0"
+                v-alphabetic="30" v-hanging="-20" v-ideographic="10"
+                v-mathematical="15"/>
+            <glyph unicode="x" d="M0 50h60v30h-60z"/>
+        </font>
+        <font id="v0" horiz-adv-x="60">
+            <font-face font-family="V0" units-per-em="100"
+                ascent="80" descent="-20" alphabetic="0"/>
+            <glyph unicode="x" d="M0 50h60v30h-60z"/>
+        </font>`;
+    int[4] vtabBox(string fam, string attrs)
+    {
+        return inkBox(renderSVG(`<svg xmlns="http://www.w3.org/2000/svg"
+            width="120" height="120" viewBox="0 0 120 120">
+            <defs>` ~ vtab ~ `</defs>
+            <text x="60" y="100" font-size="10" font-family="` ~ fam
+            ~ `" writing-mode="tb-rl"` ~ attrs ~ `>x</text>
+        </svg>`));
+    }
+    const string up = ` glyph-orientation-vertical="0"`;
+    assert(vtabBox("V0", up) == [57, 100, 62, 102], "no rows, no rise");
+    assert(vtabBox("V0", up ~ ` dominant-baseline="hanging"`)
+        == [57, 100, 62, 102], "a named row on an unspelled table holds");
+    assert(vtabBox("V0", "") == [57, 97, 59, 102],
+        "the turned slot holds on the same origin");
+    assert(vtabBox("Vt", up ~ ` dominant-baseline="hanging"`)
+        == [59, 100, 64, 102], "v-hanging -20 steps the standing slot right");
+    assert(vtabBox("Vt", up ~ ` dominant-baseline="alphabetic"`)
+        == [54, 100, 59, 102], "v-alphabetic 30 steps it three left");
+    assert(vtabBox("Vt", up ~ ` dominant-baseline="ideographic"`)
+        == [56, 100, 61, 102], "v-ideographic 10 steps it one left");
+    assert(vtabBox("Vt", up ~ ` dominant-baseline="mathematical"`)
+        == [55, 100, 61, 102], "v-mathematical 15 lands half a pixel out");
+    assert(vtabBox("Vt", up) == [54, 100, 59, 102],
+        "auto: the engine's default dominant, the face's vertical alphabetic row");
+    assert(vtabBox("Vt", up ~ ` dominant-baseline="central"`)
+        == [55, 100, 60, 102], "central takes the spelled rows' midpoint");
+    assert(vtabBox("Vt", up ~ ` dominant-baseline="middle"`)
+        == [55, 100, 60, 102], "middle rides that midpoint too");
+    assert(vtabBox("Vt", up ~ ` dominant-baseline="hanging"`
+        ~ ` baseline-shift="2"`) == [61, 100, 66, 102],
+        "baseline-shift rides the row's step, both right");
+    assert(vtabBox("Vt", ` dominant-baseline="hanging"`)
+        == [59, 97, 61, 102], "the turned slot steps the same way");
 }
 
 unittest

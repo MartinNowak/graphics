@@ -488,7 +488,7 @@ text-path-01-b.svg OK 2225
 text-path-02-b.svg OK 2330
 text-spacing-01-b.svg OK 5108
 text-text-01-b.svg OK 3821
-text-text-03-b.svg OK 1203
+text-text-03-b.svg OK 1164
 text-text-04-t.svg OK 462
 text-text-05-t.svg OK 14
 text-text-06-t.svg OK 279

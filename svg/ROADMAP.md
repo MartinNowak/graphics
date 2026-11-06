@@ -333,6 +333,10 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 88               | rendering hints land: crispEdges puts stroke   | 2.62 M     |
 |                       | bands on the device pixel grid, hairlines      |            |
 |                       | whole - comp 02-b 1,757 -> 1,319               |            |
+| step 89               | font-face's leftover metrics land: spelled     | 2.62 M     |
+|                       | band pairs rule the decoration bars, and       |            |
+|                       | the v-* quartet aligns tb slots - 03-b         |            |
+|                       | 1,203 -> 1,164                                 |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3493,33 +3497,81 @@ has always carried, and the fuzz-tolerant compare had
 already forgiven everything but those hairline
 columns. 526 rows, 0 ERROR, 2,621,437 AE total.
 
-Up next - step 89, the SVG font face's leftover
-metrics. A sweep of SE's attribute index finds the
-presentation surface otherwise closed: the hints were
-the last unparsed property family. What ch. 20 still
-withholds is the face metric attributes no fixture
-reads - underline-position/thickness,
-overline-position/thickness and
-strikethrough-position/thickness, which drive the
-decoration bands the engine places at em fractions
-today, and the vertical baseline quartet v-alphabetic,
-v-hanging, v-ideographic, v-mathematical, the table
-the step-6 note deferred when it said use-script's
-script tables need SVG font baseline attributes
-(ch. 20), which this engine does not read yet.
-Neither family appears in a single suite file, so the
-step would land spec-complete with AE flat by
-construction, step 6 and 37's pattern. Around it the
-sweep closes the rest: filterRes is a no-op SE itself
-deprecates, the event handlers and target, name and
-the XLink decorations ride the recorded DOM ceiling,
-keySplines and restart cannot move an animation's end
-state, keyPoints and mpath sit with the recorded
-motion ceiling, arabic-form with the shaping ceiling,
-rendering-intent and the color-profile element with
-the recorded ICC ceiling, and direction,
-unicode-bidi, paint-order and vector-effect stay
-where the old note left them.
+Step 89 read the last ten font-face attributes, the ones 20.8.3
+still owed. The three decoration pairs - underline, overline
+and strikethrough position and thickness, "the ideal position"
+and "thickness within the coordinate system of the font" in
+SE's own words - are font-unit marks around the face's own
+alphabetic row, and a run whose SVG face spells both halves of
+a pair now has that band ruled there instead of at the fitted
+em fractions. A half-spelled pair is no pair, and the fit rules
+that band alone; a spelled thickness of zero collapses a band
+to nothing, a spelling PlaneOne and Tribase carry without any
+fixture ever drawing it. The vertical quartet - v-alphabetic,
+v-hanging, v-ideographic, v-mathematical, offsets from the
+glyph's vert-origin-x - feeds a vertical twin of the baseline
+table: the tb walk already hangs its slot on vert-origin-x, so
+a row's value is exactly how far that baseline sits across the
+block axis, and the row the dominant baseline names steps the
+slot until the baseline itself takes the text position,
+baseline-shift riding on top as everywhere. auto lands on the
+engine's default dominant - alphabetic, step 6's collapse - so
+a spelled face aligns its v-alphabetic row even under auto;
+central and middle take the spelled ideographic and alphabetic
+rows' midpoint. Rows the face omits leave no rise at all -
+10.9.2's heuristics latitude for an incomplete table, and the
+placement these modes always had - and turned slots take the
+row on the block side, inside the turn frame where
+baseline-shift already rides.
+
+The sweep that planned this step read the fixture files and
+missed the fonts behind them: the suite's resources/ files do
+spell pairs. FreeSerif and every bold and italic variant
+spells -100 over 50, the SVGFreeSans Bold family -155 over 69,
+the ZC* matching fonts -150 over 150, Heb -113 over 20 - and
+text-text-03-b underlines through FreeSerif at size 32: a band
+0.1 em under the baseline, exactly the depth the paintDecoLine
+note had measured by eye and despaired of fitting beside
+text-deco-01-b. The reference drew the font's own metric all
+along. So this step is not flat: 03-b goes 1,203 -> 1,164, and
+it is the only row that moved - the one fixture pairing a
+decoration with a spelling face. SVGFreeSans.svg itself spells
+nothing, so text-deco-01-b's fitted bars and styling-css-06-b
+stay put, and the ZC* matching rows draw no decorations to
+disturb.
+
+Nothing in the suite spells v-*, overline-* or
+strikethrough-*, so those land spec-complete on the unittest
+pins: one run under three spelled bands inks exactly the rows
+the font places, each lone half pins the fit, and the v-table
+pins walk the named baselines, auto, the midpoint and the
+riding shift across standing and turned slots, the no-rows
+hold included. use-script keeps its parent standing: the
+attributes its deferral named are read now, and what stays
+with it is the shaping ceiling's other half - naming the
+predominant script of the character data to choose the table.
+A vertical run on a textPath keeps the horizontal-table rise;
+no fixture asks a curved tb run for more. 526 rows, 0 ERROR,
+2,621,398 AE - the baseline moves by 03-b alone.
+
+Up next - step 90: the audit that closes the walk. With the
+last ten attributes read, the presentation surface is shut.
+Every element, attribute and property in SE's indices is
+either consumed by the engine or paired with a recorded
+ceiling: filterRes is a no-op SE itself deprecates, the event
+handlers and target, name and the XLink decorations ride the
+DOM ceiling, keySplines and restart cannot move an
+animation's end state, keyPoints and mpath sit with the motion
+ceiling, arabic-form with the shaping ceiling,
+rendering-intent and the color-profile element with the ICC
+ceiling, and direction, unicode-bidi, paint-order and
+vector-effect stay where the old notes left them. The step is
+to make that claim mechanical: walk the element, attribute and
+property indices against the parsers' case lists, and
+anything unaccounted for becomes a later step's material.
+Worth probing alongside: 03-b's remaining 1,164 - whether the
+band move left a band-shaped cluster or only the italic and
+caption floor the row has always carried.
 
 ## Deferred / accepted ceilings (do not chase)
 
