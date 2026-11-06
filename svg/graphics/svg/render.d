@@ -3728,17 +3728,20 @@ private struct Renderer
     // the fractions are fitted to the suite's reference captures: the
     // underline bar runs 0.040em above the baseline to 0.045em below
     // it, fitted on text-deco-01-b, whose underline straddles the
-    // baseline row; text-text-03-b's capture drew its fs32 underline
-    // 0.1em deeper still, and no single em placement serves both, so
-    // the dedicated fixture wins and that row's AE absorbs the miss.
-    // The line-through bar sits 0.33em to 0.27em above the baseline
-    // (fits both captures' bars within a row), and the overline - no
-    // gate test draws one, so nothing to fit - just above the cap
-    // line. An SVG face spelling both the position and the thickness
-    // of a band (§20.8.3) overrules the fit for that band: the pair
-    // are font-unit coordinates around the face's own alphabetic row,
-    // y up, and the line is ruled there instead. A half-spelled pair
-    // keeps the fit. The rectangle's own bounds feed objectBoundingBox
+    // baseline row. The line-through bar sits 0.33em to 0.27em above
+    // the baseline (fits both captures' bars within a row), and the
+    // overline - no gate test draws one, so nothing to fit - just
+    // above the cap line. An SVG face spelling both the position and
+    // the thickness of a band (§20.8.3) overrules the fit for that
+    // band: the pair are font-unit coordinates around the face's own
+    // alphabetic row, y up, and the line is ruled there instead. A
+    // half-spelled pair keeps the fit. The only spelled-pair fixture
+    // in the suite is text-text-03-b, and its capture rules its two
+    // fs32 FreeSerif underlines deeper and nearly twice as thick as
+    // the face's spelled -100/50 - the capture's renderer consulted
+    // a real face's metrics, not the SVG font's - so that row's two
+    // bands absorb that miss.
+    // The rectangle's own bounds feed objectBoundingBox
     // paint servers; a gradient on a decoration line is outside
     // anything SE tests.
     void paintDecoLine(in Style d, float x0, float x1, float y, ubyte kind,
@@ -3773,11 +3776,15 @@ private struct Renderer
                 immutable float thk = kind == decoUnder ? f.underThk
                     : kind == decoStrike ? f.strikeThk : f.overThk;
                 // Font units, y up, around the alphabetic row the
-                // outlines ride; device y runs the other way, so the
-                // band's upper edge is the position plus half the
-                // thickness.
-                t0 = (f.alphabetic - (pos + thk * 0.5f)) / f.upem;
-                t1 = (f.alphabetic - (pos - thk * 0.5f)) / f.upem;
+                // outlines ride; device y runs the other way. The
+                // position rules the band's top edge and the thick-
+                // ness runs down off it: MS's metrics docs fix that
+                // reading for the strikeout pair, "the position of
+                // the top of the stroke", and hhea/post underline
+                // positions ride with it, so one rule serves all
+                // three bands.
+                t0 = (f.alphabetic - pos) / f.upem;
+                t1 = (f.alphabetic - (pos - thk)) / f.upem;
             }
         }
         immutable fs = d.fontSize;
@@ -12575,10 +12582,12 @@ unittest
     // rules that band in font units around its own alphabetic row
     // instead of the fitted em fractions. Dec's outline box stands
     // 500..800 units up (device rows 40..54 at size 50 on a baseline
-    // at y=80), and the spelled rows sit clear of it: overline at
-    // 1000..1100 above (rows 25..29), strikethrough at 300..400
-    // (rows 60..64), underline 200..300 below (rows 90..94). A half-
-    // spelled pair is no pair: the fit rules that band alone.
+    // at y=80), and the spelled rows sit clear of it, each landing
+    // whole device rows: overline 1100..1000 above (rows 25..29),
+    // strikethrough 300..200 (rows 65..69), underline -300..-400
+    // (rows 95..99) - the position rules each band's own top edge,
+    // the thickness runs off it. A half-spelled pair is no pair:
+    // the fit rules that band alone.
     string docBand(string faceAttrs)
     {
         return `<svg xmlns="http://www.w3.org/2000/svg" width="120"
@@ -12594,10 +12603,10 @@ unittest
             >x</text>
         </svg>`;
     }
-    const spelled = `underline-position="-250" underline-thickness="100"
-                overline-position="1050" overline-thickness="100"
-                strikethrough-position="350" strikethrough-thickness="100"`;
-    assert(inkBox(renderSVG(docBand(spelled))) == [40, 25, 69, 94],
+    const spelled = `underline-position="-300" underline-thickness="100"
+                overline-position="1100" overline-thickness="100"
+                strikethrough-position="300" strikethrough-thickness="100"`;
+    assert(inkBox(renderSVG(docBand(spelled))) == [40, 25, 69, 99],
         "the three declared bands rule exactly the spelled rows");
     assert(inkBox(renderSVG(docBand(""))) == [40, 39, 69, 82],
         "spelled nowhere, the fitted em bars rule as before");

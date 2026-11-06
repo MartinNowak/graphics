@@ -340,6 +340,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 90               | the SE index audit closes the walk:            | 2.62 M     |
 |                       | the deprecated clip rect lands on image        |            |
 |                       | - masking-path-06-b 6,344 -> 161               |            |
+| step 91               | forensics on 03-b: a spelled band rules        | 2.62 M     |
+|                       | from its top edge, not around its middle -     |            |
+|                       | text-text-03-b 1,164 -> 995, no row moves      |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3647,6 +3650,53 @@ residual rows rather than from unread attributes, and the
 freshest row is this one; behind it in the text category
 stand the three text-ws rows at 4,555, 5,619 and 4,721.
 
+Step 91 is forensics, and the row profiles answered before any
+code changed. 03-b's clusters are its two spelled underlines
+and the row's old speckle: the capture's fs32 blue run rules
+its band across device rows 114.22 to 117.55 - centered
+0.184em below the baseline, 0.104em thick - and the bold
+italic run across 204.44 to 207.11 - same depth, 0.083em
+thick. The face spells -100/50 over a 1000 upem, and no
+reading of that pair puts a band nearly twice as thick as
+declared two device rows deeper; the capture consulted a real
+face's own underline metrics, not the SVG font's - the same
+host face that gives the row its caption speckle. The pointer
+behind 03-b was stale anyway: the three text-ws rows were
+Deferred long ago, watermark band and 435/456/153 raw px.
+
+What is movable is which edge a spelled position rules. MS's
+metrics table fixes the strikeout pair as "the position of the
+top of the stroke", and hhea and post spell the underline pair
+to the same reading, so the pair branch now rules a band's
+font-space top edge at the position and runs the thickness
+down off it, where step 89 had centered the band on it. Both
+03-b bands shift a device row toward their captures - 273 ->
+202 and 271 -> 202 in-region - and the row drops 1,164 ->
+995, the only row the gate found moved: the other two deco
+rows' faces spell no pairs, and the fit rules them untouched.
+The docBand pins move to device-row numbers: -300/100,
+1100/100 and 300/100 rule exactly rows 95..99, 25..29 and
+65..69 of a size-50 baseline at y=80.
+
+The row's remaining 995 is about 404 AE of band no reading of
+the spelled pair reaches, plus the old glyph speckle; the
+Deferred list gains a bullet for both, and loses the stale
+masking-path-06-b one, whose clip landed at step 90.
+
+526 rows, 0 ERROR, 2,615,046 AE - the baseline moves by 03-b
+alone.
+
+Up next - step 92: text-spacing-01-b (5,108) is the biggest
+text row the walk never triaged, and its deltas carry no
+color: the honest RGB mask of the row is empty, and its AE
+is pure alpha coverage in wide 700-1,900 px blobs along whole
+body rows - the shape a spacing walk accumulating along a row
+leaves, not a uniform AA drift. Its letter-spacing -1 and .3
+and word-spacing -3 and 3 legs have never been probed. Behind
+it, text-intro-11-t and -12-t (9,018 / 12,601) sit
+un-triaged too; their older siblings are host-script floors,
+but nothing has proven these two are.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -3721,6 +3771,15 @@ stand the three text-ws rows at 4,555, 5,619 and 4,721.
   57, are that band alone: 9,063 diff pixels of their 9,063 and 9,108, all of
   it x=2..478 y=2..20, so the `<font>` boxes, their `missing-glyph` outlines
   and the `units-per-em` scaling they test are already exact.
+- `text-text-03-b` (995 since step 91): its two fs32 underlined
+  runs still carry ~404 AE of band, and no reading of the face's
+  spelled -100/50 over a 1000 upem reaches their captures: those
+  bands sit centered ~0.18em below the baselines and 0.08-0.10em
+  thick, against the spelled 0.10em centered and 0.05em thick.
+  The capture's renderer consulted a real FreeSerif face's own
+  underline metrics - the same host face the row's caption and
+  glyph speckle come from. Step 91's top-edge reading lands the
+  spelled bands one device row off theirs; the rest is theirs.
 - `text-dom-01-f` (3.5 K), +3 at step 32: the line that carries
   `<tspan rotate="45,90">is</tspan>` is not visible in its reference at all.
   The file's DRAFT band is painted *over* it there, and the only ink the PNG
@@ -3978,14 +4037,6 @@ stand the three text-ws rows at 4,555, 5,619 and 4,721.
   references do keep their alpha. Better of the two readings per test puts
   the suite's content floor near 1.86 M - everything still worth chasing,
   including the ceilings above, lives there.
-- `masking-path-06-b` (7,584): the suite's only `clip="rect(...)"` row, and its
-  reference is Batik's from-each-edge inset rather than the CSS 2.1 §11.1.2
-  geometry §14.3.3 imports. There `rect(<top>,<right>,<bottom>,<left>)` are
-  offsets from the top and left border edges, all four from one point, so
-  `rect(10,10,10,10)` is zero-area and a conformant render paints no image at
-  all. Census: we paint 68,317 opaque pixels, the reference 54,772, and the gap
-  is exactly the 10-unit border of the two 200x120 image boxes; the spec's
-  reading would drop all 48,000 image pixels and put the row near 35 K.
 - `filters-composite-03-f` (8,731): arithmetic feComposite, including its
   FillPaint/StrokePaint inputs, is right - the identical and clamped squares
   compare at AE 0. The two that miss are semi-transparent (alpha 0.5 for
