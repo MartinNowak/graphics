@@ -358,6 +358,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 96               | the sweep's tail classes verify                | 2.60 M     |
 |                       | and fold: script verdicts, animate             |            |
 |                       | floor, host faces, one bidi capture            |            |
+| step 97               | the 100-600 AE tail scans whole:               | 2.60 M     |
+|                       | sixty-one rows, no levers, folded              |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4016,6 +4018,49 @@ predate step 70's band scan and step 69's sweep
 and some are already covered by their abbreviated
 wording - naming or folding each row measured.
 
+Step 97 ran that scan and found what band scans
+find: no levers. Sixty-one rows were measured
+with difference masks - the animate chapter's
+floor (twenty-two rows and -90-b, already the
+Verdana record's), the paths-data floors (nine,
+all sub-fuzz regions or hairline rows), the
+coords-trans and transformattr sextet, four
+linking rows, three struct, three painting,
+three fonts, three shapes, four filters, two
+gradients and two text rows. Each either holds
+nothing at 60 px, or blocks averaging 0.003-7
+levels per pixel, or hairline raster phase, or
+the caption revision digit - one 9x13 speck,
+shared identically by five of those rows. The
+band folded into one bullet.
+
+With it the suite's triage is complete: every
+row of 100 AE and above is named or family-
+covered in this ledger, and what is left
+unnumbered is sixteen rows under 100, sixty
+between 30 and 60 and seventy under 30 - the
+noise the harness has always called floor.
+
+The gate is untouched since step 96's whole-
+suite re-run: 526 rows, 0 ERROR, 2,598,346 AE,
+status.txt byte-identical.
+
+Up next - step 98: the bookkeeping audit. Every
+status.txt stem re-grepped against this ledger
+to prove the exhaustion claim mechanically; the
+chapter tallies and the Where-we-are prose
+refreshed to match; and one last look for any
+engine lever the harness can still pay - there
+is one, and it is environmental: fc-match still
+answers stand-ins to Impact, Arial, Georgia, MS
+Gothic and Haettenschweiler, and a host with
+the real MS faces installed would take
+masking-path-04-b's 15,095, text-spacing-01-b's
+5,108 and the host-glyph tail in one blow the
+way step 92's Verdana took 14,889 from ten
+rows. That install is the user's to make; the
+engine has no more code levers in this suite.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -4400,6 +4445,40 @@ wording - naming or folding each row measured.
   100 px anywhere: `styling-css-04-f` (559), `text-align-02-b`
   (2.1 K), `text-text-04-t` (462), `text-fonts-05-f` (724), and
   `filters-light-04-f` (464).
+- Step 97 scanned the 100-600 AE tail whole and closed all
+  sixty-one rows that remained. The animate chapter's floors
+  lead: `-02-t/-04-t/-05-t/-06-t/-08-t/-09-t/-10-t/-11-t/
+  -12-t/-34-t/-38-t/-44-t/-46-t/-61-t/-65-t/-66-t/-67-t/
+  -68-t/-69-t/-88-t/-91-t/-92-t` show at most faint twin
+  cells - 13x21 embedded-glyph edge clusters at 219 raw, a
+  54x64 caption block, 33x33 cells at 5 % - or nothing at
+  60 px at all, and the 366x146 target blocks of -04/-05/-06-t
+  drift under 7/255 alpha exactly like -26-t before them;
+  -38-t's diff is the frame ring (3x358 and 475x6 edge
+  strips, the frame-convention family). The `paths-data`
+  floors - `-04-t/-05-t/-08-t/-09-t/-14-t/-15-t/-16-t`,
+  `-17-f` and `-20-f` - are sub-fuzz regions plus 179x1 and
+  121x1 hairline rows: the diagonal-hairline raster family of
+  steps 56, 59 and 69, once more. The rest leave nothing
+  worth a bullet of their own: `struct-use-03-t` (twin 169x86
+  blocks at 2.7 % alpha) and `-08-b`, `struct-svg-02-f`,
+  `coords-trans-10-f/-13-f/-14-f` (twin 79x51 and 51x52 cells
+  at 1 %), `linking-uri-01-b/-02-b/-03-t` (02-b's lone
+  cluster is the caption speck; 03-t's is a 128x1 hairline),
+  `linking-a-10-f` (one 61x92 block at 0.09 levels a pixel),
+  `painting-stroke-03-t` (a 202x70 stroke region at 7/255)
+  and `-04-t`, `painting-control-03-f` (a 172x100 block at
+  0.4 levels a pixel), `fonts-elem-01-t` / `-03-b`,
+  `text-align-05-b`, `text-text-10-t`'s host-glyph edge
+  clusters, the shapes floors `shapes-rect-04-f`,
+  `shapes-intro-01-t` and `shapes-ellipse-02-t`,
+  `text-fonts-03-t` (one 9x9 speck, 12 levels a pixel),
+  `filters-diffuse-01-f`, `filters-image-01-b` / `-04-f`,
+  `filters-color-02-b`, `pservers-grad-03-b`; and
+  `coords-transformattr-03-f/-04-f/-05-f`, `struct-svg-02-f`
+  and `pservers-grad-14-b` share one and the same 9x13 speck
+  at y=326 - a caption revision digit, 89 raw. No row in the
+  band has a lever.
 - `animate-elem-83-t` (934) is revision-matched at 1.7
   both sides and still a ceiling: the six cells' gray
   morph end-states land pixel-exact under 3x crops -
