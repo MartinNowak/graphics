@@ -346,6 +346,9 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 | step 92               | the host Verdana lands: ten Verdana rows fall  | 2.60 M     |
 |                       | to per-glyph drift - 08-b 14,658 -> 3,943 and  |            |
 |                       | nine more - net 14,889 off the baseline        |            |
+| step 93               | forensics close text-spacing-01-b: every       | 2.60 M     |
+|                       | 33 px divergence was a crop artifact - the     |            |
+|                       | row is host face drift; the Arabic pair joins  |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -3747,6 +3750,68 @@ gap. That is the next real lever the measurements point at.
 Behind it, text-intro-11-t and -12-t (9,018 / 12,601) remain
 un-triaged.
 
+Step 93 is a forensics close, and it closes against the
+engine. The probe renders settle text-spacing-01-b: each
+probe line draws the identical string on the identical
+face with only the spacing attribute changed, so the width
+delta between lines is the applied spacing, exactly. At
+the fixture's own geometry - viewBox 80x60 rendered at
+480x360, fs8 - the unitless letter-spacing="-1" measures
+at exactly -6 device px per gap and .3 at +1.8; the +3 leg
+runs the line off the canvas there, and at scale 1 all
+three legs read -1, +.3 and +3 per gap. Unitless spacing
+is user units with no scaling, and the word-spacing leg
+rides 3 separators x 3 units x 6 px - the 54 px the
+captures measure.
+
+The 33 px-per-row divergence Up-next-93 recorded never
+existed: the fixture's 47-row line bands pick up the
+neighbour rows' p/g descender tails, and read on a clean
+crop - rows 62..101, between those tails and the
+ascenders - L2 is 232, not 269, against the capture's
+236. The six body rows measure 310/232/351 against the
+captures' 323/236/366: every spacing leg landed, and what
+is left is face drift - fc-match answers Liberation Sans
+to our "Arial" while the capture host answered itself, and
+the two faces' outline difference is worth 13 px on L1,
+4 px on L2 and 15 px on L3. The region split is 987 over
+L1 and the ring top, 4,077 along L2-L6 and 88 at the
+revision foot. The row joins the Deferred list; its one
+real lever is environmental - a genuine MS Arial on the
+host, the same move Verdana was at step 92.
+
+The un-triaged pair closes the same way: text-intro-11-t
+and -12-t (9,018 / 12,601) ask Andalus, Diwani Letter and
+Scheherazade, fc-match answers Noto Sans to all three, and
+the white-flattened residuals are 13.3 K / 24.9 K. The
+band scan also caught their siblings -04-t and -05-t
+(2,639 / 2,478), asking Hebrew and Arabic families that
+answer Noto Sans too, flattening to 7.9 K / 10.0 K. All
+four join the host-script sentence; the text chapter's
+intro region keeps no un-triaged row.
+
+And the sweep leaves no fresh name unaddressed either:
+coords-dom-01-f/-02-f/-04-f, text-dom-05-f,
+script-handle-02-b and svgdom-over-01-f all carry a
+<script>, and animate-interact-events-01-t (5,098) drives
+its animations off mouseover/mousedown events - the
+DOM/scripting bullet and the interact bullet now name them
+all.
+
+526 rows, 0 ERROR, 2,600,157 AE - the gate confirms no
+render moved.
+
+Up next - step 94: the environment names its lever again:
+fc-match Impact still answers Noto Sans, and
+masking-path-04-b (15,095) with 03-b/10-b behind it is
+that debt - a genuine Impact would cut the floor the way
+Verdana cut 08-b. In code, the sweep's last un-triaged
+rows are in the text chapter: text-text-01-b (3,821)
+draws its body in SVGFreeSansASCII, a face the engine has
+held since step 7 - our raster against a known shape, not
+a host's - and text-tselect-03-f (3,498) adds an embedded
+SVGHebrew. 01-b first.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -3776,6 +3841,10 @@ un-triaged.
   the suite's `:visited` / `:hover` / `:focus` test, and its one 269x60
   block is the row of links whose fill depends on browsing history and a
   pointing device - UA state no headless render has.
+  `animate-interact-events-01-t` (5.1 K) belongs here too: every
+  animation in it begins or ends on `mouseover` / `mousedown` events,
+  so its capture answers to pointer state a static render cannot
+  reach.
 - `animate-elem-53-t` (2.1 K) / `animate-elem-63-t` (1.0 K): the only two
   animate tests whose references cannot be reached from any static
   end-state frame. 53-t's reference shows the RR square *before* its scale
@@ -3884,6 +3953,11 @@ un-triaged.
   its pattern rects, fill tile and stroke tile alike, land pixel for
   pixel, and every pixel of the remainder is a `font-family="Arial"`
   caption - host-glyph debt like every other Arial row in the suite.
+  Step 93's sweep names the family's remaining members:
+  `coords-dom-01-f` (3.8 K) / `-02-f` (5.6 K) / `-04-f` (3.3 K),
+  `text-dom-05-f` (5.4 K), `script-handle-02-b` (5.3 K) and
+  `svgdom-over-01-f` (2.6 K) all carry a `<script>`, and their
+  verdicts are DOM end-states a CLI renderer has no surface to reach.
 - styling-css-09-f (18.9 K) / styling-css-10-f (9.8 K) / styling-pres-
   05-f (14.3 K): step 12 triage proved the external-sheet machinery
   works end to end (`@import` fetch, unquoted `[id=...]` selectors,
@@ -3956,6 +4030,10 @@ un-triaged.
   are missing (`fc-match Impact` answers Noto Sans here).
   `text-intro-03-b/-06-t/-07-t` (480 K) are a different lever:
   Arabic shaping with host Noto against Kayrawan/Scheherezade references.
+  Step 93 put the chapter's four remaining intro rows on that floor:
+  `-11-t` (9.0 K) / `-12-t` (12.6 K) ask Andalus, Diwani Letter and
+  Scheherazade, `-04-t` (2.6 K) / `-05-t` (2.5 K) ask Hebrew and Arabic
+  families, and `fc-match` answers Noto Sans to every one of those names.
   `text-text-08-b` (3,943 since step 92) was that substitution's half: the
   host never had Verdana, and every family query came back a fontconfig
   stand-in. Once the host installed the real faces the row fell 14,658 ->
@@ -3970,6 +4048,17 @@ un-triaged.
   `filters-color-01-b`'s 623, all that is left of it once step 43 put
   its five panels at AE 0, is that same drift across its five Verdana
   labels; the frame ring is at AE 0.
+- `text-spacing-01-b` (5,108), closed by step 93's probes: the engine
+  applies unitless letter-spacing and word-spacing as exactly user
+  units - at the fixture's 6x geometry -1 lands at -6 device px per
+  gap and .3 at +1.8, and the word-spacing legs at the captures'
+  54 px. Its six body rows measure 310/232/351 against the
+  captures' 323/236/366, so the residual is per-glyph drift between
+  our Liberation Sans (the `fc-match Arial` answer) and the capture
+  host's own face, along with the ring: 987 over L1 and the ring
+  top, 4,077 along L2-L6, 88 at the revision foot. A genuine MS
+  Arial on the host would cut it the way Verdana cut
+  `text-text-08-b` at step 92.
 - `painting-stroke-06-t` (869) is what steps 47 and 59 left of it, and the
   rest is not a feature - step 59 carries its dash boundaries along with
   the band, 1,208 -> 869. Cropped to its two dash rows, ours and the
