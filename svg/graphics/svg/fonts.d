@@ -3,7 +3,7 @@ module graphics.svg.fonts;
 import std.algorithm, std.ascii, std.conv, std.file, std.math, std.range, std.string, std.utf;
 import graphics.core.path;
 import graphics.svg.core : addSVGPath;
-import graphics.svg.css : resolveHref, sheetFaces;
+import graphics.svg.css : resolveHref, sheetFaces, svgFormat;
 import graphics.svg.parser;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -220,16 +220,6 @@ bool uriFormatsLoadable(immutable(Element)[] nodes, size_t uri)
                 return true; // one recognized name is enough
     }
     return !spelled; // no hint at all: try the uri as written
-}
-
-/// True when a font-format string (any case, spaces trimmed) names an SVG
-/// font, the only format this engine loads. "svg" is the string SVG 1.1's
-/// own @font-face example spells; application/svg+xml is the document
-/// label the media type appendix carries.
-bool svgFormat(string s)
-{
-    immutable t = toLower(strip(s));
-    return t == "svg" || t == "application/svg+xml";
 }
 
 /// Every <font> element and every standalone <font-face> reference in the

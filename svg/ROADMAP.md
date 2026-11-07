@@ -366,6 +366,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | glyphRef lands; unittests pin it               |            |
 | step 100              | the §20.8.5 font-face-format                   | 2.60 M     |
 |                       | gate lands; step 99's strings re-grounded      |            |
+| step 101              | src's format() hints gate the                  | 2.60 M     |
+|                       | descriptor road too; one predicate             |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4238,6 +4240,68 @@ woffs/*.woff sources this engine could
 never load as an SVG font either way. One
 predicate, shared with the element road,
 unittest-pinned, byte-identical expected.
+
+Step 101 brought the skip rule to the
+descriptor road. parseFontFace used to
+take src's first url() whatever its
+format() hint spelled; now srcUrl walks
+the comma-separated sources and
+hintLoadable reads each source's format(
+clause - CSS2 §15.3.5's list of quoted
+strings, split at the commas that sit
+outside the quotes, unquoted, case
+folded. A source whose hints all name
+unloadable formats is passed over for
+the next source, or lost with the block
+when it was the last one; a source
+spelling no hint takes its turn as ever;
+local() names a system face and
+contributes nothing, hinted or not. The
+store's svgFormat predicate moved to
+css.d beside the descriptor road, so one
+predicate names an SVG font for both
+roads.
+
+The new fixture caught one trap on the
+way: a naive comma split mangles CSS2's
+quoted hint list - format("a", "b")
+splits into "a and b" with quotes half
+attached and nothing recognized - so the
+clause walks with topAt, the value
+splitter that already knows quotes and
+paren nests.
+
+The gate stayed byte-identical, as the
+pointer promised: the suite hints every
+CSS src it spells - three format("svg")
+urls, recognized and kept unchanged, and
+over twenty format("woff") urls whose
+woffs this engine could never load as
+SVG fonts anyway; hinting those sources
+out loses faces that registered nothing.
+526 rows, 0 ERROR, 2,598,346 AE. The
+pinning grew the css.d @font-face
+fixture: hints-all-fail drops a block, a
+hinted-out source yields to the list's
+next url, a recognized name answers from
+inside a two-string clause, the media
+type spelling works case folded, and a
+format() spelling no name recognizes
+nothing.
+
+Up next - step 102: unicode-range, the
+descriptor the css.d comment still names
+unread. The element road threads it -
+put() parses the referring face's
+unicode-range into the registered face's
+ranges - while the descriptor road drops
+it. Reading it is a FontFace field and
+one put call; the suite spells
+unicode-range only on <font-face>
+elements, the shared SVGFreeSansASCII
+preamble among them, and never inside a
+CSS block, so the step lands
+unittest-pinned and byte-identical.
 
 ## Deferred / accepted ceilings (do not chase)
 

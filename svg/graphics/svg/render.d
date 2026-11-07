@@ -4112,7 +4112,7 @@ private struct Renderer
     // choose the face. A format CSS2 §15.3.5 registered - truedoc-pfr,
     // embedded-opentype and the rest - names a resource this engine never
     // loads, so such a ref matches nothing; the strings naming SVG fonts
-    // (fonts.svgFormat) search the selected face for the identifier, as
+    // (css.d's svgFormat) search the selected face for the identifier, as
     // §20.6's glyph-name or as the character the glyph stands for. Too
     // little spelled, no face the family list registers, or no glyph the
     // face carries: all one answer, the "glyph not available" the spec

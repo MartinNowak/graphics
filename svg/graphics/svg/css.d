@@ -253,9 +253,11 @@ Rule[] collectStyles(in Document doc, string baseDir = "")
 /// A CSS `@font-face` rule (CSS 2.1 §5.5): not a rule about elements
 /// but a set of descriptors naming a family and saying where its face
 /// lives, so it goes to the font store, not the cascade. Only the
-/// descriptors this engine reads are kept: the family name, the first
-/// url() of src (the `#fragment` included, for the same reason
-/// §20.8.5's font-face-uri keeps one), and the weight/style/variant
+/// descriptors this engine reads are kept: the family name, the src
+/// url() the engine will actually follow - the first source of the
+/// list whose format() hint, if it spells one, names a loadable
+/// format (the `#fragment` included, for the same reason §20.8.5's
+/// font-face-uri keeps one) - and the weight/style/variant
 /// descriptor strings, left as written for the store's own matching.
 /// A block with no family or no url is not a face at all.
 struct FontFace
@@ -1126,12 +1128,11 @@ private bool parseImport(string s, out string url, out string media)
 // at their top-level `;` (a url( nests the `;` away, so only
 // statement-level ones count). Descriptors this engine does not read -
 // unicode-range above all - pass unremarked. A block is a face only if
-// it names a family and has a url() to fetch: local() names a
+// it names a family and has a src url() to fetch: local() names a
 // system-installed face, which the host font matcher already answers to
-// by family name without a road in. A url()'s format() hint - CSS2
-// §15.3.5's, the sibling of §20.8.5's font-face-format children, whose
-// skip rule the element road does apply - is not read here: the first
-// url() takes its turn whatever it names, an SVG font or nothing.
+// by family name without a road in, and a source whose format() hints
+// all name unloadable formats is skipped (see srcUrl - the descriptor
+// sibling of the store's §20.8.5 font-face-format gate).
 private bool parseFontFace(string block, out FontFace f)
 {
     while (!block.empty)
@@ -1151,7 +1152,7 @@ private bool parseFontFace(string block, out FontFace f)
         switch (name)
         {
         case "font-family": f.family = unquoted(val); break;
-        case "src":         f.url    = firstUrl(val); break;
+        case "src":         f.url    = srcUrl(val); break;
         case "font-weight": f.weight = val; break;
         case "font-style":  f.style  = val; break;
         case "font-variant": f.variant = val; break;
@@ -1159,6 +1160,90 @@ private bool parseFontFace(string block, out FontFace f)
         }
     }
     return !f.family.empty && !f.url.empty;
+}
+
+// The src descriptor's url(): the first source of the comma-separated
+// list this engine will follow. Each source is a url() carrying
+// optional format() hints, and CSS2 §15.3.5 says what the hints are
+// for - clients "should use this information to avoid following links
+// to fonts in formats they are unable to use" - so a source whose
+// hints all name formats this engine cannot load is passed over, the
+// way the store passes over a font-face-uri whose §20.8.5
+// font-face-format children do. A source spelling no hint takes its
+// turn as ever; local() names a system face and contributes nothing,
+// hinted or not.
+private string srcUrl(string val)
+{
+    while (!val.empty)
+    {
+        immutable comma = topAt(val, 0, ',');
+        immutable piece = comma == npos ? val : val[0 .. comma];
+        val = comma == npos ? "" : val[comma + 1 .. $];
+        if (!hintLoadable(piece))
+            continue; // every hint names a format that never loads
+        immutable url = firstUrl(piece);
+        if (!url.empty)
+            return url;
+    }
+    return "";
+}
+
+// Does this src source name a format this engine can load? Every
+// format( clause the source carries speaks: one recognized name
+// (svgFormat) anywhere in the clauses' comma-lists is enough, the
+// clauses' strings unquoted and case-folded, and a source with no
+// clause at all hints nothing. An unterminated clause reads to the
+// source's end.
+private bool hintLoadable(immutable string src)
+{
+    string low;
+    foreach (ch; src)
+        low ~= cast(char) toLower(ch);
+    bool spelled;
+    for (size_t i; i + 6 < low.length;)
+    {
+        if (low[i .. i + 7] != "format(")
+        {
+            ++i;
+            continue;
+        }
+        immutable at = i + 7;
+        size_t close = at;
+        while (close < src.length && src[close] != ')')
+            ++close;
+        spelled = true;
+        // CSS2's hint is a list of quoted strings; topAt splits it at
+        // the commas that sit outside the quotes.
+        string rest = src[at .. close];
+        while (!rest.empty)
+        {
+            immutable comma = topAt(rest, 0, ',');
+            immutable tok = comma == npos ? rest : rest[0 .. comma];
+            rest = comma == npos ? "" : rest[comma + 1 .. $];
+            if (svgFormat(unquoted(strip(tok))))
+                return true; // one recognized name is enough
+        }
+        i = close + 1;
+    }
+    return !spelled;
+}
+
+/// True when a font-format string (any case, spaces trimmed) names an
+/// SVG font, the only format this engine loads. CSS2 §15.3.5
+/// registered a name for every format of its day - truedoc-pfr,
+/// embedded-opentype, type-1, truetype, opentype, truetype-gx, speedo,
+/// intellifont - and none of them is an SVG font; SVG 1.1 registers
+/// its own string in its Fonts chapter's example, format("svg"), and
+/// the appendix registering the media types labels such documents
+/// application/svg+xml. One predicate serves both src roads: the
+/// descriptor's format() clause here, and §20.8.5's font-face-format
+/// children in the store.
+bool svgFormat(string s)
+{
+    string t;
+    foreach (ch; strip(s))
+        t ~= cast(char) toLower(ch); // format strings are ASCII
+    return t == "svg" || t == "application/svg+xml";
 }
 
 // A token with its matching pair of quotes taken off the ends.
@@ -1626,10 +1711,15 @@ unittest
 unittest
 {
     // @font-face descriptors reach the caller that wants the font
-    // store, not the cascade: the family and first url() unquoted,
-    // the fragment kept, weight and style as written. A block missing
-    // its family or its url() is not a face at all, and @media
-    // filters face blocks exactly like rule blocks.
+    // store, not the cascade: the family and the first src url()
+    // this engine will follow, the fragment kept, weight and style
+    // as written. A block missing its family or its url() is not a
+    // face at all, @media filters face blocks exactly like rule
+    // blocks, and src's format() hints gate the sources: a source
+    // whose hints all name unloadable formats - even a clause
+    // spelling no name at all - is passed over for the next source
+    // or lost with the block, while one recognized name, in a
+    // comma-list or the media type spelling, in any case, keeps it.
     size_t order = 0;
     FontFace[] faces;
     FontFace[]* sink = &faces;
@@ -1639,13 +1729,27 @@ unittest
         @font-face { font-family: NoSrc }
         @font-face { src: url("#NoFam") }
         @media print { @font-face { font-family: Gone; src: url(#g) } }
-        @media screen { @font-face { font-family: KeptFace; src: url(#k) } }`,
+        @media screen { @font-face { font-family: KeptFace; src: url(#k) } }
+        @font-face { font-family: Woffed; src: url(w.woff) format("woff") }
+        @font-face { font-family: BareHint; src: url("#bh") format() }
+        @font-face { font-family: NextSource; src: url(w.woff)
+                     format("woff"), url("#good") }
+        @font-face { font-family: ListHint; src: url("#lh")
+                     format("embedded-opentype", "SVG") }
+        @font-face { font-family: MimeHint; src: url("#mh")
+                     Format("Application/SVG+XML") }`,
         order, "", 0, sink);
-    assert(faces.length == 2);
+    assert(faces.length == 5, "two hinted sources lost their only url()");
     assert(faces[0].family == "Test Comic" && faces[0].url == "a.svg#F",
         "first url() wins, local() is not a fetch");
     assert(faces[0].weight == "bold" && faces[0].style.empty);
     assert(faces[1].family == "KeptFace" && faces[1].url == "#k");
+    assert(faces[2].family == "NextSource" && faces[2].url == "#good",
+        "a hinted-out source yields to the next source of the list");
+    assert(faces[3].url == "#lh",
+        "a recognized name answers from inside the hint's comma-list");
+    assert(faces[4].url == "#mh",
+        "the media type spelling too, clause and name case folded");
 }
 
 unittest
