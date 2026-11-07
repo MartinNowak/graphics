@@ -366,8 +366,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | glyphRef lands; unittests pin it               |            |
 | step 100              | the §20.8.5 font-face-format                   | 2.60 M     |
 |                       | gate lands; step 99's strings re-grounded      |            |
-| step 101              | src's format() hints gate the                  | 2.60 M     |
-|                       | descriptor road too; one predicate             |            |
+| step 101              | the css.d src list reads its                   | 2.60 M     |
+|                       | format() hints; one gate, two roads            |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4241,67 +4241,56 @@ never load as an SVG font either way. One
 predicate, shared with the element road,
 unittest-pinned, byte-identical expected.
 
-Step 101 brought the skip rule to the
-descriptor road. parseFontFace used to
-take src's first url() whatever its
-format() hint spelled; now srcUrl walks
-the comma-separated sources and
-hintLoadable reads each source's format(
-clause - CSS2 §15.3.5's list of quoted
-strings, split at the commas that sit
-outside the quotes, unquoted, case
-folded. A source whose hints all name
-unloadable formats is passed over for
-the next source, or lost with the block
-when it was the last one; a source
-spelling no hint takes its turn as ever;
-local() names a system face and
-contributes nothing, hinted or not. The
-store's svgFormat predicate moved to
-css.d beside the descriptor road, so one
-predicate names an SVG font for both
-roads.
+Step 101 read src as the list it is,
+hints and all. CSS2 §15.3.5 hangs a
+format() clause on each source and tells
+clients to "avoid following links to
+fonts in formats they are unable to use"
+- the same skip rule the element road
+applies to font-face-format children, now
+sharing one svgFormat predicate, which
+moved to css.d beside the first of the
+two roads. A source whose hints all name
+unloadable formats yields to the next; a
+clause spelling no recognized name -
+format() with nothing inside included -
+fails it the same way; local()
+contributes nothing hinted or not. The
+clause is a list of quoted strings, so
+the walk splits it at commas outside the
+quotes - the fixture's comma-list caught
+the naive first cut eating those quotes.
 
-The new fixture caught one trap on the
-way: a naive comma split mangles CSS2's
-quoted hint list - format("a", "b")
-splits into "a and b" with quotes half
-attached and nothing recognized - so the
-clause walks with topAt, the value
-splitter that already knows quotes and
-paren nests.
-
-The gate stayed byte-identical, as the
-pointer promised: the suite hints every
-CSS src it spells - three format("svg")
-urls, recognized and kept unchanged, and
-over twenty format("woff") urls whose
-woffs this engine could never load as
-SVG fonts anyway; hinting those sources
-out loses faces that registered nothing.
+The gate came back byte-identical: the
+suite spells a hint on every src the
+harness reads, but the three fonts
+fixtures write format("svg") -
+recognized, the same url picked - and
+the rest write format("woff") for
+woffs/*.woff sources this engine could
+never load as SVG fonts either way;
+skipped and missed are the same nothing.
 526 rows, 0 ERROR, 2,598,346 AE. The
-pinning grew the css.d @font-face
-fixture: hints-all-fail drops a block, a
-hinted-out source yields to the list's
-next url, a recognized name answers from
-inside a two-string clause, the media
-type spelling works case folded, and a
-format() spelling no name recognizes
-nothing.
+pinning grew css.d's @font-face unittest
+five faces - recognized hint keeps, woff
+hint loses its only source, a nameless
+clause loses too, a hinted-out first
+source yields to its successor, a quoted
+comma-list answers, and the media type
+spelling answers case-folded.
 
-Up next - step 102: unicode-range, the
-descriptor the css.d comment still names
-unread. The element road threads it -
-put() parses the referring face's
-unicode-range into the registered face's
-ranges - while the descriptor road drops
-it. Reading it is a FontFace field and
-one put call; the suite spells
-unicode-range only on <font-face>
-elements, the shared SVGFreeSansASCII
-preamble among them, and never inside a
-CSS block, so the step lands
-unittest-pinned and byte-identical.
+Up next - step 102: the descriptor the
+parser's comment admits going unread.
+parseFontFace passes unicode-range by
+unremarked, so a CSS face registers with
+the whole character map while the
+element road parses the very same
+spelling off the font-face element. Feed
+the descriptor to FontFace and on to the
+store's put() - no CSS fixture spells it
+(the ranges live in the resources font
+files' elements), so unittest-pinned and
+byte-identical again.
 
 ## Deferred / accepted ceilings (do not chase)
 
