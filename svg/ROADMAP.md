@@ -368,6 +368,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | gate lands; step 99's strings re-grounded      |            |
 | step 101              | the css.d src list reads its                   | 2.60 M     |
 |                       | format() hints; one gate, two roads            |            |
+| step 102              | the unicode-range descriptor                   | 2.60 M     |
+|                       | crosses to the CSS road                        |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4291,6 +4293,50 @@ store's put() - no CSS fixture spells it
 (the ranges live in the resources font
 files' elements), so unittest-pinned and
 byte-identical again.
+
+Step 102 crossed the font chapter's last
+unread descriptor over to the CSS road.
+The element road has parsed
+unicode-range off the font-face element
+since the font era, feeding the store's
+parseRanges and letting the covers()
+predicate gate the host-face fallback;
+the descriptor road threw the very same
+spelling away, so a CSS face registered
+over the whole character map whatever
+its rule restricted. CSS2's font module
+means one descriptor with two roads:
+FontFace now carries the range as
+written, and put() feeds it the same
+parser an element's range gets.
+
+The suite spells unicode-range in one
+place only - as an attribute on font-face
+elements in the resources font files,
+never inside a CSS rule - so the fix
+lands byte-identical: 526 rows, 0 ERROR,
+2,598,346 AE. The pinning: css.d's
+@font-face unittest carries a range
+beside the quoted-hint face and pins it
+as written, unnamed faces' ranges empty;
+fonts.d's Test Comic fixture spells it
+in the rule and the face answers
+covers('A') and not covers('&') - a CSS
+face's registration range gates the
+fallback exactly as an element face's
+does.
+
+Up next - step 103: the chapter's close
+walk. The one spec surface nothing reads
+is the quartet of glyph descriptives -
+§20.6.4's arched, italic-angle, skew,
+math - advisory metadata no rasterizer
+consults, the same species the closing
+walk already registered for font-face
+but never named. Name them unread at
+the glyph parse site, register the
+ceiling entry, and the font chapter
+closes.
 
 ## Deferred / accepted ceilings (do not chase)
 

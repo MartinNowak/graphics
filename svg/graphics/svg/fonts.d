@@ -381,9 +381,10 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
     // fragment names this document's, a path loads a file - sharing
     // the loaded-file cache; a src that names no readable SVG font
     // (local(), a .ttf) contributes nothing. The descriptor's weight,
-    // style and variant name the slot, and a face registered later
-    // replaces an element's face of the same slot, last declaration
-    // winning.
+    // style and variant name the slot, its unicode-range gives the
+    // face the same registration range the font-face element carries,
+    // and a face registered later replaces an element's face of the
+    // same slot, last declaration winning.
     foreach (fc; sheetFaces(doc, baseDir))
     {
         // A slice's truth is non-null, not non-empty, and `find` miss
@@ -424,7 +425,7 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
         found.weight = cssWeight(fc.weight);
         found.faceStyle = cssStyle(fc.style);
         found.faceVariant = cssVariant(fc.variant);
-        put(fc.family, "", found);
+        put(fc.family, fc.range, found);
     }
 
     return reg;
@@ -980,7 +981,8 @@ unittest
         <defs>
           <style><![CDATA[
             @font-face { font-family: 'Test Comic'; src: local("Serif"),
-                         url("#IF") format("svg"); font-weight: bold }
+                         url("#IF") format("svg"); font-weight: bold;
+                         unicode-range: U+41-42 }
             @font-face { font-family: NopeFace; src: local("Serif") }
           ]]></style>
           <font id="IF" horiz-adv-x="959"><font-face units-per-em="2048"
@@ -999,6 +1001,8 @@ unittest
     auto g = f.select("A", 0, used);
     assert(g !is null && g.name == "A",
         "the descriptor's family is the road to the glyphs");
+    assert(f.covers('A') && !f.covers('&'),
+        "the range descriptor registers the face's coverage like an element's does");
 }
 
 unittest

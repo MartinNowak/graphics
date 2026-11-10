@@ -257,13 +257,15 @@ Rule[] collectStyles(in Document doc, string baseDir = "")
 /// url() the engine will actually follow - the first source of the
 /// list whose format() hint, if it spells one, names a loadable
 /// format (the `#fragment` included, for the same reason §20.8.5's
-/// font-face-uri keeps one) - and the weight/style/variant
-/// descriptor strings, left as written for the store's own matching.
+/// font-face-uri keeps one) - the unicode-range descriptor, and the
+/// weight/style/variant descriptor strings, all left as written for
+/// the store's own parsing and matching.
 /// A block with no family or no url is not a face at all.
 struct FontFace
 {
     string family;
     string url;
+    string range;
     string weight;
     string style;
     string variant;
@@ -1127,7 +1129,7 @@ private bool parseImport(string s, out string url, out string media)
 // The descriptor block of an @font-face rule: `name: value` pairs split
 // at their top-level `;` (a url( nests the `;` away, so only
 // statement-level ones count). Descriptors this engine does not read -
-// unicode-range above all - pass unremarked. A block is a face only if
+// font-stretch above all - pass unremarked. A block is a face only if
 // it names a family and has a src url() to fetch: local() names a
 // system-installed face, which the host font matcher already answers to
 // by family name without a road in, and a source whose format() hints
@@ -1153,6 +1155,7 @@ private bool parseFontFace(string block, out FontFace f)
         {
         case "font-family": f.family = unquoted(val); break;
         case "src":         f.url    = srcUrl(val); break;
+        case "unicode-range": f.range = val; break;
         case "font-weight": f.weight = val; break;
         case "font-style":  f.style  = val; break;
         case "font-variant": f.variant = val; break;
@@ -1735,7 +1738,8 @@ unittest
         @font-face { font-family: NextSource; src: url(w.woff)
                      format("woff"), url("#good") }
         @font-face { font-family: ListHint; src: url("#lh")
-                     format("embedded-opentype", "SVG") }
+                     format("embedded-opentype", "SVG");
+                     unicode-range: U+41-42 }
         @font-face { font-family: MimeHint; src: url("#mh")
                      Format("Application/SVG+XML") }`,
         order, "", 0, sink);
@@ -1748,6 +1752,8 @@ unittest
         "a hinted-out source yields to the next source of the list");
     assert(faces[3].url == "#lh",
         "a recognized name answers from inside the hint's comma-list");
+    assert(faces[3].range == "U+41-42" && faces[2].range.empty,
+        "unicode-range travels as written, empty when unnamed");
     assert(faces[4].url == "#mh",
         "the media type spelling too, clause and name case folded");
 }
