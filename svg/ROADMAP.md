@@ -374,6 +374,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the walk; the font chapter ends                |            |
 | step 104              | the interact chapter rows are                  | 2.60 M     |
 |                       | measured and registered                        |            |
+| step 105              | the Deferred ledger's figures                  | 2.60 M     |
+|                       | are re-grounded to status.txt                  |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4424,32 +4426,81 @@ environment is the step's question;
 the code walk has reached its last
 named row.
 
+Step 105 ran the audit the step-103
+up-next held open as the alternative:
+"continue" was the user's standing
+answer, no lever named, and the
+ledger's own numbers were the road
+left. Every AE figure the Deferred
+section quotes, checked against
+today's status.txt - the undated
+head-lines had drifted, most by a
+few hundred AE in the steps since
+they were written, some hard: the
+types-dom chapter at 14 K where
+the bullet remembered 39 K,
+conform-viewers at 11.2 K against
+14 K, masking-path-08-b's 234
+where it said 0.7 K, text-align-
+05-b at 207 where step 69 wrote
+1,196. The head-lines are now the
+gate's rows; dated measurements
+and raw-pixel band figures keep
+their dates, evidence of the step
+that took them, not promises about
+today. One band was re-measured
+for consistency: mask text-
+altglyph-03-b's y=0..25 strip and
+the row is 392 AE now, 580 when
+the bullet was written.
+
+The gate had no behaviour to move:
+unittests pass and the run returned
+byte-identical, 526 rows, 0 ERROR,
+2,598,346 AE.
+
+Up next - step 106: the code walk
+is closed and the ledger is honest,
+so the next step is the user's.
+Both levers stand outside the code:
+the MS caption faces - fc-match
+still answers Noto Sans to Impact,
+Arial and Georgia, and masking-
+path-04-b's 15 K, text-spacing-
+01-b's 5,108 and text-intro-03-b's
+164 K wait on step 92's precedent
+of 14,889 - and the white-page
+reading, needing the user's
+blessing as a harness scoring
+change. Nothing is queued in code
+until one of the two lands.
+
 ## Deferred / accepted ceilings (do not chase)
 
-- `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
+- `struct-dom` (212 K) / `types-dom` (14 K): SVG DOM and scripting
   end-states — a CLI renderer has no DOM API surface; verdicts stay as-is.
-  `struct-dom-07-f` (8.0 K) is one of them: its `onload` script paints the
+  `struct-dom-07-f` (7.5 K) is one of them: its `onload` script paints the
   three cloned squares green where the file authors them red, so step 50's
   viewport clip moving it 26 AE is a stroke edge on pixels that already
   disagree in colour.
   struct-image-11-b (22 K) belongs here too: the references were captured
   after the W3C checker clicked every `<image>` (`onclick` makeGreen), so
   the correct static (blue) state can never match.
-  extend-namespace-01-f (23.6 K) is the same class: its pie chart is built
+  extend-namespace-01-f (23.2 K) is the same class: its pie chart is built
   at load by ECMAScript from the `bd:` business data (`getElementsByTagNameNS`,
   then `createElementNS` arcs), so the reference is a post-script state no
   static render reaches - the foreign-namespace half of it, ignoring the
   `bd:` elements, is already right.
-  paths-dom-02-f (5.5 K) is that class in one cluster: the root carries
+  paths-dom-02-f (5.0 K) is that class in one cluster: the root carries
   `onload="CreatePath();setTimeout('AnimatePath();', 500);"` and the
   flower it is scored against is the path that script builds, so the
   static markup has no `d` to draw and its 168x194 block is unreachably
   dynamic.
-- `conform-viewers` (14 K): references captured after script-driven viewer
+- `conform-viewers` (11.2 K): references captured after script-driven viewer
   zoom/pan (`onload` handlers, `viewport.zoomAndPan`) — scripting end-states
   again; step 8's viewport sizing did not move them.
 - `interact-*`: pointer events / interactivity — out of scope.
-  `styling-css-06-b` (7.9 K) is the same wall wearing a CSS name: it is
+  `styling-css-06-b` (7.4 K) is the same wall wearing a CSS name: it is
   the suite's `:visited` / `:hover` / `:focus` test, and its one 269x60
   block is the row of links whose fill depends on browsing history and a
   pointing device - UA state no headless render has.
@@ -4467,22 +4518,22 @@ named row.
   `animate-elem-52-t` (4.6 K), the eventbase-target test: its three
   animations hang off click events, and the capture's changed cells
   are event state.
-- `animate-elem-53-t` (2.1 K) / `animate-elem-63-t` (1.0 K): the only two
+- `animate-elem-53-t` (1.3 K) / `animate-elem-63-t` (367): the only two
   animate tests whose references cannot be reached from any static
   end-state frame. 53-t's reference shows the RR square *before* its scale
   leg finished and paints the whole blue pair red (capture glitch); 63-t's
   shows the two event-ended `set` rows back at base — only true after the
   checker's click/accessKey plus 5 s — while an unfired end event leaves
   those runs active forever. Every other state in both tests matches.
-- Operator-activation references: `linking-a-01-b` (23.0 K) /
+- Operator-activation references: `linking-a-01-b` (22.5 K) /
   `linking-a-03-b` (21.5 K) references are the *post-click* view of the
   linked `linkingCircle-f.svg` — the target document replaces the whole test
-  frame — and `animate-elem-20-t` (20.4 K) / `-21-t` (21.1 K) show the
+  frame — and `animate-elem-20-t` (20.0 K) / `-21-t` (20.7 K) show the
   frozen result of a `begin="indefinite"` fade the operator starts by
   clicking the `<a xlink:href="#fadein">` button. Both files render
   correctly as authored (20-t's white square and both buttons match ours),
   so the delta is the activation, not the paint. `animate-elem-29-b`
-  (10.7 K) is that pair's third member: its 180x180 `#080` square sits at
+  (10.4 K) is that pair's third member: its 180x180 `#080` square sits at
   `fill-opacity="0"` until the same `<a xlink:href="#fadein">` click
   starts a second `begin="indefinite"` fade, and its reference shows the
   fade frozen at 1 - so the square's whole area counts as a delta here.
@@ -4497,7 +4548,7 @@ named row.
   27x70 at x=198 - exactly the substrings its pass criteria list in
   visual order, over a bidi run our static render places correctly
   without the highlight. Closed at step 95.
-- `animate-elem-85-t` (22.3 K): the reference contradicts the file it is
+- `animate-elem-85-t` (22.0 K): the reference contradicts the file it is
   scored against. The source documents the freeze state (at t = 10 s both
   `color` and `fill` are `#00ffff`) and we paint exactly that — cyan rects,
   circles at their static fills — while the PNG shows yellow rects with
@@ -4505,13 +4556,13 @@ named row.
   still carries uncommented (the other watermark-carrying files, e.g.
   `animate-elem-86-t` and `linking-frag-01-f`, do keep their band). No
   timing or `currentColor` model reaches that reference.
-- `text-altglyph-03-b` (5.3 K): 4.7 K of it is that same band. The file is
+- `text-altglyph-03-b` (4.8 K): 4.4 K of it is that same band. The file is
   `status="created"` and carries its `<g id="draft-watermark">` uncommented,
   which we paint; its reference was captured without it. Mask the band and the
-  row is 580 AE, so the altGlyph rows themselves are at their floor.
-  `imp-path-01-f` (5.1 K since step 42) is a second member of that class:
-  4,748 of its 5,055 is that same y=0..25 band. `text-ws-01-t` (5.3 K),
-  `-02-t` (6.4 K), `-03-t` (5.0 K) and `fonts-glyph-03-t` (6.2 K) are that
+  row is 392 AE, so the altGlyph rows themselves are at their floor.
+  `imp-path-01-f` (4.7 K) is a second member of that class:
+  4,748 of its 5,055 is that same y=0..25 band. `text-ws-01-t` (4.6 K),
+  `-02-t` (5.6 K), `-03-t` (4.7 K) and `fonts-glyph-03-t` (5.9 K) are that
   band and nothing else: each has exactly one diff cluster, 9,556-9,563 px
   of y=1..22, and what remains of the four rows is 435, 456, 153 and 0 raw
   pixels - their §10.2.1 whitespace and their glyph runs are at their floor.
@@ -4553,14 +4604,14 @@ named row.
   underline metrics - the same host face the row's caption and
   glyph speckle come from. Step 91's top-edge reading lands the
   spelled bands one device row off theirs; the rest is theirs.
-- `text-dom-01-f` (3.5 K), +3 at step 32: the line that carries
+- `text-dom-01-f` (3.0 K), +3 at step 32: the line that carries
   `<tspan rotate="45,90">is</tspan>` is not visible in its reference at all.
   The file's DRAFT band is painted *over* it there, and the only ink the PNG
   keeps at that place is the script's own lightblue `getExtentOfChar` boxes -
   which do enclose "the diagonally rotated fifth glyph 'i'", the reading our
   rotate agrees with. Turning the pair moved 3 AE of band mismatch around;
   the geometry is right and the row's floor is the band.
-- `text-dom-04-f` (12.4 K), +298 at step 33: its `<text>` asks `y="2em"` at
+- `text-dom-04-f` (12.1 K), +298 at step 33: its `<text>` asks `y="2em"` at
   `font-size="4000"` under `scale(0.02)`, and the line lands at y=22..59 while
   the reference sits at y=120..219 - 1.9 K lime pixels against its 10.7 K. That
   em reading, and the SVG-font scaling of a 4000-unit size, are the row's own
@@ -4568,7 +4619,7 @@ named row.
   `simplesvgfont` is asked for: the content is now `abca`, U+1D352, `cb` rather
   than the twelve characters `&#x1D352;` spells out, and one more cell of a
   face already placed wrong is all the +298 buys.
-- struct-image-13/14/15-f (453 K): the reference PNGs deviate from the
+- struct-image-13/14/15-f (451 K): the reference PNGs deviate from the
   tile PNGs they composite; our tiles match ground truth at AE 0 — a
   reference-suite defect, documented in the `<image>` commit message.
 - struct-use-06-b (30 K) / 07-b (36 K): external-reference
@@ -4621,8 +4672,8 @@ named row.
   faint 59x60 block no static frame reaches; coords-dom-03-f and
   animate-struct-dom-01-b leave only specks, and text-dom-03-f's one
   9x13 cluster is a caption glyph.
-- styling-css-09-f (18.9 K) / styling-css-10-f (9.8 K) / styling-pres-
-  05-f (14.3 K): step 12 triage proved the external-sheet machinery
+- styling-css-09-f (18.3 K) / styling-css-10-f (9.3 K) / styling-pres-
+  05-f (13.8 K): step 12 triage proved the external-sheet machinery
   works end to end (`@import` fetch, unquoted `[id=...]` selectors,
   case-insensitive property names/values) and we render the spec
   answer for all three: 09-f's seven blue shapes, 10-f's four orange
@@ -4632,12 +4683,12 @@ named row.
   markup-level fills - and 10-f's reference shows green circles in a
   test that contains no green. Matching those would mean re-breaking
   visibility !important, the CSS case rules, and presentation-attr
-  precedence. `styling-pres-04-f` (14.3 K) belongs to that group: its
+  precedence. `styling-pres-04-f` (13.8 K) belongs to that group: its
   reference is byte-identical to pres-05-f's, the same empty page down
   to the md5, so neither capture holds a shape - while 04-f's own
   inline `<style>` asks for the same all-green answer through
   descendant, child and adjacency selectors, and we paint it.
-  `styling-pres-03-f` (7.3 K) is the same kind of mismatch one level
+  `styling-pres-03-f` (6.7 K) is the same kind of mismatch one level
   up: the archived capture is of test revision 1.4, whose body element
   is `fill="red"` carrying an inline `fill: none`, so that page is
   white; the SVG in `suite/` is revision 1.3, whose same element says
@@ -4645,7 +4696,7 @@ named row.
   which is what 1.3 asks, the style attribute outranking the
   presentation attribute (§6.6) - and the row sets our `$Revision:
   1.3 $` label against the capture's `$Revision: 1.4 $`.
-- types-basic-02-f (8.2 K), from the step-23 sweep: its pass criteria ask for
+- types-basic-02-f (7.6 K), from the step-23 sweep: its pass criteria ask for
   "six circles with the same thick green stroke visible, and no red", which is
   what we paint, and the archived PNG is the state its own description carves
   out - "if the SVG user agent doesn't support CSS styling then this test does
@@ -4653,7 +4704,7 @@ named row.
   element's `#id` rules) show the red reference ring instead of the green one
   there, 5.1 K strong-delta pixels per ring band, and the other three, styled by
   presentation attribute and inline `style`, are green in both.
-- `struct-use-09-b` (8.3 K) and `struct-cond-overview-05-f` (7.5 K), both triaged
+- `struct-use-09-b` (7.7 K) and `struct-cond-overview-05-f` (7.0 K), both triaged
   during the step-24 unit sweep, are references of the same broken kind. 09-b's
   pass criteria want five nested rings in black/yellow/orange/purple/blue, and we
   paint exactly those at half-widths 90/80/70/60/50, while its PNG contains no
@@ -4662,9 +4713,9 @@ named row.
   being successfully referenced by other elements (such as via a `use`)") so the
   three black clones hide the red decoys and no red shows, and the PNG is the
   red-decoy state the test was written to eliminate.
-- `filters-turb` (163 K) / `filters-conv` (169 K): feTurbulence noise and
+- `filters-turb` (162 K) / `filters-conv` (167 K): feTurbulence noise and
   convolve matrices cannot match the 2009 references pixel-for-pixel.
-  filters-morph-01-f (8.4 K) belongs to the same family: its four feMorphology
+  filters-morph-01-f (8.0 K) belongs to the same family: its four feMorphology
   result boxes (144x117, 142x117, 130x92, 128x105) carry 10.9 K strong-delta
   pixels, and the only unit content in the file, a `12pt` label, was worth the
   158 AE step 24 took off it.
@@ -4766,7 +4817,7 @@ named row.
   getComputedStyle for the clipped pair's fill and paints
   `#fail` green only from the answer, a scripting
   end-state, over the masking chapter's DRAFT watermark;
-  `fonts-desc-02-t` (971) is one text band at y308..343 -
+  `fonts-desc-02-t` (747) is one text band at y308..343 -
   descender glyphs against the capture's host freeSans,
   drift only; and `text-align-01-b` (841) rechecked to
   what step 69 wrote - a single text-line band of
@@ -4920,7 +4971,8 @@ named row.
   both sides over white collapses the row to 2,386, the AA of the three guide
   rings; the harness composites nothing, so the alpha gap stays as the AE.
 - The paint-server pair in `filters-overview-03-b` (FillPaint 1,452 and
-  StrokePaint 2,442, 3,894 of the row's 6,144): ours paints the target's
+  StrokePaint 2,442, 3,894 of the 6,144 the row carried then; it is
+  5,138 now): ours paints the target's
   paint over the whole region - §15.7.2's "conceptually infinite
   extent" - with the target's bbox as the gradient's basis and the §4.5
   pad past its ends. That reproduces the file's axis and stop list at
@@ -4932,8 +4984,8 @@ named row.
   cannot come from the file's own stop list and no `spreadMethod` gives
   it: `pad` and `reflect` agree with ours until t=1 and `repeat` puts
   yellow at the seam. Keep our reading; the pair is the reference's.
-- The twins `filters-overview-02-b` (5,633) and `filters-overview-03-b`
-  (5,731) are that same pair counted twice: their diff-cluster profiles
+- The twins `filters-overview-02-b` (5,040) and `filters-overview-03-b`
+  (5,138) are that same pair counted twice: their diff-cluster profiles
   are byte-identical - 10,829 and 5,926 raw pixels in the two 122x102
   boxes at x=317..438, 989 of DRAFT band, one 18x16 revision label and
   four small text clusters - and only the servers differ, `grad1`/`grad2`
@@ -4954,20 +5006,20 @@ named row.
 - Stale captures: the archived PNG is of an *older test revision* than the
   SVG in `suite/`, so the row is scored against markup that no longer
   exists. Reading each montage's own `$Revision:` label sorts the family:
-  `conform-viewers-02-f` (7.8 K) 1.2 against 1.6, its page the script-driven
+  `conform-viewers-02-f` (7.4 K) 1.2 against 1.6, its page the script-driven
   `viewport.zoomAndPan` state the class note above already covers;
-  `masking-path-08-b` (0.7 K) is 1.1 against 1.7, but both of its whole
+  `masking-path-08-b` (234) is 1.1 against 1.7, but both of its whole
   squares are gone now - step 53 took the broken-clip one, step 54 the
   `visibility="hidden"` clip child - and what remains is half-pixel edges;
-  `color-prof-01-f` (6.8 K) 1.5 against 1.9, DRAFT band included, which also
+  `color-prof-01-f` (6.4 K) 1.5 against 1.9, DRAFT band included, which also
   retires step 46's "still waits on a profile reader" reading of it;
-  `imp-path-01-f` (5.1 K) 1.3 against 1.5; `pservers-pattern-02-f` (4.0 K)
+  `imp-path-01-f` (4.7 K) 1.3 against 1.5; `pservers-pattern-02-f` (3.6 K)
   1.2 against 1.3 - and there an independent lattice built from the 1.3
   markup, 48-unit tiles at objectBoundingBox 0.1 of a 480x480 rect, its
   `viewBox` at 0.48, `patternTransform=rotate(45)` about the origin, blue in
   the two off-diagonal quadrants, agrees with our render over the interior
   to 341 antialiased pixels while the capture sits 10,222 away, so the tile
-  phase is the capture's. `filters-image-02-b` (5.5 K) is that drift plus a
+  phase is the capture's. `filters-image-02-b` (5.1 K) is that drift plus a
   timeline: 1.1 against our 1.9, and both of its boxes hold the *pink*
   squid, the state its `<set attributeName="xlink:href"
   to="../images/pinksquidj.png" begin="2s">` reaches 2 s in - the authored
@@ -4975,7 +5027,7 @@ named row.
   land at the reference's place and size, so the fit is right and the
   colour is the capture's. `filters-gauss-01-b` (632 after step 51) is
   the same drift: its PNG says `$Revision: 1.6 $` and `suite/` holds 1.7.
-  `text-align-07-t` (6.3 K) drifts the other way - its PNG carries the
+  `text-align-07-t` (5.6 K) drifts the other way - its PNG carries the
   black test frame but *no* DRAFT band at all, while the 1.9 file still
   has the group: 9,556 of its 11,608 raw diff pixels are that empty red
   strip. The rest is hairline placement - the 1-px guide lines are
@@ -4990,10 +5042,10 @@ named row.
   squares and all three `color-interpolation` bars match, the
   linearRGB ramp to within one LSB (`5D00F2` against `5E00F2`),
   so only the caption glyphs move. `text-align-01-b` (841) and
-  `-05-b` (1,196), `struct-cond-02-t` (319) and `text-text-12-t`
-  (1,383) join the host-glyph floor with their anchors and
-  conditional branches landed right: doubled letter shapes at
-  matching extents.
+  `-05-b` (207 now, 1,196 at step 69), `struct-cond-02-t` (319)
+  and `text-text-12-t` (1,383) join the host-glyph floor with
+  their anchors and conditional branches landed right: doubled
+  letter shapes at matching extents.
 - `text-align-08-b` (10,407) is that floor one level deeper - the
   fixture is status="issue" and its capture is not reproducible from
   the resources it ships. The test pins §10.9.2's script baselines,
@@ -5069,8 +5121,9 @@ named row.
   selection states the files drive through
   event attributes; and `interact-zoom-01/
   02-t` (7.9/7.9 K) sit with `conform-viewers`
-  (14 K) - their references were captured
-  mid-operator-zoom, and the static frame
+  (11.2 K) - their references were
+  captured mid-operator-zoom, and the
+  static frame
   painted here is the pre-zoom state. The
   chapter's rest is pointer-events and
   caption floors.
