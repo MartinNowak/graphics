@@ -370,6 +370,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | format() hints; one gate, two roads            |            |
 | step 102              | the unicode-range descriptor                   | 2.60 M     |
 |                       | crosses to the CSS road                        |            |
+| step 103              | the glyph descriptives close                   | 2.60 M     |
+|                       | the walk; the font chapter ends                |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4337,6 +4339,47 @@ but never named. Name them unread at
 the glyph parse site, register the
 ceiling entry, and the font chapter
 closes.
+
+Step 103 finished the chapter steps
+99-102 had been closing. §20.6.4
+hangs five advisory descriptives off
+glyph: arched, math and italic-angle,
+and the two deprecated ones, skew and
+orientation. No suite font file spells
+a single one, and a rasterizer would
+never consult them anyway - they tell
+font tools about shapes the outline
+itself already says - so they join the
+descriptives class the closing walk
+already registered as ceilings for
+font-face's metrics. The names are
+now said so at the glyph parse site,
+the chapter's last place that could
+have kept a secret.
+
+The gate, with no behaviour to move,
+returned byte-identical as expected:
+526 rows, 0 ERROR, 2,598,346 AE.
+
+Up next - step 104: where to walk when
+the walk has closed the chapters. The
+ledger's remaining rows are recorded
+ceilings - script and DOM, shaping,
+bidi, ICC, animation end-states - and
+the one lever the ledger itself
+documents: step 92's Verdana took
+14,889 AE off on an installed real
+face alone. The suite's reference
+renders still stand on MS-licensed
+caption faces - Impact, Arial,
+Georgia, MS Gothic,
+Haettenschweiler - that live in the
+host's font folders, not in code; an
+install there is the biggest lever
+left. Or re-audit one chapter's rows
+whose characterisation predates the
+steps since written - a second look
+paid for itself once already.
 
 ## Deferred / accepted ceilings (do not chase)
 

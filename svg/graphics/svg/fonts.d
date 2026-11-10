@@ -608,6 +608,15 @@ private SvgFont* parseFont(ref immutable(Element)[] nodes, size_t idx)
             g.vertAdvY = num(c, "vert-adv-y", f.vertAdvY);
             g.vertOriginX = num(c, "vert-origin-x", f.vertOriginX);
             g.vertOriginY = num(c, "vert-origin-y", f.vertOriginY);
+            // The five §20.6.4 descriptives -
+            // arched, math, italic-angle and the
+            // deprecated skew and orientation -
+            // stay unread: they advise the font
+            // tool about shapes a rasterizer
+            // reads off the outline itself, the
+            // glyph-side of the descriptives
+            // class registered as ceilings for
+            // font-face's metrics.
             if (c.name == "missing-glyph")
             {
                 f.missing = g;
