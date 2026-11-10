@@ -372,6 +372,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | crosses to the CSS road                        |            |
 | step 103              | the glyph descriptives close                   | 2.60 M     |
 |                       | the walk; the font chapter ends                |            |
+| step 104              | the interact chapter rows are                  | 2.60 M     |
+|                       | measured and registered                        |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4381,6 +4383,47 @@ whose characterisation predates the
 steps since written - a second look
 paid for itself once already.
 
+Step 104 went back to the ledger, this
+time sweeping from the closing-walk
+side: status.txt rows above 3 K AE
+whose names the ledger never spelled.
+Eighteen hit; eleven turned out to be
+shorthand and chapter aggregates the
+ledger writes in - "-12-t" reads
+quicker than text-intro-12-t - and
+seven were the one chapter never
+measured: interact events-01-b and
+-203-t, dom-01-b, order-01-b and
+-03-b, and the zoom pair. Rendered
+and re-compared against their
+references, row by row, the answer is
+the onload script's rects, the hover
+state, the circles caught mid-
+operator-zoom: every row joins a
+ceiling the ledger already owns, and
+now carries its own name there, as
+step 67's quartet did.
+
+The gate had no behaviour to move:
+unittests pass and the run returned
+byte-identical, 526 rows, 0 ERROR,
+2,598,346 AE.
+
+Up next - step 105: the ledger is now
+closed at 3 K, and what is left below
+it rides floors. Two levers sit
+outside the code, and the ledger
+documents both: the MS caption faces -
+step 92's Verdana took 14,889 AE off
+on an install, and text-intro-03-b's
+164 K is mostly faces this host never
+held - and the white-page reading the
+suite-wide question declined. Which,
+if either, is worth the user's
+environment is the step's question;
+the code walk has reached its last
+named row.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (228 K) / `types-dom` (39 K): SVG DOM and scripting
@@ -5010,6 +5053,27 @@ paid for itself once already.
   again: its upper result square sits black in the static
   markup and green in the capture, which only a second of
   script running turns.
+
+- The interact-chapter rows step 104
+  named and measured against their references:
+  `interact-events-01-b` (14.1 K) is the
+  onload-script family - five of its six
+  rectangles are made visible by scripts the
+  file's own onload handlers run, and ours is
+  the pre-event state; `interact-dom-01-b`
+  (12.1 K) and `interact-events-203-t` (5.0 K)
+  are click- and mouseover-listener states
+  their captures show fired; `interact-order-
+  01-b` (3.1 K) and `interact-order-03-b`
+  (6.2 K) hold the post-hover paint and
+  selection states the files drive through
+  event attributes; and `interact-zoom-01/
+  02-t` (7.9/7.9 K) sit with `conform-viewers`
+  (14 K) - their references were captured
+  mid-operator-zoom, and the static frame
+  painted here is the pre-zoom state. The
+  chapter's rest is pointer-events and
+  caption floors.
 
 ## Backlog (small, opportunistic)
 
