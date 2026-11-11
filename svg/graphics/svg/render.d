@@ -3854,9 +3854,14 @@ private struct Renderer
     {
         TypeFace.Weight w = s.weight;
         TypeFace.Slant sl = s.slant;
-        string fam = s.family;
-        TypeFace face = fam.length
-            ? TypeFace.findFace(w, sl, fam)
+        // The host lookup walks the family list, as svgFace's does:
+        // the first name fontconfig really has - a generic keyword
+        // counts - answers the run. Where the list is one deep the
+        // walk is exactly the old single-name lookup.
+        const string[] fams = s.families.length ? s.families
+                          : s.family.length ? [s.family] : null;
+        TypeFace face = fams.length
+            ? TypeFace.findFace(fams, w, sl)
             : TypeFace.findFace(w, sl);
         return getGlyphCache(face, s.fontSize);
     }

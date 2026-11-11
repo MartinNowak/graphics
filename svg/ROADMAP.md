@@ -380,6 +380,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the baseline falls 19,214 AE                   |            |
 | step 107              | two Unicode faces arrive and                   | 2.58 M     |
 |                       | every rendering stands pat                     |            |
+| step 108              | host faces walk the family                     | 2.58 M     |
+|                       | list, and the suite dips 663                   |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4541,7 +4543,6 @@ ask is narrower now: three
 Unicode faces, not the whole
 collection.
 
-
 Step 107 is a second environment
 event: the user added Lucida
 Sans Unicode - the real one,
@@ -4588,6 +4589,66 @@ family list for host faces,
 as svgFace's walk already
 does for chapter 20.
 
+Step 108 pulls the lever 107
+named: the host face lookup
+walks the family list, as the
+SVG-font walk already did.
+render.d hands fonthost the
+whole list; fonthost asks
+fontconfig per name, and -
+fontconfig never fails a
+pattern - a name is had only
+when the match carries that
+very family, case-folded with
+spaces and hyphens dropped,
+the way the library compares
+names. A CSS generic is a
+family any host has; the walk
+stops there. No name had: the
+first name's fallback stands,
+what the single-name lookup
+returned before lists.
+
+The first gate caught one
+overreach: the walk cached the
+won face, and a list asked at
+two weights got one face twice
+- text-fonts-02-t's captions
+came thin, +1,805. The cache
+holds the won name now, a fact
+of names and the host's fonts
+and never of style; the face
+comes from the weight-aware
+lookup behind it.
+
+Five rows fell to real names:
+interact-cursor-01-f's Geneva
+yields to Arial (-340);
+text-align-07-t's and
+text-intro-02-b's missing
+Arial Unicode MS yields to
+Georgia and to Lucida Sans
+Unicode; text-fonts-01-t's
+absent Lucida Console yields
+to Courier New; and text-
+fonts-204-t's 'ZC', serif
+answers Noto Serif, 253 closer
+than any fallback. Two rose
+for the same honest matching:
+text-fonts-202-t's serif
+stand-in is worse than the
+capture host's, +125, and
+text-intro-04-t's Hebrew
+draws 15 worse in the walk's
+Lucida than in the fallback it
+replaced. The suite sits at
+2,578,469 over 526 rows, 0
+ERROR - 663 down.
+
+Up next - step 109: the
+white-page harness reading,
+the one lever the user's own
+question keeps raising.
 
 ## Deferred / accepted ceilings (do not chase)
 
