@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<!-- Optional host fontconfig rules for the W3C suite's font rows. run.sh
+     never loads this file - the harness runs on the host's real fontconfig.
+     Install: merge the two <match> blocks below into
+     ~/.config/fontconfig/fonts.conf (if that file does not exist, copy this
+     whole file there), then rebuild the caches:
+
+         fc-cache -f
+
+     The scan-target rule below only takes effect after that rebuild, and
+     the rebuilt caches must include the user cache under ~/.cache.
+
+     What each rule is for, and the row whose re-render proves it. Do not
+     verify with fc-match: its CLI parses hyphenated argument at the
+     hyphen, so fc-match 'MS-Gothic' really asks family "MS" - the honest
+     check is always a re-render through tests/w3c/run.sh.
+
+     1. 'MS-Gothic' (pattern): text-intro-01-t's second stack asks the
+        hyphenated spelling; the host owns the face as family "MS Gothic".
+
+     2. 'Scheherazade' and 'Scheherezade' (scan): the installed SIL face
+        answers only to 'Scheherazade New'; text-intro-12-t asks plain
+        'Scheherazade' and text-intro-06-t's stack spells the vowel wrong,
+        'Scheherezade'. A scan-target edit names the face under both
+        spellings, so its family set carries them and the renderer's
+        whole-list probe accepts the face for either ask. Scan, not font:
+        font-target edits land at prepare time, after matching has already
+        failed. Proves itself on text-intro-06-t (23,901 -> 20,136) and
+        text-intro-12-t (12,601 -> 12,383) at step 111's code. -->
+<fontconfig>
+  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
+
+  <match target="pattern">
+    <test name="family"><string>MS-Gothic</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>MS Gothic</string></edit>
+  </match>
+
+  <match target="scan">
+    <test name="family"><string>Scheherazade New</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>Scheherazade</string></edit>
+    <edit name="family" mode="prepend" binding="strong"><string>Scheherezade</string></edit>
+  </match>
+</fontconfig>

@@ -202,11 +202,13 @@ synchronized class FontConfig
         return result;
     }
 
-    /// Whether fontconfig has this very family: the match's own
-    /// family, case-folded with separators dropped the way the
-    /// library itself compares names, must be the name asked. An
-    /// absent family answers too - with whatever fallback stands
-    /// - and that answer's family says so by not matching.
+    /// Whether fontconfig has this very family: a face's names are
+    /// a set and the match answers with all of them, so the name
+    /// asked holds when any one of them, case-folded with
+    /// separators dropped the way the library itself compares
+    /// names, is the name asked. An absent family answers too -
+    /// with whatever fallback stands - and that answer's families
+    /// say so by none matching.
     bool hasFamily(string familyName)
     {
         FcPattern* pattern = FcPatternCreate();
@@ -222,11 +224,45 @@ synchronized class FontConfig
             return false;
         scope(exit) { FcPatternDestroy(match); }
 
-        FcChar8* family;
-        if (FcPatternGetString(match, FC_FAMILY, 0, &family) != FcResult.Match)
-            return false;
-        return foldFamily(to!string(family)) == foldFamily(familyName);
+        return familyListHolds(match, familyName);
     }
+}
+
+// Whether any family the answer carries folds onto the name asked
+// - the set version of the comparison, so a face an alias names
+// under two spellings answers to both. A face carrying no family
+// at all holds nothing.
+private bool familyListHolds(FcPattern* match, string familyName)
+{
+    auto asked = foldFamily(familyName);
+    for (int i = 0; ; ++i)
+    {
+        FcChar8* family;
+        if (FcPatternGetString(match, FC_FAMILY, i, &family) != FcResult.Match)
+            return false;
+        if (foldFamily(to!string(family)) == asked)
+            return true;
+    }
+}
+
+// A synthesized answer pins the set read with no host to lean on:
+// the first family holds, a later one holds, the hyphen-folded
+// spelling of a held name holds, and a name neither slot folds to
+// does not - the fallback's answer again by refusing.
+unittest
+{
+    auto answer = FcPatternCreate();
+    scope(exit) FcPatternDestroy(answer);
+    appendPattern(answer, "MS Gothic");
+    appendPattern(answer, "MS PGothic");
+    assert(familyListHolds(answer, "MS Gothic"));
+    assert(familyListHolds(answer, "MS-PGothic"));
+    assert(familyListHolds(answer, "ms gothic"));
+    assert(!familyListHolds(answer, "MS PMincho"));
+
+    auto nameless = FcPatternCreate();
+    scope(exit) FcPatternDestroy(nameless);
+    assert(!familyListHolds(nameless, "MS Gothic"));
 }
 
 // fontconfig's family comparison folds case and drops spaces and
@@ -360,8 +396,9 @@ unittest
                              TypeFace.Weight.Normal, TypeFace.Slant.Roman)
            .filename == TypeFace.findFace("nonexistent font family").filename);
 
-    // hasFamily reads the match's own family: an absent name's answer
-    // carries a different one, and any had face answers to its own
+    // hasFamily reads the match's whole family list: an absent
+    // name's answer carries none of it, and any had face answers
+    // to its own
     assert(!fontConfig.hasFamily("nonexistent font family"));
     auto known = TypeFace.findFace("serif");
     assert(fontConfig.hasFamily(known.family));

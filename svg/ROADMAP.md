@@ -386,6 +386,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | pages honestly, 1.45 M gone                    |            |
 | step 110              | Scheherazade New arrives, and                  | 1.13 M     |
 |                       | answers none of the names asked                |            |
+| step 111              | hasFamily reads every name     | 1.13 M     |
+|                       | the face answers with          |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4766,6 +4768,60 @@ list read, pinned on synthetic
 patterns, so one alias rule can
 answer both spellings.
 
+Step 111 gave hasFamily the set
+read the alias road needs. fc
+answers a face with all its
+names, so the probe folds every
+FC_FAMILY slot of the answer and
+holds when any one is the name
+asked; slot 0 alone had kept the
+suite's two spellings apart,
+since the alias list arrives
+['Scheherezade', 'Scheherazade',
+'Scheherazade New'] and 12-t's
+ask rides slot one. The unittest
+builds its answer patterns whole
+- first slot holds, later slot
+holds, the hyphen-folded spelling
+of a held name holds, an unheld
+name and a family-less answer
+refuse - so the set needs no
+host to be pinned.
+
+The full gate came back
+byte-identical, as the probe
+forecast: this host answers every
+name the suite asks at slot 0 or
+not at all, and status.txt was
+left alone. Measured with the
+alias installed, though - a
+throwaway HOME, the rule's cache
+rebuilt, the harness run at the
+two rows - Scheherazade New
+finally renders them both: 06-t
+23,901 -> 20,136 and 12-t 12,601
+-> 12,383, one rule, both
+spellings, 3,983 AE gone.
+
+The rules are committed as
+tests/w3c/host-fonts.conf.example
+- MS-Gothic's pattern alias and
+the scan edits naming the SIL
+face under both spellings, keyed
+on family so no install path is
+baked in - with the install note:
+merge into ~/.config/fontconfig/
+fonts.conf, fc-cache -f, verify
+by re-render only.
+
+Up next - the host's half of the
+font chapter: install the
+example's rules and rebuild, and
+the Arabic rows' rest is a
+matter of installs - Andalus,
+Diwani Letter, Kayrawan, Arial
+Unicode MS.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (212 K) / `types-dom` (14 K): SVG DOM and scripting
@@ -5055,8 +5111,11 @@ answer both spellings.
   witness). Step 110's Scheherazade install lands as 'Scheherazade New', a
   third name neither ask can reach; the unlock is a scan-target fontconfig
   alias naming the face under both spellings, which step 111's whole-list
-  `hasFamily` read makes one rule suffice. Andalus, Diwani Letter and
-  Kayrawan stay uninstalled.
+  `hasFamily` read makes one rule suffice — committed as
+  `tests/w3c/host-fonts.conf.example`, and measured there: installed and
+  cache-rebuilt, `-06-t` reads 23,901 -> 20,136 and `-12-t` 12,601 ->
+  12,383, the ledger waiting on the host's `fc-cache -f`. Andalus, Diwani
+  Letter and Kayrawan stay uninstalled.
   `text-text-08-b` (3,943 since step 92) was that substitution's half: the
   host never had Verdana, and every family query came back a fontconfig
   stand-in. Once the host installed the real faces the row fell 14,658 ->
