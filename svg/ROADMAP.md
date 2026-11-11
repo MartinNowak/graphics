@@ -384,6 +384,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | list, and the suite dips 663                   |            |
 | step 109              | the harness scores white                       | 1.13 M     |
 |                       | pages honestly, 1.45 M gone                    |            |
+| step 110              | Scheherazade New arrives, and                  | 1.13 M     |
+|                       | answers none of the names asked                |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4701,6 +4703,69 @@ answering the hyphenated
 would let the walk reach the
 face the fixtures ask for.
 
+Step 110 is the font event the user
+answered, and it moves no pixel:
+the gate reran byte-identical, 526
+rows, 0 ERROR, 1,127,529 AE. The
+installed face is SIL's 'Scheher-
+azade New' - fc discovers it, and
+the engine-path probe shows it
+answers only the names it owns.
+Of the two the suite asks, neither
+is one: 12-t asks 'Scheherazade'
+and 06-t's stack spells the vowel
+wrong, 'Scheherezade'; fc answers
+both with Noto Sans, and
+foldFamily, which folds case and
+drops separators, cannot bridge a
+missing letter - nor would the
+walk want it to, since accepting
+an answer that is not the name
+asked is exactly the fallback lie
+step 108's walk was built to
+avoid.
+
+The probes then found why the
+install was never the whole
+answer. 06-t and 12-t declare the
+font themselves - src url(woffs/
+ScheherazadeRegOT.woff) format
+("woff") - and this suite copy
+ships no woffs at all: over the
+official W3C_SVG_11_TestSuite
+.tar.gz itself, tar lists three
+woffs, all under resources/, none
+at a path any fixture references.
+Every woff src in the suite, all
+24 of them across 20 files, is
+dead at delivery. Step 101's skip
+predicate can never lose a win
+there, and a WOFF loader would
+score zero rows.
+
+The face's names, though, are a
+set, and fc answers with all of
+them - 'MS Gothic' comes back as
+[MS Gothic] and its native name -
+while hasFamily consults only the
+first. That is the code side of
+the unlock: read the whole answer
+list, and one scan-target alias
+rule can name the installed face
+under both spellings at once.
+Scan, not font: font-target edits
+land at prepare, after matching
+has already failed, and the rules
+fire only when fc rebuilds its
+cache. Two spellings, one name -
+slot 0 alone can serve at most
+one.
+
+Up next - step 111: the whole-
+list read, pinned on synthetic
+patterns, so one alias rule can
+answer both spellings.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (212 K) / `types-dom` (14 K): SVG DOM and scripting
@@ -4985,7 +5050,13 @@ face the fixtures ask for.
   Step 93 put the chapter's four remaining intro rows on that floor:
   `-11-t` (9.0 K) / `-12-t` (12.6 K) ask Andalus, Diwani Letter and
   Scheherazade, `-04-t` (2.6 K) / `-05-t` (2.5 K) ask Hebrew and Arabic
-  families, and `fc-match` answers Noto Sans to every one of those names.
+  families, and the engine path answers Noto Sans to every one of those names
+  (step 110's probes; the CLI `fc-match`'s hyphen artifact makes it an unfit
+  witness). Step 110's Scheherazade install lands as 'Scheherazade New', a
+  third name neither ask can reach; the unlock is a scan-target fontconfig
+  alias naming the face under both spellings, which step 111's whole-list
+  `hasFamily` read makes one rule suffice. Andalus, Diwani Letter and
+  Kayrawan stay uninstalled.
   `text-text-08-b` (3,943 since step 92) was that substitution's half: the
   host never had Verdana, and every family query came back a fontconfig
   stand-in. Once the host installed the real faces the row fell 14,658 ->
@@ -5000,6 +5071,16 @@ face the fixtures ask for.
   `filters-color-01-b`'s 623, all that is left of it once step 43 put
   its five panels at AE 0, is that same drift across its five Verdana
   labels; the frame ring is at AE 0.
+- CSS `@font-face` WOFF sources are dead at delivery, the suite's own defect:
+  every `format("woff")` src — 24 of them across 20 files (`text-text-04/
+  -05/-06/-12-t`, `-204-t`, `text-dom-02/-05-f`, `text-path-02-b`,
+  `text-align-08-b`, `text-tselect-03-f`, `text-intro-06/-09/-12`,
+  `masking-mask-01-b`, `pservers-grad-08-b`, `render-elems-06/-07/-08-t`,
+  `render-groups-01/-03-b`) — references `svg/woffs/`, and
+  `W3C_SVG_11_TestSuite.tar.gz` ships no such directory: its three woffs live
+  unreferenced under `resources/` (step 110 read the official tar listing).
+  Step 101's skip predicate can never lose a row there, and no loader scores
+  one; the woff-referencing rows answer to the host font layer or not at all.
 - `text-spacing-01-b` (6,300), closed by step 93's probes: the engine
   applies unitless letter-spacing and word-spacing as exactly user
   units - at the fixture's 6x geometry -1 lands at -6 device px per
