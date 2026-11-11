@@ -23,9 +23,15 @@
 #   ERROR  the renderer crashed / timed out / produced no image, or the
 #          compare failed; AE is recorded as "-"
 #   OK     the test rendered and compared; AE (fuzz 10 %, channel-weighted,
-#          rounded) is the tracked number
-# out/NAME.diff.png is the side-by-side + highlighted-diff triage artifact;
-# out/NAME.err holds the engine's stderr.
+#          rounded) is the tracked number. A handful of references were
+#          captured over an opaque white page while our canvas is
+#          transparent; for those, a second reading compares our render
+#          after `-background white -flatten` and the smaller of the two
+#          readings is tracked (the references themselves are never
+#          flattened, so alpha-keeping rows can only stand pat).
+# out/NAME.diff.png is the side-by-side + highlighted-diff triage artifact
+# of the winning reading; out/NAME.flat(-diff).png show the white-page
+# reading itself; out/NAME.err holds the engine's stderr.
 #
 # The committed status.txt (`NAME.svg OK|ERROR <AE>`) is the baseline.
 # Plain run.sh is a CI gate that fails only on regressions:
@@ -67,7 +73,7 @@ ln -sfn suite/resources tests/w3c/resources
 
 # The workhorse, one test file: prints "NAME.svg OK <AE>" or "NAME.svg ERROR -".
 run_one() {
-    local f=$1 stem=$2 ae
+    local f=$1 stem=$2 ae aef
     cp -f "$f" "$OUT/$stem.svg"
     if ! timeout "$TIMEOUT" "$BIN" -z 1 "$OUT/$stem.svg" >"$OUT/$stem.err" 2>&1 || [ ! -s "$OUT/$stem.png" ]; then
         printf '%s.svg ERROR -\n' "$stem"
@@ -79,6 +85,22 @@ run_one() {
         *) printf '%s.svg ERROR -\n' "$stem"; return ;;
     esac
     case $ae in ""|*[!0-9.e+]*) printf '%s.svg ERROR -\n' "$stem"; return ;; esac
+    # White-page reading: a few tests' references were captured over an
+    # opaque white page while our canvas is transparent, so the raw AE
+    # of those rows is page background, not content. Re-compare ours
+    # flattened over white - the references never get flattened - and
+    # keep the better of the two readings. Rows whose reference keeps
+    # alpha can only lose by the flatten and keep the raw reading.
+    # The winning reading owns the .diff.png artifact; the flatten's
+    # reading also lives in NAME.flat.png/.flat-diff.png for triage.
+    if magick "$OUT/$stem.png" -background white -flatten "$OUT/$stem.flat.png" 2>/dev/null; then
+        aef=$(magick compare -metric AE -fuzz "$FUZZ" "$SUITE/png/$stem.png" "$OUT/$stem.flat.png" "$OUT/$stem.flat-diff.png" 2>&1)
+        aef=${aef%% *}
+        case $aef in ""|*[!0-9.e+]*) aef= ;; esac
+        [ -n "$aef" ] &&
+            [ "$(awk -v a="$ae" -v b="${aef%% *}" 'BEGIN { print (b < a) ? 1 : 0 }')" = 1 ] &&
+            { ae=$aef; cp -f "$OUT/$stem.flat-diff.png" "$OUT/$stem.diff.png"; }
+    fi
     printf '%s.svg OK %.0f\n' "$stem" "$ae"
 }
 

@@ -382,6 +382,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | every rendering stands pat                     |            |
 | step 108              | host faces walk the family                     | 2.58 M     |
 |                       | list, and the suite dips 663                   |            |
+| step 109              | the harness scores white                       | 1.13 M     |
+|                       | pages honestly, 1.45 M gone                    |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4650,6 +4652,55 @@ white-page harness reading,
 the one lever the user's own
 question keeps raising.
 
+Step 109 is the user's question
+come due: render the suite over
+white and compare. Ten
+references were captured over
+an opaque white page while our
+canvas is transparent - their
+raw AE was page background.
+run.sh now reads every row
+twice: raw, then ours flattened
+over white with the references
+left untouched, and keeps the
+smaller reading. The flatten is
+kept only when it wins, and
+rendering is deterministic, so
+no row could rise - the rebased
+ledger has zero rises and ten
+collapses worth 1,450,940 AE.
+animate-elem-77-t and filters-
+light-02-f came home to 2.2 K
+and 1.9 K, the struct-image
+trio to 5.9/6.2/7.4 K, the
+turb, conv and intro rows
+likewise; intro-06-t/-07-t
+keep ~23 K each, now Arabic
+faces, not page. The suite sits
+at 1,127,529 over 526 rows, 0
+ERROR - the content floor the
+ledger drew near 1.86 M proved
+0.7 M lower.
+
+One gotcha, kept honest: magick
+compare prints "AE (fraction)",
+and the new guard validated the
+full string before stripping -
+every flat reading blanked
+silently until the strip moved
+ahead of the check.
+
+Up next - the host-font asks
+the residuals now name: Arial
+Unicode MS and the Arabic faces
+(Kayrawan, Scheherazade,
+Andalus, Diwani Letter) are
+missing, and a fontconfig alias
+answering the hyphenated
+'MS-Gothic' with msgothic
+would let the walk reach the
+face the fixtures ask for.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (212 K) / `types-dom` (14 K): SVG DOM and scripting
@@ -4794,7 +4845,8 @@ question keeps raising.
   `simplesvgfont` is asked for: the content is now `abca`, U+1D352, `cb` rather
   than the twelve characters `&#x1D352;` spells out, and one more cell of a
   face already placed wrong is all the +298 buys.
-- struct-image-13/14/15-f (451 K): the reference PNGs deviate from the
+- struct-image-13/14/15-f (19.6 K since step 109 scored their white
+  page; 451 K before): the reference PNGs deviate from the
   tile PNGs they composite; our tiles match ground truth at AE 0 — a
   reference-suite defect, documented in the `<image>` commit message.
 - struct-use-06-b (30 K) / 07-b (36 K): external-reference
@@ -4919,15 +4971,17 @@ question keeps raising.
   were missing. Step 106's core-font install supplied them: 15,095 fell
   to 1,120, the clip at last cutting in the reference's own face.
   Step 96 walked the text chapter's rest onto this floor:
-  `text-fonts-01-t` (2.6 K, Georgia/Arial/monospace stacks), its
-  `-02-t` (530) and `-204-t` (4.6 K), `-04-t` (498, Charlesworth,
+  `text-fonts-01-t` (2.5 K, Georgia/Arial/monospace stacks), its
+  `-02-t` (530) and `-204-t` (4.4 K), `-04-t` (498, Charlesworth,
   Haettenschweiler, `InvalidFontFamily`), `text-intro-01-t` (1.9 K,
-  MissingInAction and MS Gothic), `-02-b` (2.0 K, Arial Unicode MS)
+  MissingInAction and MS Gothic), `-02-b` (1.9 K, Arial Unicode MS)
   and `-09-b` (1.9 K, Ezra SIL). None keeps a 100 px cluster: 204-t's
   three caption specks and 02-b's single 9x19 are the largest, and
   what scores is fc-match's answer, not the engine's.
-  `text-intro-03-b/-06-t/-07-t` (480 K) are a different lever:
-  Arabic shaping with host Noto against Kayrawan/Scheherezade references.
+  `text-intro-03-b/-06-t/-07-t` (57 K since step 109 scored their
+  white page; 480 K before) are a different lever: Arabic shaping
+  with host stand-ins against Kayrawan/Scheherazade references -
+  03-b's walked Lucida Sans Unicode not even carrying the script.
   Step 93 put the chapter's four remaining intro rows on that floor:
   `-11-t` (9.0 K) / `-12-t` (12.6 K) ask Andalus, Diwani Letter and
   Scheherazade, `-04-t` (2.6 K) / `-05-t` (2.5 K) ask Hebrew and Arabic
@@ -5097,7 +5151,8 @@ question keeps raising.
   scripts leave a static render to reach, measures 8 AE
   on its 100x75 crop.
 - The split-frame captures: in `painting-stroke-05-t` (1,855),
-  `text-fonts-202-t` (5,360) and `filters-light-02-f` (134,982) the
+  `text-fonts-202-t` (5,485) and `filters-light-02-f` (1,944 since
+  step 109 harvested its 134,982 white page) the
   1-px `test-frame` is two half-covered pixels, the corner-sampled
   answer step 56 moved away from, and what is left of each row is its
   thin-stroke sweep and the host-font AA around it. Those three pay
@@ -5128,26 +5183,33 @@ question keeps raising.
   edge, which lands on 435.6 and is a fill edge, so the band shift
   neither reaches it nor should. Its 1.8-device-px frame and the guide
   lines under the grey rect went with step 59's band.
-- White-page references (~1.46 M, 44% of the 3.33 M baseline): ten tests'
-  reference PNGs were captured over an *opaque white page* while our canvas
-  is transparent, so their AE is page background, not content. Re-comparing
-  our own renderings after `magick -background white -flatten` (a one-off
-  script; the harness composites nothing) collapses them: animate-elem-77-t
-  166.2 K -> 1.3 K, text-intro-03-b 164.5 K -> 11.0 K, filters-turb-02-f
-  161.6 K -> 5.1 K, filters-conv-05-f 153.6 K -> 7.0 K, struct-image-
-  13/14/15-f 151 K each -> 5.3/5.3/6.4 K, filters-light-02-f 134.8 K -> 66,
-  text-intro-06-t/-07-t 158 K each -> 22.2/22.7 K. Compositing over white
-  suite-wide is the wrong lever: 3.33 M -> 73.7 M, because the other 515
-  references do keep their alpha. Better of the two readings per test puts
-  the suite's content floor near 1.86 M - everything still worth chasing,
-  including the ceilings above, lives there.
+- White-page references - harvested at step 109: ten tests'
+  reference PNGs were captured over an *opaque white page* while our
+  canvas is transparent, so their raw AE was page background, not
+  content. run.sh now scores every row twice - raw, then ours
+  flattened over white, the references never flattened - and keeps
+  the smaller reading. Ten collapsed, 1,450,940 in all:
+  animate-elem-77-t 166,274 -> 2,194, text-intro-03-b 164,467 ->
+  10,519, filters-turb-02-f 161,581 -> 6,683, filters-conv-05-f
+  153,642 -> 8,583, struct-image-13/14/15-f 150 K each ->
+  5,963/6,220/7,399, filters-light-02-f 134,982 -> 1,944,
+  text-intro-06-t/-07-t 157,348/158,020 -> 23,901/22,967. A min
+  never exceeds the raw reading and rendering is deterministic, so
+  zero rows rose and the other 515 stand pat. Compositing over
+  white suite-wide - trusting the flat reading alone - is still the
+  wrong lever: 3.33 M -> 73.7 M, the alpha-keeping references
+  punish the flatten. The suite floor is 1.13 M now; the
+  intro-06-t/-07-t residuals (~23 K each) are missing Arabic faces,
+  no longer the page.
 - `filters-composite-03-f` (8,731): arithmetic feComposite, including its
   FillPaint/StrokePaint inputs, is right - the identical and clamped squares
   compare at AE 0. The two that miss are semi-transparent (alpha 0.5 for
   `2F - 1.5F`, 0.6 black for `-0.5F - 0.1`) and each reference pixel is ours
   composited over white: (127,255,127) and (102,102,102), opaque. Flattening
   both sides over white collapses the row to 2,386, the AA of the three guide
-  rings; the harness composites nothing, so the alpha gap stays as the AE.
+  rings; step 109's harness reading flattens only ours - this row's page is
+  transparent, so that reading reads 110 K and the raw 8,731 stands: the
+  alpha gap stays as the AE.
 - The paint-server pair in `filters-overview-03-b` (FillPaint 1,452 and
   StrokePaint 2,442, 3,894 of the 6,144 the row carried then; it is
   5,138 now): ours paints the target's

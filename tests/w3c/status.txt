@@ -53,7 +53,7 @@ animate-elem-67-t.svg OK 362
 animate-elem-68-t.svg OK 377
 animate-elem-69-t.svg OK 379
 animate-elem-70-t.svg OK 540
-animate-elem-77-t.svg OK 166274
+animate-elem-77-t.svg OK 2194
 animate-elem-78-t.svg OK 1878
 animate-elem-80-t.svg OK 2055
 animate-elem-81-t.svg OK 628
@@ -131,7 +131,7 @@ filters-conv-01-f.svg OK 777
 filters-conv-02-f.svg OK 232
 filters-conv-03-f.svg OK 4644
 filters-conv-04-f.svg OK 7311
-filters-conv-05-f.svg OK 153642
+filters-conv-05-f.svg OK 8583
 filters-diffuse-01-f.svg OK 182
 filters-displace-01-f.svg OK 1997
 filters-displace-02-f.svg OK 26
@@ -147,7 +147,7 @@ filters-image-03-f.svg OK 24
 filters-image-04-f.svg OK 140
 filters-image-05-f.svg OK 248
 filters-light-01-f.svg OK 283
-filters-light-02-f.svg OK 134982
+filters-light-02-f.svg OK 1944
 filters-light-03-f.svg OK 395
 filters-light-04-f.svg OK 474
 filters-light-05-f.svg OK 2202
@@ -160,7 +160,7 @@ filters-overview-03-b.svg OK 5138
 filters-specular-01-f.svg OK 347
 filters-tile-01-b.svg OK 122
 filters-turb-01-f.svg OK 529
-filters-turb-02-f.svg OK 161581
+filters-turb-02-f.svg OK 6683
 fonts-desc-01-t.svg OK 309
 fonts-desc-02-t.svg OK 747
 fonts-desc-03-t.svg OK 17
@@ -403,9 +403,9 @@ struct-image-09-t.svg OK 45
 struct-image-10-t.svg OK 45
 struct-image-11-b.svg OK 21679
 struct-image-12-b.svg OK 37
-struct-image-13-f.svg OK 149816
-struct-image-14-f.svg OK 150420
-struct-image-15-f.svg OK 150763
+struct-image-13-f.svg OK 5963
+struct-image-14-f.svg OK 6220
+struct-image-15-f.svg OK 7399
 struct-image-16-f.svg OK 23
 struct-image-17-b.svg OK 37
 struct-image-18-f.svg OK 227
@@ -475,11 +475,11 @@ text-fonts-203-t.svg OK 45
 text-fonts-204-t.svg OK 4387
 text-intro-01-t.svg OK 1875
 text-intro-02-b.svg OK 1932
-text-intro-03-b.svg OK 164467
+text-intro-03-b.svg OK 10519
 text-intro-04-t.svg OK 2656
 text-intro-05-t.svg OK 2478
-text-intro-06-t.svg OK 157348
-text-intro-07-t.svg OK 158020
+text-intro-06-t.svg OK 23901
+text-intro-07-t.svg OK 22967
 text-intro-09-b.svg OK 1933
 text-intro-10-f.svg OK 6823
 text-intro-11-t.svg OK 9018
