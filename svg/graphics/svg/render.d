@@ -4071,6 +4071,12 @@ private struct Renderer
     // CSS2 §15.5.1 tries the stripped names in order - a family whose
     // registered faces none names the requested variant (§16.2)
     // declines the whole family, and the next name takes the run.
+    // A font registered with not one <glyph> declines too: the
+    // missing-glyph element (§20.5) stands in for characters the
+    // selected font lacks, not for a font no character could select,
+    // and CSS's font fallback runs past the empty font to the next
+    // name - what text-intro-01-t's MissingInAction joke asks of a
+    // renderer and how its reference reads every sample row.
     // Face matching takes the raw numeric weight: matchFace walks the
     // CSS2.1 §15.5 preference order over the real face weights, and the
     // five enum buckets would collapse a 600 request onto a 700 face.
@@ -4082,7 +4088,8 @@ private struct Renderer
             if (auto p = toLower(fam) in svgFonts)
                 if (auto f = matchFace(*p, s.rawWeight,
                                        faceStyle(s.slant), s.variant))
-                    return f;
+                    if (!f.glyphs.empty)
+                        return f;
         return null;
     }
 
@@ -12986,4 +12993,37 @@ unittest
     assert(rigid != bent, "align sets the bar rigidly on the chord");
     immutable off = inkBox(renderSVG(corner("300", ` method="stretch"`)));
     assert(off[0] > off[2], "the midpoint rule survives stretch");
+}
+
+unittest
+{
+    // A <font> the document registers with not one <glyph> declines
+    // the family walk (svgFace): no character can ever select it, so
+    // the next name takes the run rather than the missing-glyph
+    // standing in for a font nothing picks - CSS font fallback, and
+    // the reading text-intro-01-t's MissingInAction joke depends on.
+    string docEmpty(string fams)
+    {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="120"
+            height="120" viewBox="0 0 120 120">
+            <defs>
+                <font id="empty" horiz-adv-x="600">
+                    <font-face font-family="Empty" units-per-em="1000"
+                        ascent="800" descent="-200" alphabetic="0"/>
+                    <missing-glyph d="M0 0h100v100h-100z"/>
+                </font>
+                <font id="real" horiz-adv-x="600">
+                    <font-face font-family="Real" units-per-em="1000"
+                        ascent="800" descent="-200" alphabetic="0"/>
+                    <glyph unicode="x" d="M0 500h600v300h-600z"/>
+                </font>
+            </defs>
+            <text x="0" y="100" font-family="` ~ fams ~ `"
+                font-size="10">x</text>
+        </svg>`;
+    }
+    immutable solo = inkBox(renderSVG(docEmpty("Real")));
+    assert(solo[0] <= solo[2] && solo[1] <= solo[3], "the solo face draws");
+    assert(inkBox(renderSVG(docEmpty("Empty, Real"))) == solo,
+        "the glyph-less font declines and the next name draws");
 }

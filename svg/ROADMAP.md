@@ -390,6 +390,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | the face answers with          |            |
 | step 112              | the host installs the rules,   | 1.12 M     |
 |                       | and 3,983 AE land as forecast  |            |
+| step 113              | the empty font declines the    | 1.12 M     |
+|                       | family walk; the joke row runs |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4876,6 +4878,34 @@ with real glyphs: it runs past
 the empty font, as CSS font
 fallback says. That is step 113.
 
+Step 113 - the empty font
+declines the family walk.
+
+svgFace's list loop now runs
+past a registered `<font>` that
+holds not one `<glyph>`: no
+character could ever select it,
+so the missing-glyph element
+stands in for nothing, and the
+run goes to the next name - CSS
+font fallback, the reading the
+reference gives the joke fixture.
+The Japanese sample now steps
+over MissingInAction onto the
+step 112 alias and draws real
+MS Gothic kana; 01-t lands at
+1,875 -> 1,698, the only row
+moved, since the 33 other
+embedded-font fixtures register
+real glyphs. The walk-on rows
+that still miss carry the
+chapter's known install debts -
+MS Song, SimHei, Arial Hebrew.
+A host-free unittest pins the
+fall-through: an empty embedded
+font named before a real one
+draws the real face's box.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (212 K) / `types-dom` (14 K): SVG DOM and scripting
@@ -5148,8 +5178,10 @@ fallback says. That is step 113.
   Step 96 walked the text chapter's rest onto this floor:
   `text-fonts-01-t` (2.5 K, Georgia/Arial/monospace stacks), its
   `-02-t` (530) and `-204-t` (4.4 K), `-04-t` (498, Charlesworth,
-  Haettenschweiler, `InvalidFontFamily`), `text-intro-01-t` (1.9 K,
-  MissingInAction and MS Gothic), `-02-b` (1.9 K, Arial Unicode MS)
+  Haettenschweiler, `InvalidFontFamily`), `text-intro-01-t` (1.7 K
+  since step 113 ran past the MissingInAction joke font; MS Song,
+  SimHei and Arial Hebrew stay uninstalled), `-02-b` (1.9 K, Arial
+  Unicode MS)
   and `-09-b` (1.9 K, Ezra SIL). None keeps a 100 px cluster: 204-t's
   three caption specks and 02-b's single 9x19 are the largest, and
   what scores is fc-match's answer, not the engine's.
