@@ -478,12 +478,12 @@ text-intro-02-b.svg OK 1932
 text-intro-03-b.svg OK 10519
 text-intro-04-t.svg OK 2656
 text-intro-05-t.svg OK 2478
-text-intro-06-t.svg OK 23901
+text-intro-06-t.svg OK 20136
 text-intro-07-t.svg OK 22967
 text-intro-09-b.svg OK 1933
 text-intro-10-f.svg OK 6823
 text-intro-11-t.svg OK 9018
-text-intro-12-t.svg OK 12601
+text-intro-12-t.svg OK 12383
 text-path-01-b.svg OK 1447
 text-path-02-b.svg OK 2330
 text-spacing-01-b.svg OK 6300

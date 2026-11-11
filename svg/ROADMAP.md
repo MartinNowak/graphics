@@ -388,6 +388,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | answers none of the names asked                |            |
 | step 111              | hasFamily reads every name     | 1.13 M     |
 |                       | the face answers with          |            |
+| step 112              | the host installs the rules,   | 1.12 M     |
+|                       | and 3,983 AE land as forecast  |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4822,6 +4824,58 @@ matter of installs - Andalus,
 Diwani Letter, Kayrawan, Arial
 Unicode MS.
 
+Step 112 - the host installed
+the rules.
+
+The example merged into
+~/.config/fontconfig/fonts.conf
+and fc-cache rebuilt, and the
+engine path - never the CLI,
+whose hyphen artifact makes it an
+unfit witness - answers live:
+'Scheherazade' and the fixture's
+typo 'Scheherezade' both resolve
+to ScheherazadeNew-Regular.ttf,
+and 'MS-Gothic' to msgothic.ttc.
+The merged list carries
+'Scheherazade' in slot 0, not
+the example's order; step 111's
+whole-set read makes order
+irrelevant, exactly as designed.
+
+The suite moved as the alias
+experiment had forecast, row for
+row: `-06-t` 23,901 -> 20,136
+and `-12-t` 12,601 -> 12,383,
+3,983 AE in all, and no other
+row stirred. The full gate is
+green at 1,123,546.
+
+No MS-Gothic ask moved - and
+that hid a surprise. Every
+stack spelling MS-Gothic stops
+earlier at a held name - Georgia,
+Lucida Sans Unicode - except
+text-intro-01-t's Japanese
+sample, the suite's one walk
+onto msgothic.ttc; it sat frozen
+at 1,875, pixel-identical under
+both configs. The cause is the
+fixture's own joke: it registers
+a `<font>` whose family is
+MissingInAction with not one
+`<glyph>`, and MissingInAction
+heads every demo stack. The store
+wins the first name, the walk never
+reaches the host, and all 23
+characters land on Missy's
+missing-glyph - a 2x2 square at
+units-per-em 8, the dots. The
+reference reads the same stacks
+with real glyphs: it runs past
+the empty font, as CSS font
+fallback says. That is step 113.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (212 K) / `types-dom` (14 K): SVG DOM and scripting
@@ -5112,9 +5166,11 @@ Unicode MS.
   third name neither ask can reach; the unlock is a scan-target fontconfig
   alias naming the face under both spellings, which step 111's whole-list
   `hasFamily` read makes one rule suffice — committed as
-  `tests/w3c/host-fonts.conf.example`, and measured there: installed and
-  cache-rebuilt, `-06-t` reads 23,901 -> 20,136 and `-12-t` 12,601 ->
-  12,383, the ledger waiting on the host's `fc-cache -f`. Andalus, Diwani
+  `tests/w3c/host-fonts.conf.example`. Step 112 installed it, cache
+  rebuilt and verified through the engine path, and the ledger moved as
+  measured: `-06-t` 23,901 -> 20,136, `-12-t` 12,601 -> 12,383. The
+  MS-Gothic alias is live too but asks none of the suite's luck: every
+  stack names a held face first (see step 112's record). Andalus, Diwani
   Letter and Kayrawan stay uninstalled.
   `text-text-08-b` (3,943 since step 92) was that substitution's half: the
   host never had Verdana, and every family query came back a fontconfig
