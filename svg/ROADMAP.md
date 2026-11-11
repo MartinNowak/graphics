@@ -378,6 +378,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | are re-grounded to status.txt                  |            |
 | step 106              | the MS core collection lands and               | 2.58 M     |
 |                       | the baseline falls 19,214 AE                   |            |
+| step 107              | two Unicode faces arrive and                   | 2.58 M     |
+|                       | every rendering stands pat                     |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4538,6 +4540,53 @@ the new 2.58 M. The Arabic trio's
 ask is narrower now: three
 Unicode faces, not the whole
 collection.
+
+
+Step 107 is a second environment
+event: the user added Lucida
+Sans Unicode - the real one,
+l_10646.ttf - and MS Gothic to
+~/.local/share/fonts. fc-match
+answers "LucidaSansUnicode"
+and "MS Gothic" straight to
+those files. But the fixtures
+ask 'MS-Gothic' hyphenated,
+and fontconfig will not bend
+the hyphen: fc-match answers
+Noto Sans. Arial Unicode MS
+remains missing.
+
+The 526 renders came back
+byte-identical: no row moved
+and 2,579,132 AE stands.
+
+The triage found why, and
+that part is ours. The intro
+chapter's two Arabic pages,
+text-intro-06-t and -07-t,
+ask Kayrawan, Scheherezade,
+Andalus and Diwani Letter -
+faces this host never held;
+and text-intro-03-b's sample
+is Arabic script, which
+neither Lucida nor Gothic
+carries. And the stack those
+three rows share lists Lucida
+second, behind Arial Unicode
+MS - but the host lookup asks
+fontconfig only the family's
+first name, and fontconfig
+never fails: it answers Noto
+Sans for a name it has not,
+and the list is never walked.
+The ordered try of §15.5.1
+lives in the engine only for
+SVG fonts.
+
+Up next - step 108: walk the
+family list for host faces,
+as svgFace's walk already
+does for chapter 20.
 
 
 ## Deferred / accepted ceilings (do not chase)
