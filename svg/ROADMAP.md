@@ -376,6 +376,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | measured and registered                        |            |
 | step 105              | the Deferred ledger's figures                  | 2.60 M     |
 |                       | are re-grounded to status.txt                  |            |
+| step 106              | the MS core collection lands and               | 2.58 M     |
+|                       | the baseline falls 19,214 AE                   |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4475,6 +4477,69 @@ blessing as a harness scoring
 change. Nothing is queued in code
 until one of the two lands.
 
+Step 106 is the install step 105's
+up-next named: the MS core
+collection arrived in
+/usr/share/fonts/msttcore - Arial,
+Georgia, Impact, Times, Courier,
+Trebuchet, Verdana, Tahoma and the
+ClearType set - and every fc-match
+answer changed at once.
+
+The gate moved 19,214 AE: 22 rows
+down, 19 up. Impact was the win
+the ledger always named;
+masking-path-04-b fell 15,095 ->
+1,120, its clip finally cutting in
+the reference's own face. Georgia
+and Times collapsed
+text-fonts-02-t (3,907 -> 530);
+text-path-01-b, the
+interact-order trio and
+text-fonts-01-t followed the same
+faces down, and the caption tail -
+events, pservers, altglyph, zoom,
+animate, struct - took hundreds
+and tens with them.
+
+But nineteen rows climbed, and the
+fixtures say all nineteen ask
+font-family="Arial". The capture
+farm rastered Arial body text as
+the metric clone: our old stand-in
+was that clone's near-twin, and
+real Arial is now the odd one out.
+text-spacing-01-b led the rises
+5,108 -> 6,300; the other eighteen
+moved a handful each. The suite's
+references stand on a mixed farm -
+real MS faces where the capture
+host had them, clones where not.
+
+text-intro-03-b/-06-t/-07-t's
+480 K did not blink: that trio
+asks Arial Unicode MS, Lucida
+Sans Unicode and MS Gothic -
+this collection does not hold
+them, and fc-match still answers
+Noto Sans.
+
+The gate at this baseline: 526
+rows, 0 ERROR, 2,579,132 AE - the
+first fall since step 92's Verdana
+install.
+
+Up next - step 107: the last
+lever the ledger names is the
+white-page reading, waiting on
+the user's blessing as a harness
+scoring change - about 1.46 M of
+the new 2.58 M. The Arabic trio's
+ask is narrower now: three
+Unicode faces, not the whole
+collection.
+
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (212 K) / `types-dom` (14 K): SVG DOM and scripting
@@ -4604,7 +4669,7 @@ until one of the two lands.
   underline metrics - the same host face the row's caption and
   glyph speckle come from. Step 91's top-edge reading lands the
   spelled bands one device row off theirs; the rest is theirs.
-- `text-dom-01-f` (3.0 K), +3 at step 32: the line that carries
+- `text-dom-01-f` (2.9 K), +3 at step 32: the line that carries
   `<tspan rotate="45,90">is</tspan>` is not visible in its reference at all.
   The file's DRAFT band is painted *over* it there, and the only ink the PNG
   keeps at that place is the script's own lightblue `getExtentOfChar` boxes -
@@ -4654,7 +4719,7 @@ until one of the two lands.
   01-f PNG lays out a "Click on target" line the current markup no
   longer contains, and 02-f's title is worded differently there. Stale
   captures over an absent scripting model, twice over. Measured the same
-  step, `pservers-pattern-01-b` (2,198) is a ceiling of another kind:
+  step, `pservers-pattern-01-b` (1,990) is a ceiling of another kind:
   its pattern rects, fill tile and stroke tile alike, land pixel for
   pixel, and every pixel of the remainder is a `font-family="Arial"`
   caption - host-glyph debt like every other Arial row in the suite.
@@ -4739,12 +4804,13 @@ until one of the two lands.
 - Host-font debt (SVGFreeSans/Impact) in `masking-path-03-b/04-b/10-b` and
   the remaining `text-*`/`fonts-*` floors: step 7 took the fonts in; what is
   left is raster drift between our AA and the harness's own SVG-font
-  rasterizer. Step 13's residual 15.5 K on 04-b is that floor alone - the
-  clip now cuts the image by the right *shapes*, only the Impact letterforms
-  are missing (`fc-match Impact` answers Noto Sans here).
+  rasterizer. Step 13's residual 15.5 K on 04-b was that floor alone - the
+  clip cut the image by the right *shapes*, only the Impact letterforms
+  were missing. Step 106's core-font install supplied them: 15,095 fell
+  to 1,120, the clip at last cutting in the reference's own face.
   Step 96 walked the text chapter's rest onto this floor:
-  `text-fonts-01-t` (2.8 K, Georgia/Arial/monospace stacks), its
-  `-02-t` (3.9 K) and `-204-t` (4.6 K), `-04-t` (498, Charlesworth,
+  `text-fonts-01-t` (2.6 K, Georgia/Arial/monospace stacks), its
+  `-02-t` (530) and `-204-t` (4.6 K), `-04-t` (498, Charlesworth,
   Haettenschweiler, `InvalidFontFamily`), `text-intro-01-t` (1.9 K,
   MissingInAction and MS Gothic), `-02-b` (2.0 K, Arial Unicode MS)
   and `-09-b` (1.9 K, Ezra SIL). None keeps a 100 px cluster: 204-t's
@@ -4770,17 +4836,19 @@ until one of the two lands.
   `filters-color-01-b`'s 623, all that is left of it once step 43 put
   its five panels at AE 0, is that same drift across its five Verdana
   labels; the frame ring is at AE 0.
-- `text-spacing-01-b` (5,108), closed by step 93's probes: the engine
+- `text-spacing-01-b` (6,300), closed by step 93's probes: the engine
   applies unitless letter-spacing and word-spacing as exactly user
   units - at the fixture's 6x geometry -1 lands at -6 device px per
   gap and .3 at +1.8, and the word-spacing legs at the captures'
   54 px. Its six body rows measure 310/232/351 against the
   captures' 323/236/366, so the residual is per-glyph drift between
-  our Liberation Sans (the `fc-match Arial` answer) and the capture
-  host's own face, along with the ring: 987 over L1 and the ring
-  top, 4,077 along L2-L6, 88 at the revision foot. A genuine MS
-  Arial on the host would cut it the way Verdana cut
-  `text-text-08-b` at step 92.
+  our old Liberation Sans stand-in - the `fc-match Arial` answer
+  then - and the capture host's own face, along with the ring: 987
+  over L1 and the ring top, 4,077 along L2-L6, 88 at the revision
+  foot. Step 106 tested the inverse bet and lost it: real Arial
+  landed and the row climbed 5,108 -> 6,300 - for this body text
+  the capture farm held the metric clone, our stand-in was that
+  clone's near-twin, and the licensed face is the odd one out.
 - `painting-stroke-06-t` (869) is what steps 47 and 59 left of it, and the
   rest is not a feature - step 59 carries its dash boundaries along with
   the band, 1,208 -> 869. Cropped to its two dash rows, ours and the
@@ -4834,7 +4902,7 @@ until one of the two lands.
   another revision of a test scores against a different
   test.
 - The step-96 animate tail closed the band's other eight rows -
-  `-26-t` (2.4 K), `-27-t` (490), `-28-t` (606), `-60-t` (611),
+  `-26-t` (2.4 K), `-27-t` (509), `-28-t` (606), `-60-t` (611),
   `-62-t` (553), `-70-t` (540), `-78-t` (1.9 K), `-81-t` (628). None shows step
   80's caption tell: five carry no diff cluster 60 px or larger
   anywhere, -78-t's 1.9 K riding a field of sub-60 specks, while
@@ -4856,9 +4924,9 @@ until one of the two lands.
   ceilings; and `coords-viewattr-03-b` (1.1 K): its 80x80 marker
   viewports sit at 6 % alpha under fuzz, with the rest of the
   `coords-viewattr` marker rows. The remainder leaves nothing at
-  100 px anywhere: `styling-css-04-f` (559), `text-align-02-b`
+  100 px anywhere: `styling-css-04-f` (561), `text-align-02-b`
   (2.1 K), `text-text-04-t` (462), `text-fonts-05-f` (724), and
-  `filters-light-04-f` (464).
+  `filters-light-04-f` (474).
 - Step 97 scanned the 100-600 AE tail whole and closed all
   sixty-one rows that remained. The animate chapter's floors
   lead: `-02-t/-04-t/-05-t/-06-t/-08-t/-09-t/-10-t/-11-t/
@@ -5042,7 +5110,7 @@ until one of the two lands.
   squares and all three `color-interpolation` bars match, the
   linearRGB ramp to within one LSB (`5D00F2` against `5E00F2`),
   so only the caption glyphs move. `text-align-01-b` (841) and
-  `-05-b` (207 now, 1,196 at step 69), `struct-cond-02-t` (319)
+  `-05-b` (249 now, 1,196 at step 69), `struct-cond-02-t` (297)
   and `text-text-12-t` (1,383) join the host-glyph floor with
   their anchors and conditional branches landed right: doubled
   letter shapes at matching extents.
@@ -5091,7 +5159,7 @@ until one of the two lands.
   pixel;
   `linking-a-05-t` (572) is 04-t's family - arrow outlines plus
   revision glyph; and `struct-image-19-f` (682) and
-  `conform-viewers-01-t` (670) are DRAFT bands over doubled
+  `conform-viewers-01-t` (683) are DRAFT bands over doubled
   outlines. `masking-path-07-b` (1,038) is caption debt three
   times over: its revision row - same `1.11` string both sides -
   is 458 AE of glyph drift by itself, with the leaf and circle
@@ -5108,7 +5176,7 @@ until one of the two lands.
 
 - The interact-chapter rows step 104
   named and measured against their references:
-  `interact-events-01-b` (14.1 K) is the
+  `interact-events-01-b` (13.8 K) is the
   onload-script family - five of its six
   rectangles are made visible by scripts the
   file's own onload handlers run, and ours is
@@ -5116,8 +5184,8 @@ until one of the two lands.
   (12.1 K) and `interact-events-203-t` (5.0 K)
   are click- and mouseover-listener states
   their captures show fired; `interact-order-
-  01-b` (3.1 K) and `interact-order-03-b`
-  (6.2 K) hold the post-hover paint and
+  01-b` (2.6 K) and `interact-order-03-b`
+  (5.7 K) hold the post-hover paint and
   selection states the files drive through
   event attributes; and `interact-zoom-01/
   02-t` (7.9/7.9 K) sit with `conform-viewers`
