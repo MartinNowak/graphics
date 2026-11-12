@@ -392,6 +392,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | and 3,983 AE land as forecast  |            |
 | step 113              | the empty font declines the    | 1.12 M     |
 |                       | family walk; the joke row runs |            |
+| step 114              | Arabic packs and MS Song land; | 1.12 M     |
+|                       | the example grows a third rule |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4906,6 +4908,66 @@ fall-through: an empty embedded
 font named before a real one
 draws the real face's box.
 
+Step 114 - langpacks and MS Song
+land; the example grows a third
+rule.
+
+The host's Arabic langpack
+delivered the Kacst family and
+PakType Naqsh and Tehreer. The
+suite asks none of those names:
+Andalus, Diwani Letter and
+Kayrawan still resolve to Noto
+Sans, and aliasing an asked
+name onto a face that is not it
+would be identity fabrication -
+the MS Gothic and Scheherazade
+New rules pass because they
+spell one face twice. No
+langpack row moves.
+
+MS Song arrived as simsun.ttc:
+the face answers as SimSun, MS
+Song being Windows' localized
+spelling - the Scheherazade New
+situation in miniature. The
+engine path answers 'SimSun'
+but not the localized ask, so
+the example gains a third rule,
+a pattern alias 'MS Song' onto
+SimSun; pattern rules load with
+the config, no rebuild needed.
+A fresh MS Gothic copy came with
+the install too - same path,
+same face, unchanged probes: it
+has been answering since step
+112, and nothing moves.
+
+Measured in the throwaway-HOME
+experiment: 01-t 1,698 -> 1,641.
+The Chinese row meets the
+reference's own face, so the
+tofu chunk becomes edge drift -
+a gain that looks small because
+it is the right glyphs.
+
+struct-cond-02-t, the suite's
+other MS Song asker, sits in
+the systemLanguage="zh-CN"
+branch: no locale renders it,
+here or in the capture. It was
+already on the caption floor,
+and no alias can prove itself
+on a branch that never draws.
+
+Up next - merge the example's
+third block, and the ledger
+takes its 57 AE; the Arabic
+chapter's asks then narrow to
+Andalus, Diwani Letter,
+Kayrawan, Arial Unicode MS,
+SimHei and Arial Hebrew.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (212 K) / `types-dom` (14 K): SVG DOM and scripting
@@ -5179,8 +5241,9 @@ draws the real face's box.
   `text-fonts-01-t` (2.5 K, Georgia/Arial/monospace stacks), its
   `-02-t` (530) and `-204-t` (4.4 K), `-04-t` (498, Charlesworth,
   Haettenschweiler, `InvalidFontFamily`), `text-intro-01-t` (1.7 K
-  since step 113 ran past the MissingInAction joke font; MS Song,
-  SimHei and Arial Hebrew stay uninstalled), `-02-b` (1.9 K, Arial
+  since step 113 ran past the MissingInAction joke font; SimHei and
+  Arial Hebrew stay uninstalled - MS Song landed as SimSun, step
+  114's alias awaiting the merge), `-02-b` (1.9 K, Arial
   Unicode MS)
   and `-09-b` (1.9 K, Ezra SIL). None keeps a 100 px cluster: 204-t's
   three caption specks and 02-b's single 9x19 are the largest, and
@@ -5202,8 +5265,11 @@ draws the real face's box.
   rebuilt and verified through the engine path, and the ledger moved as
   measured: `-06-t` 23,901 -> 20,136, `-12-t` 12,601 -> 12,383. The
   MS-Gothic alias is live too but asks none of the suite's luck: every
-  stack names a held face first (see step 112's record). Andalus, Diwani
-  Letter and Kayrawan stay uninstalled.
+  stack names a held face first (see step 112's record). The step 114
+  langpack brought the Kacst family and PakType Naqsh and Tehreer,
+  which answer none of the chapter's asks; Andalus, Diwani Letter and
+  Kayrawan stay uninstalled, and aliasing their names onto stand-ins
+  is identity fabrication, not spelling.
   `text-text-08-b` (3,943 since step 92) was that substitution's half: the
   host never had Verdana, and every family query came back a fontconfig
   stand-in. Once the host installed the real faces the row fell 14,658 ->

@@ -2,7 +2,7 @@
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <!-- Optional host fontconfig rules for the W3C suite's font rows. run.sh
      never loads this file - the harness runs on the host's real fontconfig.
-     Install: merge the two <match> blocks below into
+     Install: merge the <match> blocks below into
      ~/.config/fontconfig/fonts.conf (if that file does not exist, copy this
      whole file there), then rebuild the caches:
 
@@ -27,7 +27,17 @@
         whole-list probe accepts the face for either ask. Scan, not font:
         font-target edits land at prepare time, after matching has already
         failed. Proves itself on text-intro-06-t (23,901 -> 20,136) and
-        text-intro-12-t (12,601 -> 12,383) at step 111's code. -->
+        text-intro-12-t (12,601 -> 12,383) at step 111's code.
+
+     3. 'MS Song' (pattern): the host owns the face as family "SimSun"
+        - MS Song is Windows' localized name for it - and
+        text-intro-01-t's Chinese stack asks the localized name. The
+        pattern rule needs no cache rebuild. struct-cond-02-t asks
+        'MS Song' too, inside its systemLanguage="zh-CN" branch: no
+        locale picks that branch, so the ask never renders and the
+        rule proves nothing there. Proves itself on text-intro-01-t
+        (1,698 -> 1,641, the Chinese row meeting the reference's own
+        face and the diff mostly collapsing). -->
 <fontconfig>
   <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
 
@@ -40,5 +50,10 @@
     <test name="family"><string>Scheherazade New</string></test>
     <edit name="family" mode="prepend" binding="strong"><string>Scheherazade</string></edit>
     <edit name="family" mode="prepend" binding="strong"><string>Scheherezade</string></edit>
+  </match>
+
+  <match target="pattern">
+    <test name="family"><string>MS Song</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>SimSun</string></edit>
   </match>
 </fontconfig>
