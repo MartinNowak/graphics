@@ -965,13 +965,18 @@ unittest
 void gaussianBlur(ref Raster dst, in Raster src, float sx, float sy)
 {
     dst = src.dup();
+    // One scratch plane for the whole blur, ping-ponged between stages
+    // by swapping array headers: no per-stage allocation, no plane copies.
+    float[] scratch;
+    if (sx > 0.0f || sy > 0.0f)
+        scratch.length = dst.px.length;
     if (sx > 0.0f)
-        blurAxis(dst, true, sx);
+        blurAxis(dst, scratch, true, sx);
     if (sy > 0.0f)
-        blurAxis(dst, false, sy);
+        blurAxis(dst, scratch, false, sy);
 }
 
-private void blurAxis(ref Raster r, bool axisX, float s)
+private void blurAxis(ref Raster r, ref float[] tmp, bool axisX, float s)
 {
     // A stage is a uniform box (weights empty) or one weighted pass.
     struct Stage { int width, left; float[] weights; }
@@ -1008,32 +1013,92 @@ private void blurAxis(ref Raster r, bool axisX, float s)
 
     immutable n = axisX ? r.w : r.h; // the axis run
     immutable m = axisX ? r.h : r.w; // the lines perpendicular to it
-    float[] tmp;
-    tmp.length = cast(size_t) r.w * r.h * 4;
+    immutable size_t lineStep = cast(size_t) r.w * 4; // floats in one raster row
+    immutable size_t runStep = axisX ? 4 : lineStep;  // floats per run index
+    assert(tmp.length == r.px.length);
 
     foreach (st; stages)
     {
-        immutable uniform = st.weights.empty;
-        foreach (line; 0 .. m)
-            foreach (i; 0 .. n)
+        auto px = r.px; // sample from ...
+        auto dstPl = tmp; // ... write to, then swap: the stage's output plane
+                        // becomes the next stage's input with no copying.
+        if (st.weights.empty)
+        {
+            // Uniform box: a sliding window keeps one add and one subtract
+            // per pixel instead of rescanning all taps. Off-raster input is
+            // transparent black (§15.1), so it never enters the sum - but
+            // the average still divides by the full width, zero padding
+            // included. left <= 0 and left + width >= 1 for every box the
+            // stage builder emits, so the entering tap index is positive.
+            immutable inv = 1.0f / st.width;
+            foreach (line; 0 .. m)
             {
-                float[4] acc = [0.0f, 0.0f, 0.0f, 0.0f];
+                immutable size_t base = axisX ? line * lineStep : cast(size_t) line * 4;
+                float[4] sum = [0.0f, 0.0f, 0.0f, 0.0f];
                 foreach (off; 0 .. st.width)
                 {
-                    immutable j = i + st.left + off;
-                    if (j < 0 || j >= n)
-                        continue; // zero padding
-                    immutable px = axisX ? j : line, py = axisX ? line : j;
-                    immutable p = (cast(size_t) py * r.w + px) * 4;
-                    immutable wgt = uniform ? 1.0f / st.width : st.weights[off];
-                    foreach (c; 0 .. 4)
-                        acc[c] += r.px[p + c] * wgt;
+                    immutable j = st.left + off; // window for pixel 0
+                    if (j < 0)
+                        continue;
+                    if (j >= n)
+                        break;
+                    immutable p = base + j * runStep;
+                    sum[0] += px[p]; sum[1] += px[p + 1];
+                    sum[2] += px[p + 2]; sum[3] += px[p + 3];
                 }
-                immutable qx = axisX ? i : line, qy = axisX ? line : i;
-                immutable q = (cast(size_t) qy * r.w + qx) * 4;
-                tmp[q .. q + 4] = [acc[0], acc[1], acc[2], acc[3]];
+                foreach (i; 0 .. n)
+                {
+                    immutable q = base + cast(size_t) i * runStep;
+                    dstPl[q] = sum[0] * inv; dstPl[q + 1] = sum[1] * inv;
+                    dstPl[q + 2] = sum[2] * inv; dstPl[q + 3] = sum[3] * inv;
+                    immutable jIn = i + st.left + st.width;
+                    immutable jOut = i + st.left;
+                    if (jIn < n)
+                    {
+                        immutable p = base + cast(size_t) jIn * runStep;
+                        sum[0] += px[p]; sum[1] += px[p + 1];
+                        sum[2] += px[p + 2]; sum[3] += px[p + 3];
+                    }
+                    if (jOut >= 0)
+                    {
+                        immutable p = base + cast(size_t) jOut * runStep;
+                        sum[0] -= px[p]; sum[1] -= px[p + 1];
+                        sum[2] -= px[p + 2]; sum[3] -= px[p + 3];
+                    }
+                }
             }
-        r.px[] = tmp[];
+        }
+        else
+        {
+            // The exact truncated Gaussian (s < 2): its weights forbid a
+            // running sum, but the taps stream once along the run and the
+            // weight lands in a register instead of a per-tap branch.
+            foreach (line; 0 .. m)
+            {
+                immutable size_t base = axisX ? line * lineStep : cast(size_t) line * 4;
+                foreach (i; 0 .. n)
+                {
+                    float[4] acc = [0.0f, 0.0f, 0.0f, 0.0f];
+                    foreach (off; 0 .. st.width)
+                    {
+                        immutable j = i + st.left + off;
+                        if (j < 0)
+                            continue;
+                        if (j >= n)
+                            break; // taps only run away from the run
+                        immutable p = base + j * runStep;
+                        immutable w = st.weights[off];
+                        acc[0] += px[p] * w; acc[1] += px[p + 1] * w;
+                        acc[2] += px[p + 2] * w; acc[3] += px[p + 3] * w;
+                    }
+                    immutable q = base + cast(size_t) i * runStep;
+                    dstPl[q] = acc[0]; dstPl[q + 1] = acc[1];
+                    dstPl[q + 2] = acc[2]; dstPl[q + 3] = acc[3];
+                }
+            }
+        }
+        r.px = dstPl;
+        tmp = px;
     }
 }
 
