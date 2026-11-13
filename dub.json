@@ -8,5 +8,6 @@
     },
     "versions-linux": ["FreeType"],
     "libs-linux": ["freetype", "fontconfig"],
+    "dflags": ["-ffp-contract=off"],
     "subPackages": ["svg"]
 }
