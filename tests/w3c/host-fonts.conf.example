@@ -29,15 +29,28 @@
         failed. Proves itself on text-intro-06-t (23,901 -> 20,136) and
         text-intro-12-t (12,601 -> 12,383) at step 111's code.
 
-     3. 'MS Song' (pattern): the host owns the face as family "SimSun"
-        - MS Song is Windows' localized name for it - and
-        text-intro-01-t's Chinese stack asks the localized name. The
-        pattern rule needs no cache rebuild. struct-cond-02-t asks
-        'MS Song' too, inside its systemLanguage="zh-CN" branch: no
-        locale picks that branch, so the ask never renders and the
-        rule proves nothing there. Proves itself on text-intro-01-t
-        (1,698 -> 1,641, the Chinese row meeting the reference's own
-        face and the diff mostly collapsing). -->
+     3. 'MS Song': deliberately NO rule. The host owns the face as
+        family "SimSun" - MS Song is Windows' localized name for it -
+        and text-intro-01-t's Chinese stack asks the localized name.
+        A pattern alias was tried (step 114) and cannot work: the
+        renderer's walk holds a name only when the matched face's
+        family set carries that very spelling, and a pattern `assign`
+        rewrites the request away - the match lands on SimSun, but
+        its answer carries only "SimSun", so the walk refuses the
+        name. (The MS Gothic rule above passes as a pattern alias
+        only because the fold erases its hyphen; the folds of 'MS
+        Song' and 'SimSun' share no spelling.) A scan-target alias,
+        the Scheherazade shape, was then tried (step 115): the walk
+        holds, the row renders in SimSun - and lands 2 AE ABOVE the
+        refused walk's answer, because that walk falls through to
+        "LucidaSansUnicode", which holds, and Lucida Sans Unicode
+        carries a subset of Han that sits closer to the reference's
+        face than Song-ti does. The localized ask is honest but the
+        reference is nobody's Windows: naming the face only moves
+        the row further from it. struct-cond-02-t
+        asks 'MS Song' too, inside its systemLanguage="zh-CN"
+        branch: no locale picks that branch, so the ask never
+        renders and no rule could prove anything there. -->
 <fontconfig>
   <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
 
@@ -50,10 +63,5 @@
     <test name="family"><string>Scheherazade New</string></test>
     <edit name="family" mode="prepend" binding="strong"><string>Scheherazade</string></edit>
     <edit name="family" mode="prepend" binding="strong"><string>Scheherezade</string></edit>
-  </match>
-
-  <match target="pattern">
-    <test name="family"><string>MS Song</string></test>
-    <edit name="family" mode="assign" binding="strong"><string>SimSun</string></edit>
   </match>
 </fontconfig>

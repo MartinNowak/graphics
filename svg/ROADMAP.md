@@ -394,6 +394,8 @@ Total suite AE after each step (526 tests; `run.sh` gate):
 |                       | family walk; the joke row runs |            |
 | step 114              | Arabic packs and MS Song land; | 1.12 M     |
 |                       | the example grows a third rule |            |
+| step 115              | the third rule answers the     | 1.12 M     |
+|                       | walk and loses to Lucida       |            |
 
 \* step 6 is spec-completeness: no suite test *sets* `dominant-baseline`/
 `alignment-baseline`, so the AE total is unchanged by construction - the
@@ -4968,6 +4970,88 @@ Andalus, Diwani Letter,
 Kayrawan, Arial Unicode MS,
 SimHei and Arial Hebrew.
 
+Step 115 - the third rule goes
+live, answers the walk, and is
+withdrawn; the ledger moves
+without it.
+
+The merged block sat in the host
+config, fc-cache rebuilt, and a
+probe through the engine's own
+findFace answered the bare ask:
+MS Song is SimSun, simsun.ttc.
+The stack replay was another
+story - 'LucidaSansUnicode'
+answered, not SimSun. The walk
+had refused the alias.
+
+The reason sits in hasFamily:
+the walk holds a name only when
+the matched face's own family
+list carries that very folded
+spelling, and a pattern `assign`
+rewrites the request away - the
+match lands on SimSun, but the
+answer carries only "SimSun"
+and no fold of 'MS Song' is
+there. The MS Gothic rule
+passes as a pattern alias only
+because the fold erases its
+hyphen; MS Song and SimSun
+share no spelling to erase.
+The solo probe had fooled the
+eye: a refused single name
+still matches its alias's
+target, so the face printed
+witnessed the match, never the
+holding - only the stack replay
+can see the walk choose.
+
+So rule 3 took the Scheherazade
+shape - a scan-target edit
+naming the SimSun face under
+both spellings - fc-cache
+again, and the replay held:
+SimSun, simsun.ttc at last,
+the Chinese row drawn in
+Song-ti.
+
+The re-render answered 1,698
+-> 1,700. The throwaway promise
+had been 1,641, trusting the
+Chinese reference to meet its
+own face; the diff artifact
+says the reference's Han is
+sans - closer to the Lucida
+Sans Unicode subset the refused
+walk falls through to than to
+SimSun's thick-thin strokes.
+The reference was captured on
+somebody's Linux, not on
+Windows. A rule must prove
+itself on a re-render, and +2
+AE proves the opposite: rule 3
+left the example and the host
+config, the refutation standing
+in the example's comment where
+the rule stood. The ask stays
+honest; the accident stays
+better.
+
+And the 57 never arrives; the
+ledger's real step 115 gain is
+the snap work's - rebased
+against the hardened binary,
+grad-03-b fell 191 to 0,
+pattern-04-f 2 to 0, and
+05-f, 07-f, 08-f settled at
+37 apiece: grid artifacts
+snapped before integerisation
+land closer to the reference
+than even the old contract-off
+build managed. 526 tests OK,
+total 1,123,168.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (212 K) / `types-dom` (14 K): SVG DOM and scripting
@@ -5242,8 +5326,9 @@ SimHei and Arial Hebrew.
   `-02-t` (530) and `-204-t` (4.4 K), `-04-t` (498, Charlesworth,
   Haettenschweiler, `InvalidFontFamily`), `text-intro-01-t` (1.7 K
   since step 113 ran past the MissingInAction joke font; SimHei and
-  Arial Hebrew stay uninstalled - MS Song landed as SimSun, step
-  114's alias awaiting the merge), `-02-b` (1.9 K, Arial
+  Arial Hebrew stay uninstalled, MS Song's alias tried and
+  withdrawn - step 115: the row's Han sits closer in Lucida's
+  subset than in SimSun), `-02-b` (1.9 K, Arial
   Unicode MS)
   and `-09-b` (1.9 K, Ezra SIL). None keeps a 100 px cluster: 204-t's
   three caption specks and 02-b's single 9x19 are the largest, and

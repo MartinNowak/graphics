@@ -289,7 +289,7 @@ paths-dom-01-f.svg OK 316
 paths-dom-02-f.svg OK 4959
 pservers-grad-01-b.svg OK 0
 pservers-grad-02-b.svg OK 42
-pservers-grad-03-b.svg OK 191
+pservers-grad-03-b.svg OK 0
 pservers-grad-04-b.svg OK 42
 pservers-grad-05-b.svg OK 600
 pservers-grad-06-b.svg OK 348
@@ -314,11 +314,11 @@ pservers-grad-stops-01-f.svg OK 37
 pservers-pattern-01-b.svg OK 1990
 pservers-pattern-02-f.svg OK 3649
 pservers-pattern-03-f.svg OK 37
-pservers-pattern-04-f.svg OK 2
-pservers-pattern-05-f.svg OK 40
+pservers-pattern-04-f.svg OK 0
+pservers-pattern-05-f.svg OK 37
 pservers-pattern-06-f.svg OK 37
-pservers-pattern-07-f.svg OK 40
-pservers-pattern-08-f.svg OK 39
+pservers-pattern-07-f.svg OK 37
+pservers-pattern-08-f.svg OK 37
 pservers-pattern-09-f.svg OK 37
 render-elems-01-t.svg OK 0
 render-elems-02-t.svg OK 323
