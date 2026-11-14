@@ -179,8 +179,13 @@ struct WaveletRaster
         _interimStack[] = Interim(0, 0, 0, 0);
 
         immutable center = FPoint(0.5 * _clipRect.width, 0.5 * _clipRect.height);
+        version(WaveletDump)
+            dumpTrace ~= text("C", K, " ", curve, " @", center, "\n");
         auto cartesian = cartesianBezierWalker!(float, K)(curve, center);
         auto g0 = cartesian.pos;
+        // the BezIota ctor's endpoint decisions, straight from the walker
+        version(WaveletDump)
+            dumpTrace ~= text("G ", g0.x, ",", g0.y, "\n");
 
         auto t0 = 0.0f;
         // Iterate of all crossings of a bezier curve with
@@ -196,6 +201,8 @@ struct WaveletRaster
             // changed in grid coordinates
             immutable nup = 1 + bsr(g0.x ^ g1.x | g0.y ^ g1.y);
             assert(nup <= _depth);
+            version(WaveletDump) dumpTrace ~= text("W t1=", t1, " g=", g1.x, ",", g1.y,
+                                                   " nup=", nup, "\n");
 
             // A vertex sitting exactly on a grid intersection makes
             // cartesian() emit the crossing twice: same parameter, next
@@ -259,6 +266,7 @@ struct WaveletRaster
 
     void insertEdge(size_t K)(ref FPoint[K] pts)
     {
+        version(WaveletDump) dumpTrace ~= text("E", K, " ", pts, "\n");
         immutable off = fPoint(_clipRect.pos);
         foreach(i; SIota!(0, K))
             pts[i] -= off;
@@ -282,6 +290,52 @@ struct WaveletRaster
         case Path.FillRule.EvenOdd:
             blitCoverage!evenOddCoverage();
             break;
+        }
+        version(WaveletDump) dumpFlush();
+    }
+
+    version(WaveletDump)
+    {
+        // Per-path trace appended by insertEdge / updateCoeffs, flushed with
+        // the marks, coefficients and scratch bytes at blit() time.  Floats
+        // print via std.conv.text at shortest round-trip, so a single-ULP
+        // build difference shows up as a single line difference.
+        string dumpTrace;
+
+        private void dumpFlush()
+        {
+            import std.array : appender;
+            import std.file : append;
+            import std.format : formattedWrite;
+            import std.process : environment;
+
+            auto outPath = environment.get("WLDUMP", "");
+            if (outPath.empty)
+                return;
+
+            auto ap = appender!string;
+            ap.formattedWrite("R clip=(%d,%d,%d,%d) depth=%d root=%s\n",
+                _clipRect.left, _clipRect.top, _clipRect.width, _clipRect.height,
+                _depth, _rootConst);
+            foreach (d; 0 .. _depth)
+            {
+                enum nbits = 8 * size_t.sizeof;
+                foreach (wi; 0 .. (_coeffs[d].length + nbits - 1) / nbits)
+                    if (auto w = _coeffMarks[d][wi])
+                        ap.formattedWrite("M %d %d %x\n", d, wi, w);
+                foreach (i, c; _coeffs[d])
+                    if (bt(_coeffMarks[d], i))
+                        ap.formattedWrite("C %d %d %s %s %s\n", d, i, c[0], c[1], c[2]);
+            }
+            ap.formattedWrite("S %d %d\n", _clipRect.width, _clipRect.height);
+            foreach (y; 0 .. _clipRect.height)
+            {
+                foreach (x; 0 .. _clipRect.width)
+                    ap.formattedWrite("%d ", scratch.getRange!ubyte(x, x, y)[0]);
+                ap.formattedWrite("\n");
+            }
+            append(outPath, dumpTrace ~ ap.data);
+            dumpTrace = null;
         }
     }
 
