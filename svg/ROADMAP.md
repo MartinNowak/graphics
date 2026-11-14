@@ -485,6 +485,15 @@ rows came back byte-identical a twelfth time, and the
 unittests pin the stood and turned placements, the vkern split
 and the length walk.
 
+**The track is complete.** Steps 1-115 land every feature the
+Backlog ever held, and the Backlog is empty: the suite runs
+526 tests OK at 1,123,168 AE, and everything left stands
+examined in the Deferred ceilings below - DOM and script
+end-states no CLI can reach, references that disagree with the
+edition the files declare, and the host-font floors where the
+host's honest answer is simply not the reference's font. What
+follows is the chronicle.
+
 ## Next steps
 
 Step 10 (SMIL core subset) landed: the CLI renders every document as
