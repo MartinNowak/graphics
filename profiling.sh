@@ -13,10 +13,11 @@
 #
 # Needs perf_event_paranoid <= 1 (or root) for the dwarf stack dumps.
 #
-# Attribution build: a non-LTO '-O2 -g' release build (app-perf): LTO hoists
-# callees into callers and smears per-function attribution. The PGO/LTO
-# binary (pgo.sh, svg/graphics_svg) is stashed and restored around the build
-# so tests/w3c/run.sh keeps seeing it.
+# Subject: the PGO/LTO gate binary itself (pgo.sh, svg/graphics_svg). LTO
+# inlining shows up merged into callers - that is the code users run, and a
+# leaf that survives it (a shift-and-mask accessor, say) is really there.
+# .eh_frame CFI carries the dwarf call graphs and .symtab the symbol
+# attribution; without -g there are no line or inlined frames by design.
 #
 # GDC's old-style D mangling (_D8graphics3svg6filter...) is what binutils'
 # c++filt decodes, so function names come out fully demangled. A few old
@@ -57,24 +58,10 @@ runon() {
     else "$@"; fi
 }
 
-# Rebuild outputs in place: only work/ is wiped (prof/ may hold scratch you
-# want to keep, e.g. A/B binaries), and every artifact is overwritten anyway.
+# Only work/ is wiped (prof/ may hold scratch you want to keep, e.g. A/B
+# binaries), and every artifact is overwritten anyway.
 rm --recursive --force "$profdir/work"
 mkdir --parents "$profdir/work"
-
-# ---- build -------------------------------------------------------------------
-echo '==> building (release -g)'
-if [[ -f $bin ]]; then
-    cp "$bin" "$profdir/app-prev"
-    # A failed or interrupted build must still put the gate binary back: the
-    # next run would overwrite prof/app-prev with the non-PGO binary before
-    # restoring anything, and the PGO build is expensive to reproduce.
-    trap 'cp "$profdir/app-prev" "$bin" 2>/dev/null || true' EXIT
-fi
-# dub appends DFLAGS after its own switches; -g on release costs no codegen
-# quality and gives symbols + line info without enabling LTO.
-DFLAGS='-g' dub build :svg --build=release
-cp "$bin" "$profdir/app-perf"
 
 # ---- workload ----------------------------------------------------------------
 mapfile -t files < <(
@@ -124,8 +111,9 @@ AWK
 
 # ---- perf record ---------------------------------------------------------------
 echo '==> perf record (cycles, dwarf call graphs)'
+[[ -x $bin ]] || { echo "gate binary missing - run: bash pgo.sh" >&2; exit 1; }
 runon perf record --call-graph dwarf,32768 -o "$profdir/perf.data" \
-    -- "$profdir/app-perf" "${work[@]}" >"$profdir/perf-record.log" 2>&1
+    -- "$bin" "${work[@]}" >"$profdir/perf-record.log" 2>&1
 tail -1 "$profdir/perf-record.log"
 
 # Self profile straight from perf report: its symbol resolution is exact for
@@ -180,4 +168,3 @@ flamegraph.pl --title 'graphics:svg - W3C suite render' \
 echo "==> artifacts in $profdir:"
 ls "$profdir" | sed 's/^/    /'
 echo "done. Read top-self.txt and rollup.txt first, flame.svg for context."
-echo "Verify with: bash tests/w3c/run.sh   (the gate must stay at its committed AE)"
