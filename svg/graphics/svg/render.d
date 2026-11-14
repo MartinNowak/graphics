@@ -7072,6 +7072,11 @@ private struct Renderer
             sox = ux0;
             soy = uy0;
         }
+        // Every working image the chain builds - and `src`, and the
+        // `res` blended out below - dies at this function's exit, so
+        // carve them all from one bump region instead of churning the
+        // GC with ~10 full-size buffers per filtered element.
+        auto mem = ChainRegion(0);
         auto src = rasterFrom(scratch, f.linearRGB, sox, soy);
 
         // §15.5: every offscreen is the intersection with the effects

@@ -2,6 +2,10 @@ module graphics.svg.filter;
 
 import std.algorithm, std.ascii, std.conv, std.math, std.range, std.string;
 import guip;
+import std.experimental.allocator.building_blocks.allocator_list : AllocatorList;
+import std.experimental.allocator.building_blocks.region : Region;
+import std.experimental.allocator.mallocator : Mallocator;
+import core.exception : OutOfMemoryError;
 import graphics.core.pmcolor : PMColor;
 import graphics.svg.color : parsePaint;
 import graphics.svg.parser : Document;
@@ -110,6 +114,47 @@ bool bbFraction(string v, out float r)
     return true;
 }
 
+// A filter chain's working images are all garbage the moment the chain is
+// blended out, so while a ChainRegion guard is active every Raster is
+// carved from a bump region and freed in one blow at scope exit: the
+// allocator work per buffer (and the GC's interest in ~10 MB-sized slices
+// per filtered element) simply disappears. Region!Mallocator alone is one
+// fixed block, so AllocatorList stacks doubling-size stores on demand.
+private alias Mem = AllocatorList!((n) => Region!Mallocator(max(n, 65536)));
+private Mem* g_region; // the active guard; null outside a chain
+
+/// Routes every Raster allocated until it leaves scope into a bump
+/// region. Everything built inside dies with it, so the scope must
+/// consume its rasters before exiting (filteredElement blends the result
+/// out immediately, and nested chains nest independent guards).
+struct ChainRegion
+{
+    this(int) // the 0 at call sites is a placeholder: structs cannot have
+    {        // default constructors, so the registration needs one argument
+        outer = g_region;
+        g_region = &mem;
+    }
+
+    ~this()
+    {
+        g_region = outer;
+        mem.deallocateAll();
+    }
+
+private:
+    Mem mem;
+    Mem* outer;
+}
+
+/// n uninitialized floats carved from the active region.
+private float[] carve(size_t n)
+{
+    auto b = g_region.allocate(n * float.sizeof);
+    if (b.length != n * float.sizeof)
+        throw new OutOfMemoryError(); // parity with the GC's failure mode
+    return cast(float[]) b;
+}
+
 /// One filter working image: premultiplied RGBA floats, row-major.
 /// (ox,oy) is where pixel (0,0) sits in device space: a raster for a
 /// chain whose region spills off the page starts at the region's corner,
@@ -125,9 +170,12 @@ struct Raster
     {
         this.w = w;
         this.h = h;
-        px.length = w * h * 4;
+        if (g_region)
+            px = carve(cast(size_t) w * h * 4);
+        else
+            px.length = w * h * 4;
         px[] = 0.0f; // transparent black, per §15.1's buffer init
-        // (.length= alone can hand back recycled GC memory uncleaned)
+        // (.length= or a raw carve can hand back recycled memory uncleaned)
     }
 
     this(int ox, int oy, int w, int h)
@@ -979,25 +1027,32 @@ void gaussianBlur(ref Raster dst, in Raster src, float sx, float sy)
     // by swapping array headers: no per-stage allocation, no plane copies.
     float[] scratch;
     if (sx > 0.0f || sy > 0.0f)
-        scratch.length = dst.px.length;
+    {
+        if (g_region)
+            scratch = carve(dst.px.length);
+        else
+            scratch.length = dst.px.length;
+    }
     if (sx > 0.0f)
         blurAxis(dst, scratch, true, sx);
     if (sy > 0.0f)
         blurAxis(dst, scratch, false, sy);
 }
 
-private void blurAxis(ref Raster r, ref float[] tmp, bool axisX, float s)
+private void blurAxis(ref Raster r, ref float[] tmp, bool axisX, float s) @nogc
 {
     // A stage is a uniform box (weights empty) or one weighted pass.
     struct Stage { int width, left; float[] weights; }
-    Stage[] stages;
+    Stage[3] stgs;
+    int nstgs;
+    float[16] wbuf; // s < 2 ⇒ width = 2·ceil(3s)+1 ≤ 13: taps live on the stack
     if (s < 2.0f)
     {
         immutable rad = cast(int) ceil(3.0f * s);
         Stage st;
         st.width = 2 * rad + 1;
         st.left = -rad;
-        st.weights.length = st.width;
+        st.weights = wbuf[0 .. st.width];
         float sum = 0.0f;
         foreach (off; 0 .. st.width)
         {
@@ -1008,17 +1063,19 @@ private void blurAxis(ref Raster r, ref float[] tmp, bool axisX, float s)
         }
         foreach (ref w; st.weights)
             w /= sum;
-        stages = [st];
+        stgs[0] = st;
+        nstgs = 1;
     }
     else
     {
         immutable d = cast(int) floor(s * 3.0f * sqrt(2.0f * PI) / 4.0f + 0.5f);
         if (d % 2)
-            stages = [Stage(d, -(d - 1) / 2, null), Stage(d, -(d - 1) / 2, null),
+            stgs = [Stage(d, -(d - 1) / 2, null), Stage(d, -(d - 1) / 2, null),
                       Stage(d, -(d - 1) / 2, null)];
         else
-            stages = [Stage(d, -d / 2, null), Stage(d, -d / 2 + 1, null),
+            stgs = [Stage(d, -d / 2, null), Stage(d, -d / 2 + 1, null),
                       Stage(d + 1, -d / 2, null)];
+        nstgs = 3;
     }
 
     immutable n = axisX ? r.w : r.h; // the axis run
@@ -1027,7 +1084,7 @@ private void blurAxis(ref Raster r, ref float[] tmp, bool axisX, float s)
     immutable size_t runStep = axisX ? 4 : lineStep;  // floats per run index
     assert(tmp.length == r.px.length);
 
-    foreach (st; stages)
+    foreach (st; stgs[0 .. nstgs])
     {
         auto px = r.px; // sample from ...
         auto dstPl = tmp; // ... write to, then swap: the stage's output plane
