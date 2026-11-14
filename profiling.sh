@@ -159,7 +159,10 @@ awk '{pct = $1; sub(/^[0-9.]+[[:space:]]+/, ""); name = $0
       if (key == "") key = name
       mod[key] += pct}
      END {for (g in mod) printf "%6.2f %s\n", mod[g], g}' \
-    "$profdir/top-self.full" | sort -k1,1nr | head -40 >"$profdir/rollup.txt"
+    "$profdir/top-self.full" | sort -k1,1nr >"$profdir/rollup.full"
+# head from a file: sorting into the head directly races a SIGPIPE through
+# pipefail once the sort output outgrows the pipe buffer.
+head -40 "$profdir/rollup.full" >"$profdir/rollup.txt"
 
 # Flamegraph from the stacks: strip the comm prefix stackcollapse-perf.pl
 # adds, drop comm-only (no user frames) lines, then c++filt demangles in
