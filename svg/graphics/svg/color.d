@@ -1,7 +1,7 @@
 module graphics.svg.color;
 
 import std.algorithm, std.ascii, std.conv, std.range, std.string;
-import std.math : round;
+import core.stdc.math : roundf;
 import guip.color;
 import graphics.math.clamp;
 
@@ -71,7 +71,7 @@ bool parsePaint(string s, out Color res)
             try
             {
                 if (c.endsWith("%"))
-                    v[i++] = to!int(round(to!float(c[0 .. $-1]) * 255 / 100));
+                    v[i++] = to!int(roundf(to!float(c[0 .. $-1]) * 255 / 100));
                 else
                     v[i++] = to!int(c);
             }

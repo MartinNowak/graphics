@@ -1,6 +1,7 @@
 module graphics.svg.gradient;
 
 import std.algorithm, std.conv, std.exception, std.math, std.range, std.string;
+import core.stdc.math : roundf;
 import graphics.core.matrix;
 import graphics.core.pmcolor;
 import graphics.core.shader;
@@ -112,7 +113,7 @@ struct GradSpace
 // shift-8-exact form, mirroring GradientShader.colorAt.
 private PMColor lerp(in PMColor a, in PMColor b, float u)
 {
-    immutable w = cast(ubyte) clamp(round(u * 255), 0.0f, 255.0f);
+    immutable w = cast(ubyte) clamp(roundf(u * 255), 0.0f, 255.0f);
     // The additions stay in the library's Color+Color form (as in
     // GradientShader.colorAt) and land in a PMColor via alias-this.
     PMColor res;
@@ -729,7 +730,7 @@ GradientStop[] stopsOf(ref const(Document) doc, size_t head,
             prev = off;
 
             Color c = sv.color;
-            c.a = to!ubyte(round(c.a * sv.opacity * pa));
+            c.a = to!ubyte(roundf(c.a * sv.opacity * pa));
             res ~= GradientStop(off, PMColor(c));
         }
         // §13.2.4: tied offsets - the later stop controls the overlap

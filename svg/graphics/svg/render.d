@@ -5,7 +5,7 @@ import std.file : read, readText;
 import std.path : dirName;
 import std.utf : decode;
 import core.bitop : bswap;
-import core.stdc.math : powf; // glibc's float path; std.math.pow computes in x87 real
+import core.stdc.math : powf, roundf; // glibc's float paths; std.math.pow computes in x87 real
 import gamut;
 import graphics;
 import graphics.core.fonthost;
@@ -392,7 +392,7 @@ class ImageShader : MappingShader
     // constructor can premultiply the linear combination a second time.
     static PMColor lerp(in PMColor a, in PMColor b, float u)
     {
-        immutable w = cast(uint) clamp(round(u * 256), 0.0f, 256.0f);
+        immutable w = cast(uint) clamp(roundf(u * 256), 0.0f, 256.0f);
         Color px;
         px.r = cast(ubyte) (((256 - w) * a.r + w * b.r) >> 8);
         px.g = cast(ubyte) (((256 - w) * a.g + w * b.g) >> 8);
@@ -527,7 +527,7 @@ private void applyPNGamma(ref Bitmap b, float g)
     immutable float k = 1.0f / (2.2f * g);
     ubyte[256] clut;
     foreach (i; 0 .. 256)
-        clut[i] = cast(ubyte) min(255.0f, round(255.0f * powf(i / 255.0f, k)));
+        clut[i] = cast(ubyte) min(255.0f, roundf(255.0f * powf(i / 255.0f, k)));
     foreach (y; 0 .. b.height)
         foreach (ref c; b.getLine!Color(y))
         {
@@ -1302,7 +1302,7 @@ private struct Renderer
         immutable width = wpx * zoom;
         immutable height = hpx * zoom;
 
-        bmp = Bitmap(Bitmap.Config.ARGB_8888, to!uint(round(width)), to!uint(round(height)));
+        bmp = Bitmap(Bitmap.Config.ARGB_8888, to!uint(roundf(width)), to!uint(roundf(height)));
         canvas = new Canvas(bmp);
 
         canvas.matrix = viewFit(vb, width, height,
@@ -1735,7 +1735,7 @@ private struct Renderer
                         ang += 360.0f;
                     // "Closest of the permitted values" is the closest
                     // multiple of 90, and 360 wraps back onto 0.
-                    style.glyphOrientH = (round(ang / 90.0f) % 4.0f) * 90.0f;
+                    style.glyphOrientH = (roundf(ang / 90.0f) % 4.0f) * 90.0f;
                 }
                 break;
 
@@ -2325,13 +2325,13 @@ private struct Renderer
             Color fb = Color(0);
             if (isFill ? s.hasFillFallback : s.hasStrokeFallback)
                 fb = isFill ? s.fillFallback : s.strokeFallback;
-            fb.a = to!ubyte(round(fb.a * clamp(alpha, 0f, 1f)));
+            fb.a = to!ubyte(roundf(fb.a * clamp(alpha, 0f, 1f)));
             return Paint(fb);
         }
         // No keyword reaches this point: currentColor is already bound
         // into cfill/cstroke by the cascade (pushStyle).
         Color c = isFill ? s.cfill : s.cstroke;
-        c.a = to!ubyte(round(c.a * clamp(alpha, 0f, 1f)));
+        c.a = to!ubyte(roundf(c.a * clamp(alpha, 0f, 1f)));
         return Paint(c);
     }
 
@@ -2412,7 +2412,7 @@ private struct Renderer
         foreach (ch; ps.content)
             t.renderChild(ch);
 
-        immutable pa = to!ubyte(round(clamp(paintAlpha, 0f, 1f) * 255));
+        immutable pa = to!ubyte(roundf(clamp(paintAlpha, 0f, 1f) * 255));
         PMColor[][] rows;
         rows.length = th;
         foreach (y; 0 .. th)
@@ -2865,7 +2865,7 @@ private struct Renderer
                 // twice (alphaScale(255) == 256 hides this on opaque
                 // clip masks, but not on a soft mask's AA ramp).
                 px._color = alphaMul(px,
-                    alphaScale(to!ubyte(round(clamp(v, 0f, 1f) * 255))));
+                    alphaScale(to!ubyte(roundf(clamp(v, 0f, 1f) * 255))));
             }
         }
     }
@@ -3309,16 +3309,16 @@ private struct Renderer
                     consider(sub.dev[0]);
 
                 auto q = sub.user[j];
-                bool onX = shiftX && abs(pt.x - round(pt.x)) < eps;
-                bool onY = shiftY && abs(pt.y - round(pt.y)) < eps;
+                bool onX = shiftX && abs(pt.x - roundf(pt.x)) < eps;
+                bool onY = shiftY && abs(pt.y - roundf(pt.y)) < eps;
                 if (onX || onY)
                 {
                     // The half pixel is added to the *grid line*, not to the
                     // device coordinate as transformed: a rotate() carries a
                     // cosine of 1e-8 with it, and that drift is not part of
                     // where the band belongs.
-                    q = toUser(onX ? round(pt.x) + 0.5f : pt.x,
-                        onY ? round(pt.y) + 0.5f : pt.y);
+                    q = toUser(onX ? roundf(pt.x) + 0.5f : pt.x,
+                        onY ? roundf(pt.y) + 0.5f : pt.y);
                 }
                 moved ~= q;
             }
@@ -3389,7 +3389,7 @@ private struct Renderer
         immutable ws = width * sc; // the band's width in device pixels
         if (ws <= 0 || !isFinite(ws))
             return p;
-        immutable wd = ws < 1 ? 1f : round(ws); // whole pixels, at least one
+        immutable wd = ws < 1 ? 1f : roundf(ws); // whole pixels, at least one
 
         FPoint toDevice(FPoint q)
         {
@@ -3495,11 +3495,11 @@ private struct Renderer
                 {
                     // Round the band's smaller edge to the grid, rebuild
                     // the centre from the whole-pixel width: the edges end
-                    // up round(c - ws/2) and that plus wd apart.
-                    immutable fx = crossX ? round(pt.x - ws / 2) + wd / 2 :
-                        round(pt.x);
-                    immutable fy = crossY ? round(pt.y - ws / 2) + wd / 2 :
-                        round(pt.y);
+                    // up roundf(c - ws/2) and that plus wd apart.
+                    immutable fx = crossX ? roundf(pt.x - ws / 2) + wd / 2 :
+                        roundf(pt.x);
+                    immutable fy = crossY ? roundf(pt.y - ws / 2) + wd / 2 :
+                        roundf(pt.y);
                     q = FPoint((fx - tx) / a, (fy - ty) / d);
                 }
                 moved ~= q;
@@ -5756,8 +5756,8 @@ private struct Renderer
             if (!(pw > 0) || !(ph > 0))
                 return Bitmap();
 
-            t.bmp = Bitmap(Bitmap.Config.ARGB_8888, to!uint(round(pw)),
-                to!uint(round(ph)));
+            t.bmp = Bitmap(Bitmap.Config.ARGB_8888, to!uint(roundf(pw)),
+                to!uint(roundf(ph)));
             t.canvas = new Canvas(t.bmp);
             if (auto p = "viewBox" in a)
             {
@@ -5952,7 +5952,7 @@ private struct Renderer
         if (alpha < 1f)
         {
             drawn = Bitmap(Bitmap.Config.ARGB_8888, img.width, img.height);
-            immutable sc = alphaScale(to!ubyte(round(alpha * 255)));
+            immutable sc = alphaScale(to!ubyte(roundf(alpha * 255)));
             foreach (py; 0 .. img.height)
             {
                 auto row = img.getLine!Color(py);
@@ -6865,7 +6865,7 @@ private struct Renderer
     // #A16079, the colour the capture puts there.
     void blendLayer(in Bitmap scratch, float op)
     {
-        immutable ubyte q = to!ubyte(round(clamp(op, 0.0f, 1.0f) * 255.0f));
+        immutable ubyte q = to!ubyte(roundf(clamp(op, 0.0f, 1.0f) * 255.0f));
         if (!q)
             return; // opacity 0: the layer is simply not painted
         if (q == 255)
@@ -7265,8 +7265,8 @@ private struct Renderer
             {
                 Raster o;
                 offsetShift(o, input(e.attrs, "in"),
-                    to!int(round(scaleX(num(e.attrs, "dx", 0)))),
-                    to!int(round(scaleY(num(e.attrs, "dy", 0)))));
+                    to!int(roundf(scaleX(num(e.attrs, "dx", 0)))),
+                    to!int(roundf(scaleY(num(e.attrs, "dy", 0)))));
                 res = o;
                 ran = true;
                 break;
@@ -7953,8 +7953,8 @@ private struct Renderer
                         v[1] = v[0];
                     if (!bad)
                     {
-                        kx = max(1, to!int(round(scaleX(v[0]))));
-                        ky = max(1, to!int(round(scaleY(v[1]))));
+                        kx = max(1, to!int(roundf(scaleX(v[0]))));
+                        ky = max(1, to!int(roundf(scaleY(v[1]))));
                     }
                 }
 
@@ -8582,7 +8582,7 @@ Bitmap renderSVG(string source, float zoom = 1.0f, string baseDir = "",
     // The device is composited premultiplied (blendPM), but an ARGB_8888
     // Bitmap - and any PNG saved from it - is straight-alpha by definition,
     // so convert on the way out. guip stores floor(c*(a+1)/256), making the
-    // inverse round(p*256/(a+1)) clamped; a 0 and a 255 are identities.
+    // inverse roundf(p*256/(a+1)) clamped; a 0 and a 255 are identities.
     foreach (y; 0 .. r.bmp.height)
         foreach (ref px; r.bmp.getLine!PMColor(y))
             if (px.a && px.a != 255)

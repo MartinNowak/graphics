@@ -1,6 +1,18 @@
 module graphics.math.snap;
 
 import std.math;
+import std.traits : Unqual;
+
+// std.math.round has no float specialization (unlike floor/ceil): it widens
+// to real and pays x87 roundl per call. roundf is bit-identical for float -
+// Unqual because callers hand over const(float) coordinates and that would
+// otherwise slip past the specialization into the round(real) path.
+private T roundNearest(T)(T v)
+{
+    import core.stdc.math : roundf;
+    static if (is(Unqual!T == float)) return roundf(v);
+    else return cast(T) round(v);
+}
 
 // Grid-crossing decisions must not depend on whether upstream FP evaluation
 // (transform matrices, Bernstein polys, FMA contraction...) lands one ULP
@@ -11,7 +23,7 @@ import std.math;
 // than a few ULP away) passes through untouched.
 T snapToGrid(T)(T v)
 {
-    immutable T r = cast(T) round(v);
+    immutable T r = roundNearest(v);
     // ULP step via nextDown: this Phobos has no std.math.ulp
     immutable T step = fabs(v) - cast(T) nextDown(fabs(v));
     return fabs(v - r) <= 4 * step ? r : v;
@@ -32,7 +44,7 @@ int ceilSnap(T)(T v) { return cast(int) ceil(snapToGrid(v)); }
 // ULP is absurdly small.
 T snapToMultiple(T)(T v, T m, T basis, int k = 4)
 {
-    immutable T target = round(v / m) * m;
+    immutable T target = roundNearest(v / m) * m;
     // ULP step via nextDown: this Phobos has no std.math.ulp
     immutable T step = basis - cast(T) nextDown(basis);
     return fabs(v - target) <= k * step ? target : v;
