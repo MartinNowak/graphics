@@ -14,6 +14,7 @@ import graphics.core.patheffect;
 import graphics.core.path_detail.path_measure;
 import graphics.core.pmcolor : PMColor, alphaMul, alphaScale, invAlphaScale;
 import graphics.core.shader : Shader, ColorShader, MappingShader;
+import graphics.math.snap;
 import graphics.svg.color;
 import graphics.svg.core;
 import graphics.svg.css;
@@ -2365,8 +2366,8 @@ private struct Renderer
         if (ps.W * s > 1024.0f || ps.H * s > 1024.0f)
             s = 1024.0f / max(ps.W, ps.H);
 
-        int tw = max(to!int(ceil(ps.W * s)), 1);
-        int th = max(to!int(ceil(ps.H * s)), 1);
+        int tw = max(to!int(ceilSnap(ps.W * s)), 1);
+        int th = max(to!int(ceilSnap(ps.H * s)), 1);
 
         // Content -> tile rect (0,0,W,H): a viewBox fits through
         // preserveAspectRatio, objectBoundingBox content units scale by
@@ -7589,8 +7590,8 @@ private struct Renderer
                 // the output clip. Missing sides default to
                 // 0%/0%/100%/100% of the filter region (§15.18).
                 const fr = feImageRect(e, f, region, basis, ctm);
-                sub = intersect(IBox4(cast(int) floor(fr.left), cast(int) floor(fr.top),
-                    cast(int) ceil(fr.right), cast(int) ceil(fr.bottom)), region);
+                sub = intersect(IBox4(floorSnap(fr.left), floorSnap(fr.top),
+                    ceilSnap(fr.right), ceilSnap(fr.bottom)), region);
                 Raster o = like(src);
                 immutable href = e.attrs.get("href", e.attrs.get("xlink:href", ""));
                 if (auto path = resolveHref(docBase, href))
@@ -8075,8 +8076,8 @@ private struct Renderer
         immutable b = primBox(e, f, region, basis, ctm);
         if (b.width <= 0 || b.height <= 0)
             return IBox4();
-        return IBox4(cast(int) floor(b.x), cast(int) floor(b.y),
-                     cast(int) ceil(b.right), cast(int) ceil(b.bottom));
+        return IBox4(floorSnap(b.x), floorSnap(b.y),
+                     ceilSnap(b.right), ceilSnap(b.bottom));
     }
 
     // A box of four <length>s in device pixels: objectBoundingBox
@@ -8098,10 +8099,10 @@ private struct Renderer
             if (w <= 0 || h <= 0 || basis.empty)
                 return IBox4();
             immutable bw = basis.x1 - basis.x0, bh = basis.y1 - basis.y0;
-            return IBox4(cast(int) floor(basis.x0 + x * bw),
-                         cast(int) floor(basis.y0 + y * bh),
-                         cast(int) ceil(basis.x0 + (x + w) * bw),
-                         cast(int) ceil(basis.y0 + (y + h) * bh));
+            return IBox4(floorSnap(basis.x0 + x * bw),
+                         floorSnap(basis.y0 + y * bh),
+                         ceilSnap(basis.x0 + (x + w) * bw),
+                         ceilSnap(basis.y0 + (y + h) * bh));
         }
 
         string[string] la = ["x": xs, "y": ys, "width": ws, "height": hs];
@@ -8179,8 +8180,8 @@ private struct Renderer
         immutable x1 = max(max(pts[0].x, pts[1].x), max(pts[2].x, pts[3].x));
         immutable y0 = min(min(pts[0].y, pts[1].y), min(pts[2].y, pts[3].y));
         immutable y1 = max(max(pts[0].y, pts[1].y), max(pts[2].y, pts[3].y));
-        return IBox4(cast(int) floor(x0), cast(int) floor(y0),
-                     cast(int) ceil(x1), cast(int) ceil(y1));
+        return IBox4(floorSnap(x0), floorSnap(y0),
+                     ceilSnap(x1), ceilSnap(y1));
     }
 
     // Union of geometry boxes; empty boxes (zero area) absorb nothing.

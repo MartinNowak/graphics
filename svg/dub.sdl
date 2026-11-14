@@ -4,9 +4,9 @@ description "SVG document engine and command-line renderer."
 sourcePaths "."
 importPaths "."
 
-// D has no C-style implicit FP contraction; keep a*b+c separate so a
-// -march=native (FMA) build renders pixel-identical to a baseline one.
-dflags "-ffp-contract=off"
+// Implicit FP contraction (default, and forced by -march=native/FMA) is
+// safe to render with: every pixel-coordinate integerisation snaps its
+// grid artifacts first - see graphics.math.snap.
 
 dependency "graphics" path=".."
 dependency "std-experimental-xml" version="~>0.1.7"

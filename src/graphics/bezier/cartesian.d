@@ -3,7 +3,7 @@ module graphics.bezier.cartesian;
 import guip.point, guip.rect, guip.size;
 import graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
 import std.algorithm, std.conv, std.exception, std.math, std.numeric, std.range, std.traits;
-import graphics.math.clamp, graphics.math.poly;
+import graphics.math.clamp, graphics.math.poly, graphics.math.snap;
 
 BezIota!(T, K) beziota(string dir, T, size_t K)(ref const Point!T[K] curve, T roundHint=T.max)
 {
@@ -32,15 +32,22 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
     }
     body
     {
-        _position = checkedTo!int(floor(cs[0]));
-        immutable ongrid = _position == cs[0];
-        immutable delta = cs[$-1] - cs[0];
+        // Snap grid-line artifacts once, so every integer decision below
+        // (floor/ceil of the endpoints, `ongrid`, the emptiness tests
+        // against them) sees exact integers on every build.
+        T[K] scs;
+        foreach (i, c; cs)
+            scs[i] = snapToGrid(c);
+
+        _position = checkedTo!int(floor(scs[0]));
+        immutable ongrid = _position == scs[0];
+        immutable delta = scs[$-1] - scs[0];
 
         // empty
         if (delta == 0)
         {
             // no dimension and exactly on grid border => adjust towards roundHint
-            if (ongrid && roundHint < cs[0])
+            if (ongrid && roundHint < scs[0])
             {
                 --_position;
             }
@@ -50,13 +57,13 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
         {
             if (delta > 0)
             {
-                if (_position + 1 >= cs[$-1])
+                if (_position + 1 >= scs[$-1])
                 {
                     _pastend = _position; // empty
                 }
                 else
                 {
-                    _pastend = checkedTo!int(ceil(cs[$-1]));
+                    _pastend = checkedTo!int(ceil(scs[$-1]));
                     assert(_pastend > _position);
                 }
             }
@@ -65,13 +72,13 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
                 if (ongrid)
                     --_position;
 
-                if (_position <= cs[$-1])
+                if (_position <= scs[$-1])
                 {
                     _pastend = _position; // empty
                 }
                 else
                 {
-                    _pastend = checkedTo!int(floor(cs[$-1]));
+                    _pastend = checkedTo!int(floor(scs[$-1]));
                     assert(_pastend < _position);
                 }
             }
@@ -79,7 +86,7 @@ struct BezIota(T, size_t K) if (is(T : double) && K >= 2 && K <= 4)
                 assert(0);
         }
 
-        convertToPoly(cs, _coeffs);
+        convertToPoly(scs, _coeffs);
     }
 
     @property bool empty() const

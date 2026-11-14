@@ -6,7 +6,7 @@ import guip.point, guip.rect, guip.size, guip.bitmap;
 import graphics.core.blitter, graphics.core.fonthost, graphics.core.glyph, graphics.core.matrix,
     graphics.core.paint, graphics.core.path, graphics.core.path_detail.path_measure,
     graphics.core.pmcolor, graphics.core.shader, graphics.core.wavelet.wavelet;
-import graphics.math.clamp, graphics.math.poly;
+import graphics.math.clamp, graphics.math.poly, graphics.math.snap;
 
 struct Draw
 {
@@ -234,7 +234,11 @@ public:
 void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter blitter)
 {
     FRect bounds = mat.mapRect(path.bounds);
-    auto ir = bounds.roundOut;
+    // mapRect can leave a side a hair off the grid line (FMA contraction);
+    // roundOut would inflate that ULP into a whole extra pixel column of
+    // raster, shifting every downstream grid coordinate. Snap first.
+    auto ir = FRect(snapToGrid(bounds.left), snapToGrid(bounds.top),
+        snapToGrid(bounds.right), snapToGrid(bounds.bottom)).roundOut;
 
     debug
     {

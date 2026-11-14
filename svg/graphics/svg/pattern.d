@@ -1,7 +1,8 @@
 module graphics.svg.pattern;
 
-import std.algorithm, std.conv, std.math, std.string;
+import std.algorithm, std.math, std.string;
 import graphics.core.matrix, graphics.core.pmcolor, graphics.core.shader;
+import graphics.math.snap;
 import graphics.svg.core : transformSVG;
 import graphics.svg.parser;
 import graphics.svg.pserver;
@@ -210,14 +211,24 @@ final class PatternShader : MappingShader
     {
         immutable p = pthis.invPT * pthis.mapPt(dev);
 
-        auto tx = p.x - pthis.X;
-        auto ty = p.y - pthis.Y;
+        // Lattice multiples and texel borders are the discontinuities.
+        // p arrived through chained products that can cancel (a rotate
+        // leaves y·c - x·s, so 9·cos45 - 9·sin45 may come out at 1 ULP
+        // of 9 instead of 0): the error is a few ULPs of the operands'
+        // magnitude, while a cancelled coordinate's own ULP is a
+        // meaningless yardstick. Snap onto both grids against max|p|,
+        // the surviving operand scale, before any floor or truncation.
+        immutable float basis = max(fabs(p.x), fabs(p.y));
+        auto tx = snapToMultiple(p.x - pthis.X, pthis.W, basis);
+        auto ty = snapToMultiple(p.y - pthis.Y, pthis.H, basis);
+        tx = snapToMultiple(tx, 1.0f / pthis.scale, basis);
+        ty = snapToMultiple(ty, 1.0f / pthis.scale, basis);
         tx -= floor(tx / pthis.W) * pthis.W;
         ty -= floor(ty / pthis.H) * pthis.H;
 
-        immutable ix = min(to!int(tx * pthis.scale),
+        immutable ix = min(floorSnap(tx * pthis.scale),
             cast(int) pthis.rows[0].length - 1);
-        immutable iy = min(to!int(ty * pthis.scale),
+        immutable iy = min(floorSnap(ty * pthis.scale),
             cast(int) pthis.rows.length - 1);
         return pthis.rows[iy][ix];
     }
