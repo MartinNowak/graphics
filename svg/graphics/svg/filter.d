@@ -39,6 +39,16 @@ private bool ieq(string a, string b)
 // render.d reads them here rather than carrying a second copy.
 enum lumCoefs = [0.2125f, 0.7154f, 0.0721f];
 
+// float pow: glibc's powf at runtime - std.math.pow computes in 80-bit real
+// and the hot color curves paid for it - but Phobos' pow during CTFE, where
+// extern C has no body to interpret (the decode LUT is compile-time baked).
+// __ctfe folds away in runtime code; the two results differ by a few ULP.
+private float powfCT(float x, float y)
+{
+    import core.stdc.math : powf;
+    return __ctfe ? pow(x, y) : powf(x, y);
+}
+
 // Piecewise sRGB decode (IEC 61966-2-1; the table of SVG 1.1 F.2).
 float[256] srgbDecodeLUT()
 {
@@ -46,7 +56,7 @@ float[256] srgbDecodeLUT()
     foreach (i; 0 .. 256)
     {
         immutable c = i / 255.0f;
-        t[i] = c <= 0.04045f ? c / 12.92f : pow((c + 0.055f) / 1.055f, 2.4f);
+        t[i] = c <= 0.04045f ? c / 12.92f : powfCT((c + 0.055f) / 1.055f, 2.4f);
     }
     return t;
 }
@@ -55,7 +65,7 @@ float[256] srgbDecodeLUT()
 ubyte srgbEncode(float v)
 {
     immutable c = clamp(v, 0.0f, 1.0f);
-    immutable s = c <= 0.0031308f ? 12.92f * c : 1.055f * pow(c, 1.0f / 2.4f) - 0.055f;
+    immutable s = c <= 0.0031308f ? 12.92f * c : 1.055f * powfCT(c, 1.0f / 2.4f) - 0.055f;
     return cast(ubyte)(s * 255.0f + 0.5f);
 }
 
@@ -694,7 +704,7 @@ struct TransferFunc
             return slope * c + intercept;
 
         case Kind.gamma:
-            return amplitude * pow(max(c, 0.0f), exponent) + offset;
+            return amplitude * powfCT(max(c, 0.0f), exponent) + offset;
 
         case Kind.table:
             if (table.length < 2)
@@ -1876,7 +1886,7 @@ void lighting(ref Raster dst, in Raster src, const Light lit, bool specular,
                     Lrgb[] = 0.0f;
                 else
                 {
-                    immutable att = pow(-ls, lit.specularExponent);
+                    immutable att = powfCT(-ls, lit.specularExponent);
                     foreach (c; 0 .. 3)
                         Lrgb[c] *= att;
                 }
@@ -1898,7 +1908,7 @@ void lighting(ref Raster dst, in Raster src, const Light lit, bool specular,
                 float nh = 0.0f;
                 if (hn > 0.0f)
                     nh = max(0.0f, (nx * H[0] + ny * H[1] + nz * H[2]) / hn);
-                immutable ph = pow(nh, specExp);
+                immutable ph = powfCT(nh, specExp);
                 float m = 0.0f;
                 foreach (c; 0 .. 3)
                 {

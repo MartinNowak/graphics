@@ -5,6 +5,7 @@ import std.file : read, readText;
 import std.path : dirName;
 import std.utf : decode;
 import core.bitop : bswap;
+import core.stdc.math : powf; // glibc's float path; std.math.pow computes in x87 real
 import gamut;
 import graphics;
 import graphics.core.fonthost;
@@ -526,7 +527,7 @@ private void applyPNGamma(ref Bitmap b, float g)
     immutable float k = 1.0f / (2.2f * g);
     ubyte[256] clut;
     foreach (i; 0 .. 256)
-        clut[i] = cast(ubyte) min(255.0f, round(255.0f * pow(i / 255.0f, k)));
+        clut[i] = cast(ubyte) min(255.0f, round(255.0f * powf(i / 255.0f, k)));
     foreach (y; 0 .. b.height)
         foreach (ref c; b.getLine!Color(y))
         {
