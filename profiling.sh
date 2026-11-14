@@ -112,7 +112,7 @@ AWK
 # ---- perf record ---------------------------------------------------------------
 echo '==> perf record (cycles, dwarf call graphs)'
 [[ -x $bin ]] || { echo "gate binary missing - run: bash pgo.sh" >&2; exit 1; }
-runon perf record --call-graph dwarf,32768 -o "$profdir/perf.data" \
+runon perf record -F 10000 --call-graph dwarf,32768 -o "$profdir/perf.data" \
     -- "$bin" "${work[@]}" >"$profdir/perf-record.log" 2>&1
 tail -1 "$profdir/perf-record.log"
 

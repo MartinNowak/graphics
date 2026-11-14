@@ -7074,9 +7074,11 @@ private struct Renderer
         }
         // Every working image the chain builds - and `src`, and the
         // `res` blended out below - dies at this function's exit, so
-        // carve them all from one bump region instead of churning the
-        // GC with ~10 full-size buffers per filtered element.
-        auto mem = ChainRegion(0);
+        // carve them all from one warm bump store instead of churning
+        // the GC. ChainRegion sizes the store from the chain itself; a
+        // plane being w·h·4 floats of `like(src)` geometry.
+        immutable planeBytes = size_t(scratch.width) * scratch.height * 4 * float.sizeof;
+        auto mem = ChainRegion(f.prims.length, planeBytes);
         auto src = rasterFrom(scratch, f.linearRGB, sox, soy);
 
         // §15.5: every offscreen is the intersection with the effects

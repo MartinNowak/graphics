@@ -2,10 +2,7 @@ module graphics.svg.filter;
 
 import std.algorithm, std.ascii, std.conv, std.math, std.range, std.string;
 import guip;
-import std.experimental.allocator.building_blocks.allocator_list : AllocatorList;
-import std.experimental.allocator.building_blocks.region : Region;
 import std.experimental.allocator.mallocator : Mallocator;
-import core.exception : OutOfMemoryError;
 import graphics.core.pmcolor : PMColor;
 import graphics.svg.color : parsePaint;
 import graphics.svg.parser : Document;
@@ -116,43 +113,73 @@ bool bbFraction(string v, out float r)
 
 // A filter chain's working images are all garbage the moment the chain is
 // blended out, so while a ChainRegion guard is active every Raster is
-// carved from a bump region and freed in one blow at scope exit: the
-// allocator work per buffer (and the GC's interest in ~10 MB-sized slices
-// per filtered element) simply disappears. Region!Mallocator alone is one
-// fixed block, so AllocatorList stacks doubling-size stores on demand.
-private alias Mem = AllocatorList!((n) => Region!Mallocator(max(n, 65536)));
-private Mem* g_region; // the active guard; null outside a chain
+// carved from a bump store. The store is not freed when the guard ends:
+// it is cached per nesting depth and rewound by the next lease, its
+// pages staying faulted in, so chains after the first pay neither malloc
+// nor kernel page faults. The size is a hint, not an invariant: the
+// chain's structure gives its typical footprint - every raster is
+// `like(src)`, so the working set is a plane count times w·h·4 floats,
+// the plane count a fixed 7 buffers + 2 per primitive (worst kernel
+// feGaussianBlur, a dst copy + a scratch plane). If the hint runs out,
+// carve falls back to the GC, exactly as before regions existed - a
+// heavier future kernel is then slow, never wrong.
+private struct Bump
+{
+    ubyte[] store; // Mallocator-owned, kept warm across guards
+    size_t at;
+
+    float[] carve(size_t n) // n uninitialized floats
+    {
+        // No alignment padding: every plane is w·h·4 floats, so every
+        // carve is a multiple of 16 bytes from the malloc-aligned base.
+        immutable bytes = n * float.sizeof;
+        if (at + bytes > store.length)
+        {
+            float[] gc;
+            gc.length = n; // hint overrun: back to the old way, correct
+            return gc;
+        }
+        auto base = at;
+        at += bytes;
+        return cast(float[])store[base .. at];
+    }
+}
+
+private Bump[] s_slots;    // bump + warm store, one per chain nesting depth
+private size_t s_used;     // number of active guards
+private Bump* g_region;    // the active store; null outside a chain
 
 /// Routes every Raster allocated until it leaves scope into a bump
-/// region. Everything built inside dies with it, so the scope must
-/// consume its rasters before exiting (filteredElement blends the result
-/// out immediately, and nested chains nest independent guards).
+/// store. Everything built inside dies with it, so the scope must
+/// consume its rasters before exiting (filteredElement blends the
+/// result out immediately, and nested chains lease deeper stores).
 struct ChainRegion
 {
-    this(int) // the 0 at call sites is a placeholder: structs cannot have
-    {        // default constructors, so the registration needs one argument
-        outer = g_region;
-        g_region = &mem;
+    @disable this(this); // a copy would run ~this twice
+
+    this(size_t prims, size_t planeBytes)
+    {
+        immutable depth = s_used++;
+        if (s_slots.length <= depth) // first chain at this depth
+            s_slots.length = depth + 1;
+        immutable bytes = planeBytes * (7 + prims * 2); // the structural hint
+        if (s_slots[depth].store.length < bytes)
+        {
+            Mallocator.instance.deallocate(s_slots[depth].store);
+            // malloc failure leaves an empty store: every carve then
+            // falls back to the GC, the pre-region behavior.
+            s_slots[depth].store
+                = cast(ubyte[])Mallocator.instance.allocate(bytes);
+        }
+        s_slots[depth].at = 0; // rewind; the store's pages stay warm
+        g_region = &s_slots[depth];
     }
 
     ~this()
     {
-        g_region = outer;
-        mem.deallocateAll();
+        immutable depth = --s_used;
+        g_region = depth ? &s_slots[depth - 1] : null;
     }
-
-private:
-    Mem mem;
-    Mem* outer;
-}
-
-/// n uninitialized floats carved from the active region.
-private float[] carve(size_t n)
-{
-    auto b = g_region.allocate(n * float.sizeof);
-    if (b.length != n * float.sizeof)
-        throw new OutOfMemoryError(); // parity with the GC's failure mode
-    return cast(float[]) b;
 }
 
 /// One filter working image: premultiplied RGBA floats, row-major.
@@ -171,7 +198,7 @@ struct Raster
         this.w = w;
         this.h = h;
         if (g_region)
-            px = carve(cast(size_t) w * h * 4);
+            px = g_region.carve(cast(size_t) w * h * 4);
         else
             px.length = w * h * 4;
         px[] = 0.0f; // transparent black, per §15.1's buffer init
@@ -1029,7 +1056,7 @@ void gaussianBlur(ref Raster dst, in Raster src, float sx, float sy)
     if (sx > 0.0f || sy > 0.0f)
     {
         if (g_region)
-            scratch = carve(dst.px.length);
+            scratch = g_region.carve(dst.px.length);
         else
             scratch.length = dst.px.length;
     }
