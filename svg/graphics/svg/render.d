@@ -2366,8 +2366,8 @@ private struct Renderer
         if (ps.W * s > 1024.0f || ps.H * s > 1024.0f)
             s = 1024.0f / max(ps.W, ps.H);
 
-        int tw = max(to!int(ceilSnap(ps.W * s)), 1);
-        int th = max(to!int(ceilSnap(ps.H * s)), 1);
+        int tw = max(ceilSnap(ps.W * s), 1);
+        int th = max(ceilSnap(ps.H * s), 1);
 
         // Content -> tile rect (0,0,W,H): a viewBox fits through
         // preserveAspectRatio, objectBoundingBox content units scale by

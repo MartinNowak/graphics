@@ -64,18 +64,17 @@ mkdir --parents "$profdir/work"
 
 # ---- build -------------------------------------------------------------------
 echo '==> building (release -g)'
-had_prev=0
 if [[ -f $bin ]]; then
     cp "$bin" "$profdir/app-prev"
-    had_prev=1
+    # A failed or interrupted build must still put the gate binary back: the
+    # next run would overwrite prof/app-prev with the non-PGO binary before
+    # restoring anything, and the PGO build is expensive to reproduce.
+    trap 'cp "$profdir/app-prev" "$bin" 2>/dev/null || true' EXIT
 fi
 # dub appends DFLAGS after its own switches; -g on release costs no codegen
 # quality and gives symbols + line info without enabling LTO.
 DFLAGS='-g' dub build :svg --build=release
 cp "$bin" "$profdir/app-perf"
-if (( had_prev )); then
-    cp "$profdir/app-prev" "$bin"    # run.sh must see the binary it saw before
-fi
 
 # ---- workload ----------------------------------------------------------------
 mapfile -t files < <(

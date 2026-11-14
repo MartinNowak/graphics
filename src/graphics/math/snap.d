@@ -29,12 +29,7 @@ int ceilSnap(T)(T v) { return cast(int) ceil(snapToGrid(v)); }
 // basis yardstick matters when v arrived through chained products,
 // inverses or cancellations: its error scales with the magnitude those
 // operated on - a nearly cancelled v carries that error while its own
-// ULP is absurdly small. Without basis, v measures itself.
-T snapToMultiple(T)(T v, T m, int k = 4)
-{
-    return v.snapToMultiple(m, fabs(v), k);
-}
-
+// ULP is absurdly small.
 T snapToMultiple(T)(T v, T m, T basis, int k = 4)
 {
     immutable T target = round(v / m) * m;
@@ -65,8 +60,8 @@ unittest
 
     // Chained inverses smear a few ULP of the magnitude they operated on,
     // so the lattice tolerance counts ULPs of v, not of the quotient.
-    assert(snapToMultiple(299.99998f, 7.5f) == 300.0f); // 1 ULP of 300
-    assert(snapToMultiple(300.5f, 7.5f) == 300.5f); // a real 0.5 offset
-    assert(snapToMultiple(7.9999995f, 8.0f) == 8.0f);
-    assert(snapToMultiple(8.00004f, 8.0f) == 8.00004f); // beyond 4 ULP
+    assert(snapToMultiple(299.99998f, 7.5f, 299.99998f) == 300.0f); // 1 ULP of 300
+    assert(snapToMultiple(300.5f, 7.5f, 300.5f) == 300.5f); // a real 0.5 offset
+    assert(snapToMultiple(7.9999995f, 8.0f, 7.9999995f) == 8.0f);
+    assert(snapToMultiple(8.00004f, 8.0f, 8.00004f) == 8.00004f); // beyond 4 ULP
 }
