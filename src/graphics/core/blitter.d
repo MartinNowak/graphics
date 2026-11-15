@@ -22,6 +22,7 @@ import graphics.core.blitter_detail;
 
 import graphics.math.clamp;
 
+@safe:
 class Blitter
 {
   void blitRect(IRect rect) {
@@ -118,8 +119,7 @@ class ARGB32Blitter : RasterBlitter {
   override void blitMask(int x, int y, in Bitmap mask) {
     assert(mask.config == Bitmap.Config.A8);
 
-    auto src = (cast(Bitmap)mask);
-    auto w = src.width;
+    auto w = mask.width;
     auto colA = this.color.a;
 
     // Decode each mask row into runs of equal alpha; each run is one
@@ -128,7 +128,7 @@ class ARGB32Blitter : RasterBlitter {
     // GC cycles under blitMask.
     for (auto h = 0; h < mask.height; ++h) {
       auto dst = this.bitmap.getRange!PMColor(x, x + w, y + h);
-      auto row = src.getRange!ubyte(0, w, h);
+      auto row = mask.getRange!ubyte(0, w, h);
       for (size_t i, n; i < row.length; i = n)
       {
         immutable a = row[i];
@@ -181,15 +181,14 @@ class ShaderARGB32Blitter : ARGB32Blitter {
   override void blitMask(int x, int y, in Bitmap mask) {
     assert(mask.config == Bitmap.Config.A8);
 
-    auto src = (cast(Bitmap)mask);
-    auto w = src.width;
+    auto w = mask.width;
 
     for (auto h = 0; h < mask.height; ++h) {
       auto dst = this.bitmap.getRange!PMColor(x, x + w, y + h);
       this.data.length = w;
       this.shader.getRange(x, y + h, this.data);
       // Manual run scan; see ARGB32Blitter.blitMask.
-      auto row = src.getRange!ubyte(0, w, h);
+      auto row = mask.getRange!ubyte(0, w, h);
       for (size_t i, n; i < row.length; i = n)
       {
         immutable a = row[i];

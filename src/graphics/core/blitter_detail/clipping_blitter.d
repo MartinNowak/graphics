@@ -7,6 +7,8 @@ private {
   import graphics.math.clamp;
 }
 
+@safe:
+
 class RectBlitter : Blitter {
   Blitter blitter;
   IRect clip;

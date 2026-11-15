@@ -10,6 +10,8 @@ private {
   import guip.rect;
 }
 
+@safe:
+
 class SpriteBlitter : Blitter {
 
   static SpriteBlitter CreateD32(Bitmap device, in Bitmap source,

@@ -5,6 +5,7 @@ import std.range : popFront, front, empty, isRandomAccessRange;
 import graphics.core.pmcolor;
 import graphics.core.blitter_detail.blit_row_factory;
 
+@safe:
 static void Color32(Range)(Range range, PMColor pmColor) {
   if (pmColor.a == 255) {
     foreach (ref px; range)

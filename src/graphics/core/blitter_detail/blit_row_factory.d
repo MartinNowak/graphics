@@ -4,6 +4,7 @@ import graphics.core.pmcolor;
 
 public import graphics.core.blitter_detail.blit_row;
 
+@safe:
 /** Function pointer that blends 32bit colors onto a 32bit destination.
     @param dst  array of dst 32bit colors
     @param src  array of src 32bit colors (w/ or w/o alpha)

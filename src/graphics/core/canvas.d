@@ -3,6 +3,7 @@ module graphics.core.canvas;
 import guip.bitmap, guip.point, guip.rect;
 import graphics.core.pmcolor, graphics.core.draw, graphics.core.matrix, graphics.core.paint, graphics.core.path;
 
+@safe:
 /**
 */
 class Canvas
