@@ -5061,8 +5061,9 @@ than even the old contract-off
 build managed. 526 tests OK,
 total 1,123,168.
 
-Next campaign (plan, not yet started): make `graphics` and `guip`
-as @safe as the toolchain allows, before any further perf digging.
+Next campaign (plan; closed at the end of this section): make `graphics`
+and `guip` as @safe as the toolchain allows, before any further perf
+digging.
 Two findings from the scratch-pool and wavelet-pad passes put it
 first. The malloc-backed pixel-buffer design leans on `scope`-
 returning `buffer`/`getLine`/`getRange` to promise no slice outlives
@@ -5095,6 +5096,48 @@ The campaign doubles as the scout for a possible Rust port: every
 tally is that port's unsafe budget, and the leaves-first order is
 the port order. The AE ledger plus 526 golden renders is the
 port's differential oracle either way - keep it bit-exact.
+
+**@safe campaign close.** The plan ran exactly as written - leaves
+first, up to the render path - and closed in sixteen waves (06bd72f
+through 276977d). guip took the default in one (457f453): all five
+code modules `@safe:`, one @trusted borrow in `save()`, the package
+barrel trivial.
+
+The tally, over the 53 modules of graphics+svg: 37 carry the `@safe:`
+default; six are code-free re-export barrels; three are the planned
+permanent @system - `src/freetype` (x2) and `src/fontconfig` host
+bindings; `blitter_detail`'s row kernels, as planned, sit outside
+unchanged; and six are law modules held defaultless (below). @trusted
+appears in only fourteen graphics/svg files: FT/FC glue islands, the
+wavelet coefficient store's malloc views, chop/clip alias guards,
+flattener/measure/bitmapshader/gradient scratch, smil's arena
+unsealing, parseSVG, filter's Mallocator pool, render's `lowered()`
+and file read, and main's getopt. That is the Rust port's entire
+unsafe budget: four host/kernel modules plus about twenty localized
+regions.
+
+Six modules refuse the module default because attribute-generic
+templates pin every instantiation to their defining module's default
+(probe-proven, clamp.d reverted in 1aa8638): `core/path.d`,
+`bezier/clip.d`, `math/clamp.d`, the `fonthost` freetype and
+fontconfig pair, and `svg/parser.d`. Safety there is explicit tags
+plus per-instantiation inference from callers.
+
+The laws learned, all GDC 16.2.1 probes: function-scope function and
+delegate TYPES default to @system even under `@safe:` - slot types
+(wavelet's `SegDg`, cartesian's `opApply`, parser's `replaceRefs`)
+carry explicit @safe; scoped `if (auto x = ...; cond)` does not parse;
+`scope` params do not license `&local` (partial DIP1000) - sinks are
+`ref`; `foreach (ref x; ...) &x` is rejected, index instead; structs
+holding references cannot copy-append from const sources; this
+Phobos has no `std.file.File` and no `std.array.assumeUnique`; and
+getopt shrinks its args slice in place - an island must take it by
+ref, which the gate caught as 526 flat ERRORs before commit.
+
+The AE invariant never blinked: every one of the sixteen waves gated
+at exactly 1,123,168, 30+10 unit modules, 526 golden renders. The
+claim held - @safe is compile-time only, and no cast smuggled in a
+behaviour change.
 
 ## Deferred / accepted ceilings (do not chase)
 
