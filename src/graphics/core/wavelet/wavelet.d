@@ -283,7 +283,13 @@ struct WaveletRaster
         immutable off = fPoint(_clipRect.pos);
         foreach(i; SIota!(0, K))
             pts[i] -= off;
-        clippedMonotonic!(float, K)(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice, &insertSlice);
+        // Named delegate types: give the &insertSlice overload set its
+        // two target signatures (clippedMonotonic's slots are now
+        // inferred template parameters). Segments arrive as K points;
+        // the border joins are always 2-point lines.
+        alias SegDg = void delegate(ref const FPoint[K]);
+        alias BorderSegDg = void delegate(ref const FPoint[2]);
+        clippedMonotonic!(float, K, SegDg, BorderSegDg)(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice, &insertSlice);
     }
 
     /// Reconstruct the wavelet into the A8 scratch bitmap: pixel

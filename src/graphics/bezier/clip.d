@@ -3,20 +3,37 @@ module graphics.bezier.clip;
 import graphics.bezier.chop, graphics.bezier.curve, graphics.math.clamp, graphics.math.poly;
 import guip.point, guip.rect;
 import std.algorithm, std.conv, std.exception, std.math, std.numeric, std.string;
+// No module @safe: default: the Dg-generic walk slots above must stay
+// @system-default so GDC infers each instantiation from the caller
+// (a @safe: default pins them and rejects @system callbacks - same
+// law as path.d). Aliases guard and slice-clean locals carry the
+// safety that is this module business.
+
+// Alias guard for (const) ref params: pointer identity of the two
+// refs, compared and discarded. @trusted because taking addresses is
+// @system; no address ever escapes the comparison.
+private bool aliases(T, U)(ref T a, ref U b) @trusted
+{
+    return &a == &b;
+}
 
 /*
  * Splits a bezier curve into monotonic segments and clip each one to
  * fit into $(D_Param clip).  Calls ($D_Param dg) for each of these
  * segments. Calls $(D_Param borderdg) for border segments connecting
  * the monotone segments.
+ *
+ * Dg/BorderDg are template parameters so the slots are attribute-
+ * generic (same policy as Path.apply): callers' lambdas infer their
+ * own attributes instead of being pinned by a delegate type.
  */
-void clippedMonotonic(T, size_t K)(
+void clippedMonotonic(T, size_t K, Dg, BorderDg)(
     ref const Point!T[K] curve,
     Rect!T clip,
-    scope void delegate(ref const Point!T[K] monoSeg) dg,
-    scope void delegate(ref const Point!T[2] line) borderdg)
+    scope Dg dg,
+    scope BorderDg borderdg)
 {
-    Point!T[K][1 + 2*(K-2)] monos = void;
+    Point!T[K][1 + 2*(K-2)] monos;
     auto monocnt = clipBezier(curve, clip, monos);
 
     Point!T pos = curve[0];
@@ -31,14 +48,14 @@ void clippedMonotonic(T, size_t K)(
         joinSegment(pos, curve[$-1], clip, borderdg);
 }
 
-private void joinSegment(T)(Point!T a, Point!T b, Rect!T clip, scope void delegate(ref const Point!T[2]) dg)
+private void joinSegment(T, Dg)(Point!T a, Point!T b, Rect!T clip, scope Dg dg)
 {
     a.x = clampToRange(a.x, clip.left, clip.right);
     a.y = clampToRange(a.y, clip.top, clip.bottom);
     b.x = clampToRange(b.x, clip.left, clip.right);
     b.y = clampToRange(b.y, clip.top, clip.bottom);
     auto diff = b - a;
-    Point!T[2] line = void;
+    Point!T[2] line;
     line[0] = a;
     line[1] = a;
 
@@ -127,7 +144,7 @@ body
     {
         if (fitsIntoRange!("[]")(v[0], lo, hi))
         {
-            if (&curve != &clipped)
+            if (!curve.aliases(clipped))
                 clipped = curve;
             return true;
         }
@@ -183,7 +200,7 @@ body
         return false; // tangent graze / precision collapse: empty interval
     if (s0 == 0 && s1 == 1)
     {
-        if (&curve != &clipped)
+        if (!curve.aliases(clipped))
             clipped = curve;
     }
     else
