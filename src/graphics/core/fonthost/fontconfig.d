@@ -4,9 +4,18 @@ import core.atomic;
 import std.bitmanip, std.conv, std.exception, std.traits, std.string;
 import fontconfig.fontconfig;
 
+// No module @safe: default: findFace is a variadic template, and the
+// walk through libfontconfig's C API inside it must stay @system-
+// reachable (GDC's template/module-default pinning law). What is
+// tagged instead: the plain struct accessors, and @trusted on the
+// findFace templates - one island over the whole FcPattern walk:
+// pattern create/substitute/match on opaque C handles, and returned
+// C strings copied into GC strings; a TypeFace holds nothing but GC
+// strings and POD bitfields afterwards.
+
 struct TypeFace
 {
-    @property string toString() const
+    @safe @property string toString() const
     {
         return std.string.format("TypeFace file:%s weigth:%s slant:%s fixedWidth:%s",
                                  filename, weight, slant, _fixedWidth);
@@ -15,17 +24,17 @@ struct TypeFace
     enum Weight { Thin, Light, Normal, Bold, Heavy }
     enum Slant { Roman, Italic, Oblique }
 
-    final @property bool fixedWidth() const
+    final @safe @property bool fixedWidth() const
     {
         return _fixedWidth;
     }
 
-    static TypeFace defaultFace(Weight weight = Weight.Normal, Slant slant = Slant.Roman)
+    static @safe TypeFace defaultFace(Weight weight = Weight.Normal, Slant slant = Slant.Roman)
     {
         return findFace(weight, slant);
     }
 
-    static TypeFace createFromName(string familyName)
+    static @safe TypeFace createFromName(string familyName)
     {
         return findFace(familyName);
     }
@@ -34,7 +43,11 @@ struct TypeFace
      * Valid patterns types are Weight, Slant, string (font-family).
      * Multiple pattern of same type describe alternatives in descending order.
      */
-    static TypeFace findFace(Pattern...)(Pattern pattern)
+    // @trusted: island over the libfontconfig C walk (see the module
+    // comment); the pattern types are confined to Weight/Slant/string
+    // by the static assert below, so the pinning reaches no caller
+    // types.
+    static @trusted TypeFace findFace(Pattern...)(Pattern pattern)
     {
         string cacheKey;
 
@@ -67,7 +80,7 @@ struct TypeFace
     /// every host has, so it ends the walk. When the list names none
     /// the host has, the first name's fallback stands: that is what
     /// the single-name lookup returned before the lists existed.
-    static TypeFace findFace(Pattern...)(const string[] fams, Pattern pattern)
+    static @trusted TypeFace findFace(Pattern...)(const string[] fams, Pattern pattern)
     {
         if (!fams.length)
             return findFace(pattern);
@@ -99,14 +112,14 @@ struct TypeFace
             : findFace(fams[0], pattern);
     }
 
-    bool valid() const
+    @safe bool valid() const
     {
         return filename.length > 0;
     }
 
     /// The family the host's match actually carries - fontconfig's
     /// answer to the pattern, not the name that was asked.
-    string family() const
+    @safe string family() const
     {
         return familyName;
     }
