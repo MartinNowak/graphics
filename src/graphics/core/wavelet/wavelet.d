@@ -120,9 +120,22 @@ struct WaveletRaster
         _clipRect = clipRect;
 
         // Row-major 8-bit alpha scratchpad, handed to the blitter as an
-        // A8 mask after `blit()` populates it.
+        // A8 mask after `blit()` populates it. The fresh `new ubyte[]`
+        // that used to sit here ran one GC allocation per drawPath - the
+        // bulk of this file's attributed cost. One grow-only pad serves
+        // every raster: the renderer is single-threaded and
+        // waveletBlitPath holds one raster at a time. The explicit
+        // zeroing is load-bearing - blit()'s reconstruction and the
+        // blitter both skip zero-alpha spans, so reuse must restore the
+        // freshly-cleared semantics `new ubyte[]` brought for free.
+        static ubyte[] pad;
+        immutable need = size_t(clipRect.width) * clipRect.height;
+        if (pad.length < need)
+            pad.length = need;
+        auto buf = pad[0 .. need];
+        buf[] = 0;
         scratch.setConfig(Bitmap.Config.A8, clipRect.width, clipRect.height,
-                          new ubyte[](clipRect.width * clipRect.height));
+                          buf);
 
         foreach (d; 0 .. _depth)
         {
