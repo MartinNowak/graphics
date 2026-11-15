@@ -4,6 +4,7 @@ import std.ascii, std.bitmanip, std.complex, std.conv, std.exception, std.math;
 import guip.point, guip.rect;
 import graphics.math.poly;
 
+@safe:
 struct Matrix
 {
     static immutable float[3][3] identity = [
@@ -159,7 +160,7 @@ struct Matrix
      */
     FRect mapRect(in FRect src) const
     {
-        FPoint[4] pts=void;
+        FPoint[4] pts; // @safe: full assignment below before any read
         pts[0].x = src.left;   pts[0].y = src.top;
         pts[1].x = src.right;  pts[1].y = src.top;
         pts[2].x = src.right;  pts[2].y = src.bottom;
