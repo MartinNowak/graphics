@@ -3,6 +3,7 @@ module graphics.math.snap;
 import std.math;
 import std.traits : Unqual;
 
+@safe:
 // std.math.round has no float specialization (unlike floor/ceil): it widens
 // to real and pays x87 roundl per call. roundf is bit-identical for float -
 // Unqual because callers hand over const(float) coordinates and that would

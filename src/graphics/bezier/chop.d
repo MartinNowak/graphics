@@ -4,6 +4,7 @@ import graphics.bezier.curve, graphics.math.clamp, graphics.math.poly;
 import guip.point;
 import std.algorithm;
 
+@safe:
 /**
  * Split bezier curve with de Castlejau algorithm.
  */
@@ -75,8 +76,9 @@ body
 
 int chopMonotonic(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref Point!T[K][MS] monos) if(K==2)
 in {
-  foreach(ref mono; monos)
-    assert(&curve != &mono);
+  // Alias guard. @trusted: compares pointer identity of the ref args
+  // and never lets either address escape the lambda.
+  assert(() @trusted { foreach(ref mono; monos) if(&curve == &mono) return false; return true; }());
 } body {
   static assert(MS >= 1 + 2 * (K-2));
 
@@ -86,8 +88,9 @@ in {
 
 int chopMonotonic(T, size_t K, size_t MS)(ref const Point!T[K] curve, ref Point!T[K][MS] monos) if(K>2)
 in {
-  foreach(ref mono; monos)
-    assert(&curve != &mono);
+  // Alias guard. @trusted: compares pointer identity of the ref args
+  // and never lets either address escape the lambda.
+  assert(() @trusted { foreach(ref mono; monos) if(&curve == &mono) return false; return true; }());
 } body {
   static assert(MS >= 1 + 2 * (K-2));
 

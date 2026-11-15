@@ -3,6 +3,7 @@ module graphics.math.poly;
 import graphics.math.clamp;
 import std.algorithm, std.math, std.numeric, std.string, std.traits, std.typetuple;
 
+@safe:
 /*
  * this should live somewhere else
  */

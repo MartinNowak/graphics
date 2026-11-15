@@ -1,5 +1,6 @@
 module graphics.math.clamp;
 
+@safe:
 private {
   import std.conv : to;
   import std.traits : isNumeric;

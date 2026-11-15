@@ -1,5 +1,6 @@
 module graphics.core.pmcolor;
 
+@safe:
 public import guip.color;
 private import graphics.math.clamp;
 

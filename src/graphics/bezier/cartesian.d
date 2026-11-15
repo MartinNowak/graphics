@@ -5,6 +5,7 @@ import graphics.bezier.chop, graphics.bezier.clip, graphics.bezier.curve;
 import std.algorithm, std.conv, std.exception, std.math, std.numeric, std.range, std.traits;
 import graphics.math.clamp, graphics.math.poly, graphics.math.snap;
 
+@safe:
 BezIota!(T, K) beziota(string dir, T, size_t K)(ref const Point!T[K] curve, T roundHint=T.max)
 {
     T[K] cs = void;

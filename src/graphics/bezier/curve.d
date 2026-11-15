@@ -4,6 +4,7 @@ import guip.point;
 import graphics.math.clamp, graphics.math.poly;
 import std.algorithm, std.math;
 
+@safe:
 void bezToPoly(T)(ref T[2] line)
 {
     immutable c0 = -line[0] + line[1];
