@@ -1,6 +1,12 @@
 module graphics.math.clamp;
 
-@safe:
+// No module @safe: default on purpose: these templates instantiate over
+// caller-supplied types (qcheck stress-tests fitsIntoRange with classes
+// whose opCmp is @system). GDC pins templates to the module default
+// rather than inferring per instantiation, so a @safe: default would
+// reject such callers. Left @system-default, each instantiation infers
+// its own attributes - numeric types come out @safe for free.
+
 private {
   import std.conv : to;
   import std.traits : isNumeric;
