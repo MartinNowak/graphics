@@ -3,7 +3,8 @@ module graphics.core.shader;
 import graphics.core.matrix, graphics.core.pmcolor, graphics.math.clamp;
 import guip.point;
 import std.array, std.algorithm, std.math, std.conv : to;
-public import graphics.core.shader_detail._;
+
+@safe:public import graphics.core.shader_detail._;
 
 abstract class Shader {
   this() {

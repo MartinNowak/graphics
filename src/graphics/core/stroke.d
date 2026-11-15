@@ -4,6 +4,7 @@ import graphics.core.paint, graphics.core.path;
 import guip.point;
 import graphics.core.stroke_detail._;
 
+@safe:
 struct Stroke
 {
     float _radius;

@@ -207,7 +207,7 @@ final class PatternShader : MappingShader
     // coord system onto user space, so its inverse reaches pattern space.
     // There the lattice repeats every (W, H) from (X, Y); tile bitmaps
     // cover [0, W)x[0, H) at `scale` px per pattern unit.
-    static PMColor colorAt(PatternShader pthis, in FPoint dev)
+    static @safe PMColor colorAt(PatternShader pthis, in FPoint dev)
     {
         immutable p = pthis.invPT * pthis.mapPt(dev);
 

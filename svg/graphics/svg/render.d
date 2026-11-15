@@ -436,7 +436,7 @@ class ImageShader : MappingShader
     // w} pair would darken a full-strength blend by one), and the
     // result is assembled channel-wise so no implicit Color->PMColor
     // constructor can premultiply the linear combination a second time.
-    static PMColor lerp(in PMColor a, in PMColor b, float u)
+    static @safe PMColor lerp(in PMColor a, in PMColor b, float u)
     {
         immutable w = cast(uint) clamp(roundf(u * 256), 0.0f, 256.0f);
         Color px;
@@ -449,7 +449,7 @@ class ImageShader : MappingShader
         return res;
     }
 
-    static PMColor colorAt(ImageShader sh, in FPoint pt)
+    static @safe PMColor colorAt(ImageShader sh, in FPoint pt)
     {
         immutable u = pt.x + 0.5f / sh.sx - 0.5f;
         immutable v = pt.y + 0.5f / sh.sy - 0.5f;

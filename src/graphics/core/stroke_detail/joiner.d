@@ -7,9 +7,11 @@ private {
   import graphics.core.path;
   import guip.point;
 }
+
+@safe:
 alias void function(FPoint pt, FVector normalBefore, FVector normalAfter,
                     ref MutablePathData inner, ref MutablePathData outer,
-                    float miterLimit) Joiner;
+                    float miterLimit) @safe Joiner;
 
 enum JoinStyle { Miter, Round, Bevel, }
 

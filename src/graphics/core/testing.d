@@ -9,6 +9,7 @@ version (unittest):
 
 import graphics.core.pmcolor, graphics.core.paint, graphics.core.path;
 import guip.bitmap, guip.color, guip.point;
+@safe:
 
 /// A w×h ARGB_8888 bitmap, erased to bg (black by default).
 Bitmap blackBitmap(int w, int h)

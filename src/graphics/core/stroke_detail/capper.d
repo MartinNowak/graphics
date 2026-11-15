@@ -1,10 +1,11 @@
 module graphics.core.stroke_detail.capper;
 
 import graphics.core.path, graphics.core.paint, guip.point;
+@safe:
 
 enum CapStyle { Butt, Square, Round, }
 
-alias void function(FPoint pt, FVector normal, ref MutablePathData path) Capper;
+alias void function(FPoint pt, FVector normal, ref MutablePathData path) @safe Capper;
 
 Capper getCapper(CapStyle capStyle)
 {

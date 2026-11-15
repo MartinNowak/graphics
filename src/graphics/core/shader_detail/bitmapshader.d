@@ -3,6 +3,7 @@ module graphics.core.shader_detail.bitmapshader;
 import graphics.core.pmcolor, graphics.core.shader, graphics.math.clamp;
 import guip.bitmap, guip.point;
 
+@safe:
 class BitmapShader : MappingShader {
   this(in Bitmap src) {
     this.src = src;
@@ -14,7 +15,10 @@ class BitmapShader : MappingShader {
     return mapLine!(colorAt)(this, x, y, data);
   }
 
-  static PMColor colorAt(BitmapShader pthis, in FPoint pt) {
+  // @trusted: borrows a mutable pixel view of the const src through a
+  // pointer cast (Bitmap.getLine has no const overload); the view is
+  // indexed once for a read and never escapes nor is ever written.
+  static PMColor colorAt(BitmapShader pthis, in FPoint pt) @trusted {
     // round to nearest
     auto ipt = pt.rounded();
     if (!fitsIntoRange!("[)")(ipt.x, 0, pthis.src.width)

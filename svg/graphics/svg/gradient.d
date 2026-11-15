@@ -94,7 +94,7 @@ struct GradSpace
     // places exactly on a period boundary lands on the other colour if the
     // arithmetic is 24-bit - the reference renders put that boundary on a
     // whole pixel column.
-    Point!double op(in FPoint p) const
+    Point!double op(in FPoint p) const @safe
     {
         // Translate/scale only (every gradient in the suite without a
         // gradientTransform, and most with one): stay on the plain divides.
@@ -111,7 +111,7 @@ struct GradSpace
 // Premultiplied interpolation (SVG 1.1 §13.2.3 requires premultiplied
 // space). The weight pair {255-w, w} sums to 255, so this is the library's
 // shift-8-exact form, mirroring GradientShader.colorAt.
-private PMColor lerp(in PMColor a, in PMColor b, float u)
+private @safe PMColor lerp(in PMColor a, in PMColor b, float u)
 {
     immutable w = cast(ubyte) clamp(roundf(u * 255), 0.0f, 255.0f);
     // The additions stay in the library's Color+Color form (as in
@@ -130,7 +130,10 @@ private PMColor lerp(in PMColor a, in PMColor b, float u)
 // by definition and takes no curve, so its interpolation is the same either
 // way - which is also why the two spaces agree at both ends of every stop
 // interval and only part company in the middle.
-private PMColor lerpLinear(in PMColor a, in PMColor b, float w)
+// @trusted: the only @system exposure is reading the module-level LUTs
+// (runtime-initialized globals still carry @system variable status);
+// both tables are written once at module init and never mutated after.
+private @trusted PMColor lerpLinear(in PMColor a, in PMColor b, float w)
 {
     immutable ua = clamp(w, 0.0f, 1.0f);
     immutable aa = a.a / 255.0f, ab = b.a / 255.0f;
@@ -179,7 +182,7 @@ private ubyte[4096] encodeTable()
 // spreadMethod maps t into the [0,1] stop ramp (§13.2.4), then the stop
 // list - sorted-at-build, offsets already forced monotonic - is sampled, in
 // whichever of the two spaces §11.3 puts this server.
-private PMColor sampleStops(const GradientStop[] stops, Spread spread,
+private @safe PMColor sampleStops(const GradientStop[] stops, Spread spread,
     float t, bool lin)
 {
     assert(!stops.empty);
@@ -248,7 +251,7 @@ class LinearGradientShader : MappingShader
         return mapLine!colorAt(this, x, y, data);
     }
 
-    static PMColor colorAt(LinearGradientShader pthis, in FPoint p)
+    static @safe PMColor colorAt(LinearGradientShader pthis, in FPoint p)
     {
         if (pthis.denom == 0) // §13.2.2: a degenerate vector paints the
             return pthis.stops[$ - 1].color; // last stop's color solid
@@ -309,7 +312,7 @@ class RadialGradientShader : MappingShader
         return mapLine!colorAt(this, x, y, data);
     }
 
-    static PMColor colorAt(RadialGradientShader pthis, in FPoint p)
+    static @safe PMColor colorAt(RadialGradientShader pthis, in FPoint p)
     {
         if (pthis.r <= 0) // §13.2.3: r=0 paints the last stop's colour solid
             return pthis.stops[$ - 1].color;
