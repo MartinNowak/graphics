@@ -205,7 +205,12 @@ auto cartesianBezierWalker(T, size_t K)(
             return _xwalk.empty && _ywalk.empty;
         }
 
-        int opApply(scope int delegate(float t1, ref IPoint pos) dg)
+        // The @safe on the slot type is mandatory, not documentation:
+        // this GDC defaults function types written at function scope
+        // to @system even under a @safe: module. @system callers of
+        // the walker are none (only wavelet walks it), so the slot
+        // can stay concrete - unlike Path.apply's Dg-generic policy.
+        int opApply(scope int delegate(float t1, ref IPoint pos) @safe dg)
         {
             int opApplyRes;
 

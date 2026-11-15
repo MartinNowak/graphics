@@ -8,6 +8,19 @@ import graphics.math.clamp, graphics.math.poly;
 import graphics.core.wavelet.calc_coeffs;
 import guip.bitmap, guip.point, guip.rect, guip.size;
 
+// @safe: default, unlike the delegate-slot law modules: every
+// template here closes over module-internal callables (the coverage
+// functions, the nested blit row, &insertSlice) and manifest K
+// sizes - no caller-attribute-generic slot for the pinning law to
+// catch on. clippedMonotonic's slots come from clip.d, which has no
+// module default, so they infer @safe from these @safe delegates -
+// the ones insertEdge names are explicitly @safe because this GDC
+// defaults function types written at function scope to @system even
+// under @safe:. The @system surface is the malloc'd coefficient/
+// marks storage, walled into the islands on this(), ~this(),
+// updateNodes and writeToGrid.
+@safe:
+
 // version=DebugNoise;
 
 /// Wavelet coefficients for a 2x2 square, number of pixels depends on depth layer
@@ -104,7 +117,18 @@ struct WaveletRaster
 {
     import core.stdc.stdlib : calloc, malloc, free;
 
-    this(IRect clipRect)
+    // @trusted island over the raster's raw allocations, all freed
+    // once in ~this (the @disable this(this) keeps ownership single):
+    // - the grow-only static `pad` is a GC ubyte[] shared by every
+    //   raster; the renderer is single-threaded and waveletBlitPath
+    //   holds one raster at a time, and the explicit zeroing keeps
+    //   the freshly-cleared semantics the zero-alpha-skip in blit()
+    //   and the blitter rely on. setConfig merely views GC memory.
+    // - the per-level coefficient arrays and mark words are
+    //   malloc/calloc with depth-enforced sizes (MAX_DEPTH, enforce);
+    //   they are stored only as (ptr, length) slices the walkers
+    //   index within those bounds.
+    this(IRect clipRect) @trusted
     in
     {
         assert(!clipRect.empty);
@@ -147,7 +171,9 @@ struct WaveletRaster
         }
     }
 
-    ~this()
+    // @trusted: frees exactly the arrays the ctor allocated; single
+    // ownership via the disabled postblit.
+    ~this() @trusted
     {
         foreach (c; _coeffs)
             free(c.ptr);
@@ -235,8 +261,14 @@ struct WaveletRaster
         }
     }
 
+    // @trusted: reads and marks the malloc'd cell arrays - bts is
+    // this core.bitop's @system pointer helper, and the zero-if-new
+    // mark test prevents a cell the traversal reaches twice from
+    // double-counting. `tmp`'s = void is legal here and load-bearing:
+    // sliceBezier writes all K points before any read, and this is
+    // the traversal's inner loop.
     private void updateNodes(size_t K)
-        (in ref FPoint[K] curve, in ref IPoint pos, float t0, float t1, size_t depth)
+        (in ref FPoint[K] curve, in ref IPoint pos, float t0, float t1, size_t depth) @trusted
     {
         auto cidx = posToLinQuad(pos);
 
@@ -283,12 +315,15 @@ struct WaveletRaster
         immutable off = fPoint(_clipRect.pos);
         foreach(i; SIota!(0, K))
             pts[i] -= off;
-        // Named delegate types: give the &insertSlice overload set its
-        // two target signatures (clippedMonotonic's slots are now
-        // inferred template parameters). Segments arrive as K points;
-        // the border joins are always 2-point lines.
-        alias SegDg = void delegate(ref const FPoint[K]);
-        alias BorderSegDg = void delegate(ref const FPoint[2]);
+        // Named delegate types give the &insertSlice overload set its
+        // two target signatures (clippedMonotonic's slots are inferred
+        // template parameters). Segments arrive as K points; the
+        // border joins are always 2-point lines. The explicit @safe
+        // is mandatory, not documentation: this GDC defaults function
+        // types written at *function* scope to @system even under a
+        // @safe: module - only module-scope aliases inherit @safe:.
+        alias SegDg = void delegate(ref const FPoint[K]) @safe;
+        alias BorderSegDg = void delegate(ref const FPoint[2]) @safe;
         clippedMonotonic!(float, K, SegDg, BorderSegDg)(pts, FRect(0, 0, _clipRect.width, _clipRect.height), &insertSlice, &insertSlice);
     }
 
@@ -321,7 +356,9 @@ struct WaveletRaster
         // build difference shows up as a single line difference.
         string dumpTrace;
 
-        private void dumpFlush()
+        // @trusted: reads the raw mark words (this core.bitop's bt is
+        // @system) of the malloc'd storage.
+        private void dumpFlush() @trusted
         {
             import std.array : appender;
             import std.file : append;
@@ -694,9 +731,12 @@ void writeQuadDepth0(alias blit, alias coverage)(float val, in Coeffs coeff, IPo
 // Quadtree traversal. `edge` tracks which clip border the node square
 // touches. NW never touches east/south, and an interior node has a fully
 // interior subtree, so interior subtrees carry no bounds checks at all.
+// @trusted: the traversal's view of the raster's malloc'd storage -
+// it dereferences the raw mark words directly (one word covers four
+// child marks) and reads Coeffs slices whose ptrs live in malloc.
 void writeToGrid(alias blit, alias coverage)
     (in size_t*[] coeffMarks, Coeffs[][] coeffs, uint cidx, float val,
-     IPoint offset, uint depth, Edge edge, in IRect clip)
+     IPoint offset, uint depth, Edge edge, in IRect clip) @trusted
 in
 {
     assert(depth >= 0);

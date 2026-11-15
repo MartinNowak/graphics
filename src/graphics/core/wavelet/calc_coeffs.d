@@ -3,6 +3,11 @@ module graphics.core.wavelet.calc_coeffs;
 import guip.point;
 import graphics.math.poly;
 
+// @safe: clean - the whole module is float arithmetic over slices.
+// The `= void` scratch is legal under @safe: Interim is plain floats
+// with no invariant.
+@safe:
+
 enum Quad {
   _00, // top-left
   _01, // top-right

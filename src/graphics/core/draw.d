@@ -231,11 +231,11 @@ public:
     }
 };
 
-// @trusted: transient island until wavelet.d's own wave - it builds
-// a WaveletRaster (a struct owning a malloc'd pad, still @system)
-// and hands its walk buffer to insertEdge through a slice.ptr
-// reinterpret. No unsafety of its own beyond that.
-@trusted void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter blitter)
+// The verb cases stage the walk's points through stack scratch: the
+// transform and insertEdge's clip-origin subtraction both mutate what
+// they get, and the scratch keeps that off the path walk's own buffer
+// (the old code aliased it through a cast slice.ptr to FPoint[K]*).
+void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter blitter)
 {
     FRect bounds = mat.mapRect(path.bounds);
     // mapRect can leave a side a hair off the grid line (FMA contraction);
@@ -271,8 +271,11 @@ public:
 
     // Fills integrate closed contours: applyFilled synthesizes the
     // implicit closing edge for subpaths whose "Z" was left out.
-    foreach(verb, pts; mat.perspective ? &path.applyFilled!(QuadCubicFlattener, Path.IterDg)
-                                       : &path.applyFilled!(void, Path.IterDg))
+    // An explicit walk function rather than foreach: the ternary
+    // form of foreach would pin the callback slot to Path.IterDg,
+    // which is @system - the walk's own attributes flow into Dg
+    // this way (the policy of Path.apply).
+    int walkVerb(ref Path.Verb verb, ref FPoint[] pts)
     {
         final switch(verb)
         {
@@ -281,25 +284,33 @@ public:
             break;
 
         case Path.Verb.Line:
+            FPoint[2] mpts;
             foreach(i; SIota!(0, 2))
-                pts[i] = mat * pts[i];
-            debug checkPoints(pts);
-            wr.insertEdge(*cast(FPoint[2]*)pts.ptr);
+                mpts[i] = mat * pts[i];
+            debug checkPoints(mpts[]);
+            wr.insertEdge(mpts);
             break;
         case Path.Verb.Quad:
+            FPoint[3] mpts;
             foreach(i; SIota!(0, 3))
-                pts[i] = mat * pts[i];
-            debug checkPoints(pts);
-            wr.insertEdge(*cast(FPoint[3]*)pts.ptr);
+                mpts[i] = mat * pts[i];
+            debug checkPoints(mpts[]);
+            wr.insertEdge(mpts);
             break;
         case Path.Verb.Cubic:
+            FPoint[4] mpts;
             foreach(i; SIota!(0, 4))
-                pts[i] = mat * pts[i];
-            debug checkPoints(pts);
-            wr.insertEdge(*cast(FPoint[4]*)pts.ptr);
+                mpts[i] = mat * pts[i];
+            debug checkPoints(mpts[]);
+            wr.insertEdge(mpts);
             break;
         }
+        return 0;
     }
+    if (mat.perspective)
+        path.applyFilled!(QuadCubicFlattener, typeof(&walkVerb))(&walkVerb);
+    else
+        path.applyFilled!(void, typeof(&walkVerb))(&walkVerb);
 
     // Pass 1: reconstruct the wavelet into the rasterizer's row-major
     // 8-bit alpha scratch bitmap. The quadtree's Z-order traversal only
