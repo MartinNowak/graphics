@@ -7,6 +7,9 @@ import graphics.core.path, graphics.core.stroke, graphics.core.stroke_detail.cap
 public import graphics.core.stroke_detail.capper : CapStyle;
 public import graphics.core.stroke_detail.joiner : JoinStyle;
 
+@safe:
+
+
 Path strokePath
 (in Path path, float width, CapStyle caps=CapStyle.Butt, JoinStyle joins=JoinStyle.Miter,
  float miterLimit=4)
