@@ -28,6 +28,8 @@ import graphics.svg.pattern;
 import graphics.svg.pserver;
 import graphics.svg.smil;
 
+@safe:
+
 // ASCII case-insensitive comparison for SVG keywords (exact length).
 private nothrow @nogc bool equalCase(string a, string b)
 {
@@ -46,7 +48,10 @@ private nothrow @nogc bool equalCase(string a, string b)
 // (switch dispatch compares once, before the arm runs). Values longer
 // than the buffer keep their spelling - no keyword is that long, so a
 // miss falls to the same default the old switch did.
-private nothrow @nogc string lowered(string v)
+// @trusted: the returned string aliases the mutable static on purpose -
+// the single-threaded renderer consumes it before the next call writes
+// the buffer again, which the type cannot express.
+private nothrow @nogc @trusted string lowered(string v)
 {
     static char[64] buf;
     if (v.length > buf.length)
@@ -514,12 +519,12 @@ private string baseJoin(string base, string v)
 // images blank.
 private string base64Payload(string s)
 {
-    char[] kept;
+    string kept; // GC-bassigned string: appending is @safe, no cast back
     kept.reserve(s.length);
     foreach (dchar ch; s)
         if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n')
             kept ~= ch;
-    return cast(string) kept;
+    return kept;
 }
 
 // PNG's gAMA chunk (PNG 1.2 §4.2.2.3) records how the file encoded light:
@@ -535,6 +540,14 @@ private string base64Payload(string s)
 // which outranks gAMA (PNG §4.2.2.4 and §4.2.2.5); there is no profile
 // reader yet (colour-prof-01-f), so those bytes stay as loaded - every
 // profiled file in the suite says 45454, which is a no-op here anyway.
+// @trusted island: this Phobos has no std.file.File, and read()'s void[]
+// can only land as ubyte[] through a cast. The bytes are fresh from the
+// allocator, unaliased, and owned by the caller - the cast states that.
+private ubyte[] readFileBytes(string path) @trusted
+{
+    return cast(ubyte[]) read(path);
+}
+
 private float pngFileGamma(const(ubyte)[] bytes)
 {
     if (bytes.length < 8 || bytes[0 .. 4] != [0x89, 'P', 'N', 'G'])
@@ -547,7 +560,7 @@ private float pngFileGamma(const(ubyte)[] bytes)
         immutable size_t len = (cast(size_t) bytes[i] << 24)
             | (cast(size_t) bytes[i + 1] << 16)
             | (bytes[i + 2] << 8) | bytes[i + 3];
-        immutable string type = cast(string) bytes[i + 4 .. i + 8];
+        auto type = cast(const(char)[]) bytes[i + 4 .. i + 8];
         if (type == "IDAT" || type == "IEND")
             break;
         if (type == "iCCP" || type == "sRGB")
@@ -589,13 +602,13 @@ unittest
     ubyte[] chunk(string type, uint value)
     {
         ubyte[] b = [0, 0, 0, 4]; // length, big-endian
-        b ~= cast(ubyte[]) type;
+        b ~= cast(immutable(ubyte)[]) type;
         b ~= [cast(ubyte) (value >> 24), cast(ubyte) (value >> 16),
               cast(ubyte) (value >> 8), cast(ubyte) value];
         b ~= [0, 0, 0, 0]; // the CRC is never read
         return b;
     }
-    auto sig = cast(ubyte[]) "\x89PNG\r\n\x1A\n";
+    immutable ubyte[] sig = cast(immutable(ubyte)[]) "\x89PNG\r\n\x1A\n";
 
     assert(pngFileGamma(sig ~ chunk("gAMA", 100_000)) == 1.0f);
     immutable float small = pngFileGamma(sig ~ chunk("gAMA", 22_727));
@@ -605,7 +618,7 @@ unittest
     assert(pngFileGamma(sig ~ chunk("sRGB", 0) ~ chunk("gAMA", 100_000)) == 0);
     assert(pngFileGamma(sig ~ chunk("iCCP", 0) ~ chunk("gAMA", 100_000)) == 0);
     assert(pngFileGamma(sig ~ chunk("gAMA", 30_000) ~ chunk("PLTE", 0)) == 0.3f);
-    assert(pngFileGamma(cast(ubyte[]) "GIF89a") == 0);
+    assert(pngFileGamma(cast(const(ubyte)[])"GIF89a") == 0);
 
     // 128 in a file that says 1.0000 is half light, which is 186 on a
     // 2.2 page - struct-image-03-t's five ramps agree on that number.
@@ -685,7 +698,7 @@ private Bitmap loadSVGImage(string path)
             img = Bitmap.load(path);
             // The codec hands back the file's own samples; gAMA says what
             // curve they sit on.
-            immutable float g = pngFileGamma(cast(ubyte[]) read(path));
+            immutable float g = pngFileGamma(readFileBytes(path));
             if (g)
                 applyPNGamma(img, g);
         }
@@ -770,7 +783,7 @@ float[] parseDash(string v, const(LengthCtx) lc = LengthCtx.init)
 Path expandedCloses(in Path path, in Matrix xform = Matrix.init)
 {
     Path res;
-    FPoint start=void, cur=void;
+    FPoint start, cur; // FPoint has an invariant: no = void
     foreach (verb, pts; path)
     {
         final switch (verb)
@@ -2503,7 +2516,10 @@ private struct Renderer
     // that spawned them; the root renderer uses its own scratchFree.
     Scratch[]* sharedScratch;
 
-    private Scratch[]* scratchPool()
+    // `return` ties the borrowed list to this renderer's lifetime,
+    // which is the nesting contract already in the comment: children
+    // are rendered while their spawning renderer is on the stack.
+    private Scratch[]* scratchPool() return
     {
         return sharedScratch ? sharedScratch : &scratchFree;
     }
@@ -4302,13 +4318,13 @@ private struct Renderer
                     cp = first, isChar = true;
             }
         }
-        foreach (ref g; f.glyphs)
+        foreach (gi, ref g; f.glyphs)
         {
             foreach (n; g.name.split(','))
                 if (strip(n) == ident)
-                    return AltGlyph(f, &g);
+                    return AltGlyph(f, &f.glyphs[gi]);
             if (isChar && g.uni.length == 1 && g.uni[0] == cp)
-                return AltGlyph(f, &g);
+                return AltGlyph(f, &f.glyphs[gi]);
         }
         return AltGlyph.init;
     }
@@ -6631,7 +6647,7 @@ private struct Renderer
             // tag them with its snapshot (the resolve sites swap back
             // through enterScope) and restore the untouched stack on
             // the way out, so tags never leak to later siblings.
-            const tag = cast(string) [scopeMark, cast(char)('0' + docScopes.length)];
+            const string tag = [scopeMark, cast(char)('0' + docScopes.length)];
             foreach (ref st; styles.data)
             {
                 if (st.fillUrl.length) st.fillUrl = tag ~ st.fillUrl;
@@ -8436,7 +8452,7 @@ private bool goodViewBox(string s)
         parseViewBox(vb, s);
         return vb[2] > 0 && vb[3] > 0;
     }
-    catch (Throwable)
+    catch (Exception) // parse noise; a real Error must not be swallowed
         return false;
 }
 

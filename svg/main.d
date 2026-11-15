@@ -3,7 +3,7 @@ module main;
 import std.exception, std.file, std.getopt, std.path, std.string;
 import graphics.svg;
 
-// No module attribute until render.d's wave: main just drives renderSVG.
+@safe:
 
 // @trusted island: std.getopt is @system - it carries option targets
 // as bare pointers through the call - but the GetoptEntry array lives
