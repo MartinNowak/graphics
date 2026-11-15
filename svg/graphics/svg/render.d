@@ -2479,6 +2479,60 @@ private struct Renderer
         return new PatternShader(rows, ps.X, ps.Y, ps.W, ps.H, s, ps.pt.inverted);
     }
 
+    // Offscreen compositing - maskedPaint below, the §11.3 linear-light
+    // passes, group opacity, the filtered-element pass, and the mask/
+    // clip rasterisers - wants a full-canvas ARGB scratch plus a Canvas
+    // bound to it. Those each used to build a fresh buffer per element,
+    // the suite's last big GC byte-volume. Slots are {Bitmap, Canvas}
+    // pairs on a free list: concurrent users (mask content that clips,
+    // filtered children inside an opacity group) each borrow one and
+    // hand it back on scope exit. A slot keeps the largest canvas it
+    // has seen - same-size setConfig's length assignment is a no-op, so
+    // after warm-up a borrow costs one pop, one erase, one clip reset.
+    //
+    // Pooling the Canvas is safe because save()/restore() balance at
+    // every use: the very invariant that has always kept the long-lived
+    // root Canvas from growing MCRecs.
+    static struct Scratch
+    {
+        Bitmap bmp;
+        Canvas oc;
+    }
+    Scratch[] scratchFree;
+    // Nested mask/clip/marker renderers borrow the list of the renderer
+    // that spawned them; the root renderer uses its own scratchFree.
+    Scratch[]* sharedScratch;
+
+    private Scratch[]* scratchPool()
+    {
+        return sharedScratch ? sharedScratch : &scratchFree;
+    }
+
+    // A fresh-erased w×h layer, reusing a slot when the pool has one.
+    Scratch takeScratch(uint w, uint h)
+    {
+        Scratch[]* slots = scratchPool();
+        Scratch s;
+        if ((*slots).length)
+        {
+            s = (*slots)[$ - 1];
+            (*slots).length -= 1;
+        }
+        if (s.bmp.width != w || s.bmp.height != h)
+            s.bmp.setConfig(Bitmap.Config.ARGB_8888, w, h);
+        if (s.oc is null)
+            s.oc = new Canvas(s.bmp);
+        else
+            s.oc.bitmap = s.bmp; // rebind (the buffer may have moved) + reset the clip
+        s.bmp.eraseColor(Color(0));
+        return s;
+    }
+
+    void releaseScratch(Scratch s)
+    {
+        (*scratchPool()) ~= s;
+    }
+
     // clip-path and mask (SVG 1.1 §14.3, §14.4): rasterise this paint
     // into a full-canvas scratch, multiply every referenced <clipPath>'s
     // coverage (Style.clipUrls) and every <mask>'s value (Style.maskUrls)
@@ -2500,9 +2554,10 @@ private struct Renderer
         if (clipDepth >= 8)
             return; // clip/mask nested inside clipPath/mask content
 
-        auto scratch = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
-        scratch.eraseColor(Color(0));
-        Canvas oc = new Canvas(scratch);
+        auto sl = takeScratch(bmp.width, bmp.height);
+        scope (exit) releaseScratch(sl); // after blendPM: this scope owns the last read
+        ref scratch = sl.bmp;
+        Canvas oc = sl.oc;
         oc.matrix = canvas.matrix;
         if (doFill)
         {
@@ -2656,15 +2711,16 @@ private struct Renderer
         // in fractions of the painted geometry's bbox, mapped along the
         // element's own user axes - the same §7.11 supplemental matrix
         // paint servers get. A degenerate bbox makes the clip empty.
-        auto maskBmp = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
-        maskBmp.eraseColor(Color(0));
+        auto sl = takeScratch(bmp.width, bmp.height);
+        scope (exit) releaseScratch(sl); // after the multiply below
+        ref maskBmp = sl.bmp;
         Renderer m;
         m.doc = doc;
         m.cssRules = cssRules;
         m.cssParent = cssParent;
         m.cssSib = cssSib;
         m.bmp = maskBmp;
-        m.canvas = new Canvas(maskBmp);
+        m.canvas = sl.oc;
         m.inRoot = true;
         m.clipMode = true;
         m.clipDepth = clipDepth + 1;
@@ -2675,6 +2731,8 @@ private struct Renderer
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
         m.openDocs = openDocs; // so do the reference loop guards
+        m.sharedScratch = scratchPool(); // nested scratches land on the
+        // creator's free list (mask content can itself clip/mask/filter)
         m.canvas.matrix = anchor; // §14.3.2: the referencing site's space
         if (auto u = strAttr(chain, "clipPathUnits"))
             if (lowered(u) == "objectboundingbox")
@@ -2813,15 +2871,16 @@ private struct Renderer
 
         // Mask content renders under the plain pipeline (no clipMode):
         // paint, opacity, gradients all matter.
-        auto maskBmp = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
-        maskBmp.eraseColor(Color(0));
+        auto sl = takeScratch(bmp.width, bmp.height);
+        scope (exit) releaseScratch(sl); // after the multiply below
+        ref maskBmp = sl.bmp;
         Renderer m;
         m.doc = doc;
         m.cssRules = cssRules;
         m.cssParent = cssParent;
         m.cssSib = cssSib;
         m.bmp = maskBmp;
-        m.canvas = new Canvas(maskBmp);
+        m.canvas = sl.oc;
         m.inRoot = true;
         m.clipDepth = clipDepth + 1;
         m.vpW = vpW;
@@ -2831,6 +2890,8 @@ private struct Renderer
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
         m.openDocs = openDocs; // so do the reference loop guards
+        m.sharedScratch = scratchPool(); // nested scratches land on the
+        // creator's free list (mask content can itself clip/mask/filter)
         m.canvas.matrix = anchor; // §14.4: userSpaceOnUse mask content is
         // written in the space of the element that referenced the mask,
         // the same anchor clipMultiply rasterises userSpaceOnUse clip
@@ -3115,6 +3176,8 @@ private struct Renderer
         m.svgFonts = svgFonts; // SVG fonts apply to text in masks, clips
         // and filters exactly as they do in the main rendering
         m.openDocs = openDocs; // so do the reference loop guards
+        m.sharedScratch = scratchPool(); // nested scratches land on the
+        // creator's free list (mask content can itself clip/mask/filter)
 
         Matrix mm;
         mm.reset();
@@ -3740,14 +3803,12 @@ private struct Renderer
                 // linear-light src-over. As in maskedPaint, the paint goes
                 // to a full-canvas scratch first - the two colour spaces
                 // differ only in the blend back down.
-                auto scratch = Bitmap(Bitmap.Config.ARGB_8888,
-                    bmp.width, bmp.height);
-                scratch.eraseColor(Color(0));
-                Canvas oc = new Canvas(scratch);
-                oc.matrix = canvas.matrix;
-                paintOnto(oc, scratch, s, fillP, strokeP, doFill, doStroke,
+                auto sl = takeScratch(bmp.width, bmp.height);
+                scope (exit) releaseScratch(sl); // after blendPMlin
+                sl.oc.matrix = canvas.matrix;
+                paintOnto(sl.oc, sl.bmp, s, fillP, strokeP, doFill, doStroke,
                     stroked, doMarkers);
-                blendPMlin(scratch);
+                blendPMlin(sl.bmp);
             }
             else
                 paintOnto(canvas, bmp, s, fillP, strokeP, doFill, doStroke,
@@ -3887,14 +3948,12 @@ private struct Renderer
                     bbox, canvas.matrix);
             else if (d.linInterp && !solid)
             {
-                auto scratch = Bitmap(Bitmap.Config.ARGB_8888,
-                    bmp.width, bmp.height);
-                scratch.eraseColor(Color(0));
-                Canvas oc = new Canvas(scratch);
-                oc.matrix = canvas.matrix;
-                paintOnto(oc, scratch, d, fillP, strokeP, doFill, doStroke,
+                auto sl = takeScratch(bmp.width, bmp.height);
+                scope (exit) releaseScratch(sl); // after blendPMlin
+                sl.oc.matrix = canvas.matrix;
+                paintOnto(sl.oc, sl.bmp, d, fillP, strokeP, doFill, doStroke,
                     stroked, false);
-                blendPMlin(scratch);
+                blendPMlin(sl.bmp);
             }
             else
                 paintOnto(canvas, bmp, d, fillP, strokeP, doFill, doStroke,
@@ -6891,9 +6950,9 @@ private struct Renderer
     void opacityWalk(size_t ch, float op)
     {
         styles.data.back.opacity = 1.0f;
-        auto scratch = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
-        scratch.eraseColor(Color(0));
-        auto oc = new Canvas(scratch);
+        auto sl = takeScratch(bmp.width, bmp.height);
+        scope (exit) releaseScratch(sl); // after the blend at the end
+        auto oc = sl.oc;
         oc.matrix = canvas.matrix;
 
         auto oldCanvas = canvas;
@@ -6901,7 +6960,7 @@ private struct Renderer
         pageStack ~= bmp; // a BackgroundImage read inside this layer still
         // sees the page under it (filters-background-01-f's inner cells)
         canvas = oc;
-        bmp = scratch;
+        bmp = sl.bmp;
         scope (exit)
         {
             canvas = oldCanvas;
@@ -6911,7 +6970,7 @@ private struct Renderer
         walk(ch);
         bmp = oldBmp; // as in filteredElement: the blend back is the
                       // destination's job, so end the swap before it
-        blendLayer(scratch, op);
+        blendLayer(sl.bmp, op);
     }
 
     // blendPM for a whole layer: the group's alpha scales the scratch
@@ -7023,9 +7082,9 @@ private struct Renderer
 
         // Render the subtree into the scratch, tracking the painted
         // geometry's bbox (the objectBoundingBox basis).
-        auto scratch = Bitmap(Bitmap.Config.ARGB_8888, bmp.width, bmp.height);
-        scratch.eraseColor(Color(0));
-        auto oc = new Canvas(scratch);
+        auto sl = takeScratch(bmp.width, bmp.height);
+        scope (exit) releaseScratch(sl); // after the blend back below
+        auto oc = sl.oc;
         oc.matrix = canvas.matrix;
 
         // §15.4/§15.6 read BackgroundImage and BackgroundAlpha as what the
@@ -7056,7 +7115,7 @@ private struct Renderer
         immutable oldAccum = bboxAccum;
         FRect local; // this filter's own geometry union
         canvas = oc;
-        bmp = scratch;
+        bmp = sl.bmp;
         bboxTrack = true;
         bboxAccum = FRect(0, 0, 0, 0);
         ++filterDepth;
@@ -7113,19 +7172,19 @@ private struct Renderer
         // scratch, and their rasters, byte-identical.
         int sox = 0, soy = 0;
         if (region.x0 < 0 || region.y0 < 0
-            || region.x1 > cast(int) scratch.width || region.y1 > cast(int) scratch.height)
+            || region.x1 > cast(int) sl.bmp.width || region.y1 > cast(int) sl.bmp.height)
         {
             immutable ux0 = min(region.x0, 0), uy0 = min(region.y0, 0);
-            immutable ux1 = max(region.x1, cast(int) scratch.width),
-                    uy1 = max(region.y1, cast(int) scratch.height);
-            scratch = Bitmap(Bitmap.Config.ARGB_8888, to!uint(ux1 - ux0), to!uint(uy1 - uy0));
-            scratch.eraseColor(Color(0));
-            oc = new Canvas(scratch);
+            immutable ux1 = max(region.x1, cast(int) sl.bmp.width),
+                    uy1 = max(region.y1, cast(int) sl.bmp.height);
+            releaseScratch(sl); // hand the slot straight back to grow it
+            sl = takeScratch(to!uint(ux1 - ux0), to!uint(uy1 - uy0));
+            oc = sl.oc;
             // postTranslate, not pre: the shift is in device space, and
             // the CTM may carry scale that a user-space shift would ride.
             oc.matrix = canvas.matrix.postTranslate(-ux0, -uy0);
             canvas = oc;
-            bmp = scratch;
+            bmp = sl.bmp;
             paintSubtree(ch); // repaint into the widened buffer
             sox = ux0;
             soy = uy0;
@@ -7135,9 +7194,9 @@ private struct Renderer
         // carve them all from one warm bump store instead of churning
         // the GC. ChainRegion sizes the store from the chain itself; a
         // plane being w·h·4 floats of `like(src)` geometry.
-        immutable planeBytes = size_t(scratch.width) * scratch.height * 4 * float.sizeof;
+        immutable planeBytes = size_t(sl.bmp.width) * sl.bmp.height * 4 * float.sizeof;
         auto mem = ChainRegion(f.prims.length, planeBytes);
-        auto src = rasterFrom(scratch, f.linearRGB, sox, soy);
+        auto src = rasterFrom(sl.bmp, f.linearRGB, sox, soy);
 
         // §15.5: every offscreen is the intersection with the effects
         // region - so the source enters the chain region-clipped, and

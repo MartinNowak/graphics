@@ -123,16 +123,23 @@ class ARGB32Blitter : RasterBlitter {
     auto colA = this.color.a;
 
     // Decode each mask row into runs of equal alpha; each run is one
-    // constant-alpha Color32 fill.
+    // constant-alpha Color32 fill. Scanned by hand: this Phobos'
+    // .group() heap-allocates its .front array per run - the suite's
+    // GC cycles under blitMask.
     for (auto h = 0; h < mask.height; ++h) {
       auto dst = this.bitmap.getRange!PMColor(x, x + w, y + h);
-      foreach (a, n; src.getRange!ubyte(0, w, h).group()) {
-        if (a) {
+      auto row = src.getRange!ubyte(0, w, h);
+      for (size_t i, n; i < row.length; i = n)
+      {
+        immutable a = row[i];
+        for (n = i + 1; n < row.length && row[n] == a; ++n)
+          {}
+        if (a)
+        {
           auto c = this.color;
           c.a = alphaMul(colA, alphaScale(a));
-          Color32(dst[0..n], PMColor(c));
+          Color32(dst[i .. n], PMColor(c));
         }
-        dst.popFrontExactly(n);
       }
     }
   }
@@ -181,11 +188,15 @@ class ShaderARGB32Blitter : ARGB32Blitter {
       auto dst = this.bitmap.getRange!PMColor(x, x + w, y + h);
       this.data.length = w;
       this.shader.getRange(x, y + h, this.data);
-      foreach (a, n; src.getRange!ubyte(0, w, h).group()) {
+      // Manual run scan; see ARGB32Blitter.blitMask.
+      auto row = src.getRange!ubyte(0, w, h);
+      for (size_t i, n; i < row.length; i = n)
+      {
+        immutable a = row[i];
+        for (n = i + 1; n < row.length && row[n] == a; ++n)
+          {}
         if (a)
-          this.blitRowAlpha(dst[0..n], this.data[0..n], a);
-        dst.popFrontExactly(n);
-        this.data.popFrontExactly(n);
+          this.blitRowAlpha(dst[i .. n], this.data[i .. n], a);
       }
     }
   }
