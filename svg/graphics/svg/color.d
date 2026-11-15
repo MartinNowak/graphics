@@ -6,7 +6,7 @@ import guip.color;
 import graphics.math.clamp;
 
 // ASCII case-insensitive comparison for SVG keywords (exact length).
-private bool equalCase(string a, string b)
+private nothrow @nogc bool equalCase(string a, string b)
 {
     if (a.length != b.length)
         return false;

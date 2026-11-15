@@ -1,6 +1,7 @@
 module graphics.svg.render;
 
 import std.algorithm, std.ascii, std.base64, std.conv, std.exception, std.math, std.range, std.string;
+import std.array : appender;
 import std.file : read, readText;
 import std.path : dirName;
 import std.utf : decode;
@@ -28,7 +29,7 @@ import graphics.svg.pserver;
 import graphics.svg.smil;
 
 // ASCII case-insensitive comparison for SVG keywords (exact length).
-private bool equalCase(string a, string b)
+private nothrow @nogc bool equalCase(string a, string b)
 {
     if (a.length != b.length)
         return false;
@@ -36,6 +37,23 @@ private bool equalCase(string a, string b)
         if (std.ascii.toLower(ch) != std.ascii.toLower(b[i]))
             return false;
     return true;
+}
+
+// ASCII-case-fold `v` into static scratch for switches and comparisons:
+// switch (lowered(v)) GC-copied a string for every declaration that
+// reached one, and these sit in the per-element cascade. The renderer
+// is single-threaded and every user consumes the result immediately
+// (switch dispatch compares once, before the arm runs). Values longer
+// than the buffer keep their spelling - no keyword is that long, so a
+// miss falls to the same default the old switch did.
+private nothrow @nogc string lowered(string v)
+{
+    static char[64] buf;
+    if (v.length > buf.length)
+        return v;
+    foreach (i, ch; v)
+        buf[i] = std.ascii.toLower(ch);
+    return cast(string)buf[0 .. v.length];
 }
 
 // The `url(#frag) [fallback]` paint value (SVG 1.1 §13.2). Only local
@@ -149,38 +167,48 @@ float parseLength(string s, const(LengthCtx) lc = LengthCtx.init)
     // "The reference image above was generated on a 96dpi system (i.e., 1 inch =
     // 96 pixels)" - and coords-units-03-b's five absolute-unit rects really are
     // 96 px long in every reference image, 72 px long at the old 72 dpi basis.
+    return applyUnit(res, s, lc);
+}
+
+// The unit suffix of a <length>, applied. A case-insensitive run of ifs
+// instead of switch (lowered(s)): every length attribute spared a string
+// copy. Anything not matched stays unitless user space = px, the old
+// default arm.
+private nothrow @nogc float applyUnit(float res, string s, const(LengthCtx) lc)
+{
     enum dpi = 96;
-    switch (toLower(s))
-    {
-    case "", "px": break;
-    case "cm": res *= dpi * (1.0 / 2.54); break;
-    case "in": res *= dpi; break;
-    case "mm": res *= dpi * (1.0 / 25.4); break;
-    case "pt": res *= dpi * (1.0 / 72.0); break;
-    case "pc": res *= dpi * (12.0 / 72.0); break;
-    case "em": res *= lc.fontSize; break;
-    case "ex": res *= 0.5f * lc.fontSize; break; // x-height is roughly half an em
-    case "%": res = res * lc.pctRef / 100; break;
-    // unitless value: user space, i.e. px
-    default: break;
-    }
+    if (s.length > 2)
+        return res; // no unit is longer; same default as the old miss
+    if (equalCase(s, "cm")) res *= dpi * (1.0 / 2.54);
+    else if (equalCase(s, "in")) res *= dpi;
+    else if (equalCase(s, "mm")) res *= dpi * (1.0 / 25.4);
+    else if (equalCase(s, "pt")) res *= dpi * (1.0 / 72.0);
+    else if (equalCase(s, "pc")) res *= dpi * (12.0 / 72.0);
+    else if (equalCase(s, "em")) res *= lc.fontSize;
+    else if (equalCase(s, "ex")) res *= 0.5f * lc.fontSize; // x-height ≈ half an em
+    else if (s.length == 1 && s[0] == '%') res = res * lc.pctRef / 100;
+    // "", "px" and unknowns: user space, i.e. px
     return res;
+}
+
+// `<length>` lookup from an attribute map: absent -> def.
+private float convVal(string raw, float def, LengthCtx lc, RefAxis axis)
+{
+    auto c = lc;
+    c.pctRef = axis == RefAxis.width ? c.vpW
+             : axis == RefAxis.height ? c.vpH
+             : arcDiagonal(c);
+    try
+        return parseLength(raw, c);
+    catch (Exception)
+        return def; // invalid <length>: ignore the attribute
 }
 
 // `<length>` lookup from an attribute map: absent -> def.
 float convLen(in string[string] a, string key, float def, LengthCtx lc, RefAxis axis)
 {
     if (auto p = key in a)
-    {
-        auto c = lc;
-        c.pctRef = axis == RefAxis.width ? c.vpW
-                 : axis == RefAxis.height ? c.vpH
-                 : arcDiagonal(c);
-        try
-            return parseLength(*p, c);
-        catch (Exception)
-            return def; // invalid <length>: ignore the attribute
-    }
+        return convVal(*p, def, lc, axis);
     return def;
 }
 
@@ -191,7 +219,7 @@ float convLen(in string[string] a, string key, float def, LengthCtx lc, RefAxis 
 // become spaces, and a run of spaces collapses to one.
 string normalizeText(string s)
 {
-    string res;
+    auto res = appender!string;
     bool space = false;
     foreach (c; s)
     {
@@ -202,17 +230,17 @@ string normalizeText(string s)
         else
         {
             if (space)
-                res ~= ' ';
+                res.put(' ');
             space = false;
-            res ~= c;
+            res.put(c);
         }
     }
     // A gap pending at the node's end is internal when more text
     // follows; the element's own bounds are trimmed in layoutText
     // (the model UAs and the suite's references apply).
     if (space)
-        res ~= ' ';
-    return res;
+        res.put(' ');
+    return res.data;
 }
 
 // SVG number list (SVG 1.1 §4.2; the x/y/dx/dy glyph-positioning
@@ -220,7 +248,7 @@ string normalizeText(string s)
 // stops at the first malformed token, keeping everything before it.
 float[] parseNumList(string s)
 {
-    float[] res;
+    auto res = appender!(float[]);
     for (;;)
     {
         while (!s.empty && (isWhite(s[0]) || s[0] == ','))
@@ -250,12 +278,12 @@ float[] parseNumList(string s)
                 i = j; // a broken exponent stays out: `2e` parses as 2
         }
         try
-            res ~= to!float(s[0 .. i]);
+            res.put(to!float(s[0 .. i]));
         catch (Exception)
             break;
         s = s[i .. $];
     }
-    return res;
+    return res.data;
 }
 
 unittest
@@ -278,7 +306,10 @@ void parseViewBox(ref float[4] vb, string s)
     }
     while (!s.empty && (s[0] == ',' || isWhite(s[0])))
         s = s[1 .. $];
-    enforce(s.empty, "invalid viewBox: "~s);
+    // Lazy %s formatting: the old "invalid viewBox: "~s copied the
+    // message string on every successful parse too - enforce's args are
+    // only rendered when the condition fails.
+    enforce(s.empty, "invalid viewBox: %s", s);
 }
 
 // preserveAspectRatio: alignment + meet/slice/none.
@@ -289,11 +320,26 @@ struct PAR
     bool meet = true;           // meet (smallest covers) vs slice (largest does)
 }
 
-PAR parsePAR(string s)
+nothrow @nogc PAR parsePAR(string s)
 {
     PAR p;
-    foreach (tok; splitter(replace(strip(s), ',', ' ')))
+    // Manual "space or comma" tokenizing rather than
+    // splitter(replace(strip(s), ',', ' ')): the replace copied every
+    // value, commas or not. Tokens are the whole grammar; a miss keeps
+    // the defaults.
+    while (!s.empty)
     {
+        size_t i;
+        while (i < s.length && (isWhite(s[i]) || s[i] == ','))
+            ++i;
+        s = s[i .. $];               // eat any run of separators
+        if (s.empty)
+            break;
+        i = 0;
+        while (i < s.length && s[i] != ',' && !isWhite(s[i]))
+            ++i;
+        immutable tok = s[0 .. i];   // nonempty: s[0] is a token char here
+        s = s[i .. $];
         if (tok == "none")
             p.stretch = true;
         else if (tok == "meet")
@@ -1420,7 +1466,7 @@ private struct Renderer
             }
 
             case "fill-rule":
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "evenodd":
                     style.fillRule = Path.FillRule.EvenOdd;
@@ -1434,7 +1480,7 @@ private struct Renderer
                 break;
 
             case "clip-rule":
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "evenodd":
                     style.clipRule = Path.FillRule.EvenOdd;
@@ -1454,7 +1500,7 @@ private struct Renderer
                 // anything on; anything else (inherit included) keeps the
                 // inherited answer. The gradient-interpolation half of the
                 // property is a paint-server matter and stays where it is.
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "linearrgb":
                     style.linInterp = true;
@@ -1473,7 +1519,7 @@ private struct Renderer
                 // below - and geometricPrecision merely confirms the
                 // precision-first raster this engine already runs;
                 // optimizeSpeed has no faster path to take.
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "optimizespeed":
                     style.shapeHint = Hint.OptimizeSpeed;
@@ -1499,7 +1545,7 @@ private struct Renderer
                 // already keeps, and the glyph outlines are antialiased
                 // whatever the hint says - the reference raster's own
                 // text is antialiased under geometricPrecision.
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "optimizespeed":
                     style.textHint = Hint.OptimizeSpeed;
@@ -1523,7 +1569,7 @@ private struct Renderer
                 // job (§11.3, right above); this property only says how
                 // much accuracy to spend getting there, and the answer
                 // here is always the full one.
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "optimizespeed":
                     style.colorHint = Hint.OptimizeSpeed;
@@ -1545,7 +1591,7 @@ private struct Renderer
                 // nearest-neighbour and smoothed variants of the hint
                 // would pick a cheaper or costlier filter, and this
                 // engine runs the quality branch either way.
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "optimizespeed":
                     style.imageHint = Hint.OptimizeSpeed;
@@ -1648,7 +1694,7 @@ private struct Renderer
                 bool known = false;
                 foreach (tok; splitter(v))
                 {
-                    switch (toLower(tok))
+                    switch (lowered(tok))
                     {
                     case "underline":
                         bits |= decoUnder;
@@ -1688,7 +1734,7 @@ private struct Renderer
                 // inherited writing mode alone. rl-tb's reversal is
                 // deferred with the bidi machinery - see the Style
                 // note.
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "lr-tb": case "lr":
                     style.wmode = 0;
@@ -1771,7 +1817,7 @@ private struct Renderer
                 break;
 
             case "visibility":
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "hidden", "collapse":
                     style.visible = false;
@@ -1790,7 +1836,7 @@ private struct Renderer
                 break;
 
             case "stroke-linecap":
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "round": style.caps = CapStyle.Round; break;
                 case "square": style.caps = CapStyle.Square; break;
@@ -1799,7 +1845,7 @@ private struct Renderer
                 break;
 
             case "stroke-linejoin":
-                switch (toLower(v))
+                switch (lowered(v))
                 {
                 case "round": style.joins = JoinStyle.Round; break;
                 case "bevel": style.joins = JoinStyle.Bevel; break;
@@ -1942,7 +1988,7 @@ private struct Renderer
                 // semi-expanded | extra-expanded | ultra-expanded,
                 // initial normal. Carried for the day the matching axis
                 // has spread to select over; see Style.stretch.
-                switch (toLower(strip(v)))
+                switch (lowered(strip(v)))
                 {
                 case "wider": style.stretch = Stretch.Wider; break;
                 case "narrower": style.stretch = Stretch.Narrower; break;
@@ -2183,9 +2229,16 @@ private struct Renderer
         bool css;
     }
 
+    // Scratch for cascadeDecls: every caller (pushStyle, displayNone,
+    // effectiveOpacity) consumes the list before the next cascade, so
+    // the buffer below outlives each use and one capacity serves the
+    // whole walk instead of a fresh ~= growth per element.
+    CDecl[] cascadeBuf;
+
     CDecl[] cascadeDecls(size_t idx, in string[string] attr)
     {
-        CDecl[] ds;
+        auto ds = cascadeBuf;
+        ds.length = 0;
         foreach (k, v; attr)
         {
             if (k == "style" || hasImportant(v))
@@ -2210,6 +2263,7 @@ private struct Renderer
                 if (r.imp[i])
                     ds ~= CDecl(p, r.vals[i], true);
 
+        cascadeBuf = ds; // ~= may have relocated it
         return ds;
     }
 
@@ -2593,7 +2647,7 @@ private struct Renderer
         if (idx == Document.unknown)
             return; // §14.3.5: as if clip-path had not been specified
         bool invalid;
-        const string[] clipKinds = ["clipPath"];
+        static immutable string[] clipKinds = ["clipPath"];
         auto chain = hrefChain(doc, idx, invalid, clipKinds);
         if (invalid || chain.empty || chain[0].name != "clipPath")
             return; // same: broken reference, no clip at all
@@ -2623,7 +2677,7 @@ private struct Renderer
         m.openDocs = openDocs; // so do the reference loop guards
         m.canvas.matrix = anchor; // §14.3.2: the referencing site's space
         if (auto u = strAttr(chain, "clipPathUnits"))
-            if (toLower(u) == "objectboundingbox")
+            if (lowered(u) == "objectboundingbox")
             {
                 if (bbox.width <= 0 || bbox.height <= 0)
                 {
@@ -2701,7 +2755,7 @@ private struct Renderer
         if (idx == Document.unknown)
             return; // §14.4 + the masking-path-10-b capture: no mask at all
         bool invalid;
-        const string[] maskKinds = ["mask"];
+        static immutable string[] maskKinds = ["mask"];
         auto chain = hrefChain(doc, idx, invalid, maskKinds);
         if (invalid || chain.empty || chain[0].name != "mask")
             return; // same: broken reference, paint carries on
@@ -2786,7 +2840,7 @@ private struct Renderer
         // fractions of the paint bbox - the same supplemental matrix
         // as clipPathUnits (§14.2).
         if (auto u = strAttr(chain, "maskContentUnits"))
-            if (toLower(u) == "objectboundingbox")
+            if (lowered(u) == "objectboundingbox")
             {
                 Matrix bb;
                 bb.reset();
@@ -2996,7 +3050,7 @@ private struct Renderer
         if (idx == Document.unknown)
             return; // broken reference paints nothing
         bool invalid;
-        const string[] markerKinds = ["marker"];
+        static immutable string[] markerKinds = ["marker"];
         auto chain = hrefChain(doc, idx, invalid, markerKinds);
         if (invalid || chain.empty || chain[0].name != "marker")
             return;
@@ -4086,8 +4140,12 @@ private struct Renderer
     {
         if (!s.family.length)
             return null;
-        foreach (ref fam; s.families.length ? s.families : [s.family])
-            if (auto p = toLower(fam) in svgFonts)
+        // Stack fallback: the old `[s.family]` literal in the ternary
+        // was a per-lookup GC allocation (faceCache misses sat at
+        // 8.9M on the allocation map).
+        string[1] single = [s.family];
+        foreach (ref fam; s.families.length ? s.families : single[])
+            if (auto p = lowered(fam) in svgFonts)
                 if (auto f = matchFace(*p, s.rawWeight,
                                        faceStyle(s.slant), s.variant))
                     if (!f.glyphs.empty)
@@ -6704,7 +6762,7 @@ private struct Renderer
     // matches if it equals the tag or is a leading '-'-delimited prefix of it.
     static bool langOK(string range)
     {
-        immutable r = toLower(strip(range));
+        immutable r = lowered(strip(range));
         if (r == "*")
             return true;
         return r == userLanguage
@@ -7314,7 +7372,7 @@ private struct Renderer
             {
                 CompOp op = CompOp.over;
                 if (auto p = "operator" in e.attrs)
-                    switch (toLower(strip(*p)))
+                    switch (lowered(strip(*p)))
                     {
                     case "in": op = CompOp.inOp; break;
                     case "out": op = CompOp.outOp; break;
@@ -7336,7 +7394,7 @@ private struct Renderer
             {
                 BlendMode mode = BlendMode.normal;
                 if (auto p = "mode" in e.attrs)
-                    switch (toLower(strip(*p)))
+                    switch (lowered(strip(*p)))
                     {
                     case "multiply": mode = BlendMode.multiply; break;
                     case "screen": mode = BlendMode.screen; break;
@@ -7437,7 +7495,7 @@ private struct Renderer
                     auto fp = &fn[ci];
                     if (auto p = "type" in ce.attrs)
                     {
-                        immutable t = toLower(strip(*p));
+                        immutable t = lowered(strip(*p));
                         if (t == "table")
                             fp.kind = TransferFunc.Kind.table;
                         else if (t == "discrete")
@@ -7531,7 +7589,7 @@ private struct Renderer
                 ConvEdge em = ConvEdge.none;
                 if (auto p = "edgeMode" in e.attrs)
                 {
-                    immutable v = toLower(strip(*p));
+                    immutable v = lowered(strip(*p));
                     if (v == "wrap")
                         em = ConvEdge.wrap;
                     else if (v == "duplicate")
@@ -8113,12 +8171,13 @@ private struct Renderer
                          ceilSnap(basis.y0 + (y + h) * bh));
         }
 
-        string[string] la = ["x": xs, "y": ys, "width": ws, "height": hs];
+        // The four lengths directly: assembling a mini attribute AA
+        // just to feed convLen allocated the AA on every call.
         LengthCtx lc = lengthCtx();
-        x = convLen(la, "x", -0.10f * lc.vpW, lc, RefAxis.width);
-        y = convLen(la, "y", -0.10f * lc.vpH, lc, RefAxis.height);
-        w = convLen(la, "width", 1.20f * lc.vpW, lc, RefAxis.width);
-        h = convLen(la, "height", 1.20f * lc.vpH, lc, RefAxis.height);
+        x = convVal(xs, -0.10f * lc.vpW, lc, RefAxis.width);
+        y = convVal(ys, -0.10f * lc.vpH, lc, RefAxis.height);
+        w = convVal(ws, 1.20f * lc.vpW, lc, RefAxis.width);
+        h = convVal(hs, 1.20f * lc.vpH, lc, RefAxis.height);
         if (w <= 0 || h <= 0)
             return IBox4();
         return bboxToDevice(FRect(x, y, x + w, y + h), ctm);

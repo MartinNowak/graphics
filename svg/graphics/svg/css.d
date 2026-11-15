@@ -437,14 +437,14 @@ private bool mediaGroup(string g)
         size_t j = i;
         while (j < g.length && !isWhite(g[j]) && g[j] != '(')
             ++j;
-        string word;
+        auto word = appender!string;
         foreach (ch; g[i .. j]) // media types are case-insensitive
-            word ~= cast(char) toLower(ch);
+            word.put(cast(char) toLower(ch));
         i = j;
-        if (word == "only" || word == "not")
-            negate = negate || word == "not";
-        else if (word != "and" && medium.empty)
-            medium = word;
+        if (word.data == "only" || word.data == "not")
+            negate = negate || word.data == "not";
+        else if (word.data != "and" && medium.empty)
+            medium = word.data;
     }
     immutable hit = (medium.empty || medium == "all" || medium == "screen")
         && !feature;
@@ -547,25 +547,20 @@ bool matches(in immutable(Element)[] nodes, in int[] parent, in int[] sib,
 const(Rule)[] cssCascade(in immutable(Element)[] nodes, in int[] parent,
                          in int[] sib, size_t idx, in Rule[] rules)
 {
-    const(Rule)[] ms;
+    // The list is built mutable so the sort can move the elements
+    // themselves: an index-into-const permutation plus a rebuilt copy
+    // cost two more GC arrays per element.
+    Rule[] ms;
     foreach (ref const r; rules)
         if (matches(nodes, parent, sib, idx, r))
-            ms ~= r;
+            ms ~= cast(Rule) r;
 
-    // Sort indices: the elements themselves are const.
-    size_t[] ix;
-    foreach (i; 0 .. ms.length)
-        ix ~= i;
-    ix.sort!((a, b) => ms[a].spec[0] != ms[b].spec[0]
-        ? ms[a].spec[0] < ms[b].spec[0]
-        : ms[a].spec[1] != ms[b].spec[1] ? ms[a].spec[1] < ms[b].spec[1]
-        : ms[a].spec[2] != ms[b].spec[2] ? ms[a].spec[2] < ms[b].spec[2]
-        : ms[a].order < ms[b].order);
-
-    const(Rule)[] sorted;
-    foreach (i; ix)
-        sorted ~= ms[i];
-    return sorted;
+    ms.sort!((ref const a, ref const b) => a.spec[0] != b.spec[0]
+        ? a.spec[0] < b.spec[0]
+        : a.spec[1] != b.spec[1] ? a.spec[1] < b.spec[1]
+        : a.spec[2] != b.spec[2] ? a.spec[2] < b.spec[2]
+        : a.order < b.order);
+    return ms;
 }
 
 /// Declarations of a `style=""` attribute value.
@@ -603,11 +598,11 @@ private size_t importantPos(string v)
             depth = depth ? depth - 1 : 0;
         else if (c == '!' && !depth)
         {
-            string rest;
+            auto rest = appender!string;
             foreach (ch; v[i + 1 .. $])
                 if (!isWhite(ch))
-                    rest ~= cast(char) toLower(ch);
-            if (rest == "important")
+                    rest.put(cast(char) toLower(ch));
+            if (rest.data == "important")
                 return i;
         }
         ++i;
@@ -694,9 +689,10 @@ private bool langMatches(in immutable(Element)[] nodes, in int[] parent,
         if (v.empty)
             continue;
 
-        string low;
+        auto lowA = appender!string;
         foreach (ch; v)
-            low ~= cast(char) toLower(ch);
+            lowA.put(cast(char) toLower(ch));
+        string low = lowA.data;
         if (low == want)
             return true;
         return low.length > want.length && low[0 .. want.length] == want &&
@@ -992,8 +988,10 @@ private bool parseCompound(string s, ref size_t i, ref Compound c)
                 {
                     if (arg.empty)
                         return false; // :lang needs its tag
+                    auto lg = appender!string;
                     foreach (ch2; arg)
-                        c.lang ~= cast(char) toLower(ch2);
+                        lg.put(cast(char) toLower(ch2));
+                    c.lang = lg.data;
                 }
                 else
                     c.never = true; // :hover and friends stay inert
@@ -1060,18 +1058,22 @@ private bool parseImport(string s, out string url, out string media)
     size_t i = 1;
     while (i < s.length && isIdent(s[i]))
         ++i;
-    string kw;
+    auto kw = appender!string;
     foreach (ch; s[1 .. i])
-        kw ~= cast(char) toLower(ch);
-    if (kw != "import")
+        kw.put(cast(char) toLower(ch));
+    if (kw.data != "import")
         return false;
     while (i < s.length && isWhite(s[i]))
         ++i;
 
     string head;
+    char[4] hb;
     if (i + 4 <= s.length)
-        foreach (ch; s[i .. i + 4])
-            head ~= cast(char) toLower(ch);
+    {
+        foreach (k, ch; s[i .. i + 4])
+            hb[k] = cast(char) toLower(ch);
+        head = cast(string)hb[]; // fixed 4 bytes: stack scratch beats growing a heap string
+    }
 
     if (head == "url(")
     {
@@ -1199,9 +1201,10 @@ private string srcUrl(string val)
 // source's end.
 private bool hintLoadable(immutable string src)
 {
-    string low;
+    auto lowA = appender!string;
     foreach (ch; src)
-        low ~= cast(char) toLower(ch);
+        lowA.put(cast(char) toLower(ch));
+    string low = lowA.data;
     bool spelled;
     for (size_t i; i + 6 < low.length;)
     {
