@@ -1,13 +1,13 @@
 module graphics.core.draw;
 
 import std.array, std.conv;
-import core.stdc.string;
 import guip.point, guip.rect, guip.size, guip.bitmap;
 import graphics.core.blitter, graphics.core.fonthost, graphics.core.glyph, graphics.core.matrix,
     graphics.core.paint, graphics.core.path, graphics.core.path_detail.path_measure,
     graphics.core.pmcolor, graphics.core.shader, graphics.core.wavelet.wavelet;
 import graphics.math.clamp, graphics.math.poly, graphics.math.snap;
 
+@safe:
 struct Draw
 {
 public:
@@ -181,7 +181,7 @@ public:
             final switch(verb)
             {
             case Path.Verb.Move:
-                FPoint[1] mpts = void;
+                FPoint[1] mpts;
                 mpts[0] = pts[0];
                 morphPoints(mpts, meas, matrix);
                 dst.moveTo(mpts[0]);
@@ -189,7 +189,7 @@ public:
 
             case Path.Verb.Line:
                 //! use quad to allow curvature
-                FPoint[2] mpts = void;
+                FPoint[2] mpts;
                 mpts[0] = (pts[0] + pts[1]) * 0.5f;
                 mpts[1] = pts[1];
                 morphPoints(mpts, meas, matrix);
@@ -197,15 +197,15 @@ public:
                 break;
 
             case Path.Verb.Quad:
-                FPoint[2] mpts = void;
-                memcpy(mpts.ptr, pts.ptr, 2 * FPoint.sizeof);
+                FPoint[2] mpts;
+                mpts[] = pts[0 .. 2];
                 morphPoints(mpts, meas, matrix);
                 dst.quadTo(mpts[0], mpts[1]);
                 break;
 
             case Path.Verb.Cubic:
-                FPoint[3] mpts = void;
-                memcpy(mpts.ptr, pts.ptr, 3 * FPoint.sizeof);
+                FPoint[3] mpts;
+                mpts[] = pts[0 .. 3];
                 morphPoints(mpts, meas, matrix);
                 dst.cubicTo(mpts[0], mpts[1], mpts[2]);
                 break;
@@ -231,7 +231,11 @@ public:
     }
 };
 
-void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter blitter)
+// @trusted: transient island until wavelet.d's own wave - it builds
+// a WaveletRaster (a struct owning a malloc'd pad, still @system)
+// and hands its walk buffer to insertEdge through a slice.ptr
+// reinterpret. No unsafety of its own beyond that.
+@trusted void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter blitter)
 {
     FRect bounds = mat.mapRect(path.bounds);
     // mapRect can leave a side a hair off the grid line (FMA contraction);
