@@ -3,6 +3,8 @@ module graphics.core.paint;
 import std.bitmanip, std.string;
 import graphics.core.pmcolor, graphics.core.path, graphics.core.shader, graphics.core.stroke, graphics.core.fonthost;
 
+@safe:
+
 struct Paint
 {
     Color color=Color.Black;

@@ -15,6 +15,15 @@ abstract class Shader {
   abstract @property bool opaque() const;
   @property bool needsMatrix() const { return false; }
 
+  // Without an override, formatting a Shader prints its classinfo name
+  // and raw address - the address cast makes that fallback @system,
+  // which poisoned Paint.toString. The plain name keeps the debug
+  // string informative and @safe.
+  override string toString() const
+  {
+    return this.classinfo.name;
+  }
+
   final @property void matrix(in Matrix mat) {
     this.mat = mat;
   }
