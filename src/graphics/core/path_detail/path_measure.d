@@ -1,10 +1,10 @@
 module graphics.core.path_detail.path_measure;
 
-import core.stdc.string;
 import std.array, std.algorithm, std.conv, std.range;
 import graphics.bezier.chop, graphics.bezier.curve, graphics.core.path, graphics.bezier.curve, graphics.math.clamp;
 import guip.point;
 
+@safe:
 struct PathMeasure {
   Path _path;
   alias _path this;
@@ -120,7 +120,10 @@ private:
   }
 
   //! missing const overload for data[]
-  @property const(Segment[]) constSegments() const {
+  // @trusted like Path.points(): the cast only reaches Appender's
+  // .data through the const wrapper; the return type keeps the slice
+  // const-qualified, so no mutable alias escapes.
+  @property const(Segment[]) constSegments() const @trusted {
     return cast(const(Segment[]))(cast(Appender!(Segment[]))this.segments).data;
   }
 
@@ -171,16 +174,16 @@ private:
         switch (verb)
         {
         case Path.Verb.Line:
-            FPoint[2] pts = void;
-            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 2 * FPoint.sizeof);
+            FPoint[2] pts;
+            pts[] = _data.points[segment.pointIndex .. segment.pointIndex + 2];
             return evalBezier(pts, t);
         case Path.Verb.Quad:
-            FPoint[3] pts = void;
-            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 3 * FPoint.sizeof);
+            FPoint[3] pts;
+            pts[] = _data.points[segment.pointIndex .. segment.pointIndex + 3];
             return evalBezier(pts, t);
         case Path.Verb.Cubic:
-            FPoint[4] pts = void;
-            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 4 * FPoint.sizeof);
+            FPoint[4] pts;
+            pts[] = _data.points[segment.pointIndex .. segment.pointIndex + 4];
             return evalBezier(pts, t);
 
         default:
@@ -194,18 +197,18 @@ private:
         switch (verb)
         {
         case Path.Verb.Line:
-            FPoint[2] pts = void;
-            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 2 * FPoint.sizeof);
+            FPoint[2] pts;
+            pts[] = _data.points[segment.pointIndex .. segment.pointIndex + 2];
             normal = evalBezierDer(pts, t).normalized;
             break;
         case Path.Verb.Quad:
-            FPoint[3] pts = void;
-            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 3 * FPoint.sizeof);
+            FPoint[3] pts;
+            pts[] = _data.points[segment.pointIndex .. segment.pointIndex + 3];
             normal = evalBezierDer(pts, t).normalized;
             break;
         case Path.Verb.Cubic:
-            FPoint[4] pts = void;
-            memcpy(pts.ptr, _data.points.ptr + segment.pointIndex, 4 * FPoint.sizeof);
+            FPoint[4] pts;
+            pts[] = _data.points[segment.pointIndex .. segment.pointIndex + 4];
             normal = evalBezierDer(pts, t).normalized;
             break;
 
@@ -259,22 +262,22 @@ body
   switch(pts.length)
   {
   case 2:
-      FPoint[2] fpts = void;
-      memcpy(fpts.ptr, pts.ptr, 2 * FPoint.sizeof);
+      FPoint[2] fpts;
+      fpts[] = pts[0 .. 2];
       chopBezier(fpts, startT, stopT);
       trimApp!(interval)(app, fpts);
       break;
 
   case 3:
-      FPoint[3] fpts = void;
-      memcpy(fpts.ptr, pts.ptr, 3 * FPoint.sizeof);
+      FPoint[3] fpts;
+      fpts[] = pts[0 .. 3];
       chopBezier(fpts, startT, stopT);
       trimApp!(interval)(app, fpts);
       break;
 
   case 4:
-      FPoint[4] fpts = void;
-      memcpy(fpts.ptr, pts.ptr, 4 * FPoint.sizeof);
+      FPoint[4] fpts;
+      fpts[] = pts[0 .. 4];
       chopBezier(fpts, startT, stopT);
       trimApp!(interval)(app, fpts);
       break;
@@ -293,7 +296,7 @@ void trimApp(string interval, size_t K)(ref Appender!(immutable(FPoint)[]) app, 
 
 void chopBezier(size_t K)(ref FPoint[K] pts, double startT, double stopT)
 {
-    FPoint[K] tmp = void;
+    FPoint[K] tmp;
     if (startT > 0.0)
         splitBezier(tmp, pts, startT);
 

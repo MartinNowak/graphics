@@ -525,7 +525,7 @@ struct Path
         return res;
     }
 
-    @property FRect bounds() const
+    @property FRect bounds() const @safe
     {
         if (points.empty)
         {
