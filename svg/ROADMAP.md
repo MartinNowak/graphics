@@ -5061,6 +5061,41 @@ than even the old contract-off
 build managed. 526 tests OK,
 total 1,123,168.
 
+Next campaign (plan, not yet started): make `graphics` and `guip`
+as @safe as the toolchain allows, before any further perf digging.
+Two findings from the scratch-pool and wavelet-pad passes put it
+first. The malloc-backed pixel-buffer design leans on `scope`-
+returning `buffer`/`getLine`/`getRange` to promise no slice outlives
+the buffer's free - but D runs that escape analysis only inside
+@safe, so in today's @system renderer the fence is a comment. And
+the GC pools were accepted precisely because a lifetime slip there
+is a stale-bytes artifact the AE ledger catches (draw.d's triangle
+assert caught one this session), never a use-after-free. Paying the
+safety debt first is what makes the promise, and the audit, real.
+
+Order of attack, cheapest inferences first: a per-module `-fsafe`
+pass over both trees with gdc gives the tally - the compiler lists
+whatever refuses @safe - so start with the leaves that should barely
+move (the math modules, matrix, path, guip's point/rect/size) and
+work up to the render path. Expected permanent @system/@trusted
+islands: the blitter_detail row kernels, wavelet.d's malloc'd
+coefficient store (or a scoped owner type wrapped around it), and
+any extern(C) host or font glue. The `scope` returns on guip's
+accessors land last, once their callers are @safe - the moment the
+allocator question can be reopened.
+
+Every campaign step gates like a perf step (dub test, dub test :svg;
+pgo.sh plus run.sh for render-path work) with one stricter
+invariant: the AE total must stay exactly 1,123,168. @safe is
+compile-time only; an AE delta is a behaviour change smuggled in
+with a cast.
+
+The campaign doubles as the scout for a possible Rust port: every
+@safe module is a no-unsafe-needed translation unit, the -fsafe
+tally is that port's unsafe budget, and the leaves-first order is
+the port order. The AE ledger plus 526 golden renders is the
+port's differential oracle either way - keep it bit-exact.
+
 ## Deferred / accepted ceilings (do not chase)
 
 - `struct-dom` (212 K) / `types-dom` (14 K): SVG DOM and scripting
