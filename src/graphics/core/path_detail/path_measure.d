@@ -126,7 +126,7 @@ private:
 
     void buildSegments(in Path path)
     {
-        foreach(verb, pts; &path.apply!QuadCubicFlattener)
+        foreach(verb, pts; &path.apply!(QuadCubicFlattener, Path.IterDg))
         {
             final switch(verb) {
             case Path.Verb.Move:

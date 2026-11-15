@@ -267,7 +267,8 @@ void waveletBlitPath(in Path path, IRect clip, ref const Matrix mat, Blitter bli
 
     // Fills integrate closed contours: applyFilled synthesizes the
     // implicit closing edge for subpaths whose "Z" was left out.
-    foreach(verb, pts; mat.perspective ? &path.applyFilled!(QuadCubicFlattener) : &path.applyFilled!())
+    foreach(verb, pts; mat.perspective ? &path.applyFilled!(QuadCubicFlattener, Path.IterDg)
+                                       : &path.applyFilled!(void, Path.IterDg))
     {
         final switch(verb)
         {

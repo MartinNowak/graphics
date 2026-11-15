@@ -4,6 +4,10 @@ import std.algorithm, std.array, std.complex, std.conv, std.math, std.numeric, s
 import graphics.math.poly;
 import graphics.bezier.chop, graphics.core.path_detail._;
 import guip.point, guip.rect;
+// No module @safe: default: the attribute-generic apply family below must
+// stay @system-default so GDC infers each instantiation's attributes from
+// the caller's delegate (a @safe: default pins them @safe and rejects
+// @system callbacks). Concrete members carry explicit @safe/@trusted.
 
 public import graphics.core.path_detail._ : QuadCubicFlattener;
 
@@ -43,7 +47,11 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
         }
     }
 
-    @property const(P)[] points() const
+    // The returned slice is const-qualified in the signature; the cast
+    // only reaches Appender's private .data through the const wrapper.
+    // No mutable alias of the backing array escapes, so the getter is
+    // honestly @safe at its boundary.
+    @property const(P)[] points() const @trusted
     {
         return (cast()_points).data.save;
     }
@@ -53,7 +61,8 @@ struct PathData(P, V) if(is(P : const(FPoint)) && is(V : const(Path.Verb)))
         return points[$-1];
     }
 
-    @property const(V)[] verbs() const
+    // @trusted for the same reason as points().
+    @property const(V)[] verbs() const @trusted
     {
         return (cast()_verbs).data.save;
     }
@@ -535,9 +544,15 @@ struct Path
 
     alias int delegate(ref Verb, ref FPoint[]) IterDg;
 
-    int apply(Flattener=void)(scope IterDg dg) const
+    // Dg is a template parameter (defaulting to IterDg) rather than the
+    // concrete delegate type: every callback slot in this library is
+    // attribute-generic so that @safe and @system callers each get an
+    // applyImpl instantiated to their own attributes. Reverting to a
+    // typed slot would force every lambda in the renderer to be @safe
+    // the day path.d is tagged.
+    int apply(Flattener=void, Dg = IterDg)(scope Dg dg) const
     {
-        return applyImpl!(false, Flattener)(dg);
+        return applyImpl!(false, Flattener, Dg)(dg);
     }
 
     // Iteration for fill passes: unlike apply/opApply, every subpath is
@@ -547,20 +562,25 @@ struct Path
     // rules mis-render it (even-odd flips coverage across a whole region).
     // Stroke passes keep plain apply/opApply: there a synthetic closing
     // edge would be a visible artifact on "M...L" subpaths.
-    int applyFilled(Flattener=void)(scope IterDg dg) const
+    int applyFilled(Flattener=void, Dg = IterDg)(scope Dg dg) const
     {
-        return applyImpl!(true, Flattener)(dg);
+        return applyImpl!(true, Flattener, Dg)(dg);
     }
 
+    // foreach over Path keeps the concrete-alias opApply: a templated
+    // opApply makes the synthesized lambda's parameter types circular
+    // ("cannot infer type for foreach variable"), so Path-iterating
+    // sites in @safe modules will call the attribute-generic apply()
+    // with an explicit @safe lambda when their turn comes.
     alias apply!() opApply;
 
-    private int applyImpl(bool FillClose, Flattener=void)(scope IterDg dg) const
+    private int applyImpl(bool FillClose, Flattener=void, Dg = IterDg)(scope Dg dg) const
     {
         if (_data.empty)
             return 0;
 
-        FPoint moveTo=void, lastPt=void;
-        FPoint[4] tmpPts=void;
+        FPoint moveTo, lastPt;
+        FPoint[4] tmpPts;
         static if (FillClose)
             bool open=false; // current subpath has content and is unclosed
 

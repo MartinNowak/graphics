@@ -5,6 +5,7 @@ import std.math, std.traits;
 import graphics.bezier.chop, graphics.core.path;
 import guip.point;
 
+@safe:
 static assert(is(ReturnType!(Path.IterDg) == int), "need to adopt Flattener::call()");
 
 struct QuadCubicFlattener
@@ -15,11 +16,19 @@ struct QuadCubicFlattener
         this.dg = dg;
     }
 
+    // The flattener's single dg call site. @trusted: forwards to the
+    // synchronous, scope delegate the caller handed to this() - the
+    // caller owns the callback's safety, as in Path.apply's contract.
+    private int callDg(Path.Verb verb, FPoint[] pts) @trusted
+    {
+        return dg(verb, pts);
+    }
+
     int call(Path.Verb verb, FPoint[] pts)
     {
         final switch (verb) {
         case Path.Verb.Move, Path.Verb.Close:
-            return this.dg(verb, pts);
+            return this.callDg(verb, pts);
 
         case Path.Verb.Line:
             return this.__line(pts);
@@ -41,7 +50,7 @@ struct QuadCubicFlattener
         else
         {
             Path.Verb verb = Path.Verb.Line;
-            return this.dg(verb, pts);
+            return this.callDg(verb, pts);
         }
     }
 
@@ -61,8 +70,8 @@ struct QuadCubicFlattener
         {
             if (tooCurvy(pts[1] - pts[0], pts[2] - pts[1]))
             {
-                FPoint[3] ptss0 = void, ptss1 = void;
-                memcpy(ptss1.ptr, pts.ptr, ptss1.sizeof);
+                FPoint[3] ptss0, ptss1;
+                ptss1[] = pts[]; // slice copy; no memcpy needed
                 splitBezier(ptss0, ptss1, 0.5);
                 if (auto res = this.__quad(ptss0))
                     return res;
@@ -73,7 +82,7 @@ struct QuadCubicFlattener
             else
             {
                 Path.Verb verb = Path.Verb.Quad;
-                return this.dg(verb, pts);
+                return this.callDg(verb, pts);
             }
         }
     }
@@ -95,8 +104,8 @@ struct QuadCubicFlattener
             if (tooCurvy(pts[1] - pts[0], pts[2] - pts[1]) ||
                 tooCurvy(pts[2] - pts[1], pts[3] - pts[2]))
             {
-                FPoint[4] ptss0 = void, ptss1 = void;
-                memcpy(ptss1.ptr, pts.ptr, ptss1.sizeof);
+                FPoint[4] ptss0, ptss1;
+                ptss1[] = pts[]; // slice copy; no memcpy needed
                 splitBezier(ptss0, ptss1, 0.5);
                 if (auto res = this.__cubic(ptss0))
                     return res;
@@ -107,7 +116,7 @@ struct QuadCubicFlattener
             else
             {
                 Path.Verb verb = Path.Verb.Cubic;
-                return this.dg(verb, pts);
+                return this.callDg(verb, pts);
             }
         }
     }
