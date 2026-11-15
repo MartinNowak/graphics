@@ -10,6 +10,8 @@ import graphics.svg.core : transformSVG;
 import graphics.svg.filter : srgbDecodeLUT, srgbEncode;
 import graphics.svg.parser;
 import graphics.svg.pserver;
+
+@safe:
 import guip.point, guip.rect;
 
 // SVG 1.1 §13.2 gradients: linear/radial paint servers built from the

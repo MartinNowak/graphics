@@ -143,7 +143,7 @@ private enum xmlBuiltins = ["amp", "lt", "gt", "quot", "apos"];
 /// so the caller says which kind of node it is handing over. A `&` that
 /// starts nothing decodable is left written out, as an undeclared entity
 /// reference is - dropping content is worse than showing what was typed.
-string decodeRefs(string s)
+string decodeRefs(string s) @safe
 {
     if (!canFind(s, '&'))
         return s;
@@ -205,7 +205,7 @@ string normalizeAttrWS(string s)
 /// form, decimal or hexadecimal. -1 for anything else, including a code point
 /// outside Unicode's range or in the surrogate band, which §4.1 keeps out of
 /// a document.
-private int refCodePoint(string name)
+private int refCodePoint(string name) @safe
 {
     switch (name)
     {
@@ -238,7 +238,7 @@ private int refCodePoint(string name)
     return cp < 0x20 && cp != 0x9 && cp != 0xA && cp != 0xD ? -1 : cp;
 }
 
-private int hexDigit(char c)
+private int hexDigit(char c) @safe
 {
     if (c >= '0' && c <= '9')
         return c - '0';
@@ -285,7 +285,7 @@ private string expandEntities(string src)
     // referencing itself (§4.4.2), and the guard below makes such a cycle
     // leave the nested reference written out instead of spinning.
     bool[string] active;
-    string resolve(string name)
+    string resolve(string name) @safe
     {
         auto p = name in table;
         if (p is null || name in active)
@@ -396,7 +396,11 @@ private string[string] internalEntities(string subset)
 /// null answer leaves the reference exactly as written. Character references
 /// begin with `#`, so they never reach a name, and comment and CDATA content
 /// holds no references (§2.2, §2.7) - both are copied through untouched.
-private string replaceRefs(string text, scope string delegate(string) lookup)
+// @safe and an explicitly @safe slot: callers hand nested functions
+// (entity lookup), and this GDC types function-scope delegate params
+// @system even once the module itself goes @safe.
+private string replaceRefs(string text,
+    scope string delegate(string) @safe lookup) @safe
 {
     string res;
     res.reserve(text.length);
@@ -492,7 +496,7 @@ size_t skipSpace(string s, size_t i)
 }
 
 /// True for the XML Name characters (§2.13) an entity name is built of.
-private bool isNameChar(char ch)
+private bool isNameChar(char ch) @safe
 {
     return ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
         || ch >= '0' && ch <= '9' || ch == '.' || ch == '-'

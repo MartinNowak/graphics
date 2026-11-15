@@ -7,6 +7,8 @@ import graphics.core.pmcolor : PMColor;
 import graphics.svg.color : parsePaint;
 import graphics.svg.parser : Document;
 
+@safe:
+
 // SVG 1.1 §15: the filter model (a parsed <filter> plus its primitives) and
 // the pixel operations over the working-image format. The renderer-side half
 // - offscreen pass, region maths, per-primitive attribute resolution - lives
@@ -157,7 +159,12 @@ struct ChainRegion
 {
     @disable this(this); // a copy would run ~this twice
 
-    this(size_t prims, size_t planeBytes)
+    // @trusted island: the bump stores are Mallocator-owned (GC-shaped
+    // ubyte[] slices over malloc, grown in place here and never freed -
+    // they stay warm for the process), and the slot table + active
+    // region are module statics. Raster ctors read g_region; the
+    // carve() slices they build stay inside the ChainRegion's scope.
+    this(size_t prims, size_t planeBytes) @trusted
     {
         immutable depth = s_used++;
         if (s_slots.length <= depth) // first chain at this depth
@@ -175,7 +182,7 @@ struct ChainRegion
         g_region = &s_slots[depth];
     }
 
-    ~this()
+    ~this() @trusted // pops the module's region stack
     {
         immutable depth = --s_used;
         g_region = depth ? &s_slots[depth - 1] : null;
@@ -193,7 +200,8 @@ struct Raster
     int ox, oy; // device coords of raster pixel (0,0)
     float[] px; // 4 per pixel
 
-    this(int w, int h)
+    // @trusted: reads the g_region static (see ChainRegion's island).
+    this(int w, int h) @trusted
     {
         this.w = w;
         this.h = h;

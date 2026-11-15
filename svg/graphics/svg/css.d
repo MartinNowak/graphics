@@ -28,6 +28,8 @@ import std.string : indexOf, strip;
 
 import graphics.svg.parser : Document, Element, parseSVG;
 
+@safe:
+
 /// One `[name]` / `[name op value]` condition. `op`: 0 = presence only,
 /// '=' exact, '~' whitespace-word, '|' value or value-prefixed-by-a-hyphen,
 /// 'n' an operator this engine does not apply yet (CSS3 ^= $= *= - the
@@ -85,13 +87,22 @@ private enum npos = size_t.max;
 /// Parse one style sheet. `order` is the document-wide rule counter the
 /// caller threads through every <style> element so sheet order survives;
 /// `baseDir` resolves this sheet's `@import` targets (nested imports
-/// resolve against their own file), `depth` caps import recursion. The
-/// optional `faces` sink collects the @font-face blocks found anywhere
-/// in the sheet - at top level, inside an applying @media, inside an
+/// resolve against their own file), `depth` caps import recursion.
+/// The `faces` sink collects the @font-face blocks found anywhere in
+/// the sheet - at top level, inside an applying @media, inside an
 /// imported file - for the caller that wants the font store, not the
-/// cascade, to see them.
-Rule[] parseSheet(string src, ref size_t order, string baseDir = "",
-    int depth = 0, FontFace[]* faces = null)
+/// cascade, to see them; the 4-arg wrapper hands a discard array.
+Rule[] parseSheet(string src, ref size_t order, string baseDir = "", int depth = 0)
+{
+    FontFace[] noSink;
+    return parseSheet(src, order, baseDir, depth, noSink);
+}
+
+// The face sink travels by ref. The old optional `FontFace[]*` was
+// untypeable @safe at its call sites: this GDC's partial DIP1000 does
+// not let a scope pointer parameter license taking `&local`.
+Rule[] parseSheet(string src, ref size_t order, string baseDir, int depth,
+    ref FontFace[] faces)
 {
     Rule[] rules;
     src = stripComments(src);
@@ -147,7 +158,11 @@ Rule[] parseSheet(string src, ref size_t order, string baseDir = "",
                     continue;
                 }
             }
-            if (faces !is null && atIs(src, i, "font-face"))
+            // The sink is always there; callers that want no faces pass
+            // the wrapper's discard array, so collecting into it is the
+            // opt-out. (The old optional pointer made this arm conditional
+            // on the sink's null-ness.)
+            if (atIs(src, i, "font-face"))
             {
                 immutable brace = findFrom(src, i, '{');
                 if (brace != npos && (semi == npos || brace < semi))
@@ -156,7 +171,7 @@ Rule[] parseSheet(string src, ref size_t order, string baseDir = "",
                     FontFace f;
                     if (parseFontFace(src[brace + 1
                         .. close == npos ? src.length : close], f))
-                        *faces ~= f;
+                        faces ~= f;
                     i = close == npos ? src.length : close + 1;
                     continue;
                 }
@@ -279,12 +294,11 @@ FontFace[] sheetFaces(in Document doc, string baseDir = "")
 {
     FontFace[] faces;
     size_t order = 0;
-    FontFace[]* sink = &faces;
 
     foreach (pi; doc.sheetPIs)
         if (auto url = piSheet(pi))
         {
-            importRules(url, baseDir, order, 0, sink);
+            importRules(url, baseDir, order, 0, faces);
             break;
         }
 
@@ -300,7 +314,7 @@ FontFace[] sheetFaces(in Document doc, string baseDir = "")
                 foreach (t; doc.nodes[ch].children)
                     if (doc.nodes[t].name.empty)
                         src ~= doc.nodes[t].text;
-                parseSheet(src, order, baseDir, 0, sink);
+                parseSheet(src, order, baseDir, 0, faces);
             }
             walk(ch);
         }
@@ -545,15 +559,17 @@ bool matches(in immutable(Element)[] nodes, in int[] parent, in int[] sib,
 /// The rules matching node `idx` in cascade order: specificity triple
 /// ascending, then sheet order (CSS 2.1 §6.4.3 - the winner is last).
 const(Rule)[] cssCascade(in immutable(Element)[] nodes, in int[] parent,
-                         in int[] sib, size_t idx, in Rule[] rules)
+                         in int[] sib, size_t idx, Rule[] rules)
 {
     // The list is built mutable so the sort can move the elements
     // themselves: an index-into-const permutation plus a rebuilt copy
-    // cost two more GC arrays per element.
+    // cost two more GC arrays per element. The source is mutable too -
+    // a const source would make the copying append (@safe: value copy)
+    // an illegal const-stripping conversion.
     Rule[] ms;
-    foreach (ref const r; rules)
+    foreach (ref r; rules)
         if (matches(nodes, parent, sib, idx, r))
-            ms ~= cast(Rule) r;
+            ms ~= r; // append copies the value
 
     ms.sort!((ref const a, ref const b) => a.spec[0] != b.spec[0]
         ? a.spec[0] < b.spec[0]
@@ -1066,13 +1082,13 @@ private bool parseImport(string s, out string url, out string media)
     while (i < s.length && isWhite(s[i]))
         ++i;
 
-    string head;
+    const(char)[] head;
     char[4] hb;
     if (i + 4 <= s.length)
     {
         foreach (k, ch; s[i .. i + 4])
             hb[k] = cast(char) toLower(ch);
-        head = cast(string)hb[]; // fixed 4 bytes: stack scratch beats growing a heap string
+        head = hb[]; // fixed 4 bytes: stack scratch beats growing a heap string
     }
 
     if (head == "url(")
@@ -1297,8 +1313,14 @@ private string firstUrl(string val)
 // contribute no rules; the target's own directory becomes the base
 // for anything IT imports. resolveHref wants its base slash-terminated,
 // and dirName() hands back one without.
+private Rule[] importRules(string url, string baseDir, ref size_t order, int depth)
+{
+    FontFace[] noSink;
+    return importRules(url, baseDir, order, depth, noSink);
+}
+
 private Rule[] importRules(string url, string baseDir, ref size_t order,
-    int depth, FontFace[]* faces = null)
+    int depth, ref FontFace[] faces)
 {
     immutable base = baseDir.length && baseDir[$ - 1] != '/' ? baseDir ~ "/" : baseDir;
     immutable path = resolveHref(base, url);
@@ -1320,9 +1342,9 @@ string resolveHref(string base, string href)
 {
     if (href.empty || href[0] == '#')
         return null;
-    auto h = find(href, '#'); // drop the #fragment (an empty miss is
-    if (!h.empty)             // still truthy, so test the range itself)
-        href = href[0 .. cast(ptrdiff_t)(h.ptr - href.ptr)];
+    immutable hash = indexOf(href, '#'); // drop the #fragment
+    if (hash >= 0)
+        href = href[0 .. hash];
     if (href.empty)
         return null;
 
@@ -1728,7 +1750,6 @@ unittest
     // comma-list or the media type spelling, in any case, keeps it.
     size_t order = 0;
     FontFace[] faces;
-    FontFace[]* sink = &faces;
     parseSheet(`
         @font-face { font-family: 'Test Comic'; src: local("x"),
                      url( "a.svg#F" ) format("svg"); font-weight: bold }
@@ -1745,7 +1766,7 @@ unittest
                      unicode-range: U+41-42 }
         @font-face { font-family: MimeHint; src: url("#mh")
                      Format("Application/SVG+XML") }`,
-        order, "", 0, sink);
+        order, "", 0, faces);
     assert(faces.length == 5, "two hinted sources lost their only url()");
     assert(faces[0].family == "Test Comic" && faces[0].url == "a.svg#F",
         "first url() wins, local() is not a fetch");

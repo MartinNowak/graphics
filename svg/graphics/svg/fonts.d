@@ -6,6 +6,8 @@ import graphics.svg.core : addSVGPath;
 import graphics.svg.css : resolveHref, sheetFaces, svgFormat;
 import graphics.svg.parser;
 
+@safe:
+
 ////////////////////////////////////////////////////////////////////////////////
 // SVG fonts (SVG 1.1 ch. 20): the <font>/<font-face>/<glyph>/<hkern> store.
 //
@@ -122,11 +124,15 @@ struct SvgFont
     /// defined earlier, so the scan is straight through the array).
     /// Falls back to the missing glyph; `consumed` is the number of BYTES
     /// the caller must advance.
-    SvgGlyph* select(string text, size_t i, out size_t consumed)
+    // `return` keeps the glyph pointers tied to the font's lifetime:
+    // the registry hands out heap SvgFont pointers, never copies.
+    // Indexing the loop is how @safe takes an element address (a ref
+    // loop variable's address is a stack address to the checker).
+    SvgGlyph* select(string text, size_t i, out size_t consumed) return
     {
-        foreach (ref g; glyphs)
+        foreach (gi, ref g; glyphs)
             if (g.uni.length && matchesSeq(text, i, g.uni, consumed))
-                return &g;
+                return &glyphs[gi];
         size_t j = i;
         if (j < text.length)
             decode(text, j); // skip the one code point we cannot map
@@ -138,13 +144,13 @@ struct SvgFont
     /// href names the glyph element instead of a character, so a glyph with
     /// no `unicode` of its own - the shape an alt set exists for - is still
     /// reachable. Document order again, first match wins.
-    SvgGlyph* byId(string id)
+    SvgGlyph* byId(string id) return
     {
         if (id.empty)
             return null;
-        foreach (ref g; glyphs)
+        foreach (gi, ref g; glyphs)
             if (g.id.length && g.id == id)
-                return &g;
+                return &glyphs[gi];
         return null;
     }
 
@@ -324,11 +330,11 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
                     continue;
 
                 string href = *hp, frag;
-                auto h = find(href, '#');
-                if (!h.empty) // a miss is an empty slice, and slices are
-                {             // truthy even empty: test it, never `if (h)`
-                    frag = h[1 .. $];
-                    href = href[0 .. cast(ptrdiff_t)(h.ptr - href.ptr)];
+                immutable hash = indexOf(href, '#'); // split off the
+                if (hash >= 0)                       // #fragment
+                {
+                    frag = href[hash + 1 .. $];
+                    href = href[0 .. hash];
                 }
                 if (href.empty) // same-document #id
                 {
@@ -387,15 +393,14 @@ SvgFont*[][string] collectFonts(Document doc, string baseDir)
     // same slot, last declaration winning.
     foreach (fc; sheetFaces(doc, baseDir))
     {
-        // A slice's truth is non-null, not non-empty, and `find` miss
-        // is an empty slice at the end - so the found-test is spelled
-        // out. (A bare `if (auto h = find(...))` is always true.)
+        // A slice's truth is non-null, not non-empty - the old `find`
+        // miss was an empty truthy slice; indexOf reports honestly.
         string href = fc.url, frag;
-        auto h = find(href, '#');
-        if (!h.empty)
+        immutable hash = indexOf(href, '#');
+        if (hash >= 0)
         {
-            frag = h[1 .. $];
-            href = href[0 .. cast(ptrdiff_t)(h.ptr - href.ptr)];
+            frag = href[hash + 1 .. $];
+            href = href[0 .. hash];
         }
 
         SvgFont* found;

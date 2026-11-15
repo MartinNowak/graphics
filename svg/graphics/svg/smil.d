@@ -8,6 +8,8 @@ import std.math : atan2, floor, isFinite, PI;
 import std.range : empty;
 import std.string : indexOf, strip;
 
+@safe:
+
 // SMIL animation core subset (SVG 1.1 §19.2.12-19.2.16), evaluated as a
 // static end state: the renderer paints the document as though the
 // timeline had run to completion (t = +infinity). Every
@@ -110,8 +112,12 @@ void applySMILEndStates(ref Document doc)
     sortEffs(motions);
 
     // The arena was built mutable and sealed by the parser; the animation
-    // target values are just the next stage of document preparation.
-    auto nodes = cast(Element[]) doc.nodes;
+    // target values are just the next stage of document preparation. The
+    // unsealing cast is the pass's one @trusted line: the arena is a
+    // runtime GC vector, never static memory, and the renderer is
+    // single-threaded, so re-opening it stays sound.
+    @trusted Element[] prepArena(immutable(Element)[] n) { return cast(Element[]) n; }
+    auto nodes = prepArena(doc.nodes);
     void applyTo(ref const Effect e)
     {
         ref string[string] attrs = nodes[e.target].attrs;
