@@ -5,6 +5,8 @@ import core.stdc.math : roundf;
 import guip.color;
 import graphics.math.clamp;
 
+@safe:
+
 // ASCII case-insensitive comparison for SVG keywords (exact length).
 private nothrow @nogc bool equalCase(string a, string b)
 {

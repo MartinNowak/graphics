@@ -8,6 +8,8 @@ import graphics.svg.parser;
 import graphics.svg.pserver;
 import guip.point, guip.rect;
 
+@safe:
+
 // SVG 1.1 §14.2 <pattern> paint servers. This module resolves the model
 // (href chain, units, tile lattice, content placement inputs); the tile
 // rasterisation lives in graphics.svg.render (it needs the renderer

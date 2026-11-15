@@ -8,6 +8,17 @@ import std.experimental.xml.interfaces : isCursor, XMLKind;
 import std.range : empty;
 import std.typecons : No, Yes;
 
+// No module default on purpose: this Phobos' std.experimental.xml
+// cursor/lexer API is @system (annotation debt, not pointer debt -
+// the library walks GC strings through value cursors), and GDC pins
+// instantiated templates to the module default, so a @safe: default
+// would reject attrs!()'s walk. The cursor pipeline stays untagged;
+// the string-level parts the rest of svg/ needs carry explicit @safe
+// (byId, hasElement) and parseSVG is one @trusted island: it drives
+// the cursor over the in-memory source and hands back a Document of
+// GC strings and slices of that same source - nothing raw crosses the
+// boundary, and the source outlives the document at every call site.
+
 enum xlinkNS = "http://www.w3.org/1999/xlink";
 enum svgNS = "http://www.w3.org/2000/svg";
 
@@ -94,7 +105,7 @@ struct Document
     string[] sheetPIs;
 
     /// The arena index of the element carrying `id`, or `unknown`.
-    size_t byId(string id) const
+    size_t byId(string id) const @safe
     {
         auto p = id in ids;
         return p ? *p : unknown;
@@ -108,7 +119,7 @@ struct Document
     /// filter (§15.1) or pattern (§14.2) that holds only whitespace defines
     /// no content, and the template it hrefs is the one whose children
     /// paint.
-    bool hasElement(const size_t[] kids) const
+    bool hasElement(const size_t[] kids) const @safe
     {
         foreach (ch; kids)
             if (!nodes[ch].name.empty)
@@ -494,7 +505,7 @@ private bool isNameChar(char ch)
 /// elements that resolve to the SVG namespace are collected; everything
 /// else the document carries is foreign data, ignored (§23.1). Throws if
 /// the document contains no <svg> element *in that namespace*.
-Document parseSVG(string source)
+Document parseSVG(string source) @trusted
 {
     // Internal general entities are markup by the time anything looks at the
     // document (XML 1.0 §4.4.2), so they are already expanded for the walk.

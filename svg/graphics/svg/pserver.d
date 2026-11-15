@@ -3,6 +3,8 @@ module graphics.svg.pserver;
 import std.algorithm, std.conv, std.range, std.string;
 import graphics.svg.parser;
 
+@safe:
+
 // Shared plumbing for the <defs> paint servers (gradients, patterns, and
 // the clipping/masking/markers to come): xlink:href inheritance chains
 // and first-found-along-the-chain attribute lookup.

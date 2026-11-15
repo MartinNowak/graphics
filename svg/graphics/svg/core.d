@@ -5,6 +5,8 @@ import std.ascii, std.algorithm, std.conv, std.functional, std.math, std.range;
 import guip.point;
 import graphics.core.matrix;
 
+@safe:
+
 // Returns false when the list contains a `matrix(0 0 0 0 e f)`, which per
 // SVG 1.1 disables rendering of the element and its children.
 bool transformSVG(ref Matrix mat, string s)
@@ -200,7 +202,7 @@ void addSVGPath(Path)(ref Path path, string s)
         return res;
     }();
 
-    FPoint[3] pts=void;
+    FPoint[3] pts;
     // The current point of the `d` grammar, which is not always the last
     // point the Path holds: a closepath leaves the start of the subpath
     // it closed as the current point (SVG 1.1 §9.3.2), and Path.close
@@ -405,7 +407,7 @@ static T parse(T)(ref string s)
 
 static Point!T parse(T:Point!T)(ref string s)
 {
-    Point!T pt=void;
+    Point!T pt;
     pt.x = parse!T(s);
     pt.y = parse!T(s);
     return pt;
